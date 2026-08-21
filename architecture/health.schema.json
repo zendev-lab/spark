@@ -158,7 +158,7 @@
   "$defs": {
     "packageName": {
       "type": "string",
-      "pattern": "^@zendev-lab/(?:(?:spark|pi)-[a-z0-9-]+|dsh-tool-cue)$"
+      "pattern": "^@zendev-lab/(?:spark|pi|dsh)-[a-z0-9-]+$"
     },
     "packageIdentity": {
       "oneOf": [{ "$ref": "#/$defs/packageName" }, { "const": "root" }]

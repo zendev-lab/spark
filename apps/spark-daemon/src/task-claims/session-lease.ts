@@ -154,7 +154,9 @@ async function assertWorkspaceAdministratorBoundary(input: {
 
   const administrator = [...chain.values()].find(
     (candidate) =>
-      candidate.lineage.kind === "root" && candidate.lineage.workspaceId === input.workspaceId,
+      candidate.lineage.kind === "root" &&
+      candidate.scope.kind === "workspace" &&
+      candidate.scope.workspaceId === input.workspaceId,
   );
   if (
     !administrator ||

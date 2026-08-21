@@ -31,7 +31,6 @@ export const runtimeEphemeralSecretRequestPayloadSchema = z.discriminatedUnion("
   }),
   z.object({
     operation: z.literal("channel.configure"),
-    workspaceId: prefixedIdSchema("ws"),
     config: sparkProtocolJsonObjectSchema,
   }),
 ]);
@@ -78,24 +77,11 @@ export const serverEphemeralSecretRequestEnvelopeSchema = ephemeralSecretEnvelop
     expiresAt: isoDateTimeSchema,
   })
   .superRefine((envelope, context) => {
-    const channelOperation = envelope.payload.operation === "channel.configure";
-    if (channelOperation && envelope.payload.operation === "channel.configure") {
-      if (
-        !envelope.workspaceId ||
-        !envelope.workspaceBindingId ||
-        envelope.payload.workspaceId !== envelope.workspaceId
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["workspaceId"],
-          message: "Channel secret requests require one matching workspace lease route",
-        });
-      }
-    } else if (envelope.workspaceId || envelope.workspaceBindingId) {
+    if (envelope.workspaceId || envelope.workspaceBindingId) {
       context.addIssue({
         code: "custom",
         path: ["payload", "operation"],
-        message: "Provider secret requests are daemon-scoped",
+        message: "Secret requests are daemon-scoped",
       });
     }
   });

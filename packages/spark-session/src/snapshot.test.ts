@@ -64,7 +64,7 @@ async function createLinearTranscript(entryCount: number, sessionId: string) {
   const lines = [
     JSON.stringify({
       type: "session",
-      version: 3,
+      version: 4,
       id: sessionId,
       timestamp: "2026-08-03T00:00:00.000Z",
       cwd: root,
@@ -110,7 +110,7 @@ describe("loadSparkSessionSnapshot", () => {
     const lines = [
       JSON.stringify({
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -282,7 +282,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -359,7 +359,7 @@ describe("loadSparkSessionSnapshot", () => {
     const lines = [
       JSON.stringify({
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -419,7 +419,7 @@ describe("loadSparkSessionSnapshot", () => {
     const lines = [
       JSON.stringify({
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -474,7 +474,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_image",
         timestamp: "2026-07-23T10:00:00.000Z",
         cwd: "/workspace/demo",
@@ -555,7 +555,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_usage",
         timestamp: "2026-07-17T01:00:00.000Z",
         cwd: "/workspace/demo",
@@ -697,7 +697,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_parts",
         timestamp: "2026-07-13T01:00:00.000Z",
         cwd: "/workspace/demo",
@@ -990,7 +990,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_text_phase",
         timestamp: "2026-07-13T02:00:00.000Z",
         cwd: "/workspace/demo",
@@ -1099,7 +1099,7 @@ describe("loadSparkSessionSnapshot", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_provider_error",
           timestamp: "2026-07-13T03:00:00.000Z",
           cwd: "/workspace/demo",
@@ -1337,7 +1337,7 @@ describe("loadSparkSessionSnapshot", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_missing_final",
           timestamp: "2026-07-13T04:00:00.000Z",
           cwd: "/workspace/demo",

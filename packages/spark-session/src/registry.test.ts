@@ -6,7 +6,11 @@ import {
   sparkSessionLifetimeForLineage,
   type SparkSessionCloseReceipt,
 } from "@zendev-lab/spark-protocol/session-assignment";
-import { SparkSessionRegistry, SparkSessionRegistryError } from "./registry.ts";
+import {
+  SparkSessionRegistry,
+  SparkSessionRegistryError,
+  type SparkSessionRegistryOptions,
+} from "./registry.ts";
 
 const roots: string[] = [];
 
@@ -14,10 +18,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function tempRegistry(): Promise<SparkSessionRegistry> {
+async function tempRegistry(
+  options: Omit<SparkSessionRegistryOptions, "rootDir"> = {},
+): Promise<SparkSessionRegistry> {
   const root = await mkdtemp(join(tmpdir(), "spark-session-registry-"));
   roots.push(root);
-  return new SparkSessionRegistry({ rootDir: root });
+  return new SparkSessionRegistry({ rootDir: root, ...options });
 }
 
 async function administrator(
@@ -47,7 +53,7 @@ describe("SparkSessionRegistry v6 ownership", () => {
     expect(first).toMatchObject({
       name: "Administrator",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      lineage: { kind: "root", workspaceId: "ws_demo" },
+      lineage: { kind: "root" },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
       lifecycle: "open",
       placement: "active",
@@ -307,6 +313,52 @@ describe("SparkSessionRegistry v6 ownership", () => {
     });
   });
 
+  it("atomically resolves daemon Channel Session identity, cwd, and binding", async () => {
+    const registry = await tempRegistry();
+    const first = await registry.resolveChannelSession({
+      daemonId: "installation-demo",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+      adapterId: "feishu-primary",
+      externalKey: "feishu:chat:oc_demo",
+      createCwd: async (sessionId) => `/private/channels/${sessionId}/workspace`,
+      now: new Date("2026-08-21T00:00:00.000Z"),
+    });
+    const persistedAfterCreate = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      revision: number;
+    };
+    const replay = await registry.resolveChannelSession({
+      daemonId: "installation-demo",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+      adapterId: "feishu-renamed",
+      externalKey: "feishu:chat:oc_demo",
+      createCwd: async () => {
+        throw new Error("must not create a second cwd");
+      },
+    });
+
+    expect(first).toMatchObject({
+      scope: { kind: "daemon", daemonId: "installation-demo" },
+      lineage: { kind: "root" },
+      roleBinding: { kind: "none" },
+      purpose: "channel",
+      cwd: `/private/channels/${first.sessionId}/workspace`,
+    });
+    expect(replay.sessionId).toBe(first.sessionId);
+    expect(replay.bindings[0]).toMatchObject({
+      adapterId: "feishu-renamed",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+    });
+    expect(persistedAfterCreate.revision).toBe(1);
+    const otherAccount = await registry.resolveChannelSession({
+      daemonId: "installation-demo",
+      adapterAccountIdentity: "feishu:tenant-other:app-other",
+      externalKey: "feishu:chat:oc_demo",
+      createCwd: async (sessionId) => `/private/channels/${sessionId}/workspace`,
+    });
+    expect(otherAccount.sessionId).not.toBe(first.sessionId);
+    expect(otherAccount.cwd).not.toBe(first.cwd);
+  });
+
   it("keeps Fleet lane metadata separate from scoped Session ownership", async () => {
     const registry = await tempRegistry();
     const admin = await administrator(registry);
@@ -340,8 +392,8 @@ describe("SparkSessionRegistry v6 ownership", () => {
   });
 });
 
-describe("SparkSessionRegistry v7 migration", () => {
-  it("backs up, journals, validates, and idempotently migrates only v6", async () => {
+describe("SparkSessionRegistry v8 migration", () => {
+  it("backs up, journals, validates, and idempotently migrates v6", async () => {
     const registry = await tempRegistry();
     const timestamp = "2026-08-01T00:00:00.000Z";
     await writeFile(
@@ -398,7 +450,7 @@ describe("SparkSessionRegistry v7 migration", () => {
     );
 
     await expect(registry.get("sess_admin_v6")).resolves.toMatchObject({
-      lineage: { kind: "root", workspaceId: "ws_v6" },
+      lineage: { kind: "root" },
     });
     await expect(registry.get("sess_driver_v6")).resolves.toMatchObject({
       lineage: {
@@ -413,10 +465,10 @@ describe("SparkSessionRegistry v7 migration", () => {
       revision: number;
       sessions: unknown[];
     };
-    expect(persisted).toMatchObject({ version: 7, revision: 9 });
+    expect(persisted).toMatchObject({ version: 8, revision: 9 });
     expect(JSON.stringify(persisted.sessions)).not.toMatch(/"owner"|"stateBinding"/u);
     const migrationDirs = (await readdir(registry.rootDir)).filter((entry) =>
-      entry.startsWith("migration-v6-to-v7-"),
+      entry.startsWith("migration-v6-to-v8-"),
     );
     expect(migrationDirs).toHaveLength(1);
     expect(await readdir(join(registry.rootDir, migrationDirs[0]!))).toEqual(
@@ -430,13 +482,90 @@ describe("SparkSessionRegistry v7 migration", () => {
     ).toHaveLength(1);
   });
 
+  it("migrates an eligible v7 Channel child to a daemon root without changing its id", async () => {
+    const registry = await tempRegistry({
+      daemonId: "installation-v8",
+      resolveChannelSessionCwd: async (sessionId) => `/private/channels/${sessionId}/workspace`,
+    });
+    const timestamp = "2026-08-20T00:00:00.000Z";
+    const base = {
+      incarnation: 1,
+      tags: [],
+      archiveHistory: [],
+      closeReceipts: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await writeFile(
+      registry.filePath,
+      `${JSON.stringify({
+        version: 7,
+        revision: 4,
+        sessions: [
+          {
+            ...base,
+            sessionId: "sess_admin_v7",
+            scope: { kind: "workspace", workspaceId: "ws_v7" },
+            lifecycle: "open",
+            placement: "active",
+            roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
+            lineage: { kind: "root", workspaceId: "ws_v7" },
+            visibility: "public",
+            retention: "audit",
+            purpose: "workspace_administrator",
+            cwd: "/legacy/workspace",
+            bindings: [],
+          },
+          {
+            ...base,
+            sessionId: "sess_channel_v7",
+            scope: { kind: "workspace", workspaceId: "ws_v7" },
+            lifecycle: "open",
+            placement: "active",
+            roleBinding: { kind: "none" },
+            lineage: {
+              kind: "child",
+              parentSessionId: "sess_admin_v7",
+              origin: { kind: "session" },
+            },
+            visibility: "public",
+            retention: "retain",
+            purpose: "channel",
+            cwd: "/legacy/workspace",
+            bindings: [
+              {
+                kind: "channel",
+                adapter: "feishu",
+                adapterAccountIdentity: "feishu:tenant:app",
+                externalKey: "feishu:chat:oc_v7",
+              },
+            ],
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(registry.get("sess_channel_v7")).resolves.toMatchObject({
+      sessionId: "sess_channel_v7",
+      scope: { kind: "daemon", daemonId: "installation-v8" },
+      lineage: { kind: "root" },
+      cwd: "/private/channels/sess_channel_v7/workspace",
+    });
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      version: number;
+      revision: number;
+    };
+    expect(persisted).toMatchObject({ version: 8, revision: 4 });
+  });
+
   it("fails closed for pre-v6 registries with the explicit upgrade path", async () => {
     const registry = await tempRegistry();
     await writeFile(registry.filePath, `${JSON.stringify({ version: 5, sessions: [] })}\n`, "utf8");
 
     await expect(registry.list()).rejects.toMatchObject({
       code: "invalid_registry",
-      message: expect.stringMatching(/only v6 can migrate to v7.*Spark 0\.4\.0/u),
+      message: expect.stringMatching(/only v6 or v7 can migrate to v8.*Spark 0\.4\.0/u),
     });
     await expect(readdir(registry.rootDir)).resolves.not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^migration-/u)]),

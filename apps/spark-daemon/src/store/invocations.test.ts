@@ -2047,17 +2047,17 @@ describe("SparkInvocationStore", () => {
     try {
       const invocation = store.submit({ sessionId: "session-large-event", prompt: "large event" });
       const event = store.appendEvent(invocation.invocationId, "daemon.view_event", {
-        version: 3,
+        version: 4,
         type: "daemon.view_event",
         source: "daemon",
         sessionId: "session-large-event",
         invocationId: invocation.invocationId,
         view: {
-          version: 3,
+          version: 4,
           type: "session.message",
           sessionId: "session-large-event",
           message: {
-            version: 3,
+            version: 4,
             id: "large-message",
             role: "assistant",
             text: "x".repeat(512 * 1024),

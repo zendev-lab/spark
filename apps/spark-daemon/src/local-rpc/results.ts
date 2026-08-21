@@ -260,7 +260,6 @@ export function channelIngressStatus(value: unknown): DaemonChannelIngressStatus
     value.plane !== "daemon" ||
     value.resource !== "channel" ||
     value.available !== true ||
-    typeof value.workspaceId !== "string" ||
     typeof value.configPath !== "string" ||
     typeof value.configured !== "boolean" ||
     typeof value.ingressEnabled !== "boolean" ||
@@ -274,7 +273,6 @@ export function channelIngressStatus(value: unknown): DaemonChannelIngressStatus
   return {
     plane: "daemon",
     resource: "channel",
-    workspaceId: value.workspaceId,
     configPath: value.configPath,
     available: true,
     configured: value.configured,

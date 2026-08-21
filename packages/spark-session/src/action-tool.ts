@@ -75,7 +75,6 @@ export interface SparkSessionToolContext {
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   channelBinding?: {
-    workspaceId?: string;
     adapter: SparkChannelAdapter;
     externalKey: string;
     recipient?: string;
@@ -110,11 +109,11 @@ export async function executeSparkSessionAction(
   const { action, params, signal, ctx } = input;
   const request = deps.request ?? defaultDaemonRequest;
   assertChannelActionAllowed(action, ctx);
-  const channelWorkspaceId = await currentChannelWorkspaceId(ctx, request, signal);
+  const channelDaemonId = await currentChannelDaemonId(ctx, request, signal);
 
   switch (action) {
     case "list": {
-      const requestParams = await listRequest(params, ctx, request, signal, channelWorkspaceId);
+      const requestParams = await listRequest(params, ctx, request, signal, channelDaemonId);
       const records = parseSparkSessionProjections(
         await request("session.list", requestParams, { signal }),
       );
@@ -124,6 +123,8 @@ export async function executeSparkSessionAction(
       const adapter = normalizeChannelAdapter(params.adapter);
       const requestedWorkspaceId =
         requestParams.scope?.kind === "workspace" ? requestParams.scope.workspaceId : undefined;
+      const requestedDaemonId =
+        requestParams.scope?.kind === "daemon" ? channelDaemonId : undefined;
       const sessions = records
         .map(projectSession)
         .filter(
@@ -131,6 +132,11 @@ export async function executeSparkSessionAction(
             !requestedWorkspaceId ||
             (session.scope.kind === "workspace" &&
               session.scope.workspaceId === requestedWorkspaceId),
+        )
+        .filter(
+          (session) =>
+            !requestedDaemonId ||
+            (session.scope.kind === "daemon" && session.scope.daemonId === requestedDaemonId),
         )
         .filter((session) => !surface || session.surface === surface)
         .filter((session) => !requestedActivity || session.activity === requestedActivity)
@@ -153,8 +159,8 @@ export async function executeSparkSessionAction(
     case "get": {
       const sessionId = await targetSessionId(params.sessionId, ctx, "get");
       const record = await requestSession(request, sessionId, signal);
-      if (channelWorkspaceId) {
-        assertChannelWorkspaceTarget(record, channelWorkspaceId, "get");
+      if (channelDaemonId) {
+        assertChannelDaemonTarget(record, channelDaemonId, "get");
       }
       const session = projectSession(record);
       return sessionResult(renderSession(session), { action, session });
@@ -288,8 +294,8 @@ export async function executeSparkSessionAction(
           ? { ...rawPayload, body: message }
           : rawPayload;
       const targetSession = await requestSession(request, toSessionId, signal);
-      if (channelWorkspaceId) {
-        assertChannelWorkspaceTarget(targetSession, channelWorkspaceId, action);
+      if (channelDaemonId) {
+        assertChannelDaemonTarget(targetSession, channelDaemonId, action);
       }
       if (
         kind === "request" &&
@@ -297,7 +303,11 @@ export async function executeSparkSessionAction(
       ) {
         throw new Error(`cannot request archived Session: ${toSessionId}`);
       }
-      if (kind === "request" && projectSession(targetSession).surface !== "local") {
+      if (
+        kind === "request" &&
+        channelDaemonId === undefined &&
+        projectSession(targetSession).surface !== "local"
+      ) {
         throw new Error("session request targets must be local sessions");
       }
       const correlationId = optionalString(params.correlationId, "correlationId");
@@ -400,9 +410,9 @@ export async function executeSparkSessionAction(
         throw new Error("session lookup does not accept wait");
       }
       const sessionId = requiredString(params.sessionId, "session lookup requires sessionId");
-      if (channelWorkspaceId) {
+      if (channelDaemonId) {
         const record = await requestSession(request, sessionId, signal);
-        assertChannelWorkspaceTarget(record, channelWorkspaceId, "lookup");
+        assertChannelDaemonTarget(record, channelDaemonId, "lookup");
       }
       const projection = parseSparkSessionPeerProjection(
         await request("session.lookup", { sessionId }, { signal }),
@@ -418,7 +428,7 @@ export async function executeSparkSessionAction(
         "session wait requires invocationId",
       );
       const timeoutMs = normalizeRequestTimeoutMs(params.timeoutMs);
-      if (channelWorkspaceId) {
+      if (channelDaemonId) {
         const status = sparkTurnStatusResultSchema.parse(
           await request("turn.status", { invocationId }, { signal }),
         );
@@ -427,7 +437,7 @@ export async function executeSparkSessionAction(
           throw new Error("session wait could not resolve the invocation Session");
         }
         const record = await requestSession(request, targetSessionId, signal);
-        assertChannelWorkspaceTarget(record, channelWorkspaceId, "wait");
+        assertChannelDaemonTarget(record, channelDaemonId, "wait");
       }
       const completion = await waitForRequestResult({
         request,
@@ -496,7 +506,7 @@ async function listRequest(
   ctx: SparkSessionToolContext,
   request: SparkSessionDaemonRequest,
   signal: AbortSignal,
-  channelWorkspaceId?: string,
+  channelDaemonId?: string,
 ): Promise<SparkSessionListRequest> {
   const includeArchived = optionalBoolean(params.includeArchived, false, "includeArchived");
   const query = optionalString(params.query, "query");
@@ -508,12 +518,12 @@ async function listRequest(
   };
   const workspaceId = optionalString(params.workspaceId, "workspaceId");
   const scope = optionalScope(params.scope);
-  if (channelWorkspaceId) {
-    if (scope === "daemon" || (workspaceId && workspaceId !== channelWorkspaceId)) {
-      throw new Error("message-platform sessions can list sessions in their own workspace only");
+  if (channelDaemonId) {
+    if (workspaceId || (scope && scope !== "daemon")) {
+      throw new Error("message-platform sessions can list daemon Channel Sessions only");
     }
     return {
-      scope: { kind: "workspace", workspaceId: channelWorkspaceId },
+      scope: { kind: "daemon" },
       ...filters,
     };
   }
@@ -561,28 +571,32 @@ function assertChannelActionAllowed(
   );
 }
 
-async function currentChannelWorkspaceId(
+async function currentChannelDaemonId(
   ctx: SparkSessionToolContext,
   request: SparkSessionDaemonRequest,
   signal: AbortSignal,
 ): Promise<string | undefined> {
   if (ctx.sessionSurface !== "channel") return undefined;
-  const sessionId = await requireCurrentSessionId(ctx, "workspace scope");
+  const sessionId = await requireCurrentSessionId(ctx, "daemon scope");
   const current = await requestSession(request, sessionId, signal);
-  if (current.scope.kind !== "workspace") {
-    throw new Error("message-platform sessions require a workspace-scoped current session");
+  if (current.scope.kind !== "daemon" || current.purpose !== "channel") {
+    throw new Error("message-platform sessions require a daemon-owned Channel Session");
   }
-  return current.scope.workspaceId;
+  return current.scope.daemonId;
 }
 
-function assertChannelWorkspaceTarget(
+function assertChannelDaemonTarget(
   target: SparkSessionProjection,
-  workspaceId: string,
+  daemonId: string,
   action: "get" | "send" | "lookup" | "wait",
 ): void {
-  if (target.scope.kind !== "workspace" || target.scope.workspaceId !== workspaceId) {
+  if (
+    target.scope.kind !== "daemon" ||
+    target.scope.daemonId !== daemonId ||
+    target.purpose !== "channel"
+  ) {
     throw new Error(
-      `message-platform session ${action} targets must be sessions in the current workspace`,
+      `message-platform session ${action} targets must be Channel Sessions in the current daemon`,
     );
   }
 }
@@ -684,10 +698,6 @@ function validatedChannelOriginBinding(
 ): NonNullable<SparkSessionMailMessage["originBinding"]> {
   const binding = ctx.channelBinding;
   if (!binding) throw new Error("originating channel request is missing immutable origin binding");
-  const workspaceId = requiredString(
-    binding.workspaceId,
-    "originating channel request requires immutable workspaceId",
-  );
   const adapterId = requiredString(
     binding.adapterId,
     "originating channel request requires immutable adapterId",
@@ -701,7 +711,6 @@ function validatedChannelOriginBinding(
     "originating channel request requires immutable recipient",
   );
   return {
-    workspaceId,
     adapter: binding.adapter,
     adapterId,
     ...(binding.adapterAccountIdentity

@@ -33,7 +33,6 @@ export function sparkCliDiagnostic(
   }
   return { ...descriptor, ...overrides, code: descriptor.code };
 }
-
 export class SparkCliError extends Error {
   readonly code: string;
   readonly title: string;

@@ -21,7 +21,6 @@ export const sparkSessionMailChannelTargetSchema = z.object({
 });
 
 export const sparkSessionMailOriginBindingSchema = sparkSessionMailChannelTargetSchema.extend({
-  workspaceId: z.string().trim().min(1),
   adapter: sparkChannelAdapterSchema,
   adapterId: z.string().trim().min(1),
   recipient: z.string().trim().min(1),

@@ -1,5 +1,5 @@
-import type { ChannelsConfig, QqbotAdapterConfig } from "@zendev-lab/spark-channels";
-import { startQqbotQrAuth, type QqbotQrCredentials } from "@zendev-lab/spark-channels/qqbot-auth";
+import type { ChannelsConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
+import { startQqbotQrAuth, type QqbotQrCredentials } from "@zendev-lab/dsh-channels/qqbot-auth";
 import {
   createId,
   parseSparkQqbotQrAuthFlow,
@@ -10,9 +10,9 @@ import {
 const DEFAULT_QQBOT_QR_AUTH_LIFETIME_MS = 10 * 60_000;
 
 export interface DaemonQqbotQrAuthManager {
-  start(workspaceId: string): Promise<SparkQqbotQrAuthFlow>;
-  status(workspaceId: string, flowId: string): SparkQqbotQrAuthFlow;
-  cancel(workspaceId: string, flowId: string): SparkQqbotQrAuthFlow;
+  start(): Promise<SparkQqbotQrAuthFlow>;
+  status(flowId: string): SparkQqbotQrAuthFlow;
+  cancel(flowId: string): SparkQqbotQrAuthFlow;
   stop(): void;
 }
 
@@ -25,8 +25,8 @@ interface PendingQqbotQrAuth {
 }
 
 export function createDaemonQqbotQrAuthManager(options: {
-  loadConfig(workspaceId: string): Promise<ChannelsConfig | null>;
-  configure(workspaceId: string, config: ChannelsConfig): Promise<unknown>;
+  loadConfig(): Promise<ChannelsConfig | null>;
+  configure(config: ChannelsConfig): Promise<unknown>;
   startAuth?: typeof startQqbotQrAuth;
   now?: () => Date;
   lifetimeMs?: number;
@@ -100,10 +100,10 @@ export function createDaemonQqbotQrAuthManager(options: {
     }
 
     try {
-      const current = await options.loadConfig(session.flow.workspaceId);
+      const current = await options.loadConfig();
       if (stopped || session.flow.status !== "saving") return;
       const config = mergeQqbotQrCredentials(current, credential);
-      await options.configure(session.flow.workspaceId, config);
+      await options.configure(config);
       if (stopped || session.flow.status !== "saving") return;
       setFlow(session, {
         status: "succeeded",
@@ -117,13 +117,10 @@ export function createDaemonQqbotQrAuthManager(options: {
   };
 
   return {
-    async start(workspaceId) {
-      const normalizedWorkspaceId = workspaceId.trim();
-      if (!normalizedWorkspaceId) throw new Error("workspaceId is required");
+    async start() {
       if (stopped) throw new Error("QQ Bot QR authentication manager is stopped.");
 
       for (const session of sessions.values()) {
-        if (session.flow.workspaceId !== normalizedWorkspaceId) continue;
         if (session.flow.status === "saving") {
           throw new Error("QQ Bot QR credentials are still being saved.");
         }
@@ -142,7 +139,6 @@ export function createDaemonQqbotQrAuthManager(options: {
       const session: PendingQqbotQrAuth = {
         flow: parseSparkQqbotQrAuthFlow({
           id: createId("qrauth"),
-          workspaceId: normalizedWorkspaceId,
           status: "pending",
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -188,12 +184,12 @@ export function createDaemonQqbotQrAuthManager(options: {
       return await started;
     },
 
-    status(workspaceId, flowId) {
-      return publicFlow(requireSession(sessions, workspaceId, flowId).flow);
+    status(flowId) {
+      return publicFlow(requireSession(sessions, flowId).flow);
     },
 
-    cancel(workspaceId, flowId) {
-      const session = requireSession(sessions, workspaceId, flowId);
+    cancel(flowId) {
+      const session = requireSession(sessions, flowId);
       if (session.flow.status !== "pending") return publicFlow(session.flow);
       session.dispose();
       setFlow(session, { status: "cancelled", qrCodeUrl: undefined });
@@ -260,11 +256,10 @@ function nextQqbotAdapterId(adapters: ChannelsConfig["adapters"]): string {
 
 function requireSession(
   sessions: Map<string, PendingQqbotQrAuth>,
-  workspaceId: string,
   flowId: string,
 ): PendingQqbotQrAuth {
   const session = sessions.get(flowId.trim());
-  if (!session || session.flow.workspaceId !== workspaceId.trim()) {
+  if (!session) {
     throw new Error("QQ Bot QR authentication flow not found.");
   }
   return session;

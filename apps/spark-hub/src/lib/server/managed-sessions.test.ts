@@ -81,13 +81,13 @@ function sideThread(
 }
 
 const snapshot = {
-  version: 3 as const,
+  version: 4 as const,
   sessionId: "sess_a",
   title: "Alpha",
   status: "idle" as const,
   messages: [
     {
-      version: 3 as const,
+      version: 4 as const,
       id: "msg_user",
       role: "user" as const,
       text: "Message from Infoflow",

@@ -1,8 +1,8 @@
 {
-  "name": "@zendev-lab/spark-channels",
+  "name": "@zendev-lab/dsh-channels",
   "version": "0.5.0",
   "private": true,
-  "description": "Spark IM channel adapters (Feishu, Infoflow, QQ Bot): I/O-only ingress and explicit outbound notify.",
+  "description": "Cordis channel plugin for Feishu, Infoflow, and QQ Bot transports.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -22,6 +22,9 @@
   },
   "dependencies": {
     "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@larksuiteoapi/node-sdk": "1.73.0",
     "@tencent-connect/qqbot-connector": "1.2.0",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",

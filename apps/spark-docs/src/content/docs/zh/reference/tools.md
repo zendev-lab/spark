@@ -138,5 +138,10 @@ fail closed。
 - 审批属于执行权限，不是展示文本。未知或冲突策略会 fail closed。
 - 兼容与 Channel profile 可以比原生 TUI 或 Hub Session 暴露更小的集合。
 
+Daemon Channel Session 只暴露 `session`、`ask`、`context` 和 `todo`。其中
+`session` 只能在同一 daemon scope 内 list/send；不能访问 Workspace Session、
+GitChange、Workspace 或 repository Memory、shell、files、Git、Task、Role fan-out、
+assignment 或 Workflow execution。
+
 私有实现 helper 不是公开工具。要查看当前安装版本的命令，请阅读
 [命令发现](/zh/reference/cli/)。

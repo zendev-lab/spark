@@ -154,7 +154,7 @@ describe("daemon Session lease", () => {
               ({
                 sessionId: "sess_administrator",
                 scope: { kind: "workspace", workspaceId: workspace.id },
-                lineage: { kind: "root", workspaceId: workspace.id },
+                lineage: { kind: "root" },
               }) as never,
           },
         }),
@@ -466,7 +466,7 @@ function administratorSession(workspaceId: string) {
   return {
     sessionId: "sess_workspace_administrator",
     scope: { kind: "workspace", workspaceId },
-    lineage: { kind: "root", workspaceId },
+    lineage: { kind: "root" },
     lifecycle: "open",
     placement: "active",
     roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },

@@ -49,6 +49,22 @@ $XDG_RUNTIME_DIR/spark
 
 某个 XDG 变量没有设置时使用对应的平台默认值。
 
+## Daemon 全局 Channel 路径
+
+Channel 状态使用 `spark paths --json` 报告的 daemon 当前平台根目录：
+
+```text
+<paths.configDir>/channels.json
+<paths.dataDir>/channels/sessions/<sessionId>/workspace
+<paths.runtimeDir>/channels/
+```
+
+`channels.json` 包含 daemon 全局 adapter 账号、route 与 secret，以 `0600` 权限写入。
+每个 Channel Session workspace 使用私有 `0700` 权限；路径只包含经过校验的 Spark
+Session ID。Provider user、group 和 conversation 标识绝不会成为文件系统名称。Spark
+会在每次执行前检查绝对 real path 与预期 data root 边界。关闭或归档 Channel Session
+不会删除其目录。配置与恢复见 [Daemon 全局 Channel](/zh/guides/channels/)。
+
 ## Daemon invocation 并发
 
 Daemon 默认最多同时接纳来自不同 session 的 4 个 root invocation。可以把启动值

@@ -26,7 +26,7 @@ import {
   type ChannelImage,
   type ChannelMessageReference,
   type InfoflowAttachment,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
@@ -155,7 +155,6 @@ export interface SparkDaemonSessionRunTask {
   attachments?: SparkTurnAttachment[];
   /** Complete immutable channel origin. Channel-origin tasks fail closed when this is incomplete. */
   channelReply?: {
-    workspaceId: string;
     adapter?: ChannelAdapterType;
     adapterId: string;
     /** Rename-stable provider account identity frozen with the inbound turn. */
@@ -449,15 +448,13 @@ function parseLoopBinding(value: unknown): SparkLoopBinding {
 function parseChannelReply(value: unknown): SparkDaemonSessionRunTask["channelReply"] | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  const workspaceId = nonEmptyString(record.workspaceId);
   const adapter = channelAdapterType(record.adapter);
   const adapterId = nonEmptyString(record.adapterId);
   const adapterAccountIdentity = nonEmptyString(record.adapterAccountIdentity);
   const externalKey = nonEmptyString(record.externalKey);
   const recipient = nonEmptyString(record.recipient);
-  if (!workspaceId || !adapterId || !recipient) return undefined;
+  if (!adapterId || !recipient) return undefined;
   return {
-    workspaceId,
     ...(adapter ? { adapter } : {}),
     adapterId,
     ...(adapterAccountIdentity ? { adapterAccountIdentity } : {}),

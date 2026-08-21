@@ -8,7 +8,7 @@ import {
 } from "./conversation.ts";
 import { sparkMessageViewSchema } from "./protocol.ts";
 const projectionFixture = JSON.parse(
-  readFileSync(new URL("./fixtures/conversation-v3/projection.json", import.meta.url), "utf8"),
+  readFileSync(new URL("./fixtures/conversation-v4/projection.json", import.meta.url), "utf8"),
 ) as { message: unknown };
 
 function message(input: Parameters<typeof sparkMessageViewSchema.parse>[0]) {

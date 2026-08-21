@@ -5,7 +5,7 @@ import {
   type SparkLocalRpcOutput,
   type SparkLocalRpcParsedInput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { parseChannelsConfig } from "@zendev-lab/spark-channels";
+import { parseChannelsConfig } from "@zendev-lab/dsh-channels";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { isRecord } from "./is-record.ts";
 import type {

@@ -72,9 +72,9 @@
     "prepare": "prek install --hook-type commit-msg --hook-type pre-commit"
   },
   "dependencies": {
+    "@zendev-lab/dsh-channels": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
-    "@zendev-lab/spark-channels": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-cue": "workspace:^",
     "@zendev-lab/spark-extension": "workspace:^",

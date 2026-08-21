@@ -41,7 +41,7 @@ export function workspaceSessionRecord(input: {
       ? { kind: "explicit", roleRef: "role:builtin-administrator" }
       : (input.roleBinding ?? { kind: "none" }),
     lineage: administrator
-      ? { kind: "root", workspaceId: input.workspaceId }
+      ? { kind: "root" }
       : {
           kind: "child",
           parentSessionId:

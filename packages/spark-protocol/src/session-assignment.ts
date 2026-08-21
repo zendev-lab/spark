@@ -206,7 +206,6 @@ export const sparkFleetWorkerBindingSchema = z
 export const sparkRootSessionLineageSchema = z
   .object({
     kind: z.literal("root"),
-    workspaceId: z.string().min(1),
   })
   .strict();
 
@@ -381,13 +380,6 @@ const sparkWorkspaceSessionStateSchema = sparkSessionStateBaseSchema
     scope: sparkWorkspaceSessionScopeSchema,
   })
   .superRefine((record, context) => {
-    if (record.lineage.kind === "root" && record.lineage.workspaceId !== record.scope.workspaceId) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "root lineage must match scope.workspaceId",
-        path: ["lineage", "workspaceId"],
-      });
-    }
     if (record.lineage.kind === "root") {
       if (
         record.roleBinding.kind !== "explicit" ||
@@ -421,18 +413,31 @@ const sparkDaemonSessionStateSchema = sparkSessionStateBaseSchema
     scope: sparkDaemonSessionScopeSchema,
   })
   .superRefine((record, context) => {
+    if (record.lineage.kind === "root") {
+      if (
+        record.purpose !== "channel" ||
+        record.roleBinding.kind !== "none" ||
+        record.lifecycle !== "open" ||
+        record.placement !== "active" ||
+        record.retention !== "retain" ||
+        record.visibility !== "public" ||
+        !record.cwd ||
+        record.cwdArtifactRef !== undefined
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "daemon root Sessions must be open, active, public, retained Channel Sessions with a private cwd and no role or GitChange binding",
+          path: ["scope"],
+        });
+      }
+      return;
+    }
     if (record.lifecycle !== "closed") {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "daemon-scoped Sessions are closed audit records only",
         path: ["lifecycle"],
-      });
-    }
-    if (record.lineage.kind === "root") {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "daemon-scoped Session cannot have root lineage",
-        path: ["lineage"],
       });
     }
   });
@@ -509,13 +514,6 @@ function validateSessionProjection(
     });
   }
   if (record.scope.kind === "workspace") {
-    if (record.lineage.kind === "root" && record.lineage.workspaceId !== record.scope.workspaceId) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "root lineage must match scope.workspaceId",
-        path: ["lineage", "workspaceId"],
-      });
-    }
     if (record.lineage.kind === "root") {
       if (
         record.roleBinding.kind !== "explicit" ||
@@ -539,10 +537,27 @@ function validateSessionProjection(
         });
       }
     }
-  } else if (record.lifecycle !== "closed" || record.lineage.kind === "root") {
+  } else if (record.lineage.kind === "root") {
+    if (
+      record.purpose !== "channel" ||
+      record.roleBinding.kind !== "none" ||
+      record.lifecycle !== "open" ||
+      record.placement !== "active" ||
+      record.retention !== "retain" ||
+      record.visibility !== "public" ||
+      !record.cwd ||
+      record.cwdArtifactRef !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "daemon root projection must be a private-cwd Channel Session",
+        path: ["scope"],
+      });
+    }
+  } else if (record.lifecycle !== "closed") {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "daemon-scoped Sessions are closed audit records only",
+      message: "daemon-scoped child Sessions are closed audit records only",
       path: ["scope"],
     });
   }

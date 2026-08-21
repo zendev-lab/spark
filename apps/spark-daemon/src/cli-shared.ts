@@ -276,8 +276,9 @@ Commands:
   session <list|show|create|bind|unbind|archive|inbox> [args...]
   spark daemon session show <session-id>
   invocation <list|status|result|stream|cancel|retry|retention> [args...]
-  channel <status|reload|notify> [args...]
-  spark daemon channel status --workspace <id>
+  channel <status|configure|reload|notify> [args...]
+  spark daemon channel status [--json]
+  spark daemon channel configure --file <channels.json> [--json]
   run <list|show|cancel> [args...]
   spark daemon run cancel <run-id>
   events watch [--json]

@@ -121,7 +121,7 @@ export interface DaemonOrpcCapacityScenario {
 }
 
 export interface DaemonOrpcCapacityReport {
-  version: 3;
+  version: 4;
   environment: {
     platform: NodeJS.Platform;
     arch: string;

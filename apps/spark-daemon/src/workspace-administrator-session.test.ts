@@ -25,7 +25,7 @@ describe("Workspace Administrator provisioning", () => {
           lifecycle: "open",
           placement: "active",
           roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
-          lineage: { kind: "root", workspaceId: "ws_demo" },
+          lineage: { kind: "root" },
           incarnation: 1,
           visibility: "public",
           retention: "audit",

@@ -54,7 +54,8 @@ spark web
 Session identity preserves conversation and execution continuity. It does not
 override workspace binding or permission checks.
 
-Every workspace has one protected Administrator root Session. Every runtime
+Every workspace has one protected Administrator root Session. Ordinary
+workspace conversations are retained children of that root. Every runtime
 conversation is a Session. Role is only a definition binding, and any Session
 with child lineage is a subsession regardless of whether its origin is a
 Side Thread, TaskRun, Workflow, driver, driver tick, or Invocation. Their active state
@@ -64,17 +65,20 @@ Invocation is not collapsed to `running`. Owned temporary children
 close with their owner and normally discard full transcripts; retained public
 Sessions alone can be restored with the same stable ID, incarnation, and transcript.
 New local-web, Hub, and ACP conversations are retained scoped children of that root.
-Channel conversations use the same parent but keep Channel routing. Parent self
+Channel conversations are separate daemon-scoped root Sessions and require no
+Workspace; Hub displays them outside the Workspace tree. Parent self
 activity remains separate from bounded descendant activity. A driver or
 driver-tick child shares the parent's durable FIFO serialization key, so a tick
 and manual input queue instead of running concurrently; ordinary children and
 Repro lanes serialize independently on their own Session IDs.
 
-Spark 0.4.0 performs the one supported on-disk upgrade: Session registry v6 to
-v7 and Repro v9 to v10. The daemon creates a backup, stages the migration, and
-reads the staged result back before committing it. Older registries or Repro
-snapshots fail closed; upgrade through Spark 0.4.0 before starting a newer
-daemon.
+Spark 0.4.0 performs the supported intermediate upgrade from Session registry
+v6 to v7 and Repro v9 to v10. The current daemon upgrades registry v7 to v8,
+including eligible legacy Channel children. Each step creates a backup, stages
+the migration, and reads the staged result back before committing it. Older or
+ambiguous state fails closed; upgrade through the intermediate release before
+starting a newer daemon. See [daemon-global Channels](/guides/channels/) for
+Channel-specific conflict behavior.
 
 Before an owned temporary Session discards content, Spark seals one bounded
 close receipt. Role and Skill children reuse their reported outcome and final

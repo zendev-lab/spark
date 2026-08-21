@@ -794,13 +794,12 @@ function normalizeOriginBinding(value: unknown): SparkSessionMailOriginBinding {
     throw new Error("originating channel binding must be an object");
   }
   const record = value as Record<string, unknown>;
-  const workspaceId = typeof record.workspaceId === "string" ? record.workspaceId.trim() : "";
   const adapterId = target.adapterId?.trim();
   const recipient = typeof record.recipient === "string" ? record.recipient.trim() : "";
-  if (!workspaceId || !adapterId || !recipient) {
-    throw new Error("originating channel binding requires workspaceId, adapterId, and recipient");
+  if (!adapterId || !recipient) {
+    throw new Error("originating channel binding requires adapterId and recipient");
   }
-  return { ...target, workspaceId, adapter: target.adapter, adapterId, recipient };
+  return { ...target, adapter: target.adapter, adapterId, recipient };
 }
 
 function normalizeDeliveryTargets(

@@ -22,11 +22,19 @@ export interface SessionRegistryMigrationResult {
  */
 export async function migrateSessionRegistryLineage(input: {
   sparkHome: string;
+  daemonId?: string;
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }): Promise<SessionRegistryMigrationResult> {
   const rootDir = defaultSparkSessionRegistryRoot(input.sparkHome);
   const registryPath = join(rootDir, "registry.json");
   const sourceVersion = await readRegistryVersion(registryPath);
-  const registry = new SparkSessionRegistry({ rootDir });
+  const registry = new SparkSessionRegistry({
+    rootDir,
+    ...(input.daemonId ? { daemonId: input.daemonId } : {}),
+    ...(input.resolveChannelSessionCwd
+      ? { resolveChannelSessionCwd: input.resolveChannelSessionCwd }
+      : {}),
+  });
   const sessions = await registry.list({
     includeArchived: true,
     includeClosed: true,

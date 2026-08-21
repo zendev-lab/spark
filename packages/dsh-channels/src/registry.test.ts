@@ -46,6 +46,21 @@ describe("createChannelExternalKey", () => {
 });
 
 describe("ChannelRegistry", () => {
+  it("rejects duplicate stable account identities", () => {
+    expect(
+      () =>
+        new ChannelRegistry({
+          config: {
+            adapters: {
+              primary: { type: "feishu", app_id: "cli_same", app_secret: "first" },
+              renamed: { type: "feishu", app_id: "cli_same", app_secret: "rotated" },
+            },
+            routes: {},
+          },
+        }),
+    ).toThrow(/duplicate adapter account identity/u);
+  });
+
   it("rejects unsupported feishu event modes at config parse time", () => {
     expect(() =>
       parseChannelsConfig({

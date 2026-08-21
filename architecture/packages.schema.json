@@ -19,7 +19,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
-        "pattern": "^@zendev-lab/(?:(?:spark|pi)-[a-z0-9-]+|dsh-tool-cue)$"
+        "pattern": "^@zendev-lab/(?:spark|pi|dsh)-[a-z0-9-]+$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/package"
@@ -44,7 +44,7 @@
     },
     "packageName": {
       "type": "string",
-      "pattern": "^@zendev-lab/(?:(?:spark|pi)-[a-z0-9-]+|dsh-tool-cue)$"
+      "pattern": "^@zendev-lab/(?:spark|pi|dsh)-[a-z0-9-]+$"
     },
     "taskRef": {
       "type": "string",

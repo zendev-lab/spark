@@ -946,7 +946,6 @@ export const sparkLocalRpcChannelsConfigSchema = z.object({
 export const sparkLocalRpcChannelStatusSchema = z.object({
   plane: z.literal("daemon"),
   resource: z.literal("channel"),
-  workspaceId: z.string().min(1),
   configPath: z.string().min(1),
   available: z.literal(true),
   configured: z.boolean(),
@@ -984,7 +983,6 @@ const channelImageSourceSchema = z.object({
 });
 
 export const sparkLocalRpcChannelNotifyInputSchema = z.object({
-  workspaceId: z.string().trim().min(1),
   action: z.enum(["send", "list", "test"]),
   adapter: z.string().optional(),
   route: z.string().optional(),
@@ -1420,15 +1418,20 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
     output: sparkLocalRpcToolExecutionResultSchema,
   },
-  "channel.status": { input: workspaceIdInputSchema, output: sparkLocalRpcChannelStatusSchema },
+  "channel.status": {
+    input: sparkLocalRpcEmptyInputSchema,
+    output: sparkLocalRpcChannelStatusSchema,
+  },
   "channel.configure": {
     input: z.object({
-      workspaceId: z.string().trim().min(1),
       config: sparkLocalRpcChannelsConfigSchema,
     }),
     output: sparkLocalRpcChannelStatusSchema,
   },
-  "channel.reload": { input: workspaceIdInputSchema, output: sparkLocalRpcChannelStatusSchema },
+  "channel.reload": {
+    input: sparkLocalRpcEmptyInputSchema,
+    output: sparkLocalRpcChannelStatusSchema,
+  },
   "channel.notify": {
     input: sparkLocalRpcChannelNotifyInputSchema,
     output: sparkLocalRpcChannelNotifyResultSchema,

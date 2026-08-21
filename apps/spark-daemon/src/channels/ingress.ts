@@ -1,12 +1,10 @@
 /**
  * Channel ingress wiring for Spark daemon.
  *
- * Adapters deliver IncomingMessage → session resolve/bind → assignment.create
+ * Adapters deliver IncomingMessage → daemon Session resolve/bind → assignment.create
  * normalized onto session.run / task.start. Adapters never own session tables.
  *
- * Config is workspace-scoped:
- *   $SPARK_DATA_ROOT/workspaces/<workspaceId>/channels/config.json
- * Legacy global `$SPARK_DATA_ROOT/channels/config.json` is migrated on demand.
+ * Config is daemon-global at `<paths.configDir>/channels.json`.
  */
 
 import {
@@ -30,34 +28,27 @@ import {
   type ChannelReplySendInput,
   type ChannelReplyStream,
   type ChannelReplyTarget,
+  type ChannelsService,
   type ChannelsConfig,
   type IncomingMessage,
   type RoutedChannelInteractionEvent,
-} from "@zendev-lab/spark-channels";
-import {
-  createSparkMemoryDirectIntentTurnAuthority,
-  type SparkMemoryDirectIntentTurnAuthority,
-} from "@zendev-lab/spark-host/memory-direct-intent";
+} from "@zendev-lab/dsh-channels";
 import {
   parseSparkAssignment,
   type SparkAssignment,
-  type SparkMemoryDirectIntentReceipt,
-  type SparkMemoryFeedbackReceipt,
   type SparkMessageView,
   type SparkQqbotQrAuthFlow,
   type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
-import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
 import { createHash, randomUUID } from "node:crypto";
 
-const channelMemoryDirectIntentAuthority = createSparkMemoryDirectIntentTurnAuthority();
-import { mkdir, readdir, readFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
 import type { SparkDaemonChannelContext } from "../core/types.ts";
 import type { DaemonChannelTransportFactory } from "./transport-factory.ts";
-import { createDaemonQqbotQrAuthManager } from "./qqbot-auth.ts";
 
 export const CHANNEL_INGRESS_FAILURE_REPLY = "消息暂时无法处理，请稍后重试。";
 
@@ -70,7 +61,6 @@ export interface ChannelIngressAssignment {
   /** Rename-stable provider account identity; never a local adapter routing label. */
   adapterAccountIdentity?: string;
   channelReply: {
-    workspaceId: string;
     /** Platform semantics; adapterId remains the configured instance route. */
     adapter: ChannelAdapterType;
     adapterId: string;
@@ -79,10 +69,6 @@ export interface ChannelIngressAssignment {
   };
   /** Platform facts for this inbound turn, kept out of the canonical user message body. */
   channelContext?: SparkDaemonChannelContext;
-  /** Host-signed direct memory intent bound to this exact platform message. */
-  memoryDirectIntent?: SparkMemoryDirectIntentReceipt;
-  /** Host-signed exact-current-turn positive/negative Memory feedback. */
-  memoryFeedback?: SparkMemoryFeedbackReceipt;
 }
 
 export interface ChannelIngressHooks {
@@ -90,18 +76,14 @@ export interface ChannelIngressHooks {
   /** Persist an admission-failure reply before considering the inbound handled. */
   onRejectedReply?: (input: ChannelIngressRejectedReply) => Promise<void>;
   /** Persist normalized ingress before session resolution and task admission. */
-  onInboundReceived?: (input: { workspaceId: string; message: IncomingMessage }) => void;
+  onInboundReceived?: (input: { message: IncomingMessage }) => void;
   onReply?: (input: { externalKey: string; text: string; adapterId: string }) => Promise<void>;
-  onInteraction?: (input: {
-    workspaceId: string;
-    event: RoutedChannelInteractionEvent;
-  }) => Promise<void>;
+  onInteraction?: (input: { event: RoutedChannelInteractionEvent }) => Promise<void>;
   /**
    * Optional text-ask settlement for adapters without native interaction events.
    * Return "settled" to suppress ordinary turn admission for this inbound.
    */
   onTextAskReply?: (input: {
-    workspaceId: string;
     message: IncomingMessage;
     recipient: string;
   }) => Promise<"settled" | "continue">;
@@ -109,7 +91,6 @@ export interface ChannelIngressHooks {
 
 export interface ChannelIngressRejectedReply {
   sessionId: string;
-  workspaceId: string;
   externalKey: string;
   adapterAccountIdentity: string;
   adapterId: string;
@@ -124,6 +105,10 @@ export interface ChannelIngressRejectedReply {
 export interface ChannelIngressController {
   start(): Promise<void>;
   stop(): Promise<void>;
+  beginDrain(): void;
+  drain(): Promise<void>;
+  receiveInbound(message: IncomingMessage): void;
+  receiveInteraction(event: RoutedChannelInteractionEvent): Promise<void>;
   admitInbound(message: IncomingMessage): Promise<void>;
   notify(input: ChannelNotifyInput): Promise<ChannelNotifyResult>;
   openReplyStream(
@@ -172,7 +157,6 @@ export interface ChannelIngressController {
 export interface DaemonChannelIngressStatus {
   plane: "daemon";
   resource: "channel";
-  workspaceId: string;
   configPath: string;
   available: true;
   configured: boolean;
@@ -194,49 +178,35 @@ export interface DaemonChannelIngressStatus {
 }
 
 /**
- * Stable daemon-owned channel control surface shared by startup and local RPC.
- * Each workspace has its own config file and ingress controller.
+ * Stable daemon-owned Channel control surface shared by startup and local RPC.
  */
 export interface DaemonChannelIngressRuntime {
-  start(): Promise<DaemonChannelIngressStatus[]>;
+  start(): Promise<DaemonChannelIngressStatus>;
   stop(): Promise<void>;
-  admitInbound?(workspaceId: string, message: IncomingMessage): Promise<void>;
-  status(workspaceId: string): DaemonChannelIngressStatus;
-  configure(workspaceId: string, config: unknown): Promise<DaemonChannelIngressStatus>;
-  reload(workspaceId: string): Promise<DaemonChannelIngressStatus>;
-  startQqbotQrAuth(workspaceId: string): Promise<SparkQqbotQrAuthFlow>;
-  qqbotQrAuthStatus(workspaceId: string, flowId: string): SparkQqbotQrAuthFlow;
-  cancelQqbotQrAuth(workspaceId: string, flowId: string): SparkQqbotQrAuthFlow;
-  notify(workspaceId: string, input: ChannelNotifyInput): Promise<ChannelNotifyResult>;
+  /** Reject new transport events while already accepted handlers drain. */
+  beginDrain?(): void;
+  drain?(): Promise<void>;
+  /** Close adapter transports after reconcilers have stopped. */
+  close?(): Promise<void>;
+  admitInbound?(message: IncomingMessage): Promise<void>;
+  status(): DaemonChannelIngressStatus;
+  configure(config: unknown): Promise<DaemonChannelIngressStatus>;
+  reload(): Promise<DaemonChannelIngressStatus>;
+  startQqbotQrAuth(): Promise<SparkQqbotQrAuthFlow>;
+  qqbotQrAuthStatus(flowId: string): SparkQqbotQrAuthFlow;
+  cancelQqbotQrAuth(flowId: string): SparkQqbotQrAuthFlow;
+  notify(input: ChannelNotifyInput): Promise<ChannelNotifyResult>;
   openReplyStream(
-    workspaceId: string,
     adapterId: string,
     target: ChannelReplyTarget,
     options?: { onCreated?: (stream: ChannelReplyStream) => void | Promise<void> },
   ): Promise<ChannelReplyStream | undefined>;
-  sendMessage(
-    workspaceId: string,
-    adapterId: string,
-    input: ChannelMessageSendInput,
-  ): Promise<ChannelDeliveryResult>;
-  sendReply(
-    workspaceId: string,
-    adapterId: string,
-    input: ChannelReplySendInput,
-  ): Promise<ChannelDeliveryResult | void>;
-  resolveAdapterId(workspaceId: string, adapterId: string, adapterAccountIdentity?: string): string;
-  replyDeliveryFacts(
-    workspaceId: string,
-    adapterId: string,
-    target: ChannelReplyTarget,
-  ): ChannelDeliveryFacts;
-  messageDeliveryFacts(
-    workspaceId: string,
-    adapterId: string,
-    target: ChannelMessageTarget,
-  ): ChannelDeliveryFacts;
+  sendMessage(adapterId: string, input: ChannelMessageSendInput): Promise<ChannelDeliveryResult>;
+  sendReply(adapterId: string, input: ChannelReplySendInput): Promise<ChannelDeliveryResult | void>;
+  resolveAdapterId(adapterId: string, adapterAccountIdentity?: string): string;
+  replyDeliveryFacts(adapterId: string, target: ChannelReplyTarget): ChannelDeliveryFacts;
+  messageDeliveryFacts(adapterId: string, target: ChannelMessageTarget): ChannelDeliveryFacts;
   recoverReply(
-    workspaceId: string,
     adapterId: string,
     input: ChannelReplyTarget & {
       text: string;
@@ -245,13 +215,11 @@ export interface DaemonChannelIngressRuntime {
     },
   ): Promise<void>;
   sendAsk(
-    workspaceId: string,
     adapterId: string,
     recipient: string,
     request: ChannelAskRequest,
   ): Promise<ChannelAskSendResult>;
   ackInteraction(
-    workspaceId: string,
     adapterId: string,
     interactionId: string,
     status?: ChannelInteractionAckStatus,
@@ -262,99 +230,12 @@ export interface DaemonChannelIngressRuntime {
   setTextAskHandler?(handler?: ChannelIngressHooks["onTextAskReply"]): void;
   /** Install a daemon-owned durable ingress receipt before transports start. */
   setInboundHandler?(handler?: ChannelIngressHooks["onInboundReceived"]): void;
-  listWorkspaceIds(): Promise<string[]>;
-}
-
-export function legacyChannelsConfigPath(sparkHome: string): string {
-  return join(sparkHome, "channels", "config.json");
-}
-
-export function workspaceChannelsConfigPath(sparkHome: string, workspaceId: string): string {
-  const id = workspaceId.trim();
-  if (!id) throw new Error("workspaceId is required for channel config");
-  return join(sparkHome, "workspaces", id, "channels", "config.json");
-}
-
-export async function listWorkspaceChannelIds(sparkHome: string): Promise<string[]> {
-  const root = join(sparkHome, "workspaces");
-  let entries: string[] = [];
-  try {
-    entries = await readdir(root);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
-  const ids: string[] = [];
-  for (const entry of entries) {
-    try {
-      await readFile(workspaceChannelsConfigPath(sparkHome, entry), "utf8");
-      ids.push(entry);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw error;
-    }
-  }
-  return ids.sort();
-}
-
-/**
- * Move legacy global channels config into a workspace path once.
- * Returns true when a migration write happened.
- */
-export async function migrateLegacyChannelsConfig(
-  sparkHome: string,
-  workspaceId: string,
-): Promise<boolean> {
-  const dest = workspaceChannelsConfigPath(sparkHome, workspaceId);
-  try {
-    await readFile(dest, "utf8");
-    return false;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-
-  let legacy: string;
-  try {
-    legacy = legacyChannelsConfigPath(sparkHome);
-  } catch (error) {
-    throw new Error(`invalid Spark home for legacy channels config: ${sparkHome}`, {
-      cause: error,
-    });
-  }
-  let raw: string;
-  try {
-    raw = await readFile(legacy, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch (error) {
-    throw new Error(`invalid legacy channels config: ${legacy}`, { cause: error });
-  }
-  try {
-    parseChannelsConfig(parsed);
-  } catch (error) {
-    throw new Error(`invalid legacy channels config schema: ${legacy}`, { cause: error });
-  }
-  await mkdir(dirname(dest), { recursive: true });
-  writePrivateFile(dest, raw.endsWith("\n") ? raw : `${raw}\n`);
-  try {
-    await rename(legacy, `${legacy}.migrated`);
-  } catch {
-    // Best-effort; workspace file is the source of truth after migration.
-  }
-  return true;
 }
 
 export async function loadDaemonChannelsConfig(
   sparkHome: string,
-  workspaceId: string,
 ): Promise<{ path: string; config: ChannelsConfig | null }> {
-  const path = workspaceChannelsConfigPath(sparkHome, workspaceId);
+  const path = channelConfigPath(resolveSparkPaths({ app: "daemon", sparkHome }));
   try {
     const raw = JSON.parse(await readFile(path, "utf8")) as unknown;
     return { path, config: parseChannelsConfig(raw) };
@@ -370,16 +251,16 @@ export function createChannelIngressController(input: {
   sparkHome: string;
   config: ChannelsConfig;
   hooks: ChannelIngressHooks;
-  sessionRegistry?: Pick<DaemonSessionRegistry, "ensureWorkspaceAdministrator" | "resolveBinding"> &
+  sessionRegistry?: Pick<DaemonSessionRegistry, "resolveChannelSession"> &
     Partial<Pick<DaemonSessionRegistry, "get" | "recordTurnQueued" | "recordTurnSettled">>;
-  workspaceId: string;
   createTransport?: ChannelRegistryOptions["createTransport"];
-  createWorkspaceTransport?: DaemonChannelTransportFactory;
-  /** Daemon-owned injection seam; never populated from channel input. */
-  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
+  createDaemonTransport?: DaemonChannelTransportFactory;
+  /** Production backend owned by the daemon Cordis root. */
+  channels?: ChannelsService;
 }): ChannelIngressController {
   const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
   const activeHandlers = new Set<Promise<void>>();
+  let accepting = true;
   const trackHandler = (
     operation: Promise<void>,
     label: "inbound" | "interaction",
@@ -390,7 +271,7 @@ export function createChannelIngressController(input: {
     const tracked = operation.then(
       () => undefined,
       (error) => {
-        console.error(`[spark-channels] ${label} failed`, error);
+        console.error(`[dsh-channels] ${label} failed`, error);
       },
     );
     activeHandlers.add(tracked);
@@ -402,38 +283,39 @@ export function createChannelIngressController(input: {
       await Promise.all([...activeHandlers]);
     }
   };
-  const channelRegistry = new ChannelRegistry({
-    config: input.config,
-    ...(input.createTransport || input.createWorkspaceTransport
-      ? {
-          createTransport: (adapterId, config) =>
-            input.createWorkspaceTransport?.({
-              workspaceId: input.workspaceId,
-              adapterId,
-              config,
-            }) ?? input.createTransport?.(adapterId, config),
-        }
-      : {}),
-    onMessage: (message) => {
-      if (Object.keys(input.config.adapters).length === 0 || !message.text.trim()) return;
-      // A daemon persistence hook is intentionally invoked before converting
-      // to a Promise. Synchronous SQLite failures propagate to transports so
-      // an SDK must not ACK an event that never acquired a durable receipt.
-      if (input.hooks.onInboundReceived) {
-        input.hooks.onInboundReceived({ workspaceId: input.workspaceId, message });
-        return;
-      }
-      void trackHandler(handleInbound(message), "inbound");
-    },
-    onInteraction: (event) =>
-      trackHandler(
-        input.hooks.onInteraction?.({ workspaceId: input.workspaceId, event }) ?? Promise.resolve(),
-        "interaction",
-      ),
-  });
+  const receiveInbound = (message: IncomingMessage): void => {
+    if (!accepting) throw new Error("daemon Channel ingress is draining");
+    if (!message.text.trim()) return;
+    // A daemon persistence hook is intentionally invoked before converting
+    // to a Promise. Synchronous SQLite failures propagate to transports so
+    // an SDK must not ACK an event that never acquired a durable receipt.
+    if (input.hooks.onInboundReceived) {
+      input.hooks.onInboundReceived({ message });
+      return;
+    }
+    void trackHandler(handleInbound(message), "inbound");
+  };
+  const receiveInteraction = (event: RoutedChannelInteractionEvent): Promise<void> => {
+    if (!accepting) return Promise.reject(new Error("daemon Channel ingress is draining"));
+    return trackHandler(input.hooks.onInteraction?.({ event }) ?? Promise.resolve(), "interaction");
+  };
+  const channelRegistry = input.channels
+    ? undefined
+    : new ChannelRegistry({
+        config: input.config,
+        ...(input.createTransport || input.createDaemonTransport
+          ? {
+              createTransport: (adapterId, config) =>
+                input.createDaemonTransport?.(adapterId, config) ??
+                input.createTransport?.(adapterId, config),
+            }
+          : {}),
+        onMessage: receiveInbound,
+        onInteraction: receiveInteraction,
+      });
+  const channels = input.channels ?? channelRegistry!;
 
   async function handleInbound(message: IncomingMessage): Promise<void> {
-    if (Object.keys(input.config.adapters).length === 0) return;
     if (!message.text.trim()) return;
     const replyRecipient = channelReplyRecipient(message);
     if (!replyRecipient) {
@@ -441,34 +323,19 @@ export function createChannelIngressController(input: {
     }
     if (input.hooks.onTextAskReply) {
       const textAsk = await input.hooks.onTextAskReply({
-        workspaceId: input.workspaceId,
         message,
         recipient: replyRecipient,
       });
       if (textAsk === "settled") return;
     }
-    const incomingAdapter = resolveIncomingAdapter(message, channelRegistry.listAdapters());
-    const session = await sessionRegistry.resolveBinding({
+    const incomingAdapter = resolveIncomingAdapter(message, channels.listAdapters());
+    const session = await sessionRegistry.resolveChannelSession({
       externalKey: message.externalKey,
-      ...(message.adapterId || message.adapterAccountIdentity
-        ? {
-            adapterId: incomingAdapter.adapterId,
-            adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
-            allowLegacyAccountClaim: incomingAdapter.sameTypeAccountCount === 1,
-          }
-        : {}),
-      onUnbound: input.config.ingress?.on_unbound ?? "create",
-      create: {
-        scope: { kind: "workspace", workspaceId: input.workspaceId },
-        name: channelSessionTitle(message),
-        lineage: {
-          kind: "child",
-          parentSessionId: (await sessionRegistry.ensureWorkspaceAdministrator(input.workspaceId))
-            .sessionId,
-          origin: { kind: "session" },
-        },
-        roleBinding: { kind: "none" },
-      },
+      adapterId: incomingAdapter.adapterId,
+      adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
+      allowLegacyAccountClaim: incomingAdapter.sameTypeAccountCount === 1,
+      onUnbound: channels.onUnboundPolicy,
+      name: channelSessionTitle(message),
     });
     const enrichedMessage = await enrichInboundMessageReferenceFromSession({
       message,
@@ -480,7 +347,7 @@ export function createChannelIngressController(input: {
     const rawGoal = enrichedMessage.text.trim();
     const assignment = parseSparkAssignment({
       goal: rawGoal,
-      target: { sessionId: session.sessionId, workspaceId: input.workspaceId },
+      target: { sessionId: session.sessionId },
       source: {
         kind: "channel",
         channel,
@@ -488,27 +355,6 @@ export function createChannelIngressController(input: {
       },
     });
     let admission: void | "duplicate";
-    const directIntentMessageId = enrichedMessage.messageId?.trim() || randomUUID();
-    const memoryDirectIntent = await (
-      input.memoryDirectIntentAuthority ?? channelMemoryDirectIntentAuthority
-    ).issue({
-      surface: "channel",
-      workspaceId: input.workspaceId,
-      sessionId: session.sessionId,
-      turnId: `turn:${directIntentMessageId}`,
-      messageId: `message:${directIntentMessageId}`,
-      prompt: rawGoal,
-    });
-    const memoryFeedback = await (
-      input.memoryDirectIntentAuthority ?? channelMemoryDirectIntentAuthority
-    ).issueFeedback({
-      surface: "channel",
-      workspaceId: input.workspaceId,
-      sessionId: session.sessionId,
-      turnId: `turn:${directIntentMessageId}`,
-      messageId: `message:${directIntentMessageId}`,
-      prompt: rawGoal,
-    });
     try {
       admission = await input.hooks.onAssignment({
         sessionId: session.sessionId,
@@ -522,15 +368,12 @@ export function createChannelIngressController(input: {
         externalKey: enrichedMessage.externalKey,
         adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
         channelReply: {
-          workspaceId: input.workspaceId,
           adapter: channel,
           adapterId: incomingAdapter.adapterId,
           externalKey: enrichedMessage.externalKey,
           recipient: replyRecipient,
         },
         channelContext: channelContextFromIncoming(enrichedMessage),
-        ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
-        ...(memoryFeedback ? { memoryFeedback } : {}),
       });
     } catch (error) {
       try {
@@ -544,26 +387,22 @@ export function createChannelIngressController(input: {
             : {}),
           ...(rawGoal ? { preview: rawGoal.slice(0, 240) } : {}),
         };
-        const deliveryIdentity = channelFailureReplyDeliveryId(
-          {
-            ...enrichedMessage,
-            adapterId: incomingAdapter.adapterId,
-            adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
-          },
-          input.workspaceId,
-        );
+        const deliveryIdentity = channelFailureReplyDeliveryId({
+          ...enrichedMessage,
+          adapterId: incomingAdapter.adapterId,
+          adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
+        });
         const rejectedReply: ChannelIngressRejectedReply = {
           sessionId: session.sessionId,
-          workspaceId: input.workspaceId,
           externalKey: message.externalKey,
           adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
           adapterId: incomingAdapter.adapterId,
           target,
           text: CHANNEL_INGRESS_FAILURE_REPLY,
           deliveryIdentity,
-          deliveryFacts: channelRegistry.replyDeliveryFacts(incomingAdapter.adapterId, target),
+          deliveryFacts: channels.replyDeliveryFacts(incomingAdapter.adapterId, target),
           send: async (deliveryId) =>
-            await channelRegistry.sendReply(incomingAdapter.adapterId, {
+            await channels.sendReply(incomingAdapter.adapterId, {
               ...target,
               text: CHANNEL_INGRESS_FAILURE_REPLY,
               deliveryId,
@@ -578,7 +417,7 @@ export function createChannelIngressController(input: {
         }
         return;
       } catch (replyError) {
-        console.error("[spark-channels] failed to report rejected inbound", replyError);
+        console.error("[dsh-channels] failed to report rejected inbound", replyError);
       }
       throw error;
     }
@@ -592,50 +431,55 @@ export function createChannelIngressController(input: {
       try {
         await sessionRegistry.recordTurnQueued?.(session.sessionId);
       } catch (error) {
-        console.error("[spark-channels] failed to mark admitted inbound as queued", error);
+        console.error("[dsh-channels] failed to mark admitted inbound as queued", error);
       }
     }
   }
 
   return {
     start: async () => {
-      await channelRegistry.startAll();
+      accepting = true;
+      await channelRegistry?.startAll();
     },
     stop: async () => {
+      accepting = false;
       let stopError: unknown;
       try {
-        await channelRegistry.stopAll();
+        await channelRegistry?.stopAll();
       } catch (error) {
         stopError = error;
       }
       await waitForHandlers();
       if (stopError) throw stopError;
     },
+    beginDrain: () => {
+      accepting = false;
+    },
+    drain: waitForHandlers,
+    receiveInbound,
+    receiveInteraction,
     admitInbound: handleInbound,
-    notify: async (notifyInput) => await channelRegistry.notify(notifyInput),
+    notify: async (notifyInput) => await channels.notify(notifyInput),
     openReplyStream: async (adapterId, target, options) =>
-      await channelRegistry.openReplyStream(adapterId, target, options),
-    messageDeliveryFacts: (adapterId, target) =>
-      channelRegistry.messageDeliveryFacts(adapterId, target),
+      await channels.openReplyStream(adapterId, target, options),
+    messageDeliveryFacts: (adapterId, target) => channels.messageDeliveryFacts(adapterId, target),
     sendMessage: async (adapterId, messageInput) =>
-      await channelRegistry.sendMessage(adapterId, messageInput),
-    sendReply: async (adapterId, replyInput) =>
-      await channelRegistry.sendReply(adapterId, replyInput),
+      await channels.sendMessage(adapterId, messageInput),
+    sendReply: async (adapterId, replyInput) => await channels.sendReply(adapterId, replyInput),
     resolveAdapterId: (adapterId, adapterAccountIdentity) =>
-      resolveControllerAdapterId(channelRegistry, adapterId, adapterAccountIdentity),
-    replyDeliveryFacts: (adapterId, target) =>
-      channelRegistry.replyDeliveryFacts(adapterId, target),
+      resolveControllerAdapterId(channels, adapterId, adapterAccountIdentity),
+    replyDeliveryFacts: (adapterId, target) => channels.replyDeliveryFacts(adapterId, target),
     recoverReply: async (adapterId, replyInput) =>
-      await channelRegistry.recoverReply(adapterId, replyInput),
+      await channels.recoverReply(adapterId, replyInput),
     sendAsk: async (adapterId, recipient, request) =>
-      await channelRegistry.sendAsk(adapterId, recipient, request),
+      await channels.sendAsk(adapterId, recipient, request),
     ackInteraction: async (adapterId, interactionId, status) =>
-      await channelRegistry.ackInteraction(adapterId, interactionId, status),
+      await channels.ackInteraction(adapterId, interactionId, status),
     status: () => ({
       configured: true,
-      ingressEnabled: channelRegistry.ingressEnabled,
-      adapters: channelRegistry.listAdapters(),
-      routes: channelRegistry.listRoutes().map((route) => ({
+      ingressEnabled: channels.ingressEnabled,
+      adapters: channels.listAdapters(),
+      routes: channels.listRoutes().map((route) => ({
         name: route.name,
         adapter: route.adapterId,
         recipient: route.recipient,
@@ -657,8 +501,7 @@ export function channelIngressIdempotencyKey(
   const digest = createHash("sha256")
     .update(
       JSON.stringify([
-        2,
-        assignment.channelReply.workspaceId,
+        3,
         assignment.source.channel,
         assignment.adapterAccountIdentity,
         assignment.externalKey,
@@ -666,7 +509,7 @@ export function channelIngressIdempotencyKey(
       ]),
     )
     .digest("hex");
-  return `channel-ingress:${digest}`;
+  return `channel-ingress:v3:${digest}`;
 }
 
 /** Read-only key for invocations admitted before stable account identities. */
@@ -679,7 +522,6 @@ export function channelIngressLegacyIdempotencyKey(
     .update(
       JSON.stringify([
         1,
-        assignment.channelReply.workspaceId,
         assignment.channelReply.adapterId,
         assignment.source.channel,
         assignment.externalKey,
@@ -694,25 +536,18 @@ function channelIngressMessageId(assignment: ChannelIngressAssignment): string |
   return assignment.source.externalRef?.trim() || assignment.channelContext?.messageId?.trim();
 }
 
-export function channelFailureReplyDeliveryId(
-  message: IncomingMessage,
-  workspaceId: string,
-): string {
+export function channelFailureReplyDeliveryId(message: IncomingMessage): string {
   const messageId = message.messageId?.trim();
   if (!messageId) return `channel-ingress-failure:${randomUUID()}`;
-  const workspace = workspaceId.trim();
   const adapterAccountIdentity = message.adapterAccountIdentity?.trim();
-  if (!workspace || !adapterAccountIdentity) {
-    throw new Error(
-      "workspaceId and adapterAccountIdentity are required for channel failure delivery identity",
-    );
+  if (!adapterAccountIdentity) {
+    throw new Error("adapterAccountIdentity is required for channel failure delivery identity");
   }
   const digest = createHash("sha256")
     .update(
       JSON.stringify([
-        2,
+        3,
         "rejected",
-        workspace,
         message.adapter,
         adapterAccountIdentity,
         message.externalKey,
@@ -948,343 +783,4 @@ function channelSessionTitle(message: IncomingMessage): string {
     if (label) return `channel qqbot:c2c:${label}`;
   }
   return `channel ${message.externalKey}`;
-}
-
-type WorkspaceSlot = {
-  workspaceId: string;
-  configPath: string;
-  controller: ChannelIngressController | null;
-  config: ChannelsConfig | null;
-  lastReloadedAt?: string;
-  lastError?: string;
-  transition: Promise<void>;
-};
-
-export function createDaemonChannelIngressRuntime(input: {
-  sparkHome: string;
-  hooks: ChannelIngressHooks;
-  sessionRegistry?: Pick<DaemonSessionRegistry, "ensureWorkspaceAdministrator" | "resolveBinding"> &
-    Partial<Pick<DaemonSessionRegistry, "get">>;
-  /** @deprecated Ignored; pass workspaceId to status/configure/reload/notify. */
-  workspaceId?: string;
-  createTransport?: ChannelRegistryOptions["createTransport"];
-  createWorkspaceTransport?: DaemonChannelTransportFactory;
-  now?: () => Date;
-}): DaemonChannelIngressRuntime {
-  const now = input.now ?? (() => new Date());
-  const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
-  const slots = new Map<string, WorkspaceSlot>();
-
-  const getSlot = (workspaceId: string): WorkspaceSlot => {
-    const id = workspaceId.trim();
-    if (!id) throw new Error("workspaceId is required");
-    const existing = slots.get(id);
-    if (existing) return existing;
-    const slot: WorkspaceSlot = {
-      workspaceId: id,
-      configPath: workspaceChannelsConfigPath(input.sparkHome, id),
-      controller: null,
-      config: null,
-      transition: Promise.resolve(),
-    };
-    slots.set(id, slot);
-    return slot;
-  };
-
-  const serialize = <T>(slot: WorkspaceSlot, operation: () => Promise<T>): Promise<T> => {
-    const current = slot.transition.then(operation, operation);
-    slot.transition = current.then(
-      () => undefined,
-      () => undefined,
-    );
-    return current;
-  };
-
-  const createController = (
-    workspaceId: string,
-    nextConfig: ChannelsConfig,
-  ): ChannelIngressController => {
-    const next = createChannelIngressController({
-      sparkHome: input.sparkHome,
-      config: nextConfig,
-      hooks: input.hooks,
-      sessionRegistry,
-      workspaceId,
-      ...(input.createTransport ? { createTransport: input.createTransport } : {}),
-      ...(input.createWorkspaceTransport
-        ? { createWorkspaceTransport: input.createWorkspaceTransport }
-        : {}),
-    });
-    next.status();
-    return next;
-  };
-
-  const restorePrevious = async (
-    slot: WorkspaceSlot,
-    previous: ChannelIngressController | null,
-    failed: ChannelIngressController | null,
-    cause: unknown,
-  ): Promise<never> => {
-    try {
-      await failed?.stop();
-    } catch {
-      // Preserve the transition's original error; status records it below.
-    }
-    try {
-      await previous?.start();
-    } catch (rollbackError) {
-      const original = cause instanceof Error ? cause.message : String(cause);
-      const rollback =
-        rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
-      slot.lastError = `${original}; channel ingress rollback failed: ${rollback}`;
-      throw new Error(slot.lastError);
-    }
-    slot.lastError = cause instanceof Error ? cause.message : String(cause);
-    throw cause;
-  };
-
-  const statusOf = (slot: WorkspaceSlot): DaemonChannelIngressStatus => {
-    const runtime = slot.controller?.status();
-    const adapters = runtime?.adapters ?? [];
-    const routes = runtime?.routes ?? [];
-    const ingressEnabled =
-      runtime?.ingressEnabled ?? Object.keys(slot.config?.adapters ?? {}).length > 0;
-    const runningCount = adapters.filter((adapter) => adapter.running).length;
-    const connectedCount = adapters.filter(
-      (adapter) => adapter.running && adapter.state === "connected",
-    ).length;
-    const adapterError = adapters.find((adapter) => adapter.error)?.error;
-    const statusError = slot.lastError ?? adapterError;
-    const state = statusError
-      ? "degraded"
-      : !slot.config
-        ? "unconfigured"
-        : ingressEnabled && connectedCount === adapters.length && adapters.length > 0
-          ? "running"
-          : runningCount > 0
-            ? "degraded"
-            : "stopped";
-    const observedAt = now().toISOString();
-    const text = statusError
-      ? `channels workspace=${slot.workspaceId} degraded connected=${connectedCount}/${adapters.length} routes=${routes.length} ingress=${
-          ingressEnabled ? "on" : "off"
-        } error=${statusError}\n`
-      : !slot.config
-        ? `channels workspace=${slot.workspaceId} not configured (${slot.configPath})\n`
-        : `channels workspace=${slot.workspaceId} ${state} connected=${connectedCount}/${adapters.length} routes=${routes.length} ingress=${
-            ingressEnabled ? "on" : "off"
-          }\n`;
-    return {
-      plane: "daemon",
-      resource: "channel",
-      workspaceId: slot.workspaceId,
-      configPath: slot.configPath,
-      available: true,
-      configured: slot.config !== null,
-      ingressEnabled,
-      state,
-      adapters,
-      routes,
-      ...(slot.lastReloadedAt ? { lastReloadedAt: slot.lastReloadedAt } : {}),
-      ...(statusError ? { error: statusError } : {}),
-      observedAt,
-      text,
-    };
-  };
-
-  const replace = async (
-    slot: WorkspaceSlot,
-    nextConfig: ChannelsConfig | null,
-    options: { persist: boolean },
-  ): Promise<DaemonChannelIngressStatus> => {
-    const previous = slot.controller;
-    if (!nextConfig) {
-      await previous?.stop();
-      slot.controller = null;
-      slot.config = null;
-      slot.lastError = undefined;
-      slot.lastReloadedAt = now().toISOString();
-      return statusOf(slot);
-    }
-
-    const next = createController(slot.workspaceId, nextConfig);
-    try {
-      await previous?.stop();
-      await next.start();
-      if (options.persist) {
-        await mkdir(dirname(slot.configPath), { recursive: true });
-        writePrivateFile(slot.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
-      }
-    } catch (error) {
-      return await restorePrevious(slot, previous, next, error);
-    }
-
-    slot.controller = next;
-    slot.config = nextConfig;
-    slot.lastError = undefined;
-    slot.lastReloadedAt = now().toISOString();
-    return statusOf(slot);
-  };
-
-  const reloadWorkspace = async (workspaceId: string): Promise<DaemonChannelIngressStatus> => {
-    const slot = getSlot(workspaceId);
-    return await serialize(slot, async () => {
-      try {
-        await migrateLegacyChannelsConfig(input.sparkHome, workspaceId);
-        const loaded = await loadDaemonChannelsConfig(input.sparkHome, workspaceId);
-        return await replace(slot, loaded.config, { persist: false });
-      } catch (error) {
-        slot.lastError = error instanceof Error ? error.message : String(error);
-        throw error;
-      }
-    });
-  };
-
-  let runtime!: DaemonChannelIngressRuntime;
-  const qqbotQrAuth = createDaemonQqbotQrAuthManager({
-    loadConfig: async (workspaceId) =>
-      (await loadDaemonChannelsConfig(input.sparkHome, workspaceId)).config,
-    configure: async (workspaceId, config) => await runtime.configure(workspaceId, config),
-  });
-
-  runtime = {
-    start: async () => {
-      const ids = await listWorkspaceChannelIds(input.sparkHome);
-      if (ids.length === 0) {
-        // No workspace configs yet — leave legacy in place until a workspace configure/migrate.
-        return [];
-      }
-      const statuses: DaemonChannelIngressStatus[] = [];
-      for (const id of ids) {
-        statuses.push(await reloadWorkspace(id));
-      }
-      return statuses;
-    },
-    stop: async () => {
-      qqbotQrAuth.stop();
-      for (const slot of slots.values()) {
-        await serialize(slot, async () => {
-          await slot.controller?.stop();
-        });
-      }
-    },
-    admitInbound: async (workspaceId, message) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw new Error(`channels not configured for workspace ${workspaceId}`);
-      }
-      await slot.controller.admitInbound(message);
-    },
-    status: (workspaceId) => statusOf(getSlot(workspaceId)),
-    configure: (workspaceId, value) => {
-      const parsed = parseChannelsConfig(value);
-      const slot = getSlot(workspaceId);
-      return serialize(slot, async () => await replace(slot, parsed, { persist: true }));
-    },
-    reload: (workspaceId) => reloadWorkspace(workspaceId),
-    startQqbotQrAuth: async (workspaceId) => await qqbotQrAuth.start(workspaceId),
-    qqbotQrAuthStatus: (workspaceId, flowId) => qqbotQrAuth.status(workspaceId, flowId),
-    cancelQqbotQrAuth: (workspaceId, flowId) => qqbotQrAuth.cancel(workspaceId, flowId),
-    notify: async (workspaceId, notifyInput) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw new Error(`channels not configured for workspace ${workspaceId}`);
-      }
-      return await slot.controller.notify(notifyInput);
-    },
-    openReplyStream: async (workspaceId, adapterId, target, options) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw channelDeliveryNotSent(
-          new Error(`channels not configured for workspace ${workspaceId}`),
-        );
-      }
-      return await slot.controller.openReplyStream(adapterId, target, options);
-    },
-    sendMessage: async (workspaceId, adapterId, messageInput) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw channelDeliveryNotSent(
-          new Error(`channels not configured for workspace ${workspaceId}`),
-        );
-      }
-      return await slot.controller.sendMessage(adapterId, messageInput);
-    },
-    sendReply: async (workspaceId, adapterId, replyInput) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw channelDeliveryNotSent(
-          new Error(`channels not configured for workspace ${workspaceId}`),
-        );
-      }
-      return await slot.controller.sendReply(adapterId, replyInput);
-    },
-    resolveAdapterId: (workspaceId, adapterId, adapterAccountIdentity) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw channelDeliveryNotSent(
-          new Error(`channels not configured for workspace ${workspaceId}`),
-        );
-      }
-      return slot.controller.resolveAdapterId(adapterId, adapterAccountIdentity);
-    },
-    replyDeliveryFacts: (workspaceId, adapterId, target) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw channelDeliveryNotSent(
-          new Error(`channels not configured for workspace ${workspaceId}`),
-        );
-      }
-      try {
-        return slot.controller.replyDeliveryFacts(adapterId, target);
-      } catch (error) {
-        throw channelDeliveryNotSent(error);
-      }
-    },
-    messageDeliveryFacts: (workspaceId, adapterId, target) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw channelDeliveryNotSent(
-          new Error(`channels not configured for workspace ${workspaceId}`),
-        );
-      }
-      try {
-        return slot.controller.messageDeliveryFacts(adapterId, target);
-      } catch (error) {
-        throw channelDeliveryNotSent(error);
-      }
-    },
-    recoverReply: async (workspaceId, adapterId, replyInput) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw new Error(`channels not configured for workspace ${workspaceId}`);
-      }
-      await slot.controller.recoverReply(adapterId, replyInput);
-    },
-    sendAsk: async (workspaceId, adapterId, recipient, request) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw new Error(`channels not configured for workspace ${workspaceId}`);
-      }
-      return await slot.controller.sendAsk(adapterId, recipient, request);
-    },
-    ackInteraction: async (workspaceId, adapterId, interactionId, status) => {
-      const slot = getSlot(workspaceId);
-      if (!slot.controller) {
-        throw new Error(`channels not configured for workspace ${workspaceId}`);
-      }
-      await slot.controller.ackInteraction(adapterId, interactionId, status);
-    },
-    setInteractionHandler: (handler) => {
-      input.hooks.onInteraction = handler;
-    },
-    setTextAskHandler: (handler) => {
-      input.hooks.onTextAskReply = handler;
-    },
-    setInboundHandler: (handler) => {
-      input.hooks.onInboundReceived = handler;
-    },
-    listWorkspaceIds: async () => await listWorkspaceChannelIds(input.sparkHome),
-  };
-  return runtime;
 }

@@ -14,6 +14,12 @@ export {
   defaultChannelScope,
 } from "./external-key.ts";
 export { FeishuAdapter, type FeishuAdapterOptions } from "./feishu-adapter.ts";
+export {
+  createFeishuTransport,
+  normalizeFeishuMessageEvent,
+  type FeishuSdkRuntime,
+  type FeishuTransportOptions,
+} from "./feishu-transport.ts";
 export { InfoflowAdapter, type InfoflowAdapterOptions } from "./infoflow-adapter.ts";
 export {
   QqbotAdapter,
@@ -170,6 +176,14 @@ export {
   parseChannelsConfig,
   type ChannelRegistryErrorCode,
 } from "./registry.ts";
+export {
+  ChannelsService,
+  Config,
+  apply,
+  createChannelsPlugin,
+  name,
+  type DshChannelsPluginOptions,
+} from "./plugin.ts";
 export { FakeChannelTransport } from "./transport.ts";
 export {
   mergeChannelMessageReference,
