@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { verifyDshPresetSources } from "../src/presets.ts";
+import { verifyDshPresetSources } from "../src/cue-presets.ts";
 
 const explicit = process.argv[2];
 const packageDir =

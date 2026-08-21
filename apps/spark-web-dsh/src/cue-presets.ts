@@ -25,9 +25,11 @@ const UPSTREAM_FILES = {
 } as const;
 
 const MANAGED_MARKER = ".spark-managed.json";
+const MANAGED_OWNER = "@zendev-lab/spark-web-dsh";
+const LEGACY_MANAGED_OWNER = "@zendev-lab/dsh-tool-cue";
 
 interface ManagedMarker {
-  owner: "@zendev-lab/dsh-tool-cue";
+  owner: typeof MANAGED_OWNER | typeof LEGACY_MANAGED_OWNER;
   dshVersion: string;
   sourceDigest: string;
   contentDigest: string;
@@ -67,7 +69,7 @@ export function assertSupportedDshPackage(dshPackageDir: string): void {
   const record = parsed as { name?: unknown; version?: unknown };
   if (record.name !== "@deepseek-ai/dsh" || record.version !== SUPPORTED_DSH_VERSION) {
     throw new Error(
-      `spark web: @zendev-lab/dsh-tool-cue supports exactly @deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}; found ${String(record.name)}@${String(record.version)}`,
+      `spark web: @zendev-lab/spark-web-dsh supports exactly @deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}; found ${String(record.name)}@${String(record.version)}`,
     );
   }
 }
@@ -80,7 +82,7 @@ function readVerifiedUpstream(dshPackageDir: string): Record<keyof typeof UPSTRE
     const actual = sha256(content);
     if (actual !== expected) {
       throw new Error(
-        `spark web: DSH rc.7 preset source drift at ${path}; expected sha256 ${expected}, got ${actual}. Run the dsh-tool-cue preset update workflow before continuing.`,
+        `spark web: DSH rc.7 preset source drift at ${path}; expected sha256 ${expected}, got ${actual}. Run the spark-web-dsh preset update workflow before continuing.`,
       );
     }
     result[relative as keyof typeof UPSTREAM_FILES] = content;
@@ -104,6 +106,30 @@ export function removeDshShellAndJobsRows(source: string): string {
   return result.join("\n");
 }
 
+export function addSparkCueSkillProvider(source: string, skillDir: string): string {
+  const row = "- id: skill-filesystem\n  name: '@deepseek-ai/dsh-skill-filesystem'";
+  const matches = source.split(row).length - 1;
+  if (matches !== 1) {
+    throw new Error(
+      `spark web: expected one DSH skill-filesystem row while mounting ${skillDir}; found ${matches}`,
+    );
+  }
+  return source.replace(
+    row,
+    [
+      row,
+      "",
+      "- id: spark-cue-skill",
+      "  name: '@deepseek-ai/dsh-skill-filesystem'",
+      "  config:",
+      "    providerName: spark-web-dsh",
+      "    includeDefaultRoots: false",
+      `    bundledSkillDir: ${JSON.stringify(skillDir)}`,
+      "    watch: false",
+    ].join("\n"),
+  );
+}
+
 function managedMetadata(source: string, id: SparkCuePreset): string {
   const mode = id === "spark-standard" ? "标准" : "PTC";
   const description =
@@ -118,9 +144,13 @@ function managedMetadata(source: string, id: SparkCuePreset): string {
 function generatePreset(
   upstream: Record<keyof typeof UPSTREAM_FILES, string>,
   id: SparkCuePreset,
+  skillDir: string,
 ): Record<"agent.cordis.yml" | "preset.yml", string> {
   const base: UpstreamPreset = id === "spark-standard" ? "standard" : "code";
-  const composition = removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]);
+  const composition = addSparkCueSkillProvider(
+    removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]),
+    skillDir,
+  );
   for (const forbidden of ["id: tool-bash", "id: tool-pwsh", "id: tool-jobs"]) {
     if (composition.includes(forbidden)) {
       throw new Error(`spark web: preset transformation failed to remove ${forbidden}`);
@@ -136,7 +166,7 @@ function readMarker(path: string): ManagedMarker | undefined {
   try {
     const value = JSON.parse(readFileSync(path, "utf8")) as Partial<ManagedMarker>;
     if (
-      value.owner !== "@zendev-lab/dsh-tool-cue" ||
+      (value.owner !== MANAGED_OWNER && value.owner !== LEGACY_MANAGED_OWNER) ||
       typeof value.dshVersion !== "string" ||
       typeof value.sourceDigest !== "string" ||
       typeof value.contentDigest !== "string"
@@ -207,6 +237,7 @@ function installOne(
   const marker = assertManagedTargetSafe(target);
   if (marker !== undefined) {
     if (
+      marker.owner === MANAGED_OWNER &&
       marker.dshVersion === SUPPORTED_DSH_VERSION &&
       marker.sourceDigest === sourceDigest &&
       marker.contentDigest === contentDigest
@@ -222,7 +253,7 @@ function installOne(
   mkdirSync(staging);
   for (const [name, content] of Object.entries(files)) writeFileSync(join(staging, name), content);
   const nextMarker: ManagedMarker = {
-    owner: "@zendev-lab/dsh-tool-cue",
+    owner: MANAGED_OWNER,
     dshVersion: SUPPORTED_DSH_VERSION,
     sourceDigest,
     contentDigest,
@@ -248,11 +279,20 @@ function installOne(
 export function installManagedCuePresets(
   dshHome: string,
   dshPackageDir: string,
+  skillDir: string,
 ): ManagedPresetResult[] {
   assertSupportedDshPackage(dshPackageDir);
+  const skillPath = join(skillDir, "spark-cue", "SKILL.md");
+  const skillStats = lstatSync(skillPath, { throwIfNoEntry: false });
+  if (skillStats === undefined || !skillStats.isFile() || skillStats.isSymbolicLink()) {
+    throw new Error(`spark web: bundled spark-cue Skill is not a regular file at ${skillPath}`);
+  }
   const upstream = readVerifiedUpstream(dshPackageDir);
   const sourceDigest = digestFiles(upstream);
-  const generated = SPARK_CUE_PRESETS.map((id) => ({ id, files: generatePreset(upstream, id) }));
+  const generated = SPARK_CUE_PRESETS.map((id) => ({
+    id,
+    files: generatePreset(upstream, id, skillDir),
+  }));
   const root = join(dshHome, ".agent-presets");
   // Validate both targets before changing either one.
   for (const { id } of generated) assertManagedTargetSafe(join(root, id));

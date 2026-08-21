@@ -11,6 +11,8 @@
   "files": [
     "bin/**/*",
     "lib/**/*.js",
+    "presets/**/*",
+    "skills/**/*",
     "src/**/*.ts",
     "src/**/*.tsx",
     "README.md"
@@ -25,7 +27,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "test": "vp test run",
+    "verify:presets": "node scripts/verify-presets.mjs"
   },
   "dependencies": {
     "@zendev-lab/dsh-tool-cue": "workspace:^",

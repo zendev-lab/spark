@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,4 +26,12 @@ test("packaged skills resolve from the generated product root", async () => {
 
   expect(defaultBuiltinSkillsDir()).toBe(skills);
   expect(defaultSparkCueSkillsDir()).toBe(join(skills, "spark-cue"));
+});
+
+test("source-tree Cue skills resolve from the spark-web-dsh product owner", async () => {
+  delete process.env.SPARK_PRODUCT_DIST;
+  const skills = defaultSparkCueSkillsDir();
+
+  expect(skills.endsWith(join("apps", "spark-web-dsh", "skills"))).toBe(true);
+  await expect(access(join(skills, "spark-cue", "SKILL.md"))).resolves.toBeUndefined();
 });

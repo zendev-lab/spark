@@ -50,9 +50,11 @@ export function defaultSparkCueSkillsDir(): string {
   const fromProduct = productSkills && resolve(productSkills, "spark-cue");
   if (fromProduct && existsSync(fromProduct)) return fromProduct;
   const rolesDir = dirname(fileURLToPath(import.meta.url));
-  const fromWorkspace = resolve(rolesDir, "../../spark-cue/skills");
+  // Transitional source-tree lookup: spark-web-dsh now owns the asset, while
+  // the pre-DSH-kernel daemon still consumes the same Skill through spark-roles.
+  const fromWorkspace = resolve(rolesDir, "../../../apps/spark-web-dsh/skills");
   if (existsSync(fromWorkspace)) return fromWorkspace;
-  return resolve(process.cwd(), "packages", "spark-cue", "skills");
+  return resolve(process.cwd(), "apps", "spark-web-dsh", "skills");
 }
 
 export function defaultBasePromptDirs(): string[] {

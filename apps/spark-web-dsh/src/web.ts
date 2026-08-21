@@ -12,7 +12,8 @@
  *    `plugins/spark-llm/`, then mounted through a generated patch overlay —
  *    no manual install or copy step.
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
- *    presets**, so Cue replaces DSH Bash/Pwsh/Jobs without manual setup.
+ *    presets and bundled spark-cue Skill**, so Cue replaces DSH
+ *    Bash/Pwsh/Jobs with product-owned guidance and no manual setup.
  * 3. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare
@@ -57,10 +58,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  assertSupportedDshPackage,
-  installManagedCuePresets,
-} from "@zendev-lab/dsh-tool-cue/presets";
+import { assertSupportedDshPackage, installManagedCuePresets } from "./cue-presets.ts";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -726,7 +724,8 @@ export async function prepareSparkWebDispatch(
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
   // Metadata and upstream source verification happen before any managed write.
   assertSupportedDshPackage(dshPackageDir);
-  const presets = installManagedCuePresets(dshHome, dshPackageDir);
+  const skillDir = join(resolveSparkWebDshPackageDir(), "skills");
+  const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
   for (const preset of presets) {
     if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);
   }

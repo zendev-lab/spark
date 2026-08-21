@@ -133,6 +133,10 @@ test("spark-web-dsh application resolves as the DSH client plugin package root",
   const webDir = resolveSparkWebDshPackageDir();
   assert.ok(existsSync(join(webDir, "src", "client.tsx")), "client plugin entry exists");
   assert.ok(existsSync(join(webDir, "bin", "spark-web-dsh")), "spark-web-dsh executable exists");
+  assert.ok(
+    existsSync(join(webDir, "skills", "spark-cue", "SKILL.md")),
+    "product-bundled spark-cue Skill exists",
+  );
 });
 
 test("resolveDshProfileDir honors DSH_HOME", () => {

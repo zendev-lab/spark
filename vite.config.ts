@@ -5,7 +5,7 @@ export default defineConfig({
     ignorePatterns: [
       "**/*.md",
       "packages/spark-i18n/src/paraglide/**",
-      "packages/dsh-tool-cue/presets/upstream-package/**",
+      "apps/spark-web-dsh/presets/upstream-package/**",
       "prek.toml",
       "_typos.toml",
     ],

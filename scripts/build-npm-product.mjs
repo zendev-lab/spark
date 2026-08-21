@@ -328,7 +328,7 @@ await Promise.all(
     .filter((distribution) => distribution.skills)
     .map((distribution) =>
       cp(
-        resolve(root, "packages/spark-cue/skills/spark-cue"),
+        resolve(root, "apps/spark-web-dsh/skills/spark-cue"),
         resolve(distribution.directory, "skills/spark-cue"),
         { recursive: true },
       ),
