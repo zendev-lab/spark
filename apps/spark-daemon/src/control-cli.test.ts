@@ -250,7 +250,6 @@ it("prints the assistant text for invocation result by default", async () => {
 it("prints a readable channel status by default", async () => {
   rpc.mockResolvedValue({
     snapshot: {
-      workspaceId: "ws_demo",
       configured: true,
       ingressEnabled: true,
       state: "running",
@@ -262,16 +261,11 @@ it("prints a readable channel status by default", async () => {
   const capture = outputCapture();
 
   await expect(
-    runSparkDaemonControlCommand(
-      paths,
-      "channel",
-      ["status", "--workspace", "ws_demo"],
-      capture.io,
-    ),
+    runSparkDaemonControlCommand(paths, "channel", ["status"], capture.io),
   ).resolves.toBe(0);
 
   const output = capture.stdout();
-  expect(output).toContain("workspace ws_demo: configured yes, ingress on, state running");
+  expect(output).toContain("daemon channels: configured yes, ingress on, state running");
   expect(output).toContain("qqbot-main (qqbot): running — connected");
   expect(output).toContain("routes: 1");
   expect(output).not.toMatch(/^\s*[{[]/);

@@ -51,7 +51,6 @@ describe("daemon channel human interactions", () => {
         wait: registration.wait,
         request,
         channel: {
-          workspaceId: "ws_1",
           adapterId: "qqbot",
           recipient: "group:group_1",
           actorId: "user_1",
@@ -75,7 +74,6 @@ describe("daemon channel human interactions", () => {
       });
 
       expect(sendAsk).toHaveBeenCalledWith(
-        "ws_1",
         "qqbot",
         "group:group_1",
         expect.objectContaining({
@@ -120,7 +118,6 @@ describe("daemon channel human interactions", () => {
         ],
         context: {
           channel: {
-            workspaceId: "ws_1",
             adapterId: "infoflow",
             recipient: "alice",
             actorId: "alice",
@@ -154,7 +151,6 @@ describe("daemon channel human interactions", () => {
         wait: registration.wait,
         request,
         channel: {
-          workspaceId: "ws_1",
           adapterId: "infoflow",
           recipient: "alice",
           actorId: "alice",
@@ -177,7 +173,6 @@ describe("daemon channel human interactions", () => {
       });
 
       expect(sendAsk).toHaveBeenCalledWith(
-        "ws_1",
         "infoflow",
         "alice",
         expect.objectContaining({
@@ -193,7 +188,6 @@ describe("daemon channel human interactions", () => {
         settleChannelAskTextReply(
           waits,
           {
-            workspaceId: "ws_1",
             recipient: "alice",
             message: {
               adapter: "infoflow",
@@ -202,7 +196,7 @@ describe("daemon channel human interactions", () => {
               messageId: "msg_missing_actor",
             },
           },
-          { runtimeId: "rt_test" },
+          {},
         ),
       ).resolves.toBe("continue");
       expect(waits.get("hreq_infoflow")?.status).toBe("pending");
@@ -211,7 +205,6 @@ describe("daemon channel human interactions", () => {
         settleChannelAskTextReply(
           waits,
           {
-            workspaceId: "ws_1",
             recipient: "alice",
             message: {
               adapter: "infoflow",
@@ -221,7 +214,7 @@ describe("daemon channel human interactions", () => {
               messageId: "msg_reply_1",
             },
           },
-          { runtimeId: "rt_test" },
+          {},
         ),
       ).resolves.toBe("settled");
 
@@ -237,7 +230,6 @@ describe("daemon channel human interactions", () => {
         settleChannelAskTextReply(
           waits,
           {
-            workspaceId: "ws_1",
             recipient: "alice",
             message: {
               adapter: "infoflow",
@@ -247,7 +239,7 @@ describe("daemon channel human interactions", () => {
               messageId: "msg_reply_2",
             },
           },
-          { runtimeId: "rt_test" },
+          {},
         ),
       ).resolves.toBe("continue");
     } finally {
@@ -281,7 +273,6 @@ describe("daemon channel human interactions", () => {
         ],
         context: {
           channel: {
-            workspaceId: "ws_1",
             adapterId: "infoflow",
             recipient: "alice",
             actorId: "alice",
@@ -293,7 +284,6 @@ describe("daemon channel human interactions", () => {
         settleChannelAskTextReply(
           waits,
           {
-            workspaceId: "ws_1",
             recipient: "alice",
             message: {
               adapter: "infoflow",
@@ -303,7 +293,7 @@ describe("daemon channel human interactions", () => {
               messageId: "msg_dotted",
             },
           },
-          { runtimeId: "rt_test" },
+          {},
         ),
       ).resolves.toBe("settled");
 
@@ -335,7 +325,6 @@ describe("daemon channel human interactions", () => {
         ],
         context: {
           channel: {
-            workspaceId: "ws_1",
             adapterId: "infoflow",
             recipient: "alice",
             actorId: "alice",
@@ -347,7 +336,6 @@ describe("daemon channel human interactions", () => {
         settleChannelAskTextReply(
           waits,
           {
-            workspaceId: "ws_1",
             recipient: "alice",
             message: {
               adapter: "infoflow",
@@ -357,7 +345,7 @@ describe("daemon channel human interactions", () => {
               messageId: "msg_freeform",
             },
           },
-          { runtimeId: "rt_test" },
+          {},
         ),
       ).resolves.toBe("settled");
 
@@ -378,10 +366,9 @@ describe("daemon channel human interactions", () => {
   it("accepts one valid callback, replays the same event, and rejects competing clicks", async () => {
     const ackInteraction = vi.fn(
       async (
-        _workspaceId: string,
         _adapterId: string,
         _interactionId: string,
-        _status?: Parameters<DaemonChannelIngressRuntime["ackInteraction"]>[3],
+        _status?: Parameters<DaemonChannelIngressRuntime["ackInteraction"]>[2],
       ) => undefined,
     );
     const channelIngress = { ackInteraction } as unknown as DaemonChannelIngressRuntime;
@@ -425,7 +412,6 @@ describe("daemon channel human interactions", () => {
         ],
         context: {
           channel: {
-            workspaceId: "ws_1",
             adapterId: "qq-main",
             recipient: "c2c:user_1",
             actorId: "user_1",
@@ -448,7 +434,7 @@ describe("daemon channel human interactions", () => {
         },
       };
 
-      const options = { runtimeId: "rt_test", onAnswerEvent };
+      const options = { onAnswerEvent };
       await settleChannelAskInteraction(channelIngress, waits, input, options);
       await settleChannelAskInteraction(channelIngress, waits, input, options);
       await settleChannelAskInteraction(
@@ -470,7 +456,7 @@ describe("daemon channel human interactions", () => {
       });
       expect(waits.listEvidenceAnswerEvents("hreq_callback")).toHaveLength(1);
 
-      expect(ackInteraction.mock.calls.map((call) => call[3])).toEqual([
+      expect(ackInteraction.mock.calls.map((call) => call[2])).toEqual([
         "success",
         "success",
         "duplicate",
@@ -485,19 +471,7 @@ describe("daemon channel human interactions", () => {
       const outbox = db
         .prepare("SELECT kind, payload_json AS payloadJson FROM outbox")
         .all() as Array<{ kind: string; payloadJson: string }>;
-      expect(outbox).toHaveLength(1);
-      expect(outbox[0]?.kind).toBe("human.response.recorded");
-      expect(JSON.parse(outbox[0]!.payloadJson)).toMatchObject({
-        type: "human.response.recorded",
-        runtimeId: "rt_test",
-        humanRequestId: "hreq_callback",
-        payload: {
-          source: "channel",
-          provenance: "direct_user",
-          status: "answered",
-          answers: { route: "safe" },
-        },
-      });
+      expect(outbox).toEqual([]);
     } finally {
       db.close();
     }
@@ -506,10 +480,9 @@ describe("daemon channel human interactions", () => {
   it("rejects unknown tokens and a different actor without settling the wait", async () => {
     const ackInteraction = vi.fn(
       async (
-        _workspaceId: string,
         _adapterId: string,
         _interactionId: string,
-        _status?: Parameters<DaemonChannelIngressRuntime["ackInteraction"]>[3],
+        _status?: Parameters<DaemonChannelIngressRuntime["ackInteraction"]>[2],
       ) => undefined,
     );
     const channelIngress = { ackInteraction } as unknown as DaemonChannelIngressRuntime;
@@ -524,7 +497,6 @@ describe("daemon channel human interactions", () => {
         prompt: "Choose",
         context: {
           channel: {
-            workspaceId: "ws_1",
             adapterId: "qq-main",
             recipient: "group:group_1",
             actorId: "user_1",
@@ -548,31 +520,28 @@ describe("daemon channel human interactions", () => {
         channelIngress,
         waits,
         {
-          workspaceId: "ws_1",
           event,
         },
-        { runtimeId: "rt_test" },
+        {},
       );
       await settleChannelAskInteraction(
         channelIngress,
         waits,
         {
-          workspaceId: "ws_1",
           event: { ...event, actorId: "user_1", buttonData: "unknown" },
         },
-        { runtimeId: "rt_test" },
+        {},
       );
       await settleChannelAskInteraction(
         channelIngress,
         waits,
         {
-          workspaceId: "ws_1",
           event: { ...event, actorId: "user_1", recipient: undefined },
         },
-        { runtimeId: "rt_test" },
+        {},
       );
 
-      expect(ackInteraction.mock.calls.map((call) => call[3])).toEqual([
+      expect(ackInteraction.mock.calls.map((call) => call[2])).toEqual([
         "forbidden",
         "forbidden",
         "forbidden",

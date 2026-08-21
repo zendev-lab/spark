@@ -293,20 +293,17 @@ async function sessionCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo):
 
 async function channelCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo): Promise<number> {
   const [action = "status"] = parsed.positionals;
-  const workspaceId = option(parsed, "workspace");
-  if (!workspaceId) throw new Error(`spark daemon channel ${action} requires --workspace <id>`);
   let result: unknown;
   if (action === "status" || action === "list") {
-    result = await localRpcRequest(paths, "channel.status", { workspaceId });
+    result = await localRpcRequest(paths, "channel.status", {});
   } else if (action === "reload") {
-    result = await localRpcRequest(paths, "channel.reload", { workspaceId });
+    result = await localRpcRequest(paths, "channel.reload", {});
   } else if (action === "notify") {
     const notifyAction = option(parsed, "action") ?? "test";
     if (notifyAction !== "test" && notifyAction !== "send") {
       throw new Error("spark daemon channel notify --action must be test or send");
     }
     result = await localRpcRequest(paths, "channel.notify", {
-      workspaceId,
       action: notifyAction,
       ...(option(parsed, "route") ? { route: option(parsed, "route") } : {}),
       ...(option(parsed, "adapter") ? { adapter: option(parsed, "adapter") } : {}),
@@ -706,7 +703,7 @@ function renderChannelValue(value: Record<string, unknown>): string | undefined 
 
 function renderChannelSnapshot(snapshot: Record<string, unknown>): string {
   const lines = [
-    `workspace ${text(snapshot.workspaceId)}: configured ${yesNo(snapshot.configured)}, ingress ${snapshot.ingressEnabled === true ? "on" : "off"}, state ${text(snapshot.state)}`,
+    `daemon channels: configured ${yesNo(snapshot.configured)}, ingress ${snapshot.ingressEnabled === true ? "on" : "off"}, state ${text(snapshot.state)}`,
   ];
   for (const adapter of recordArray(snapshot.adapters) ?? []) {
     lines.push(

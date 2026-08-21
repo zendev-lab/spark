@@ -45,10 +45,10 @@ describe("console nav", () => {
     ]);
     expect(result[1]?.items.map((item) => item.href)).toEqual([
       "/local/settings",
-      "/local/settings/channels",
       "/local/settings/registration",
     ]);
     expect(result[2]?.items.map((item) => item.href)).toEqual([
+      "/settings/channels",
       "/settings/models?workspace=local",
       "/settings/invocations?workspace=local",
     ]);
@@ -113,8 +113,8 @@ describe("console nav", () => {
     ).toBe(false);
     expect(
       isConsoleNavItemActive({
-        pathname: "/local/settings/channels",
-        href: "/local/settings/channels",
+        pathname: "/settings/channels",
+        href: "/settings/channels",
       }),
     ).toBe(true);
     expect(
@@ -135,7 +135,7 @@ describe("console nav", () => {
   });
 
   it("labels console pages by their settings scope", () => {
-    expect(currentConsolePageLabel({ pathname: "/local/settings/channels", nav })).toBe(
+    expect(currentConsolePageLabel({ pathname: "/settings/channels", nav })).toBe(
       "Message platforms",
     );
     expect(currentConsolePageLabel({ pathname: "/settings/access", nav })).toBe("Browser access");

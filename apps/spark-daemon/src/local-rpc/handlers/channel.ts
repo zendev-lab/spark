@@ -21,32 +21,28 @@ export async function handleChannelRequest(
     switch (request.method) {
       case "channel.status": {
         const channelIngress = requireChannelIngress(options);
-        return channelIngress.status(request.params.workspaceId);
+        return channelIngress.status();
       }
       case "channel.configure": {
         const channelIngress = requireChannelIngress(options);
-        const result = await channelIngress.configure(
-          request.params.workspaceId,
-          request.params.config,
-        );
+        const result = await channelIngress.configure(request.params.config);
         return result;
       }
       case "channel.reload": {
         const channelIngress = requireChannelIngress(options);
-        const result = await channelIngress.reload(request.params.workspaceId);
+        const result = await channelIngress.reload();
         return result;
       }
       case "channel.notify": {
         const channelIngress = requireChannelIngress(options);
-        const status = channelIngress.status(request.params.workspaceId);
+        const status = channelIngress.status();
         if (!status.configured) {
           throw new SparkDaemonControlError(
             "channel_not_configured",
-            `Channels are not configured for workspace ${request.params.workspaceId}.`,
+            "Channels are not configured for this daemon.",
           );
         }
-        const { workspaceId, ...notifyInput } = request.params;
-        const result = await channelIngress.notify(workspaceId, notifyInput);
+        const result = await channelIngress.notify(request.params);
         return result;
       }
     }

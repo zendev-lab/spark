@@ -542,7 +542,6 @@ export async function executeSparkDaemonSessionControl(
             ...(parsed.originBinding
               ? {
                   channelReply: {
-                    workspaceId: parsed.originBinding.workspaceId,
                     adapter: parsed.originBinding.adapter,
                     adapterId: parsed.originBinding.adapterId,
                     ...(parsed.originBinding.adapterAccountIdentity
@@ -805,7 +804,6 @@ function assertIdempotentCompactReplay(
 function originBindingFromTask(task: SparkDaemonSessionRunTask) {
   if (!task.channelReply || !task.channelContext) return undefined;
   return {
-    workspaceId: task.channelReply.workspaceId,
     adapter: task.channelReply.adapter,
     adapterId: task.channelReply.adapterId,
     ...(task.channelReply.adapterAccountIdentity

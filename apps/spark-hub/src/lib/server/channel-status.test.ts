@@ -13,7 +13,7 @@ import {
   type HubChannelDaemonClient,
 } from "./channel-status";
 
-const workspaceId = "ws_11111111111111111111111111111111";
+const runtimeId = "rt_11111111111111111111111111111111";
 const secretContext: RuntimeEphemeralSecretRequestContext = {
   actorUserId: "usr_11111111111111111111111111111111",
   browserRequestId: "msg_11111111111111111111111111111111",
@@ -52,10 +52,10 @@ describe("Hub channel runtime adapter", () => {
       },
     });
 
-    const status = await loadChannelStatusForHub(workspaceId, client);
+    const status = await loadChannelStatusForHub(runtimeId, client);
     const editor = channelEditorValuesFromProjection(status.configuration);
 
-    expect(client.status).toHaveBeenCalledWith(workspaceId);
+    expect(client.status).toHaveBeenCalledWith(runtimeId);
     expect(editor).toMatchObject({
       infoflowEnabled: true,
       infoflowAppKey: "",
@@ -79,10 +79,10 @@ describe("Hub channel runtime adapter", () => {
       onUnbound: "reject" as const,
     };
 
-    const saved = await saveChannelsConfigForHub(workspaceId, values, secretContext, client);
+    const saved = await saveChannelsConfigForHub(runtimeId, values, secretContext, client);
 
     expect(client.configure).toHaveBeenCalledWith(
-      workspaceId,
+      runtimeId,
       expect.objectContaining({
         adapters: {
           infoflow: expect.objectContaining({
@@ -151,15 +151,15 @@ describe("Hub channel runtime adapter", () => {
 function daemonClient(overrides: Partial<SparkChannelControlSnapshot> = {}) {
   const status = daemonStatus(overrides);
   return {
-    status: vi.fn(async (_workspaceId: string) => status),
+    status: vi.fn(async (_runtimeId: string) => status),
     configure: vi.fn(
       async (
-        _workspaceId: string,
+        _runtimeId: string,
         _config: ChannelsConfig,
         _context: RuntimeEphemeralSecretRequestContext,
       ) => status,
     ),
-    reload: vi.fn(async (_workspaceId: string) => status),
+    reload: vi.fn(async (_runtimeId: string) => status),
   } satisfies HubChannelDaemonClient & {
     status: ReturnType<typeof vi.fn>;
     configure: ReturnType<typeof vi.fn>;
@@ -171,7 +171,6 @@ function daemonStatus(
   overrides: Partial<SparkChannelControlSnapshot> = {},
 ): SparkChannelControlSnapshot {
   return {
-    workspaceId,
     available: true as const,
     configured: false,
     ingressEnabled: false,

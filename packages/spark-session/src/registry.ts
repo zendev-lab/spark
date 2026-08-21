@@ -183,6 +183,8 @@ export interface ResolveChannelSessionInput {
   externalKey: string;
   adapterId?: string;
   adapterAccountIdentity: string;
+  allowLegacyAccountClaim?: boolean;
+  onUnbound?: SparkSessionUnboundPolicy;
   name?: string;
   createCwd: (sessionId: string) => Promise<string>;
   now?: Date;
@@ -1323,7 +1325,7 @@ export class SparkSessionRegistry {
       adapterId,
       adapterAccountIdentity,
       scope,
-      allowLegacyAccountClaim: false,
+      allowLegacyAccountClaim: input.allowLegacyAccountClaim ?? false,
     });
     if (existingMatch) {
       const current = existingMatch.session;
@@ -1357,6 +1359,13 @@ export class SparkSessionRegistry {
       file.sessions[sessionIndex] = updated;
       await this.saveFile(file);
       return updated;
+    }
+
+    if ((input.onUnbound ?? "create") === "reject") {
+      throw new SparkSessionRegistryError(
+        "binding_unbound",
+        `no Channel Session bound to ${externalKey}`,
+      );
     }
 
     const sessionId = createSparkSessionId();

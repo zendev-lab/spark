@@ -53,6 +53,8 @@ export interface ChannelInteractionEvent {
 /** Interaction after a concrete configured adapter has been identified. */
 export interface RoutedChannelInteractionEvent extends ChannelInteractionEvent {
   adapterId: string;
+  /** Rename-stable provider account identity resolved by the registry. */
+  adapterAccountIdentity?: string;
 }
 
 export type ChannelInteractionAckStatus =

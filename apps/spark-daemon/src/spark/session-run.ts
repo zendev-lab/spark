@@ -60,6 +60,7 @@ import {
 import {
   channelDeliveryFailureOutcome,
   channelDeliveryOutcomeUnknown,
+  channelAdapterAccountIdentity,
   renderInfoflowInternalSystemPrompt,
   renderInfoflowMessageContextPrompt,
   resolveInfoflowCustomSystemPrompt,
@@ -67,7 +68,8 @@ import {
   type ChannelReplyTarget,
 } from "@zendev-lab/dsh-channels";
 import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
-import { loadDaemonChannelsConfig, type DaemonChannelIngressRuntime } from "../channels/ingress.ts";
+import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
+import { loadDaemonGlobalChannelsConfig } from "../channels/config-migration.ts";
 import type {
   SparkDaemonSessionCompactTask,
   SparkDaemonSessionRunTask,
@@ -210,7 +212,6 @@ export interface SparkDaemonChannelReplyDeliveryInput {
   idempotencyKey: string;
   invocationId: string;
   sessionId: string;
-  workspaceId: string;
   adapterId: string;
   adapterAccountIdentity?: string;
   externalKey?: string;
@@ -770,8 +771,10 @@ export function createChannelAwareTaskExecutor(
       inlineDelivery = options.channelReplyDelivery.stage({
         invocationId: context.invocationId,
         sessionId: task.sessionId,
-        workspaceId: task.channelReply!.workspaceId,
         adapterId: task.channelReply!.adapterId,
+        ...(task.channelReply!.adapterAccountIdentity
+          ? { adapterAccountIdentity: task.channelReply!.adapterAccountIdentity }
+          : {}),
         target,
         // If the process exits during model execution, startup recovery updates
         // the already-created card with this honest terminal instead of sending
@@ -783,12 +786,9 @@ export function createChannelAwareTaskExecutor(
     };
     let stream: ChannelReplyStream | undefined;
     try {
-      stream = await options.channelIngress.openReplyStream(
-        task.channelReply.workspaceId,
-        task.channelReply.adapterId,
-        target,
-        { onCreated: persistInlineRecovery },
-      );
+      stream = await options.channelIngress.openReplyStream(task.channelReply.adapterId, target, {
+        onCreated: persistInlineRecovery,
+      });
       // Compatibility fallback for ingress implementations and tests that do
       // not yet invoke onCreated. The real registry calls it synchronously as
       // soon as the platform returns the recovery handle.
@@ -1064,7 +1064,6 @@ export function channelReplyDeliveryForCompletion(
     idempotencyKey: `channel.reply:${kind}:${invocationId}`,
     invocationId,
     sessionId: task.sessionId,
-    workspaceId: channelReply.workspaceId,
     adapterId: channelReply.adapterId,
     ...(channelReply.adapterAccountIdentity
       ? { adapterAccountIdentity: channelReply.adapterAccountIdentity }
@@ -1647,20 +1646,13 @@ export async function executeSparkDaemonSessionRunTask(
 function completeChannelBinding(task: SparkDaemonSessionRunTask) {
   const reply = task.channelReply;
   if (!reply) return undefined;
-  if (
-    !reply.adapter ||
-    !reply.externalKey ||
-    !reply.adapterId ||
-    !reply.workspaceId ||
-    !reply.recipient
-  ) {
+  if (!reply.adapter || !reply.externalKey || !reply.adapterId || !reply.recipient) {
     throw new Error("channel-origin task has incomplete frozen binding");
   }
   if (task.channelContext && task.channelContext.externalKey !== reply.externalKey) {
     throw new Error("channel-origin task externalKey does not match frozen binding");
   }
   return {
-    workspaceId: reply.workspaceId,
     adapter: reply.adapter,
     externalKey: reply.externalKey,
     recipient: reply.recipient,
@@ -1900,6 +1892,11 @@ async function sessionContextForTask(
         })
       : session?.sessionPath;
   if (task.channelReply) {
+    if (session && (session.scope.kind !== "daemon" || session.purpose !== "channel")) {
+      throw new Error(
+        `Channel invocation ${task.sessionId} requires a daemon-owned Channel Session`,
+      );
+    }
     return {
       surface: "channel",
       ...(session ? { session } : {}),
@@ -1912,7 +1909,6 @@ async function sessionContextForTask(
           }
         : {}),
       ...(session?.cwd ? { cwd: session.cwd } : {}),
-      ...(session?.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
       ...(session?.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
       ...(role ? { role } : {}),
       ...(sessionPath ? { sessionPath } : {}),
@@ -2081,7 +2077,7 @@ async function systemPromptForChannelSession(
       : "user";
 
   if (reply.adapter === "infoflow") {
-    const infoflow = await loadInfoflowAdapterConfig(options, reply.workspaceId);
+    const infoflow = await loadInfoflowAdapterConfig(options, reply.adapterAccountIdentity);
     return composeAgentSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderInfoflowInternalSystemPrompt({
@@ -2096,7 +2092,7 @@ async function systemPromptForChannelSession(
   }
 
   if (reply.adapter === "qqbot") {
-    const qqbot = await loadQqbotAdapterConfig(options, reply.workspaceId);
+    const qqbot = await loadQqbotAdapterConfig(options, reply.adapterAccountIdentity);
     const custom = qqbot?.system_prompt?.trim();
     return composeAgentSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
@@ -2143,14 +2139,17 @@ async function systemPromptForSession(
 
 async function loadInfoflowAdapterConfig(
   options: SparkDaemonTaskExecutorOptions,
-  workspaceId: string,
+  adapterAccountIdentity?: string,
 ): Promise<InfoflowAdapterConfig | undefined> {
   const sparkHome = options.channelsSparkHome ?? options.controlSparkHome;
   if (!sparkHome) return undefined;
   try {
-    const loaded = await loadDaemonChannelsConfig(sparkHome, workspaceId);
-    const adapter = Object.values(loaded.config?.adapters ?? {}).find(
-      (entry) => entry.type === "infoflow",
+    const loaded = await loadDaemonGlobalChannelsConfig({ sparkHome });
+    const adapter = Object.values(loaded.state === "ready" ? loaded.config.adapters : {}).find(
+      (entry) =>
+        entry.type === "infoflow" &&
+        (!adapterAccountIdentity ||
+          channelAdapterAccountIdentity(entry) === adapterAccountIdentity),
     );
     return adapter?.type === "infoflow" ? adapter : undefined;
   } catch (error) {
@@ -2161,14 +2160,17 @@ async function loadInfoflowAdapterConfig(
 
 async function loadQqbotAdapterConfig(
   options: SparkDaemonTaskExecutorOptions,
-  workspaceId: string,
+  adapterAccountIdentity?: string,
 ): Promise<QqbotAdapterConfig | undefined> {
   const sparkHome = options.channelsSparkHome ?? options.controlSparkHome;
   if (!sparkHome) return undefined;
   try {
-    const loaded = await loadDaemonChannelsConfig(sparkHome, workspaceId);
-    const adapter = Object.values(loaded.config?.adapters ?? {}).find(
-      (entry) => entry.type === "qqbot",
+    const loaded = await loadDaemonGlobalChannelsConfig({ sparkHome });
+    const adapter = Object.values(loaded.state === "ready" ? loaded.config.adapters : {}).find(
+      (entry) =>
+        entry.type === "qqbot" &&
+        (!adapterAccountIdentity ||
+          channelAdapterAccountIdentity(entry) === adapterAccountIdentity),
     );
     return adapter?.type === "qqbot" ? adapter : undefined;
   } catch (error) {

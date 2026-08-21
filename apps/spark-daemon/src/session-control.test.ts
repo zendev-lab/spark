@@ -694,7 +694,6 @@ describe("daemon session control admission", () => {
       const invocation = new SparkInvocationStore(db).require(submitted.invocationId!);
       expect(invocation.task).toMatchObject({
         channelReply: {
-          workspaceId: "workspace-original",
           adapter: "qqbot",
           adapterId: "qq-account-original",
           adapterAccountIdentity: "channel-account:qqbot:original",
@@ -710,7 +709,6 @@ describe("daemon session control admission", () => {
           { assistantText: "delegated result" },
         ),
       ).toMatchObject({
-        workspaceId: "workspace-original",
         adapterId: "qq-account-original",
         adapterAccountIdentity: "channel-account:qqbot:original",
         externalKey: "qqbot:c2c:user-original",

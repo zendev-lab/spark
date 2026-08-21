@@ -5,7 +5,7 @@ import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { createDaemonChannelTransportFactory } from "./transport-factory.ts";
 
 describe("createDaemonChannelTransportFactory", () => {
-  it("injects a cursor scoped by workspace and adapter into each rebuilt QQ transport", async () => {
+  it("injects a cursor scoped by provider account identity into rebuilt QQ transports", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const createdOptions: QqbotTransportOptions[] = [];
@@ -16,37 +16,34 @@ describe("createDaemonChannelTransportFactory", () => {
     const factory = createDaemonChannelTransportFactory(db, { createQqbotTransport });
     try {
       expect(
-        factory({
-          workspaceId: "workspace-1",
-          adapterId: "qq-main",
-          config: { type: "qqbot", app_id: "app", client_secret: "secret" },
+        factory("qq-main", {
+          type: "qqbot",
+          app_id: "app",
+          client_secret: "secret",
         }),
       ).toBeInstanceOf(FakeChannelTransport);
       await createdOptions[0]?.saveCursor?.({ sessionId: "gateway-session", lastSeq: 12 });
 
-      factory({
-        workspaceId: "workspace-1",
-        adapterId: "qq-main",
-        config: { type: "qqbot", app_id: "app", client_secret: "secret" },
+      factory("qq-main", {
+        type: "qqbot",
+        app_id: "app",
+        client_secret: "secret",
       });
       expect(await createdOptions[1]?.loadCursor?.()).toEqual({
         sessionId: "gateway-session",
         lastSeq: 12,
       });
 
-      factory({
-        workspaceId: "workspace-2",
-        adapterId: "qq-main",
-        config: { type: "qqbot", app_id: "app", client_secret: "secret" },
+      factory("qq-renamed", {
+        type: "qqbot",
+        app_id: "app",
+        client_secret: "rotated",
       });
-      expect(await createdOptions[2]?.loadCursor?.()).toBeNull();
-      expect(
-        factory({
-          workspaceId: "workspace-1",
-          adapterId: "info-main",
-          config: { type: "infoflow" },
-        }),
-      ).toBeUndefined();
+      expect(await createdOptions[2]?.loadCursor?.()).toEqual({
+        sessionId: "gateway-session",
+        lastSeq: 12,
+      });
+      expect(factory("info-main", { type: "infoflow" })).toBeUndefined();
     } finally {
       db.close();
     }

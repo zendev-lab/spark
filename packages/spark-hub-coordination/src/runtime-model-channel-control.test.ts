@@ -5,7 +5,7 @@ import { createWorkspaceWithLease } from "./projection-services.ts";
 import {
   registerRuntimeEphemeralSecretDispatcher,
   runRuntimeEphemeralSecretRequest,
-  runtimeChannelRouteForWorkspace,
+  runtimeChannelRouteForRuntime,
   runtimeModelRouteForRuntime,
   runtimeModelRouteForWorkspace,
   type RuntimeEphemeralSecretDispatchInput,
@@ -191,7 +191,7 @@ describe("runtime ephemeral secret control", () => {
     h.db.close();
   });
 
-  it("requires the active workspace lease route for channel credentials", async () => {
+  it("requires the selected daemon route for channel credentials", async () => {
     const h = setup();
     let executionCount = 0;
     const unregister = registerRuntimeEphemeralSecretDispatcher(
@@ -203,7 +203,6 @@ describe("runtime ephemeral secret control", () => {
           operation: "channel.configure",
           status: "succeeded",
           result: {
-            workspaceId: h.workspaceId,
             available: true,
             configured: true,
             ingressEnabled: true,
@@ -221,10 +220,9 @@ describe("runtime ephemeral secret control", () => {
     );
     try {
       await runRuntimeEphemeralSecretRequest(h.db, {
-        route: runtimeChannelRouteForWorkspace(h.db, h.workspaceId),
+        route: runtimeChannelRouteForRuntime(h.runtimeId),
         request: {
           operation: "channel.configure",
-          workspaceId: h.workspaceId,
           config: {
             adapters: {
               infoflow: {

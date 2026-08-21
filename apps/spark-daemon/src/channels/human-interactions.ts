@@ -7,7 +7,6 @@ import {
 } from "@zendev-lab/spark-protocol";
 import type { ChannelAskRequest, IncomingMessage } from "@zendev-lab/dsh-channels";
 import { renderTextChannelAsk } from "@zendev-lab/dsh-channels";
-import { runtimeEnvelope } from "../protocol/outbound.ts";
 import type { SparkDaemonHumanInteractionOpened } from "../core/human-interactions.ts";
 import {
   SparkDaemonHumanWaitRegistry,
@@ -137,14 +136,16 @@ async function deliverChannelAsk(
   if (deliveryOutbox) {
     await deliveryOutbox.enqueueAsk({
       idempotencyKey: `channel.ask:${humanRequestId}`,
-      workspaceId: channel.workspaceId,
       adapterId: channel.adapterId,
+      ...(channel.adapterAccountIdentity
+        ? { adapterAccountIdentity: channel.adapterAccountIdentity }
+        : {}),
       recipient: channel.recipient,
       request,
     });
     return;
   }
-  await channelIngress.sendAsk(channel.workspaceId, channel.adapterId, channel.recipient, request);
+  await channelIngress.sendAsk(channel.adapterId, channel.recipient, request);
 }
 
 /** Validate an opaque QQ callback, settle exactly one wait, then ACK the platform event. */
@@ -153,10 +154,6 @@ export async function settleChannelAskInteraction(
   waits: SparkDaemonHumanWaitRegistry,
   input: Parameters<NonNullable<ChannelIngressHooks["onInteraction"]>>[0],
   options: {
-    /** Legacy single-Hub override retained for focused callers/tests. */
-    runtimeId?: string;
-    /** Resolve the runtime that owns the callback's workspace route. */
-    getRuntimeId?: (wait: SparkDaemonHumanWaitRecord) => string | undefined;
     deliveryOutbox?: Pick<DaemonChannelDeliveryOutbox, "enqueueInteractionAck">;
     onAnswerEvent?: (
       event: SparkEvidenceAnswerEvent,
@@ -164,36 +161,31 @@ export async function settleChannelAskInteraction(
     ) => void | Promise<void>;
   },
 ): Promise<void> {
-  const { event, workspaceId } = input;
+  const { event } = input;
   const callback = waits.findCallback(event.buttonData);
   if (!callback) {
-    await deliverInteractionAck(channelIngress, event, workspaceId, "forbidden", options);
+    await deliverInteractionAck(channelIngress, event, "forbidden", options);
     return;
   }
 
   const channel = recordValue(callback.wait.context.channel);
-  const expectedWorkspaceId = stringValue(channel?.workspaceId);
   const expectedAdapterId = stringValue(channel?.adapterId);
+  const expectedAccountIdentity = stringValue(channel?.adapterAccountIdentity);
   const expectedRecipient = stringValue(channel?.recipient);
   const expectedActorId = stringValue(channel?.actorId);
   const routeMatches =
-    expectedWorkspaceId === workspaceId &&
     expectedAdapterId === event.adapterId &&
+    (!expectedAccountIdentity || expectedAccountIdentity === event.adapterAccountIdentity) &&
     expectedActorId === event.actorId &&
     (!expectedRecipient || event.recipient === expectedRecipient);
   if (!routeMatches) {
-    await deliverInteractionAck(channelIngress, event, workspaceId, "forbidden", options);
+    await deliverInteractionAck(channelIngress, event, "forbidden", options);
     return;
   }
 
   let outcome: SparkDaemonHumanWaitDeliveryOutcome;
   try {
-    const runtimeId = options.getRuntimeId?.(callback.wait)?.trim() || options.runtimeId?.trim();
-    if (!runtimeId) {
-      throw new Error("daemon runtimeId is unavailable for channel response routing");
-    }
     const humanResponseId = channelInteractionResponseId(event.adapterId, event.interactionId);
-    const messageId = createId("msg");
     const payload = {
       source: "channel" as const,
       provenance: "direct_user" as const,
@@ -204,33 +196,13 @@ export async function settleChannelAskInteraction(
     if (!hasNonEmptySparkHumanAnswer(payload.answers)) {
       throw new Error("channel callback produced an empty human answer");
     }
-    const delivered = waits.deliver(
-      {
-        humanRequestId: callback.wait.humanRequestId,
-        humanResponseId,
-        status: payload.status,
-        provenance: "direct_user",
-        answers: payload.answers,
-      },
-      {
-        messageId,
-        kind: "human.response.recorded",
-        envelope: runtimeEnvelope(
-          "human.response.recorded",
-          payload,
-          {
-            runtimeId,
-            workspaceBindingId: callback.wait.workspaceBindingId || undefined,
-            workspaceId: callback.wait.workspaceId || undefined,
-            projectId: callback.wait.projectId || undefined,
-            humanRequestId: callback.wait.humanRequestId,
-            humanResponseId,
-            invocationId: callback.wait.invocationId || undefined,
-          },
-          { messageId },
-        ),
-      },
-    );
+    const delivered = waits.deliver({
+      humanRequestId: callback.wait.humanRequestId,
+      humanResponseId,
+      status: payload.status,
+      provenance: "direct_user",
+      answers: payload.answers,
+    });
     if (
       (delivered.outcome === "accepted" || delivered.outcome === "replayed") &&
       delivered.answerEvent &&
@@ -240,16 +212,10 @@ export async function settleChannelAskInteraction(
     }
     outcome = delivered.outcome;
   } catch (error) {
-    await deliverInteractionAck(channelIngress, event, workspaceId, "rate_limited", options);
+    await deliverInteractionAck(channelIngress, event, "rate_limited", options);
     throw error;
   }
-  await deliverInteractionAck(
-    channelIngress,
-    event,
-    workspaceId,
-    channelInteractionAckStatus(outcome),
-    options,
-  );
+  await deliverInteractionAck(channelIngress, event, channelInteractionAckStatus(outcome), options);
 }
 
 /**
@@ -259,13 +225,10 @@ export async function settleChannelAskInteraction(
 export async function settleChannelAskTextReply(
   waits: SparkDaemonHumanWaitRegistry,
   input: {
-    workspaceId: string;
     message: IncomingMessage;
     recipient: string;
   },
   options: {
-    runtimeId?: string;
-    getRuntimeId?: (wait: SparkDaemonHumanWaitRecord) => string | undefined;
     onAnswerEvent?: (
       event: SparkEvidenceAnswerEvent,
       wait: SparkDaemonHumanWaitRecord,
@@ -277,8 +240,8 @@ export async function settleChannelAskTextReply(
   if (!text) return "continue";
 
   const wait = findPendingInfoflowTextAsk(waits, {
-    workspaceId: input.workspaceId,
     adapterId: input.message.adapter,
+    adapterAccountIdentity: input.message.adapterAccountIdentity,
     recipient: input.recipient,
     actorId: input.message.senderId?.trim(),
   });
@@ -287,17 +250,11 @@ export async function settleChannelAskTextReply(
   const answers = parseInfoflowTextAskAnswers(wait, text);
   if (!answers || !hasNonEmptySparkHumanAnswer(answers)) return "continue";
 
-  const runtimeId = options.getRuntimeId?.(wait)?.trim() || options.runtimeId?.trim();
-  if (!runtimeId) {
-    throw new Error("daemon runtimeId is unavailable for channel text-ask response routing");
-  }
-
   const platformMessageId = input.message.messageId?.trim() || createId("msg");
   const humanResponseId = channelInteractionResponseId(
     input.message.adapter,
     `text:${platformMessageId}`,
   );
-  const messageId = createId("msg");
   const payload = {
     source: "channel" as const,
     provenance: "direct_user" as const,
@@ -305,33 +262,13 @@ export async function settleChannelAskTextReply(
     answers,
     responseArtifactRefs: [],
   };
-  const delivered = waits.deliver(
-    {
-      humanRequestId: wait.humanRequestId,
-      humanResponseId,
-      status: payload.status,
-      provenance: "direct_user",
-      answers: payload.answers,
-    },
-    {
-      messageId,
-      kind: "human.response.recorded",
-      envelope: runtimeEnvelope(
-        "human.response.recorded",
-        payload,
-        {
-          runtimeId,
-          workspaceBindingId: wait.workspaceBindingId || undefined,
-          workspaceId: wait.workspaceId || undefined,
-          projectId: wait.projectId || undefined,
-          humanRequestId: wait.humanRequestId,
-          humanResponseId,
-          invocationId: wait.invocationId || undefined,
-        },
-        { messageId },
-      ),
-    },
-  );
+  const delivered = waits.deliver({
+    humanRequestId: wait.humanRequestId,
+    humanResponseId,
+    status: payload.status,
+    provenance: "direct_user",
+    answers: payload.answers,
+  });
   if (
     (delivered.outcome === "accepted" || delivered.outcome === "replayed") &&
     delivered.answerEvent &&
@@ -345,8 +282,8 @@ export async function settleChannelAskTextReply(
 export function findPendingInfoflowTextAsk(
   waits: SparkDaemonHumanWaitRegistry,
   input: {
-    workspaceId: string;
     adapterId: string;
+    adapterAccountIdentity?: string;
     recipient: string;
     actorId?: string;
   },
@@ -354,8 +291,9 @@ export function findPendingInfoflowTextAsk(
   for (const wait of waits.listPending()) {
     const channel = recordValue(wait.context.channel);
     if (!channel) continue;
-    if (stringValue(channel.workspaceId) !== input.workspaceId) continue;
     if (stringValue(channel.adapterId) !== input.adapterId) continue;
+    const accountIdentity = stringValue(channel.adapterAccountIdentity);
+    if (accountIdentity && accountIdentity !== input.adapterAccountIdentity) continue;
     if (stringValue(channel.adapterId) === "qqbot") continue;
     if (stringValue(channel.recipient) !== input.recipient) continue;
     const expectedActor = stringValue(channel.actorId);
@@ -407,8 +345,7 @@ export function parseInfoflowTextAskAnswers(
 async function deliverInteractionAck(
   channelIngress: DaemonChannelIngressRuntime,
   event: Parameters<NonNullable<ChannelIngressHooks["onInteraction"]>>[0]["event"],
-  workspaceId: string,
-  status: Parameters<DaemonChannelIngressRuntime["ackInteraction"]>[3],
+  status: Parameters<DaemonChannelIngressRuntime["ackInteraction"]>[2],
   options: {
     deliveryOutbox?: Pick<DaemonChannelDeliveryOutbox, "enqueueInteractionAck">;
   },
@@ -416,14 +353,16 @@ async function deliverInteractionAck(
   if (options.deliveryOutbox) {
     await options.deliveryOutbox.enqueueInteractionAck({
       idempotencyKey: `channel.interaction-ack:${event.adapterId}:${event.interactionId}`,
-      workspaceId,
       adapterId: event.adapterId,
+      ...(event.adapterAccountIdentity
+        ? { adapterAccountIdentity: event.adapterAccountIdentity }
+        : {}),
       interactionId: event.interactionId,
       status: status ?? "success",
     });
     return;
   }
-  await channelIngress.ackInteraction(workspaceId, event.adapterId, event.interactionId, status);
+  await channelIngress.ackInteraction(event.adapterId, event.interactionId, status);
 }
 
 function channelInteractionResponseId(adapterId: string, interactionId: string): string {

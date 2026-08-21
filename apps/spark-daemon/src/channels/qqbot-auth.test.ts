@@ -15,7 +15,7 @@ describe("daemon QQ Bot QR auth", () => {
       },
     });
 
-    const starting = manager.start("ws_0123456789abcdef0123456789abcdef");
+    const starting = manager.start();
     callbacks?.onQrCode("https://q.qq.com/qqbot/openclaw/connect.html?task_id=task-1&source=spark");
     const pending = await starting;
     expect(pending).toMatchObject({ status: "pending" });
@@ -24,12 +24,11 @@ describe("daemon QQ Bot QR auth", () => {
       { appId: "app-1", clientSecret: "never-project-this", userOpenid: "user-1" },
     ]);
     await vi.waitFor(() => expect(configure).toHaveBeenCalledTimes(1));
-    const completed = manager.status(pending.workspaceId, pending.id);
+    const completed = manager.status(pending.id);
 
     expect(completed).toMatchObject({ status: "succeeded", appId: "app-1" });
     expect(JSON.stringify(completed)).not.toContain("never-project-this");
     expect(configure).toHaveBeenCalledWith(
-      pending.workspaceId,
       expect.objectContaining({
         adapters: {
           qqbot: expect.objectContaining({
@@ -57,11 +56,11 @@ describe("daemon QQ Bot QR auth", () => {
       },
     });
 
-    const starting = manager.start("workspace-1");
+    const starting = manager.start();
     callbacks?.onQrCode("https://q.qq.com/connect?task_id=task-1");
     const pending = await starting;
 
-    expect(manager.cancel("workspace-1", pending.id).status).toBe("cancelled");
+    expect(manager.cancel(pending.id).status).toBe("cancelled");
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
@@ -78,21 +77,21 @@ describe("daemon QQ Bot QR auth", () => {
       },
     });
 
-    const starting = manager.start("workspace-1");
+    const starting = manager.start();
     callbacks?.onQrCode("https://q.qq.com/connect?task_id=task-1");
     const pending = await starting;
     callbacks?.onSuccess([{ appId: "app-1", clientSecret: "secret-value" }]);
 
     await vi.waitFor(() => {
-      expect(manager.status("workspace-1", pending.id)).toMatchObject({
+      expect(manager.status(pending.id)).toMatchObject({
         status: "failed",
         reason: "configuration_failed",
       });
     });
-    expect(JSON.stringify(manager.status("workspace-1", pending.id))).not.toContain("secret-value");
+    expect(JSON.stringify(manager.status(pending.id))).not.toContain("secret-value");
   });
 
-  it("does not start another workspace flow while credentials are being saved", async () => {
+  it("does not start another daemon flow while credentials are being saved", async () => {
     let callbacks: QqbotQrAuthCallbacks | undefined;
     let resolveLoad!: () => void;
     const loading = new Promise<void>((resolve) => {
@@ -110,17 +109,15 @@ describe("daemon QQ Bot QR auth", () => {
       },
     });
 
-    const starting = manager.start("workspace-1");
+    const starting = manager.start();
     callbacks?.onQrCode("https://q.qq.com/connect?task_id=task-1");
     const pending = await starting;
     callbacks?.onSuccess([{ appId: "app-1", clientSecret: "secret-value" }]);
 
-    await expect(manager.start("workspace-1")).rejects.toThrow("still being saved");
+    await expect(manager.start()).rejects.toThrow("still being saved");
     resolveLoad();
     await loading;
-    await vi.waitFor(() =>
-      expect(manager.status("workspace-1", pending.id).status).toBe("succeeded"),
-    );
+    await vi.waitFor(() => expect(manager.status(pending.id).status).toBe("succeeded"));
   });
 
   it("does not configure channels after the manager is stopped during credential loading", async () => {
@@ -142,7 +139,7 @@ describe("daemon QQ Bot QR auth", () => {
       },
     });
 
-    const starting = manager.start("workspace-1");
+    const starting = manager.start();
     callbacks?.onQrCode("https://q.qq.com/connect?task_id=task-1");
     const pending = await starting;
     callbacks?.onSuccess([{ appId: "app-1", clientSecret: "secret-value" }]);
@@ -151,9 +148,9 @@ describe("daemon QQ Bot QR auth", () => {
     await loading;
     await Promise.resolve();
 
-    expect(manager.status("workspace-1", pending.id).status).toBe("cancelled");
+    expect(manager.status(pending.id).status).toBe("cancelled");
     expect(configure).not.toHaveBeenCalled();
-    await expect(manager.start("workspace-1")).rejects.toThrow("manager is stopped");
+    await expect(manager.start()).rejects.toThrow("manager is stopped");
   });
 });
 

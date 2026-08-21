@@ -5,6 +5,7 @@ import type {
   ChannelAskRequest,
   ChannelAskSendResult,
   ChannelInteractionAckStatus,
+  RoutedChannelInteractionEvent,
 } from "./interaction.ts";
 import { QqbotAdapter } from "./qqbot-adapter.ts";
 import type {
@@ -308,7 +309,11 @@ export class ChannelRegistry {
       ? (message: IncomingMessage) =>
           handleMessage({ ...message, adapterId, adapterAccountIdentity })
       : undefined;
-    const onInteraction = this.options.onInteraction;
+    const handleInteraction = this.options.onInteraction;
+    const onInteraction = handleInteraction
+      ? (event: RoutedChannelInteractionEvent) =>
+          handleInteraction({ ...event, adapterAccountIdentity })
+      : undefined;
     switch (config.type) {
       case "feishu":
         return new FeishuAdapter({
