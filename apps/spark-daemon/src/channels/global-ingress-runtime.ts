@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { Context, type Fiber } from "@deepseek-ai/cordis";
+import type { Context, Fiber } from "@deepseek-ai/cordis";
 import {
   channelDeliveryNotSent,
   createChannelsPlugin,
@@ -41,14 +41,14 @@ export function createDaemonChannelIngressRuntime(input: {
     Partial<Pick<DaemonSessionRegistry, "get">>;
   createTransport?: ChannelRegistryOptions["createTransport"];
   createDaemonTransport?: DaemonChannelTransportFactory;
-  /** Shared daemon root; tests may omit it to exercise the runtime in isolation. */
-  ctx?: Context;
+  /** Shared daemon composition root. */
+  ctx: Context;
   now?: () => Date;
 }): DaemonChannelIngressRuntime {
   const now = input.now ?? (() => new Date());
   const paths = resolveSparkPaths({ app: "daemon", sparkHome: input.sparkHome });
   const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
-  const ctx = input.ctx ?? new Context();
+  const ctx = input.ctx;
   const emptyConfig = parseChannelsConfig({
     adapters: {},
     routes: {},

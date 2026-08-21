@@ -89,10 +89,12 @@ updated: 2026-08-21
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
 - Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算以 `architecture/packages.json` 为唯一事实源，新增 workspace 需要新的 architecture 决策。
-- DSH 组合已越过 LLM 小岛：daemon Cordis root 挂 Spark store 与 `ctx.sessions`；
-  `spark-turn` 用 `dsh-agent-loop` 做低层 turn driver；`spark-loop` 仍拥有
-  goal/tick。不接入 `dsh-llm-pi-ai` 或 `dsh-goal`，不把 Spark Session 绑到
-  Cordis Fiber。Invocation / channel / fleet / retry 数据权威仍是 Spark SQLite。
+- DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
+  persistence、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与 AgentLoop；在
+  transcript v4 落地前，Invocation 仍经 `spark-turn` 的兼容 driver 执行，不从
+  shared root resume Agent。`spark-loop` 仍拥有 goal/tick；不接入
+  `dsh-llm-pi-ai` 或 `dsh-goal`。Invocation / channel / fleet / retry 数据权威仍是
+  Spark SQLite。
 - 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。
   Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`。
 - Channel 已原位迁移为 `dsh-channels` Cordis 插件；配置、Session、cwd、delivery、

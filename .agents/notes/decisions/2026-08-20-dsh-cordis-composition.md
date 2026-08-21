@@ -16,15 +16,18 @@ a Spark Session, Invocation, or transcript owner. This **supersedes**:
 The three roots:
 
 1. **Daemon Cordis root** (`apps/spark-daemon`) mounts Spark SQLite stores as
-   services and `ctx.sessions` / `ctx.sessionPersistence`. Dispose is
-   `ctx.fiber.dispose()`. Invocation, channel, fleet, and retry **data
-   authority stays Spark SQLite**.
+   services plus `SessionStore`, persistence, `LlmRuntime`, `SystemPrompt`,
+   `ToolRuntime`, `AgentRegistry`, and `AgentLoop`. Dispose is
+   `ctx.fiber.dispose()`. Until transcript v4 lands, Invocation execution still
+   uses the compatibility roots below and does not resume an Agent from this
+   shared root. Invocation, channel, fleet, and retry **data authority stays
+   Spark SQLite**.
 2. **LLM island** (`packages/spark-extension`) still mounts `dsh-llm` and
    exposes `LlmRuntime`, never `Context`, through
    `createSparkLlmComposition()`.
 3. **Turn driver** (`packages/spark-turn`) mounts
    `SessionStore → LlmRuntime → SystemPrompt → ToolRuntime → AgentRegistry →
-   AgentLoop` per drive. `dsh-agent-loop@0.1.0-rc.7` is the low-level driver.
+   AgentLoop` per drive. The supported `dsh-agent-loop` is the low-level driver.
    `SparkAgentLoop` remains the host facade (prompt items, outbox, views,
    Spark tool policy). `packages/spark-loop` stays the goal/tick owner. Do not
    add a second Spark `AgentFactory`. Do not import `dsh-goal`.
@@ -33,7 +36,8 @@ Import allowlist (enforced by `.dependency-cruiser.cjs`):
 
 - `@deepseek-ai/cordis`: `spark-extension`, `spark-llm`, `spark-turn`,
   `apps/spark-daemon`.
-- `@deepseek-ai/dsh-llm`: `spark-extension`, `spark-llm`, `spark-turn`.
+- `@deepseek-ai/dsh-llm`: `apps/spark-daemon`, `spark-extension`, `spark-llm`,
+  `spark-turn`.
 - `@deepseek-ai/dsh-session` / `dsh-session-persistence`: `apps/spark-daemon`,
   `spark-turn`.
 

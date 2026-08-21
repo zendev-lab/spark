@@ -1,12 +1,18 @@
 /**
- * Process-local Cordis root for daemon store composition and session persistence.
+ * Process-local Cordis root for daemon stores and the shared DSH runtime.
  *
  * Invocation, channel, loop, and retry data authority stays in Spark SQLite.
  * Live sessions are `ctx.sessions`; JSONL durability is dsh-session-persistence
- * with Spark's PersistenceBackend. This module does not own the LLM island.
+ * with Spark's PersistenceBackend. Agent handles remain invocation-owned and
+ * are mounted only after transcript migration makes their surface native DSH.
  */
 import { Context } from "@deepseek-ai/cordis";
+import AgentRegistry from "@deepseek-ai/dsh-agent";
+import AgentLoop from "@deepseek-ai/dsh-agent-loop";
+import LlmRuntime from "@deepseek-ai/dsh-llm";
 import { SessionStore } from "@deepseek-ai/dsh-session";
+import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
+import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
@@ -101,6 +107,11 @@ export async function createSparkDaemonCordisRoot(
     await mountSparkDaemonStorePlugin(ctx, stores);
     await ctx.plugin(SessionStore);
     await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
+    await ctx.plugin(LlmRuntime);
+    await ctx.plugin(SystemPrompt);
+    await ctx.plugin(ToolRuntime);
+    await ctx.plugin(AgentRegistry);
+    await ctx.plugin(AgentLoop, { agents: [] });
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;
