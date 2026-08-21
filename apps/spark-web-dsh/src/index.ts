@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 /**
  * Spark-owned safety policy for the DSH Web history surface.
  *
- * DSH rc.7 materializes a complete cold transcript before applying message
+ * The supported DSH release materializes a complete cold transcript before applying message
  * pagination. A physical-artifact fence therefore remains necessary for cold
  * sessions. For servable histories, Spark additionally predicts a conservative
  * initial page size and measures the prepared wire value before it reaches the

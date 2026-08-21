@@ -35,6 +35,7 @@ const externalPackages = [
   "@sveltejs/kit",
   "marked",
   "sanitize-html",
+  "sharp",
   "web-push",
   "ws",
 ];

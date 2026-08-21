@@ -1,6 +1,6 @@
 # `@zendev-lab/dsh-tool-cue`
 
-Private DeepSeek Harness `0.1.0-rc.7` adapter for the ten canonical Cue tools
+Private adapter for the supported DeepSeek Harness release and ten canonical Cue tools
 owned by `@zendev-lab/spark-cue/operations`.
 
 The adapter executes Cue only when the calling DSH session currently resolves

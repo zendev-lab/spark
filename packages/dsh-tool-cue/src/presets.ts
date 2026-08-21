@@ -11,16 +11,15 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-export const SUPPORTED_DSH_VERSION = "0.1.0-rc.7";
 export const SPARK_CUE_PRESETS = ["spark-standard", "spark-code"] as const;
 
 type SparkCuePreset = (typeof SPARK_CUE_PRESETS)[number];
 type UpstreamPreset = "standard" | "code";
 
 const UPSTREAM_FILES = {
-  "standard/agent.cordis.yml": "4edeb70bf995a0324f234e2adf8db6b394c3d26e1bcb76821976950fb0237bc9",
+  "standard/agent.cordis.yml": "fa14feb98daef20b810fef30bb7239a89a786de3c45c602b37743f7100d9a5af",
   "standard/preset.yml": "3c61b4ce68e5dd5cb2c099693fdcb30b91d5f22bbbef546e233321b0fa68f0e4",
-  "code/agent.cordis.yml": "dbab55b31753028956e700223420b586476313045f8527d07ed1e080df223718",
+  "code/agent.cordis.yml": "bdecfe0b26a9d56a2ffcb79694fc123bc395247969e135c62945a1ec8fb92e87",
   "code/preset.yml": "ec3e1d288532a96dc35fd96c16c08ea6fd92893323039018f71a37988fc72580",
 } as const;
 
@@ -54,7 +53,7 @@ function digestFiles(files: Readonly<Record<string, string>>): string {
   return hash.digest("hex");
 }
 
-export function assertSupportedDshPackage(dshPackageDir: string): void {
+export function readDshPackageVersion(dshPackageDir: string): string {
   const packagePath = join(dshPackageDir, "package.json");
   let parsed: unknown;
   try {
@@ -65,11 +64,15 @@ export function assertSupportedDshPackage(dshPackageDir: string): void {
     });
   }
   const record = parsed as { name?: unknown; version?: unknown };
-  if (record.name !== "@deepseek-ai/dsh" || record.version !== SUPPORTED_DSH_VERSION) {
+  if (record.name !== "@deepseek-ai/dsh") {
     throw new Error(
-      `spark web: @zendev-lab/dsh-tool-cue supports exactly @deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}; found ${String(record.name)}@${String(record.version)}`,
+      `spark web: expected installed @deepseek-ai/dsh package metadata; found ${String(record.name)}`,
     );
   }
+  if (typeof record.version !== "string" || record.version.trim() === "") {
+    throw new Error("spark web: installed @deepseek-ai/dsh package has no version");
+  }
+  return record.version;
 }
 
 function readVerifiedUpstream(dshPackageDir: string): Record<keyof typeof UPSTREAM_FILES, string> {
@@ -80,7 +83,7 @@ function readVerifiedUpstream(dshPackageDir: string): Record<keyof typeof UPSTRE
     const actual = sha256(content);
     if (actual !== expected) {
       throw new Error(
-        `spark web: DSH rc.7 preset source drift at ${path}; expected sha256 ${expected}, got ${actual}. Run the dsh-tool-cue preset update workflow before continuing.`,
+        `spark web: supported DSH preset source drift at ${path}; expected sha256 ${expected}, got ${actual}. Run the dsh-tool-cue preset update workflow before continuing.`,
       );
     }
     result[relative as keyof typeof UPSTREAM_FILES] = content;
@@ -200,6 +203,7 @@ function installOne(
   root: string,
   id: SparkCuePreset,
   files: Record<"agent.cordis.yml" | "preset.yml", string>,
+  dshVersion: string,
   sourceDigest: string,
 ): ManagedPresetResult {
   const target = join(root, id);
@@ -207,7 +211,7 @@ function installOne(
   const marker = assertManagedTargetSafe(target);
   if (marker !== undefined) {
     if (
-      marker.dshVersion === SUPPORTED_DSH_VERSION &&
+      marker.dshVersion === dshVersion &&
       marker.sourceDigest === sourceDigest &&
       marker.contentDigest === contentDigest
     ) {
@@ -223,7 +227,7 @@ function installOne(
   for (const [name, content] of Object.entries(files)) writeFileSync(join(staging, name), content);
   const nextMarker: ManagedMarker = {
     owner: "@zendev-lab/dsh-tool-cue",
-    dshVersion: SUPPORTED_DSH_VERSION,
+    dshVersion,
     sourceDigest,
     contentDigest,
   };
@@ -249,17 +253,17 @@ export function installManagedCuePresets(
   dshHome: string,
   dshPackageDir: string,
 ): ManagedPresetResult[] {
-  assertSupportedDshPackage(dshPackageDir);
+  const dshVersion = readDshPackageVersion(dshPackageDir);
   const upstream = readVerifiedUpstream(dshPackageDir);
   const sourceDigest = digestFiles(upstream);
   const generated = SPARK_CUE_PRESETS.map((id) => ({ id, files: generatePreset(upstream, id) }));
   const root = join(dshHome, ".agent-presets");
   // Validate both targets before changing either one.
   for (const { id } of generated) assertManagedTargetSafe(join(root, id));
-  return generated.map(({ id, files }) => installOne(root, id, files, sourceDigest));
+  return generated.map(({ id, files }) => installOne(root, id, files, dshVersion, sourceDigest));
 }
 
 export function verifyDshPresetSources(dshPackageDir: string): string {
-  assertSupportedDshPackage(dshPackageDir);
+  readDshPackageVersion(dshPackageDir);
   return digestFiles(readVerifiedUpstream(dshPackageDir));
 }

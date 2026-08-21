@@ -538,6 +538,14 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
       );
     }
 
+    for (const section of ALL_DEPENDENCY_SECTIONS) {
+      for (const [dependency, specifier] of Object.entries(manifest[section] ?? {})) {
+        if (dependency.startsWith("@deepseek-ai/dsh-") && specifier !== "catalog:dsh") {
+          failures.push(`${packageName} must resolve ${dependency} through the named DSH catalog`);
+        }
+      }
+    }
+
     const packageInfo = inventory.packages[packageName];
     const isDshPackage = packageName.startsWith("@zendev-lab/dsh-");
     const independenceException = packageInfo?.dshIndependenceException;
