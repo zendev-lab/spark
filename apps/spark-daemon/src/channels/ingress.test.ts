@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Context } from "@deepseek-ai/cordis";
 import {
   FakeChannelTransport,
   channelAdapterAccountIdentity,
@@ -249,9 +250,11 @@ describe("daemon-global Channel runtime", () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-global-channels-"));
     roots.push(sparkHome);
     const stable = new FakeChannelTransport();
+    const ctx = new Context();
     let failReplacement = false;
     const runtime = createDaemonChannelIngressRuntime({
       sparkHome,
+      ctx,
       hooks: { onAssignment: async () => undefined },
       sessionRegistry: { resolveChannelSession: async () => channelSession() },
       createTransport: () => {
@@ -276,12 +279,52 @@ describe("daemon-global Channel runtime", () => {
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(runtime.status()).toMatchObject({ plane: "daemon", state: "running" });
+    expect(ctx.channels.generationNumber).toBe(1);
 
     failReplacement = true;
     await expect(runtime.configure(config)).rejects.toThrow("replacement failed");
     expect(stable.isRunning).toBe(true);
     expect(runtime.status()).toMatchObject({ state: "degraded" });
+    expect(ctx.channels.generationNumber).toBe(1);
     await runtime.stop();
+    expect(ctx.get("channels")).toBeUndefined();
+  });
+
+  it("drains accepted ingress before the Cordis transport fiber closes", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-global-channel-drain-"));
+    roots.push(sparkHome);
+    const transport = new FakeChannelTransport();
+    const assignment = deferred<void>();
+    const onAssignment = vi.fn(async () => await assignment.promise);
+    const runtime = createDaemonChannelIngressRuntime({
+      sparkHome,
+      hooks: { onAssignment },
+      sessionRegistry: { resolveChannelSession: async () => channelSession() },
+      createTransport: () => transport,
+    });
+    await runtime.configure(
+      parseChannelsConfig({
+        adapters: { info: { type: "infoflow", app_key: "app" } },
+        routes: {},
+        ingress: { enabled: true, on_unbound: "create" },
+      }),
+    );
+    transport.emitInbound({ user_id: "user-1", text: "wait", message_id: "m-drain" });
+    await vi.waitFor(() => expect(onAssignment).toHaveBeenCalledOnce());
+
+    runtime.beginDrain?.();
+    let drained = false;
+    const draining = runtime.drain?.().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    expect(transport.isRunning).toBe(true);
+    assignment.resolve(undefined);
+    await draining;
+    expect(transport.isRunning).toBe(true);
+    await runtime.close?.();
+    expect(transport.isRunning).toBe(false);
   });
 
   it("loads an absent daemon-global config as null", async () => {

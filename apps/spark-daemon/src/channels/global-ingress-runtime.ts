@@ -1,9 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { Context, type Fiber } from "@deepseek-ai/cordis";
 import {
   channelDeliveryNotSent,
+  createChannelsPlugin,
   parseChannelsConfig,
   type ChannelRegistryOptions,
+  type ChannelsService,
   type ChannelsConfig,
 } from "@zendev-lab/dsh-channels";
 import { channelConfigPath, resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
@@ -22,6 +25,8 @@ import type { DaemonChannelTransportFactory } from "./transport-factory.ts";
 interface GlobalChannelSlot {
   configPath: string;
   controller: ChannelIngressController | null;
+  service: ChannelsService | null;
+  pluginFiber: Fiber | null;
   config: ChannelsConfig | null;
   lastReloadedAt?: string;
   lastError?: string;
@@ -36,14 +41,24 @@ export function createDaemonChannelIngressRuntime(input: {
     Partial<Pick<DaemonSessionRegistry, "get">>;
   createTransport?: ChannelRegistryOptions["createTransport"];
   createDaemonTransport?: DaemonChannelTransportFactory;
+  /** Shared daemon root; tests may omit it to exercise the runtime in isolation. */
+  ctx?: Context;
   now?: () => Date;
 }): DaemonChannelIngressRuntime {
   const now = input.now ?? (() => new Date());
   const paths = resolveSparkPaths({ app: "daemon", sparkHome: input.sparkHome });
   const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
+  const ctx = input.ctx ?? new Context();
+  const emptyConfig = parseChannelsConfig({
+    adapters: {},
+    routes: {},
+    ingress: { enabled: false, on_unbound: "create" },
+  });
   const slot: GlobalChannelSlot = {
     configPath: channelConfigPath(paths),
     controller: null,
+    service: null,
+    pluginFiber: null,
     config: null,
     transition: Promise.resolve(),
   };
@@ -57,16 +72,16 @@ export function createDaemonChannelIngressRuntime(input: {
     return current;
   };
 
-  const createController = (config: ChannelsConfig): ChannelIngressController =>
+  const createController = (
+    config: ChannelsConfig,
+    channels: ChannelsService,
+  ): ChannelIngressController =>
     createChannelIngressController({
       sparkHome: input.sparkHome,
       config,
       hooks: input.hooks,
       sessionRegistry,
-      ...(input.createTransport ? { createTransport: input.createTransport } : {}),
-      ...(input.createDaemonTransport
-        ? { createDaemonTransport: input.createDaemonTransport }
-        : {}),
+      channels,
     });
 
   const status = (): DaemonChannelIngressStatus => {
@@ -111,50 +126,85 @@ export function createDaemonChannelIngressRuntime(input: {
     };
   };
 
+  const persistConfig = async (config: ChannelsConfig): Promise<void> => {
+    await mkdir(dirname(slot.configPath), { recursive: true, mode: 0o700 });
+    writePrivateFile(slot.configPath, `${JSON.stringify(config, null, 2)}\n`);
+  };
+
+  const mountChannels = async (config: ChannelsConfig): Promise<void> => {
+    let controller: ChannelIngressController | undefined;
+    let service: ChannelsService | undefined;
+    const createTransport: ChannelRegistryOptions["createTransport"] = (adapterId, adapterConfig) =>
+      input.createDaemonTransport?.(adapterId, adapterConfig) ??
+      input.createTransport?.(adapterId, adapterConfig);
+    const fiber = ctx.plugin(
+      createChannelsPlugin({
+        ...(input.createTransport || input.createDaemonTransport ? { createTransport } : {}),
+        onService: (next) => {
+          service = next;
+          controller = createController(config, next);
+        },
+        onMessage: (message) => {
+          if (!controller) throw new Error("daemon Channel ingress is not bound");
+          controller.receiveInbound(message);
+        },
+        onInteraction: async (event) => {
+          if (!controller) throw new Error("daemon Channel interaction ingress is not bound");
+          await controller.receiveInteraction(event);
+        },
+      }),
+      config,
+    );
+    try {
+      await fiber;
+      if (!controller || !service) throw new Error("dsh-channels did not publish ctx.channels");
+    } catch (error) {
+      await fiber.dispose().catch(() => undefined);
+      throw error;
+    }
+    slot.controller = controller;
+    slot.service = service;
+    slot.pluginFiber = fiber;
+  };
+
   const replace = async (
     config: ChannelsConfig | null,
     persist: boolean,
   ): Promise<DaemonChannelIngressStatus> => {
-    const previous = slot.controller;
-    if (!config) {
-      slot.controller = null;
-      slot.config = null;
-      await previous?.stop();
-      slot.lastError = undefined;
-      slot.lastReloadedAt = now().toISOString();
-      return status();
-    }
-    const replacement = createController(config);
+    const next = config ?? emptyConfig;
     try {
-      // Validate the replacement generation while the previous generation is
-      // still the visible owner. Only a fully started controller is swapped.
-      await replacement.start();
-      if (persist) {
-        await mkdir(dirname(slot.configPath), { recursive: true, mode: 0o700 });
-        writePrivateFile(slot.configPath, `${JSON.stringify(config, null, 2)}\n`);
+      if (!slot.service) {
+        await mountChannels(next);
+        if (persist && config) {
+          try {
+            await persistConfig(config);
+          } catch (error) {
+            await slot.pluginFiber?.dispose().catch(() => undefined);
+            slot.controller = null;
+            slot.service = null;
+            slot.pluginFiber = null;
+            throw error;
+          }
+        }
+      } else {
+        await slot.service.reload(
+          next,
+          persist && config ? () => persistConfig(config) : undefined,
+        );
       }
     } catch (error) {
-      await replacement.stop().catch(() => undefined);
       slot.lastError = error instanceof Error ? error.message : String(error);
       throw error;
     }
-    slot.controller = replacement;
     slot.config = config;
     slot.lastError = undefined;
     slot.lastReloadedAt = now().toISOString();
-    try {
-      await previous?.stop();
-    } catch (error) {
-      slot.lastError = `replacement active; prior generation disposal failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-    }
     return status();
   };
 
   let runtime!: DaemonChannelIngressRuntime;
   const requireController = (): ChannelIngressController => {
-    if (!slot.controller) {
+    if (!slot.controller || !slot.config) {
       throw channelDeliveryNotSent(new Error("daemon Channels are not configured"));
     }
     return slot.controller;
@@ -174,13 +224,22 @@ export function createDaemonChannelIngressRuntime(input: {
         }
         return await replace(migration.state === "ready" ? migration.config : null, false);
       }),
-    stop: async () => {
+    beginDrain: () => slot.controller?.beginDrain(),
+    drain: async () => await slot.controller?.drain(),
+    close: async () => {
       qqbotQrAuth.stop();
       await serialize(async () => {
-        const active = slot.controller;
+        const fiber = slot.pluginFiber;
+        slot.pluginFiber = null;
+        slot.service = null;
         slot.controller = null;
-        await active?.stop();
+        await fiber?.dispose();
       });
+    },
+    stop: async () => {
+      runtime.beginDrain?.();
+      await runtime.drain?.();
+      await runtime.close?.();
     },
     admitInbound: async (message) => await requireController().admitInbound(message),
     status,

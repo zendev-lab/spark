@@ -28,6 +28,7 @@ import {
   type ChannelReplySendInput,
   type ChannelReplyStream,
   type ChannelReplyTarget,
+  type ChannelsService,
   type ChannelsConfig,
   type IncomingMessage,
   type RoutedChannelInteractionEvent,
@@ -104,6 +105,10 @@ export interface ChannelIngressRejectedReply {
 export interface ChannelIngressController {
   start(): Promise<void>;
   stop(): Promise<void>;
+  beginDrain(): void;
+  drain(): Promise<void>;
+  receiveInbound(message: IncomingMessage): void;
+  receiveInteraction(event: RoutedChannelInteractionEvent): Promise<void>;
   admitInbound(message: IncomingMessage): Promise<void>;
   notify(input: ChannelNotifyInput): Promise<ChannelNotifyResult>;
   openReplyStream(
@@ -178,6 +183,11 @@ export interface DaemonChannelIngressStatus {
 export interface DaemonChannelIngressRuntime {
   start(): Promise<DaemonChannelIngressStatus>;
   stop(): Promise<void>;
+  /** Reject new transport events while already accepted handlers drain. */
+  beginDrain?(): void;
+  drain?(): Promise<void>;
+  /** Close adapter transports after reconcilers have stopped. */
+  close?(): Promise<void>;
   admitInbound?(message: IncomingMessage): Promise<void>;
   status(): DaemonChannelIngressStatus;
   configure(config: unknown): Promise<DaemonChannelIngressStatus>;
@@ -245,9 +255,12 @@ export function createChannelIngressController(input: {
     Partial<Pick<DaemonSessionRegistry, "get" | "recordTurnQueued" | "recordTurnSettled">>;
   createTransport?: ChannelRegistryOptions["createTransport"];
   createDaemonTransport?: DaemonChannelTransportFactory;
+  /** Production backend owned by the daemon Cordis root. */
+  channels?: ChannelsService;
 }): ChannelIngressController {
   const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
   const activeHandlers = new Set<Promise<void>>();
+  let accepting = true;
   const trackHandler = (
     operation: Promise<void>,
     label: "inbound" | "interaction",
@@ -270,32 +283,39 @@ export function createChannelIngressController(input: {
       await Promise.all([...activeHandlers]);
     }
   };
-  const channelRegistry = new ChannelRegistry({
-    config: input.config,
-    ...(input.createTransport || input.createDaemonTransport
-      ? {
-          createTransport: (adapterId, config) =>
-            input.createDaemonTransport?.(adapterId, config) ??
-            input.createTransport?.(adapterId, config),
-        }
-      : {}),
-    onMessage: (message) => {
-      if (Object.keys(input.config.adapters).length === 0 || !message.text.trim()) return;
-      // A daemon persistence hook is intentionally invoked before converting
-      // to a Promise. Synchronous SQLite failures propagate to transports so
-      // an SDK must not ACK an event that never acquired a durable receipt.
-      if (input.hooks.onInboundReceived) {
-        input.hooks.onInboundReceived({ message });
-        return;
-      }
-      void trackHandler(handleInbound(message), "inbound");
-    },
-    onInteraction: (event) =>
-      trackHandler(input.hooks.onInteraction?.({ event }) ?? Promise.resolve(), "interaction"),
-  });
+  const receiveInbound = (message: IncomingMessage): void => {
+    if (!accepting) throw new Error("daemon Channel ingress is draining");
+    if (!message.text.trim()) return;
+    // A daemon persistence hook is intentionally invoked before converting
+    // to a Promise. Synchronous SQLite failures propagate to transports so
+    // an SDK must not ACK an event that never acquired a durable receipt.
+    if (input.hooks.onInboundReceived) {
+      input.hooks.onInboundReceived({ message });
+      return;
+    }
+    void trackHandler(handleInbound(message), "inbound");
+  };
+  const receiveInteraction = (event: RoutedChannelInteractionEvent): Promise<void> => {
+    if (!accepting) return Promise.reject(new Error("daemon Channel ingress is draining"));
+    return trackHandler(input.hooks.onInteraction?.({ event }) ?? Promise.resolve(), "interaction");
+  };
+  const channelRegistry = input.channels
+    ? undefined
+    : new ChannelRegistry({
+        config: input.config,
+        ...(input.createTransport || input.createDaemonTransport
+          ? {
+              createTransport: (adapterId, config) =>
+                input.createDaemonTransport?.(adapterId, config) ??
+                input.createTransport?.(adapterId, config),
+            }
+          : {}),
+        onMessage: receiveInbound,
+        onInteraction: receiveInteraction,
+      });
+  const channels = input.channels ?? channelRegistry!;
 
   async function handleInbound(message: IncomingMessage): Promise<void> {
-    if (Object.keys(input.config.adapters).length === 0) return;
     if (!message.text.trim()) return;
     const replyRecipient = channelReplyRecipient(message);
     if (!replyRecipient) {
@@ -308,13 +328,13 @@ export function createChannelIngressController(input: {
       });
       if (textAsk === "settled") return;
     }
-    const incomingAdapter = resolveIncomingAdapter(message, channelRegistry.listAdapters());
+    const incomingAdapter = resolveIncomingAdapter(message, channels.listAdapters());
     const session = await sessionRegistry.resolveChannelSession({
       externalKey: message.externalKey,
       adapterId: incomingAdapter.adapterId,
       adapterAccountIdentity: incomingAdapter.adapterAccountIdentity,
       allowLegacyAccountClaim: incomingAdapter.sameTypeAccountCount === 1,
-      onUnbound: input.config.ingress?.on_unbound ?? "create",
+      onUnbound: channels.onUnboundPolicy,
       name: channelSessionTitle(message),
     });
     const enrichedMessage = await enrichInboundMessageReferenceFromSession({
@@ -380,9 +400,9 @@ export function createChannelIngressController(input: {
           target,
           text: CHANNEL_INGRESS_FAILURE_REPLY,
           deliveryIdentity,
-          deliveryFacts: channelRegistry.replyDeliveryFacts(incomingAdapter.adapterId, target),
+          deliveryFacts: channels.replyDeliveryFacts(incomingAdapter.adapterId, target),
           send: async (deliveryId) =>
-            await channelRegistry.sendReply(incomingAdapter.adapterId, {
+            await channels.sendReply(incomingAdapter.adapterId, {
               ...target,
               text: CHANNEL_INGRESS_FAILURE_REPLY,
               deliveryId,
@@ -418,43 +438,48 @@ export function createChannelIngressController(input: {
 
   return {
     start: async () => {
-      await channelRegistry.startAll();
+      accepting = true;
+      await channelRegistry?.startAll();
     },
     stop: async () => {
+      accepting = false;
       let stopError: unknown;
       try {
-        await channelRegistry.stopAll();
+        await channelRegistry?.stopAll();
       } catch (error) {
         stopError = error;
       }
       await waitForHandlers();
       if (stopError) throw stopError;
     },
+    beginDrain: () => {
+      accepting = false;
+    },
+    drain: waitForHandlers,
+    receiveInbound,
+    receiveInteraction,
     admitInbound: handleInbound,
-    notify: async (notifyInput) => await channelRegistry.notify(notifyInput),
+    notify: async (notifyInput) => await channels.notify(notifyInput),
     openReplyStream: async (adapterId, target, options) =>
-      await channelRegistry.openReplyStream(adapterId, target, options),
-    messageDeliveryFacts: (adapterId, target) =>
-      channelRegistry.messageDeliveryFacts(adapterId, target),
+      await channels.openReplyStream(adapterId, target, options),
+    messageDeliveryFacts: (adapterId, target) => channels.messageDeliveryFacts(adapterId, target),
     sendMessage: async (adapterId, messageInput) =>
-      await channelRegistry.sendMessage(adapterId, messageInput),
-    sendReply: async (adapterId, replyInput) =>
-      await channelRegistry.sendReply(adapterId, replyInput),
+      await channels.sendMessage(adapterId, messageInput),
+    sendReply: async (adapterId, replyInput) => await channels.sendReply(adapterId, replyInput),
     resolveAdapterId: (adapterId, adapterAccountIdentity) =>
-      resolveControllerAdapterId(channelRegistry, adapterId, adapterAccountIdentity),
-    replyDeliveryFacts: (adapterId, target) =>
-      channelRegistry.replyDeliveryFacts(adapterId, target),
+      resolveControllerAdapterId(channels, adapterId, adapterAccountIdentity),
+    replyDeliveryFacts: (adapterId, target) => channels.replyDeliveryFacts(adapterId, target),
     recoverReply: async (adapterId, replyInput) =>
-      await channelRegistry.recoverReply(adapterId, replyInput),
+      await channels.recoverReply(adapterId, replyInput),
     sendAsk: async (adapterId, recipient, request) =>
-      await channelRegistry.sendAsk(adapterId, recipient, request),
+      await channels.sendAsk(adapterId, recipient, request),
     ackInteraction: async (adapterId, interactionId, status) =>
-      await channelRegistry.ackInteraction(adapterId, interactionId, status),
+      await channels.ackInteraction(adapterId, interactionId, status),
     status: () => ({
       configured: true,
-      ingressEnabled: channelRegistry.ingressEnabled,
-      adapters: channelRegistry.listAdapters(),
-      routes: channelRegistry.listRoutes().map((route) => ({
+      ingressEnabled: channels.ingressEnabled,
+      adapters: channels.listAdapters(),
+      routes: channels.listRoutes().map((route) => ({
         name: route.name,
         adapter: route.adapterId,
         recipient: route.recipient,

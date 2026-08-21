@@ -369,6 +369,7 @@ try {
     ...process.env,
     PATH: cleanPath(),
     SPARK_HOME: resolve(temporary, "spark-node-home"),
+    SPARK_DAEMON_SERVICE_MODE: "detached",
   };
   const hubEnvironment = {
     ...process.env,
