@@ -53,9 +53,12 @@ spark web
 会话标识会保留对话与执行连续性，但不会绕过 workspace 绑定或权限检查。
 
 每个 workspace 只有一个受保护的 Administrator 根 Session；普通 workspace 对话是
-该 root 下保留内容的子 Session。运行时会话实体始终是 Session；Role 只提供定义绑定，
-任何具有 child lineage 的 Session 都是 subsession，
+该 root 下保留内容的子 Session。运行时会话实体始终是 Session。Role 是静态定义，
+运行时通过 `roleBinding` 绑到 Session 上。人类操作者不是 Role；根 Session 始终
+绑定 builtin `administrator`。任何具有 child lineage 的 Session 都是 subsession，
 无论 origin 来自 Side Thread、TaskRun、Workflow、driver、driver tick 还是 Invocation。
+通过 `session spawn|fork` 创建、带显式 Role 绑定的子 Session 是 subagent；这只是
+呈现用语，不是第二种运行时类型。
 活跃状态由 queued/running
 Invocation 推导，不依赖 UI 计时器。原生会话视图的 `status` 使用同一组三个值
 （`idle`、`queued`、`running`）；queued Invocation 不会被折叠成 `running`。临时 owned 子 Session 会随 owner 关闭并默认删除

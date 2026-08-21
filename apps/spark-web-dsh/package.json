@@ -11,6 +11,7 @@
   "files": [
     "bin/**/*",
     "lib/**/*.js",
+    "lib/**/*.mjs",
     "src/**/*.ts",
     "src/**/*.tsx",
     "README.md"
@@ -30,6 +31,7 @@
   "dependencies": {
     "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/spark-llm": "workspace:^",
+    "@zendev-lab/spark-session": "workspace:^",
     "esbuild": "^0.28.0",
     "react": "^19.0.0"
   },

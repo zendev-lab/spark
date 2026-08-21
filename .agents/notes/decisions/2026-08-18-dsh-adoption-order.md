@@ -29,10 +29,14 @@ Hard constraints:
   [`2026-08-20-dsh-session-persistence.md`](./2026-08-20-dsh-session-persistence.md)**
   and **for Cordis composition / `dsh-agent-loop` by
   [`2026-08-20-dsh-cordis-composition.md`](./2026-08-20-dsh-cordis-composition.md).**
-  Session projections remain Spark-owned until a later decision. Compaction,
-  jobs, and subagent still wait on later owner decisions.
-- `dsh-jobs` / `dsh-subagent` are in-process and do not replace daemon durable
-  Fleet.
+  Session projections remain Spark-owned until a later decision. Compaction
+  and jobs still wait on later owner decisions. Product subagent does not:
+  official `@deepseek-ai/dsh-subagent` is the HOST registry; `spark-session`
+  registers Role-bound spawn/fork providers. See
+  [`2026-08-20-role-session-bind.md`](./2026-08-20-role-session-bind.md).
+- `dsh-jobs` is in-process and does not replace daemon durable Fleet.
+  `dsh-subagent` is the named-provider registry and does not replace Spark
+  `session spawn|fork`.
 
 Phase 2 lands as runtime composition, register bridge, prompt assembly,
 `ctx.tools.execute`, `ctx.tools.guard()` for driver-target binding, then
