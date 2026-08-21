@@ -28,11 +28,11 @@ over copied prose.
   `context` only exposes registered bounded providers; it accepts no arbitrary
   provider prompt.
 - `role` owns reusable static definitions and semantic Model Type settings.
-  `session spawn|fork` creates Role-bound children; `session send(kind=request)`
-  triggers their Invocations. `RoleRun` is a compatibility query projection only.
-  `session` owns identity, lifecycle, bindings, continuity, and mail.
-  `skill_agent` instantiates one owned child Session and does not create a
-  parallel Agent lifecycle.
+  `session spawn|fork` creates Role-bound children (subagents);
+  `session send(kind=request)` triggers their Invocations. `RoleRun` is a
+  compatibility query projection only. `session` owns identity, lifecycle,
+  bindings, continuity, and mail. `skill_agent` instantiates one owned child
+  Session and does not create a parallel Agent lifecycle.
 - `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
   daemon-owned continuation. `workflow` also owns public WorkflowRun inspection
   and control. They do not create another executor or timer.

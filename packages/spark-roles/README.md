@@ -2,6 +2,8 @@
 
 Owns reusable `RoleSpec` definitions, Role-Skill composition, Skill discovery and prompt rendering, external Role model settings, the internal Role execution runtime, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation. Canonical Skill APIs are exported from `@zendev-lab/spark-roles/{builtin-skills,skill-resolver}`; the matching `spark-host` subpaths are compatibility re-exports only.
 
+Role is static catalog. Session binds at most one Role through `roleBinding` at runtime. A Role-bound child Session is a subagent; it is not a second runtime type. The human operator is not a Role. See [`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
+
 ## Storage and models
 
 Role Markdown loads from project `.agents/roles/**/*.md`, user `~/.agents/roles/**/*.md`, builtins, and loaded extensions. Every current `RoleSpec` has a content-addressed definition `revision`, semantic `modelType`, declared `capabilities`, and optionally up to eight ordered unique `skills`; Session Owner, not Role, derives lifetime. The definition revision includes Skill names. Immediately before execution, Spark resolves those exact names through normal Skill precedence, requires each Skill to be enabled and model-invocable, reads every complete `SKILL.md` source once, and rejects compositions above 64K characters. The execution composition revision includes the definition revision and ordered Skill source digests. The child Session receives the rendered Skill bodies and resource bases, while the run record retains the definition revision, composition revision, and digests.

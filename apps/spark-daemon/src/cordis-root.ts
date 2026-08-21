@@ -3,8 +3,10 @@
  *
  * Invocation, channel, loop, and retry data authority stays in Spark SQLite.
  * Live sessions are `ctx.sessions`; JSONL durability is dsh-session-persistence
- * with Spark's PersistenceBackend. Agent handles remain invocation-owned and
- * are mounted only after transcript migration makes their surface native DSH.
+ * with Spark's PersistenceBackend. Official `dsh-subagent` owns `ctx.subagents`;
+ * spark-session registers Role-bound spawn/fork providers when a durable host
+ * is passed. Agent handles remain invocation-owned and are mounted only after
+ * transcript migration makes their surface native DSH.
  */
 import { dirname } from "node:path";
 
@@ -14,9 +16,13 @@ import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
 import { SessionStore } from "@deepseek-ai/dsh-session";
+import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
+import sparkSessionSubagentPlugin, {
+  type SparkSubagentHost,
+} from "@zendev-lab/spark-session/subagent";
 import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "@zendev-lab/spark-turn";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
@@ -64,6 +70,7 @@ export interface SparkDaemonCordisRootOptions {
   sessionsRoot: string;
   /** Reuse the process root opened before daemon adapters are constructed. */
   ctx?: Context;
+  subagentHost?: SparkSubagentHost;
 }
 
 export interface SparkDaemonHeadlessCordisRootOptions {
@@ -119,6 +126,10 @@ export async function createSparkDaemonCordisRoot(
       dshHome: dirname(options.sessionsRoot),
       sessionsRoot: options.sessionsRoot,
     });
+    await ctx.plugin(SubagentRuntime);
+    if (options.subagentHost) {
+      await ctx.plugin(sparkSessionSubagentPlugin, { host: options.subagentHost });
+    }
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;

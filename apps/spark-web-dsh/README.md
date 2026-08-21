@@ -2,7 +2,8 @@
 
 Spark-owned **DSH-hosted web application**. `spark web-dsh` /
 `spark-web-dsh` boot the installed
-DeepSeek Harness web profile with Cue, LLM, and provider-onboarding plugins.
+DeepSeek Harness web profile with Cue, LLM, Role-bound subagent providers, and
+provider-onboarding plugins.
 Search/fetch tools live in `@zendev-lab/spark-tool-web`.
 
 The LLM plugin exposes Spark's configured `baidu-oneapi`, `kimi-coding`, and
@@ -16,8 +17,11 @@ spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080
 
 Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the
-host and client bundles under ignored `lib/`; release build and smoke generate
-them instead of relying on tracked output.
+host, client, Cue, LLM, and spark-session-subagent bundles under ignored `lib/`;
+release build and smoke generate them instead of relying on tracked output. The
+same Spark-owned spawn/fork providers are registered on the daemon Cordis root.
+The overlay disables stock in-process spawn/fork backends; the official
+`dsh-subagent` HOST stays mounted.
 
 For the supported DSH release, Spark rejects cold history artifacts larger than 8 MiB
 before upstream `inspect()` can materialize the complete transcript. Servable

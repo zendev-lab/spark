@@ -38,7 +38,7 @@ module.exports = {
       severity: "error",
       from: {
         pathNot:
-          "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/|apps/spark-daemon/)",
+          "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/|packages/spark-session/|apps/spark-daemon/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
@@ -63,7 +63,7 @@ module.exports = {
         "dsh-session and dsh-session-persistence are limited to the daemon Cordis root and the spark-turn agent-loop driver.",
       severity: "error",
       from: {
-        pathNot: "^(apps/spark-daemon/|packages/spark-turn/)",
+        pathNot: "^(apps/spark-daemon/|packages/spark-turn/|packages/spark-session/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|/node_modules/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|^@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)",
