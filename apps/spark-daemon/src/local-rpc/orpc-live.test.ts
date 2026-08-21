@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/spark-channels";
+import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/dsh-channels";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,

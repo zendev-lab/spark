@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { QqbotGatewayCursor } from "@zendev-lab/spark-channels";
+import type { QqbotGatewayCursor } from "@zendev-lab/dsh-channels";
 
 export interface SparkQqbotGatewayCursorStoreOptions {
   now?: () => string;

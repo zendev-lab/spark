@@ -7,7 +7,7 @@ import { constants as sqliteConstants, type DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
-import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/spark-channels";
+import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/dsh-channels";
 import {
   SparkSessionMailStore,
   type SparkSessionMailDeliveryReceipt,

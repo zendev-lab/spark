@@ -5,8 +5,8 @@ import {
   parseSparkAskChoice,
   type SparkEvidenceAnswerEvent,
 } from "@zendev-lab/spark-protocol";
-import type { ChannelAskRequest, IncomingMessage } from "@zendev-lab/spark-channels";
-import { renderTextChannelAsk } from "@zendev-lab/spark-channels";
+import type { ChannelAskRequest, IncomingMessage } from "@zendev-lab/dsh-channels";
+import { renderTextChannelAsk } from "@zendev-lab/dsh-channels";
 import { runtimeEnvelope } from "../protocol/outbound.ts";
 import type { SparkDaemonHumanInteractionOpened } from "../core/human-interactions.ts";
 import {

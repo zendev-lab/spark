@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { IncomingMessage } from "@zendev-lab/spark-channels";
+import type { IncomingMessage } from "@zendev-lab/dsh-channels";
 import type { SparkDaemonSessionRunTask } from "../core/types.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "../store/invocations.ts";
 import { resolveWorkspaceIdentity, type WorkspaceIdentityResolution } from "../store/workspaces.ts";

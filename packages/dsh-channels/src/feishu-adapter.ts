@@ -1,4 +1,5 @@
 import { createDefaultChannelExternalKey } from "./external-key.ts";
+import { createFeishuTransport } from "./feishu-transport.ts";
 import { normalizeChannelMessageReference } from "./message-reference.ts";
 import type {
   ChannelAdapter,
@@ -8,7 +9,6 @@ import type {
   IncomingMessage,
 } from "./types.ts";
 import {
-  channelDeliveryNotSent,
   normalizeChannelDeliveryResult,
   type ChannelDeliveryFacts,
   type ChannelDeliveryResult,
@@ -34,7 +34,9 @@ export class FeishuAdapter implements ChannelAdapter {
   constructor(options: FeishuAdapterOptions) {
     this.id = options.id;
     this.config = options.config;
-    this.runtimeCapable = options.transport !== undefined;
+    this.runtimeCapable =
+      options.transport !== undefined ||
+      Boolean(options.config.app_id?.trim() && options.config.app_secret?.trim());
     this.onMessage = options.onMessage;
     this.transport = options.transport ?? createDefaultFeishuTransport(options.config);
   }
@@ -177,19 +179,5 @@ function extractFeishuMessageReference(
 }
 
 function createDefaultFeishuTransport(config: FeishuAdapterConfig): ChannelTransport {
-  void config;
-  const unavailable =
-    "Feishu transport is not implemented; inject a concrete transport before enabling it";
-  return {
-    async start() {
-      // Production wiring loads @larksuiteoapi/node-sdk via dynamic import here.
-    },
-    async stop() {},
-    async send() {
-      throw channelDeliveryNotSent(new Error(unavailable));
-    },
-    status() {
-      return { state: "degraded", error: unavailable };
-    },
-  };
+  return createFeishuTransport(config);
 }

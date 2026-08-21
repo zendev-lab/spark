@@ -1,4 +1,4 @@
-import type { ChannelsConfig } from "@zendev-lab/spark-channels";
+import type { ChannelsConfig } from "@zendev-lab/dsh-channels";
 import type { RuntimeEphemeralSecretRequestContext } from "@zendev-lab/spark-hub-coordination/runtime-model-channel-control";
 import type { SparkChannelControlSnapshot } from "@zendev-lab/spark-protocol";
 import { describe, expect, it, vi } from "vitest";

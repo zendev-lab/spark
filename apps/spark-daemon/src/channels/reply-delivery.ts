@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ChannelReplyRecovery, ChannelReplyTarget } from "@zendev-lab/spark-channels";
+import type { ChannelReplyRecovery, ChannelReplyTarget } from "@zendev-lab/dsh-channels";
 import type { DaemonChannelIngressRuntime } from "./ingress.ts";
 import type { SparkInvocationStore } from "../store/invocations.ts";
 

@@ -1,4 +1,4 @@
-import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/spark-channels";
+import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channels";
 import type { RuntimeEphemeralSecretRequestContext } from "@zendev-lab/spark-hub-coordination/runtime-model-channel-control";
 import {
   parseSparkChannelControlSnapshot,
