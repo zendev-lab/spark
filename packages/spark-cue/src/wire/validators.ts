@@ -457,18 +457,20 @@ function validateOutputEncoding(record: WireRecord, path: string): void {
 }
 
 function validatePong(value: unknown, path: string): void {
-  const record = exactRecord(
-    value,
-    path,
-    ["version", "protocol_version", "capabilities"],
-    ["instance_id", "generation_id", "ready"],
-  );
+  const record = exactRecord(value, path, [
+    "version",
+    "protocol_version",
+    "capabilities",
+    "instance_id",
+    "generation_id",
+    "ready",
+  ]);
   stringField(record, "version", path);
   u32Field(record, "protocol_version", path);
   stringArrayField(record, "capabilities", path);
-  if (record.instance_id !== undefined) stringField(record, "instance_id", path);
-  if (record.generation_id !== undefined) stringField(record, "generation_id", path);
-  if (record.ready !== undefined) booleanField(record, "ready", path);
+  stringField(record, "instance_id", path);
+  stringField(record, "generation_id", path);
+  booleanField(record, "ready", path);
 }
 
 function validateOutputChunk(value: unknown, path: string): void {

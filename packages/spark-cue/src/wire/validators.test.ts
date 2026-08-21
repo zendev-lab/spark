@@ -148,6 +148,22 @@ test("accepts strict error payloads", () => {
   assert.equal(validateCueErrorPayload(payload), payload);
 });
 
+test("requires every IPC v3 Pong identity and readiness field", () => {
+  const pong = (
+    okPayloads.find((payload) => "Pong" in (payload as object)) as {
+      Pong: Record<string, unknown>;
+    }
+  ).Pong;
+  for (const field of ["instance_id", "generation_id", "ready"]) {
+    const malformed = { ...pong };
+    delete malformed[field];
+    assert.throws(
+      () => validateCueOkPayload({ Pong: malformed }),
+      new RegExp(`missing field ${field}`),
+    );
+  }
+});
+
 test("rejects removed v2 response and event variants", () => {
   for (const payload of [
     { JobCreated: { job_id: "J1" } },

@@ -972,23 +972,19 @@ export class CueClient {
         );
       }
     }
-    if (pong.ready === false) {
+    if (!pong.ready) {
       throw new CueDaemonStartingError("Cue daemon is still starting; retry the connection");
     }
     const instanceId = pong.instance_id;
-    if (instanceId !== undefined && (typeof instanceId !== "string" || instanceId.length === 0)) {
+    if (instanceId.length === 0) {
       throw unsupportedProtocolError(
         "Cue daemon Pong has an invalid instance_id; upgrade/restart cued",
       );
     }
-    if (
-      instanceId !== undefined &&
-      this.#daemonInstanceId !== null &&
-      this.#daemonInstanceId !== instanceId
-    ) {
+    if (this.#daemonInstanceId !== null && this.#daemonInstanceId !== instanceId) {
       throw unsupportedProtocolError("Cue daemon changed instance_id on one connection");
     }
-    this.#daemonInstanceId = instanceId ?? null;
+    this.#daemonInstanceId = instanceId;
     return version;
   }
 

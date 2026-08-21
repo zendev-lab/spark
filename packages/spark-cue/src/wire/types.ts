@@ -134,20 +134,17 @@ export interface ForegroundAttachmentInfo {
 
 /**
  * Daemon Pong payload.
- *
- * Core IPC v2 fields are required. Daemons may omit the newer process-lifetime
- * identity, in which case reconnect replay remains disabled for safety.
  */
 export interface PongPayload {
   version: string;
   protocol_version: number;
   capabilities: string[];
-  /** Unique to one daemon process lifetime when supported by the daemon. */
-  instance_id?: string;
-  /** Restart generation fence added by newer daemons; absent on compatible v2 peers. */
-  generation_id?: string;
-  /** Explicit startup-readiness hint; omission preserves legacy ready behavior. */
-  ready?: boolean;
+  /** Unique to one daemon process lifetime. */
+  instance_id: string;
+  /** Restart generation fence for exact successor matching. */
+  generation_id: string;
+  /** Startup-readiness fence. */
+  ready: boolean;
 }
 
 export interface ScopeCreatedPayload {
