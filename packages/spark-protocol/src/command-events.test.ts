@@ -125,6 +125,13 @@ describe("SparkCommand vocabulary", () => {
       "human.interaction.respond",
       "file.execute",
       "artifact.execute",
+      "artifact.list",
+      "artifact.read",
+      "role.list",
+      "role.get",
+      "role.create",
+      "skill.list",
+      "skill.get",
       "git.execute",
       "lens.execute",
     ]);

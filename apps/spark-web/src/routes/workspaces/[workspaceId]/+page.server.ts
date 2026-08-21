@@ -11,8 +11,14 @@ export const load: PageServerLoad = async ({ params }) => {
   if (!workspace) {
     error(404, "Workspace is not bound to this daemon");
   }
-  const sessions = (await invokeSparkWebRpc("session.list", {
-    scope: { kind: "workspace", workspaceId },
-  })) as SparkWebSession[];
-  return { workspace, sessions };
+  const [sessions, artifactCatalog, roleCatalog, skillCatalog, modelCatalog] = await Promise.all([
+    invokeSparkWebRpc("session.list", {
+      scope: { kind: "workspace", workspaceId },
+    }) as Promise<SparkWebSession[]>,
+    invokeSparkWebRpc("artifact.list", { workspaceId, limit: 100 }),
+    invokeSparkWebRpc("role.list", { workspaceId }),
+    invokeSparkWebRpc("skill.list", { workspaceId }),
+    invokeSparkWebRpc("model.catalog", {}),
+  ]);
+  return { workspace, sessions, artifactCatalog, roleCatalog, skillCatalog, modelCatalog };
 };

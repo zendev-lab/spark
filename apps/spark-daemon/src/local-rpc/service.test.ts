@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +48,129 @@ describe("transport-neutral local RPC service", () => {
     expect(direct).not.toHaveProperty("id");
     expect(direct).not.toHaveProperty("ok");
     expect(legacy).toEqual({ id: "rpc_workspace_list", ok: true, result: direct });
+    db.close();
+  });
+
+  it("lists and reads ArtifactStore content through bounded workspace-owned chunks", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "artifact-control-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const created = await defaultArtifactStore(workspaceRoot).put({
+      kind: "document",
+      title: "Native report",
+      format: "markdown",
+      body: {
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/markdown",
+        content: "# owner-backed artifact\n",
+        revision: 1,
+      },
+    });
+
+    const listed = await invokeLocalRpcService(
+      "artifact.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(listed).toMatchObject({
+      workspaceId: workspace.id,
+      total: 1,
+      artifacts: [
+        {
+          ref: created.ref,
+          kind: "document",
+          title: "Native report",
+          mediaType: "text/markdown",
+        },
+      ],
+    });
+
+    const first = await invokeLocalRpcService(
+      "artifact.read",
+      { workspaceId: workspace.id, artifactRef: created.ref, maxBytes: 8 },
+      { paths, db },
+    );
+    expect(first.artifact?.ref).toBe(created.ref);
+    expect(first.chunk).toMatchObject({ offsetBytes: 0, nextOffsetBytes: 8, eof: false });
+    expect(Buffer.from(first.chunk?.data ?? "", "base64").toString("utf8")).toBe("# owner-");
+
+    await expect(
+      invokeLocalRpcService(
+        "artifact.read",
+        { workspaceId: workspace.id, artifactRef: "artifact:missing" },
+        { paths, db },
+      ),
+    ).resolves.toEqual({ workspaceId: workspace.id, artifact: null });
+    db.close();
+  });
+
+  it("projects Role and Skill catalogs without exposing resource paths", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "agent-catalog-workspace");
+    const skillRoot = join(workspaceRoot, ".agents", "skills", "browser-check");
+    mkdirSync(skillRoot, { recursive: true });
+    writeFileSync(
+      join(skillRoot, "SKILL.md"),
+      "---\nname: browser-check\ndescription: Verify the Web surface\n---\n\n# Browser check\n",
+      "utf8",
+    );
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+
+    const roles = await invokeLocalRpcService(
+      "role.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(roles.roles.some((role) => role.ref === "role:builtin-administrator")).toBe(true);
+    expect(roles.roles[0]).not.toHaveProperty("systemPrompt");
+
+    const created = await invokeLocalRpcService(
+      "role.create",
+      {
+        workspaceId: workspace.id,
+        id: "web-reviewer",
+        description: "Review Web owner boundaries",
+        systemPrompt: "Verify the implementation against its owner APIs.",
+        capabilities: ["read"],
+        skills: ["browser-check"],
+        modelType: "verification",
+      },
+      { paths, db },
+    );
+    expect(created).toMatchObject({ created: true, role: { source: "project" } });
+    const duplicate = await invokeLocalRpcService(
+      "role.create",
+      {
+        workspaceId: workspace.id,
+        id: "web-reviewer",
+        description: "Different",
+        systemPrompt: "Do not overwrite.",
+        modelType: "verification",
+      },
+      { paths, db },
+    );
+    expect(duplicate).toMatchObject({ created: false, role: { ref: created.role.ref } });
+
+    const skills = await invokeLocalRpcService(
+      "skill.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(skills.skills).toContainEqual(
+      expect.objectContaining({ name: "browser-check", layer: "cwd" }),
+    );
+    expect(skills.skills.find((skill) => skill.name === "browser-check")).not.toHaveProperty(
+      "filePath",
+    );
+    const loaded = await invokeLocalRpcService(
+      "skill.get",
+      { workspaceId: workspace.id, name: "browser-check" },
+      { paths, db },
+    );
+    expect(loaded.skill?.content).toContain("# Browser check");
+    expect(loaded.skill).not.toHaveProperty("filePath");
     db.close();
   });
 
