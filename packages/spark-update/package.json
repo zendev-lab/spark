@@ -1,13 +1,9 @@
 {
   "name": "@zendev-lab/spark-update",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Spark managed installation, update policy, release metadata, and rollback owner.",
-  "bin": {
-    "spark-update": "./bin/spark-update"
-  },
+  "description": "Read-only TypeScript projection for the native Spark deployment owner.",
   "files": [
-    "bin",
     "src",
     "!src/**/*.test.ts",
     "package.json",
@@ -15,25 +11,18 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./cli": "./src/cli.ts",
-    "./executable": "./bin/spark-update"
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "check": "vp check --no-fmt --no-lint . && cargo clippy -p spark-update --all-targets -- -D warnings",
+    "test": "vp test run && cargo test -p spark-update"
   },
   "dependencies": {
-    "@optique/core": "catalog:",
-    "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "catalog:",
-    "@stryker-mutator/vitest-runner": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "catalog:"
   },
   "engines": {
     "node": ">=24.0.0"

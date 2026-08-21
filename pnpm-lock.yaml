@@ -227,9 +227,6 @@ importers:
 
   apps/spark-cli:
     dependencies:
-      '@optique/core':
-        specifier: 'catalog:'
-        version: 1.2.0
       '@zendev-lab/spark-i18n':
         specifier: workspace:^
         version: link:../../packages/spark-i18n
@@ -240,9 +237,6 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
   apps/spark-daemon:
     dependencies:
@@ -1591,12 +1585,6 @@ importers:
 
   packages/spark-update:
     dependencies:
-      '@optique/core':
-        specifier: 'catalog:'
-        version: 1.2.0
-      '@zendev-lab/spark-i18n':
-        specifier: workspace:^
-        version: link:../spark-i18n
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
@@ -1604,18 +1592,9 @@ importers:
         specifier: workspace:^
         version: link:../spark-system
     devDependencies:
-      '@stryker-mutator/core':
-        specifier: 'catalog:'
-        version: 10.0.0(@types/node@24.13.3)
-      '@stryker-mutator/vitest-runner':
-        specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.10)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
   packages/spark-workflows:
     dependencies:

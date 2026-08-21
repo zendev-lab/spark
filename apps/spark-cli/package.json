@@ -1,8 +1,8 @@
 {
   "name": "@zendev-lab/spark-cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Thin dispatcher for the root spark command; routes public spark subcommands to Spark app surfaces.",
+  "description": "Native root Spark CLI with Node companion process routing.",
   "license": "MIT",
   "author": "zrr1999",
   "bin": {
@@ -10,22 +10,22 @@
   },
   "files": [
     "bin/**/*",
-    "src/**/*.ts",
+    "src/paths.ts",
+    "native/Cargo.toml",
+    "native/src/**/*.rs",
     "README.md"
   ],
   "type": "module",
   "scripts": {
-    "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "check": "vp check --no-fmt --no-lint . && cargo clippy -p spark-cli --all-targets -- -D warnings",
+    "test": "cargo test -p spark-cli"
   },
   "dependencies": {
-    "@optique/core": "catalog:",
     "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^"
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "catalog:"
   },
   "engines": {
     "node": ">=24.0.0"

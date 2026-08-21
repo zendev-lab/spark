@@ -86,8 +86,69 @@ jobs:
             if (!response.ok) throw new Error(`workspace route returned ${response.status}`);
           '
 
+  native-cli:
+    name: Native CLI (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust target
+        run: |
+          rustup target add "${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == *-linux-musl ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes musl-tools
+          fi
+      - name: Test and build the native CLI
+        env:
+          SPARK_BUILD_GIT_SHA: ${{ github.sha }}
+        run: |
+          cargo test --workspace --locked
+          cargo build --release --locked --target "${{ matrix.target }}" --package spark-cli
+      - name: Smoke native routing and enforce the compressed size budget
+        run: |
+          binary="target/${{ matrix.target }}/release/spark"
+          "${binary}" --help >/dev/null
+          "${binary}" version --json | node -e '
+            let source = "";
+            process.stdin.on("data", (chunk) => source += chunk);
+            process.stdin.on("end", () => {
+              const build = JSON.parse(source);
+              if (build.deploymentGeneration !== 2) process.exit(1);
+            });
+          '
+          SPARK_WEB_COMMAND="$(command -v node)" "${binary}" web --version >/dev/null
+          archive="spark-cli-${{ matrix.target }}.tar.gz"
+          tar -czf "${archive}" -C "$(dirname "${binary}")" spark
+          size="$(wc -c < "${archive}" | tr -d ' ')"
+          test "${size}" -le 2097152 || {
+            echo "${archive} is ${size} bytes; the limit is 2097152" >&2
+            exit 1
+          }
+      - name: Upload the native CLI payload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: spark-cli-native-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/spark
+          if-no-files-found: error
+          retention-days: 7
+
   build:
     name: Release Build
+    needs: native-cli
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,6 +166,26 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download native CLI payloads
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: spark-cli-native-*
+          path: dist/native
+
+      - name: Normalize native CLI artifact paths
+        run: |
+          for target in \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin \
+            aarch64-unknown-linux-musl \
+            x86_64-unknown-linux-musl; do
+            native_source="dist/native/spark-cli-native-${target}/spark"
+            test -f "${native_source}"
+            chmod 755 "${native_source}"
+            mkdir -p "dist/native/${target}"
+            mv "${native_source}" "dist/native/${target}/spark"
+          done
 
       - name: Verify live-model Repro capability
         if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -146,6 +227,10 @@ jobs:
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
           --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
           --web-dsh-tarball "dist/release/spark-web-dsh-${RELEASE_TAG}.tgz"
+          --native-darwin-arm64-tarball "dist/release/spark-cli-aarch64-apple-darwin-npm-${RELEASE_TAG}.tgz"
+          --native-darwin-x64-tarball "dist/release/spark-cli-x86_64-apple-darwin-npm-${RELEASE_TAG}.tgz"
+          --native-linux-arm64-tarball "dist/release/spark-cli-aarch64-unknown-linux-musl-npm-${RELEASE_TAG}.tgz"
+          --native-linux-x64-tarball "dist/release/spark-cli-x86_64-unknown-linux-musl-npm-${RELEASE_TAG}.tgz"
 
       - name: Verify declared N-1 migration policy
         run: >-
@@ -218,6 +303,42 @@ jobs:
             dist/release/release-manifest.json
             dist/release/SHA256SUMS
 
+      - name: Publish native macOS arm64 package
+        if: steps.release.outputs['npm_native-darwin-arm64_published'] != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-cli-aarch64-apple-darwin-npm-${{ github.ref_name }}.tgz
+          access: public
+          tag: native-staging-${{ github.run_id }}
+          provenance: true
+
+      - name: Publish native macOS x64 package
+        if: steps.release.outputs['npm_native-darwin-x64_published'] != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-cli-x86_64-apple-darwin-npm-${{ github.ref_name }}.tgz
+          access: public
+          tag: native-staging-${{ github.run_id }}
+          provenance: true
+
+      - name: Publish native Linux arm64 package
+        if: steps.release.outputs['npm_native-linux-arm64_published'] != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-cli-aarch64-unknown-linux-musl-npm-${{ github.ref_name }}.tgz
+          access: public
+          tag: native-staging-${{ github.run_id }}
+          provenance: true
+
+      - name: Publish native Linux x64 package
+        if: steps.release.outputs['npm_native-linux-x64_published'] != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-cli-x86_64-unknown-linux-musl-npm-${{ github.ref_name }}.tgz
+          access: public
+          tag: native-staging-${{ github.run_id }}
+          provenance: true
+
       - name: Publish the exact daemon artifact to npm
         if: steps.release.outputs.npm_daemon_published != 'true'
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
@@ -241,6 +362,15 @@ jobs:
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
           package: dist/release/spark-web-${{ github.ref_name }}.tgz
+          access: public
+          tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+          provenance: true
+
+      - name: Publish the exact DSH Web artifact to npm
+        if: steps.release.outputs['npm_web-dsh_published'] != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-web-dsh-${{ github.ref_name }}.tgz
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true

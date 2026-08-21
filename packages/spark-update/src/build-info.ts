@@ -45,7 +45,8 @@ export function readSparkBuildInfo(
     protocolVersion: SPARK_PROTOCOL_VERSION,
     minimumNodeVersion,
     migrationHead: "source-checkout",
-    migrationMode: "expand-only",
+    migrationMode: "manual",
+    deploymentGeneration: 2,
     fingerprint: createBuildFingerprint({
       version,
       gitSha: env.SPARK_BUILD_GIT_SHA?.trim() || "source-checkout",
@@ -81,6 +82,7 @@ export function isSparkBuildInfo(value: unknown): value is SparkBuildInfo {
     typeof candidate.minimumNodeVersion === "string" &&
     typeof candidate.migrationHead === "string" &&
     (candidate.migrationMode === "expand-only" || candidate.migrationMode === "manual") &&
+    (candidate.deploymentGeneration === undefined || candidate.deploymentGeneration === 2) &&
     typeof candidate.fingerprint === "string"
   );
 }

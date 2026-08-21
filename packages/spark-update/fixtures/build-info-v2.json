@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "packageName": "@zendev-lab/spark",
+  "version": "0.5.0",
+  "gitSha": "0123456789abcdef0123456789abcdef01234567",
+  "protocolVersion": 3,
+  "minimumNodeVersion": ">=24.0.0",
+  "migrationHead": "fixture.sql",
+  "migrationMode": "manual",
+  "deploymentGeneration": 2,
+  "fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

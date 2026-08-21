@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   npmDistributions,
+  nativeNpmDistributions,
   npmTag,
   releaseDirectory,
   releaseVersion,
@@ -18,7 +19,7 @@ const expectedTag = `v${releaseVersion}`;
 const tag = process.env.GITHUB_REF_NAME?.trim() || expectedTag;
 const gitSha = process.env.GITHUB_SHA?.trim();
 const releases = await Promise.all(
-  npmDistributions.map(async (distribution) => ({
+  [...nativeNpmDistributions, ...npmDistributions].map(async (distribution) => ({
     ...distribution,
     manifest: await readJson(resolve(releaseDirectory, distribution.manifestName)),
   })),
@@ -82,9 +83,10 @@ console.log(
 function verifyManifestIdentity(release) {
   const manifest = release.manifest;
   assertEqual(manifest.packageName, release.packageName, `${release.id} release package`);
-  assertEqual(manifest.version, releaseVersion, `${release.id} release version`);
+  assertEqual(manifest.version, release.version ?? releaseVersion, `${release.id} release version`);
   assertEqual(manifest.assetName, release.assetName, `${release.id} release asset name`);
-  assertEqual(manifest.npmTag, npmTag, `${release.id} npm distribution tag`);
+  if (!release.target) assertEqual(manifest.npmTag, npmTag, `${release.id} npm distribution tag`);
+  if (release.target) assertEqual(manifest.target, release.target, `${release.id} native target`);
   if (gitSha) assertEqual(manifest.gitSha, gitSha, `${release.id} release Git SHA`);
 }
 

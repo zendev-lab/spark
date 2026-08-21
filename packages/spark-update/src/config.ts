@@ -1,5 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 
 import type {
   SparkUpdateChannel,
@@ -14,6 +13,7 @@ export const DEFAULT_SPARK_UPDATE_CONFIG: SparkUpdateConfig = {
   checkIntervalHours: 24,
 };
 
+/** Read-only projection of update.toml. Native Rust code is its sole writer. */
 export async function readSparkUpdateConfig(
   paths: Pick<SparkUpdatePaths, "configFile">,
   env: Record<string, string | undefined> = process.env,
@@ -28,12 +28,10 @@ export async function readSparkUpdateConfig(
   const environmentChannel = env.SPARK_UPDATE_CHANNEL?.trim();
   const policy = environmentPolicy ? parsePolicy(environmentPolicy) : fileConfig.policy;
   const channel = environmentChannel ? parseChannel(environmentChannel) : fileConfig.channel;
-  if (environmentPolicy && !policy) {
+  if (environmentPolicy && !policy)
     throw new Error(`Invalid SPARK_UPDATE_POLICY: ${environmentPolicy}`);
-  }
-  if (environmentChannel && !channel) {
+  if (environmentChannel && !channel)
     throw new Error(`Invalid SPARK_UPDATE_CHANNEL: ${environmentChannel}`);
-  }
   return {
     policy: policy ?? DEFAULT_SPARK_UPDATE_CONFIG.policy,
     channel: channel ?? DEFAULT_SPARK_UPDATE_CONFIG.channel,
@@ -41,25 +39,6 @@ export async function readSparkUpdateConfig(
       fileConfig.checkIntervalHours ?? DEFAULT_SPARK_UPDATE_CONFIG.checkIntervalHours,
     ),
   };
-}
-
-export async function writeSparkUpdateConfig(
-  paths: Pick<SparkUpdatePaths, "configFile">,
-  config: SparkUpdateConfig,
-): Promise<void> {
-  const normalized = {
-    policy: requirePolicy(config.policy),
-    channel: requireChannel(config.channel),
-    checkIntervalHours: normalizeInterval(config.checkIntervalHours),
-  };
-  await mkdir(dirname(paths.configFile), { recursive: true });
-  const temporary = `${paths.configFile}.${process.pid}.tmp`;
-  await writeFile(
-    temporary,
-    `policy = "${normalized.policy}"\nchannel = "${normalized.channel}"\ncheckIntervalHours = ${normalized.checkIntervalHours}\n`,
-    { mode: 0o600 },
-  );
-  await rename(temporary, paths.configFile);
 }
 
 export function parseUpdateToml(source: string): Partial<SparkUpdateConfig> {
@@ -72,24 +51,13 @@ export function parseUpdateToml(source: string): Partial<SparkUpdateConfig> {
     if (separator <= 0) throw new Error(`Invalid update.toml line: ${rawLine}`);
     const key = line.slice(0, separator).trim();
     const rawValue = line.slice(separator + 1).trim();
-    if (!/^[A-Za-z][A-Za-z0-9]*$/u.test(key) || !rawValue) {
-      throw new Error(`Invalid update.toml line: ${rawLine}`);
-    }
     if (key === "policy") result.policy = requirePolicy(unquote(rawValue));
     else if (key === "channel") result.channel = requireChannel(unquote(rawValue));
-    else if (key === "checkIntervalHours") {
+    else if (key === "checkIntervalHours")
       result.checkIntervalHours = normalizeInterval(Number(rawValue));
-    } else {
-      throw new Error(`Unknown update.toml setting: ${key}`);
-    }
+    else throw new Error(`Unknown update.toml setting: ${key}`);
   }
   return result;
-}
-
-function unquote(value: string): string {
-  const match = /^"([^"]*)"$/u.exec(value.trim());
-  if (!match) throw new Error(`Expected a quoted TOML string, received: ${value}`);
-  return match[1]!;
 }
 
 export function parsePolicy(value: string | undefined): SparkUpdatePolicy | undefined {
@@ -98,6 +66,12 @@ export function parsePolicy(value: string | undefined): SparkUpdatePolicy | unde
 
 export function parseChannel(value: string | undefined): SparkUpdateChannel | undefined {
   return value === "latest" || value === "next" ? value : undefined;
+}
+
+function unquote(value: string): string {
+  const match = /^"([^"]*)"$/u.exec(value.trim());
+  if (!match) throw new Error(`Expected a quoted TOML string, received: ${value}`);
+  return match[1]!;
 }
 
 function requirePolicy(value: string): SparkUpdatePolicy {

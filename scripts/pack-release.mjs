@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 
 import {
   npmDistributions,
+  nativeNpmDistributions,
   npmTag,
   releaseDirectory,
   releaseVersion,
@@ -27,7 +28,7 @@ await execFileAsync("node", ["scripts/build-npm-product.mjs"], {
 });
 
 const manifests = [];
-for (const distribution of npmDistributions) {
+for (const distribution of [...nativeNpmDistributions, ...npmDistributions]) {
   const packedResult = await execFileAsync(
     "npm",
     ["pack", "--json", "--pack-destination", releaseDirectory],
@@ -40,7 +41,7 @@ for (const distribution of npmDistributions) {
   const packedMetadata = JSON.parse(packedResult.stdout)[0];
   if (
     packedMetadata?.name !== distribution.packageName ||
-    packedMetadata?.version !== releaseVersion
+    packedMetadata?.version !== (distribution.version ?? releaseVersion)
   ) {
     throw new Error(
       `Packed the wrong ${distribution.id} manifest: ${packedMetadata?.name ?? "unknown"}@${packedMetadata?.version ?? "unknown"}`,
@@ -54,9 +55,9 @@ for (const distribution of npmDistributions) {
     resolve(releaseDirectory, distribution.assetName),
   );
   const tarball = await readFile(resolve(releaseDirectory, distribution.assetName));
-  const buildInfo = JSON.parse(
-    await readFile(resolve(distribution.directory, "dist/build-info.json"), "utf8"),
-  );
+  const buildInfo = distribution.target
+    ? undefined
+    : JSON.parse(await readFile(resolve(distribution.directory, "dist/build-info.json"), "utf8"));
   const assetSha256 = createHash("sha256").update(tarball).digest("hex");
   const npmIntegrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
   if (packedMetadata.integrity !== npmIntegrity) {
@@ -64,20 +65,34 @@ for (const distribution of npmDistributions) {
       `${distribution.id} npm pack integrity ${packedMetadata.integrity ?? "missing"} does not match ${npmIntegrity}`,
     );
   }
-  const manifest = {
-    schemaVersion: 1,
-    packageName: distribution.packageName,
-    version: releaseVersion,
-    npmTag,
-    npmIntegrity,
-    assetName: distribution.assetName,
-    assetSha256,
-    gitSha: buildInfo.gitSha,
-    buildFingerprint: buildInfo.fingerprint,
-    minimumUpdaterVersion: rootManifest.sparkRelease.minimumUpdaterVersion,
-    rollbackCompatibility: rootManifest.sparkRelease.rollbackCompatibility,
-    migrationMode: rootManifest.sparkRelease.migrationMode,
-  };
+  const manifest = distribution.target
+    ? {
+        schemaVersion: 1,
+        packageName: distribution.packageName,
+        aliasPackageName: distribution.aliasPackageName,
+        version: distribution.version,
+        target: distribution.target,
+        npmIntegrity,
+        assetName: distribution.assetName,
+        assetSha256,
+        gitSha:
+          process.env.SPARK_BUILD_GIT_SHA?.trim() ||
+          (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim(),
+      }
+    : {
+        schemaVersion: 1,
+        packageName: distribution.packageName,
+        version: releaseVersion,
+        npmTag,
+        npmIntegrity,
+        assetName: distribution.assetName,
+        assetSha256,
+        gitSha: buildInfo.gitSha,
+        buildFingerprint: buildInfo.fingerprint,
+        minimumUpdaterVersion: rootManifest.sparkRelease.minimumUpdaterVersion,
+        rollbackCompatibility: rootManifest.sparkRelease.rollbackCompatibility,
+        migrationMode: rootManifest.sparkRelease.migrationMode,
+      };
   await writeFile(
     resolve(releaseDirectory, distribution.manifestName),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -86,8 +101,9 @@ for (const distribution of npmDistributions) {
 }
 
 const tarballs = (await readdir(releaseDirectory)).filter((name) => name.endsWith(".tgz"));
-if (tarballs.length !== npmDistributions.length) {
-  throw new Error(`Expected ${npmDistributions.length} release tarballs, found ${tarballs.length}`);
+const expectedTarballs = npmDistributions.length + nativeNpmDistributions.length;
+if (tarballs.length !== expectedTarballs) {
+  throw new Error(`Expected ${expectedTarballs} release tarballs, found ${tarballs.length}`);
 }
 await writeFile(
   resolve(releaseDirectory, "SHA256SUMS"),

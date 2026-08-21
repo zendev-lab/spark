@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-retry",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Zero-dependency retry timing primitives for Spark domain policies.",
   "license": "MIT",
