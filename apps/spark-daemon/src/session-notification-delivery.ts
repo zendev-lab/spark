@@ -59,10 +59,10 @@ export async function deliverSelectedSessionNotificationTargets(
   if (!session) {
     throw new SparkSessionRegistryError("session_not_found", `unknown session: ${input.sessionId}`);
   }
-  if (session.scope.kind !== "workspace") {
+  if (session.scope.kind !== "daemon" || session.purpose !== "channel") {
     throw new SparkSessionRegistryError(
       "session_scope_mismatch",
-      `channel notification target is not a workspace session: ${input.sessionId}`,
+      `channel notification target is not a daemon Channel Session: ${input.sessionId}`,
     );
   }
   const message = await deps.mailStore.get(input.sessionId, input.messageId);
@@ -101,7 +101,7 @@ export async function deliverSelectedSessionNotificationTargets(
       continue;
     }
     if (deps.deliveryQueue) {
-      const status = deps.channelIngress.status(session.scope.workspaceId);
+      const status = deps.channelIngress.status();
       const resolvedAdapter = resolveNotificationAdapter(status, target);
       const idempotencyKey = sessionNotificationDeliveryIdempotencyKey({
         sessionId: input.sessionId,
@@ -179,7 +179,6 @@ export async function deliverSelectedSessionNotificationTargets(
           {
             sessionId: input.sessionId,
             messageId: input.messageId,
-            workspaceId: session.scope.workspaceId,
             body: message.body,
             target,
           },
@@ -204,10 +203,10 @@ export async function deliverSelectedSessionNotificationTargets(
     }
     let receipt: unknown;
     try {
-      const status = deps.channelIngress.status(session.scope.workspaceId);
+      const status = deps.channelIngress.status();
       const { adapterId } = resolveNotificationAdapter(status, target);
       const recipient = notificationRecipient(target.externalKey, target.adapter);
-      receipt = await deps.channelIngress.notify(session.scope.workspaceId, {
+      receipt = await deps.channelIngress.notify({
         action: "send",
         adapter: adapterId,
         recipient,
@@ -254,8 +253,10 @@ export async function reconcileSessionNotificationDeliveries(
     isEnqueued: deps.deliveryQueue
       ? async (message, target) => {
           const session = await deps.sessionRegistry.get(message.toSessionId);
-          if (!session || session.scope.kind !== "workspace") return false;
-          const status = deps.channelIngress.status(session.scope.workspaceId);
+          if (!session || session.scope.kind !== "daemon" || session.purpose !== "channel") {
+            return false;
+          }
+          const status = deps.channelIngress.status();
           const resolvedAdapter = resolveNotificationAdapter(status, target);
           const idempotencyKey = sessionNotificationDeliveryIdempotencyKey({
             sessionId: message.toSessionId,
@@ -378,7 +379,6 @@ function notificationOutboxInput(
   input: {
     sessionId: string;
     messageId: string;
-    workspaceId: string;
     body: string;
     target: SparkSessionMailChannelTarget;
   },
@@ -389,7 +389,6 @@ function notificationOutboxInput(
     idempotencyKey,
     sessionId: input.sessionId,
     messageId: input.messageId,
-    workspaceId: input.workspaceId,
     adapterId: resolvedAdapter.adapterId,
     ...(resolvedAdapter.adapterAccountIdentity
       ? { adapterAccountIdentity: resolvedAdapter.adapterAccountIdentity }

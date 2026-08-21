@@ -31,183 +31,6 @@ import {
 } from "../../../../test/support/session-fixtures.ts";
 
 describe("daemon channel delivery outbox", () => {
-  it("routes QQ ingress through a persistent child despite current binding drift", async () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-origin-binding-e2e-"));
-    const db = new DatabaseSync(":memory:");
-    migrateSparkDaemonDatabase(db);
-    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
-    const registry = createDaemonSessionRegistry(join(root, ".spark"), {
-      daemonId: "origin-binding-e2e",
-      daemonCwd: root,
-    });
-    const workspace = registerWorkspace(db, {
-      serverUrl: "https://hub.example",
-      serverBindingId: "workspace-qq-origin",
-      workspaceName: "qq-origin",
-      localPath: root,
-    });
-    await createDaemonWorkspaceSession(registry, {
-      sessionId: "session-persistent-child",
-      workspaceId: workspace.id,
-      cwd: root,
-    });
-    const deliveries = new SparkChannelDeliveryStore(db);
-    const sendReply = vi.fn(async () => ({ replaySafety: "deduplicated" as const }));
-    const channelIngress = {
-      sendReply,
-      sendAsk: vi.fn(),
-      ackInteraction: vi.fn(),
-      resolveAdapterId: vi.fn(
-        (_workspaceId: string, adapterId: string) =>
-          ({ "qq-main": "qq-main", "info-main": "info-main" })[adapterId],
-      ),
-    };
-    try {
-      const assignments: ChannelIngressAssignment[] = [];
-      const qqTransport = new FakeChannelTransport();
-      const ingress = createChannelIngressController({
-        sparkHome: join(root, ".spark"),
-        config: parseChannelsConfig({
-          adapters: {
-            "qq-main": { type: "qqbot", app_id: "app", client_secret: "secret" },
-          },
-          routes: {},
-          ingress: { enabled: true, on_unbound: "reject" },
-        }),
-        hooks: {
-          onAssignment: async (assignment) => {
-            assignments.push(assignment);
-          },
-        },
-        sessionRegistry: {
-          ensureWorkspaceAdministrator: async () =>
-            workspaceSessionRecord({
-              sessionId: "sess_admin_workspace_qq_origin",
-              workspaceId: "workspace-qq-origin",
-              administrator: true,
-            }),
-          resolveBinding: async () =>
-            ({
-              sessionId: "session-qq-origin",
-              scope: { kind: "workspace" as const, workspaceId: "workspace-qq-origin" },
-            }) as never,
-        },
-        workspaceId: "workspace-qq-origin",
-        createTransport: () => qqTransport,
-      });
-      await ingress.start();
-      qqTransport.emitInbound({
-        event_type: "C2C_MESSAGE_CREATE",
-        d: {
-          id: "qq-origin-message",
-          content: "delegated QQ work",
-          author: { user_openid: "qq-user" },
-        },
-      });
-      await vi.waitFor(() => expect(assignments).toHaveLength(1));
-      await ingress.stop();
-      const ingressAssignment = assignments[0]!;
-      const ingressBinding = {
-        ...ingressAssignment.channelReply,
-        adapterAccountIdentity: ingressAssignment.adapterAccountIdentity,
-      };
-      expect(ingressBinding).toMatchObject({
-        workspaceId: "workspace-qq-origin",
-        adapter: "qqbot",
-        adapterId: "qq-main",
-        externalKey: "qqbot:c2c:qq-user",
-        recipient: "c2c:qq-user",
-      });
-      const mailStore = new SparkSessionMailStore({ sparkHome: join(root, ".spark") });
-      const sentMail = await mailStore.send({
-        toSessionId: "session-persistent-child",
-        fromSessionId: "session-qq-origin",
-        kind: "request",
-        intent: "work.request",
-        body: "delegated QQ work",
-        originBinding: ingressBinding,
-      });
-      const persistedBinding = (
-        await mailStore.get("session-persistent-child", sentMail.message.id)
-      ).originBinding;
-      expect(persistedBinding).toEqual(ingressBinding);
-      const accepted = await executeSparkDaemonSessionControl(
-        { paths, db, sessionRegistry: registry, actor: "spark-daemon-local-rpc" },
-        {
-          kind: "turn.submit.request",
-          scope: "any",
-          sessionId: "session-persistent-child",
-          payload: {
-            sessionId: "session-persistent-child",
-            prompt: "delegated QQ work",
-            idempotencyKey: "qq-origin-e2e",
-            originBinding: persistedBinding,
-          },
-        },
-      );
-      const invocations = new SparkInvocationStore(db);
-      const invocation = invocations.require(accepted.invocationId!);
-      expect(invocation.task).toMatchObject({
-        channelReply: {
-          workspaceId: ingressBinding.workspaceId,
-          adapter: "qqbot" as const,
-          adapterId: "qq-main",
-          adapterAccountIdentity: ingressBinding.adapterAccountIdentity,
-          recipient: ingressBinding.recipient,
-          externalKey: ingressBinding.externalKey,
-        },
-        channelContext: { externalKey: ingressBinding.externalKey },
-      });
-
-      // The executor's current channel drifts after admission; the durable task remains authoritative.
-      const currentBinding = {
-        workspaceId: "workspace-drifted",
-        adapter: "infoflow" as const,
-        adapterId: "info-main",
-        externalKey: "infoflow:user:drifted",
-        recipient: "drifted",
-      };
-      expect(invocation.task).not.toMatchObject({
-        channelReply: {
-          adapter: "infoflow" as const,
-          workspaceId: currentBinding.workspaceId,
-          adapterId: currentBinding.adapterId,
-          recipient: currentBinding.recipient,
-          externalKey: currentBinding.externalKey,
-        },
-      });
-      const task = validateSparkDaemonTask(invocation.task);
-      invocations.claimNext("worker");
-      completeInvocationWithChannelDelivery({ db, invocations, deliveries }, invocation, task, {
-        status: "succeeded",
-        result: { assistantText: "QQ child final" },
-      });
-      await expect(
-        reconcileDaemonChannelDeliveries({
-          store: deliveries,
-          channelIngress: channelIngress as never,
-          workerId: "delivery-worker",
-        }),
-      ).resolves.toEqual({ attempted: 1, delivered: 1, failed: 0, uncertain: 0 });
-      expect(sendReply).toHaveBeenCalledTimes(1);
-      expect(sendReply).toHaveBeenCalledWith("workspace-qq-origin", "qq-main", {
-        recipient: "c2c:qq-user",
-        text: "QQ child final",
-        deliveryId: expect.any(String),
-        preview: "delegated QQ work",
-      });
-      expect(sendReply).not.toHaveBeenCalledWith(
-        currentBinding.workspaceId,
-        currentBinding.adapterId,
-        expect.anything(),
-      );
-      expect(sendReply).not.toHaveBeenCalledWith(expect.anything(), "info-main", expect.anything());
-    } finally {
-      db.close();
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   it("rejects incomplete or inconsistent frozen bindings without creating an outbox entry", () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
@@ -219,7 +42,6 @@ describe("daemon channel delivery outbox", () => {
         sessionId: "session-incomplete-binding",
         prompt: "do not route by fallback",
         channelReply: {
-          workspaceId: "workspace-qq-origin",
           adapterId: "qq-main",
           recipient: "c2c:qq-user",
         },
@@ -230,7 +52,6 @@ describe("daemon channel delivery outbox", () => {
         sessionId: "session-inconsistent-binding",
         prompt: "do not route a mismatched origin",
         channelReply: {
-          workspaceId: "workspace-qq-origin",
           adapter: "qqbot" as const,
           adapterId: "qq-main",
           externalKey: "qqbot:c2c:qq-user",
@@ -266,7 +87,7 @@ describe("daemon channel delivery outbox", () => {
     }
   });
 
-  it("delivers a persistent child final only through its frozen QQ origin", async () => {
+  it("delivers a daemon Channel final only through its frozen QQ origin", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const invocations = new SparkInvocationStore(db);
@@ -276,7 +97,6 @@ describe("daemon channel delivery outbox", () => {
       sessionId: "session-persistent-child",
       prompt: "delegated QQ work",
       channelReply: {
-        workspaceId: "workspace-qq-origin",
         adapter: "qqbot" as const,
         adapterId: "qq-main",
         recipient: "c2c:qq-user",
@@ -290,8 +110,7 @@ describe("daemon channel delivery outbox", () => {
       sendAsk: vi.fn(),
       ackInteraction: vi.fn(),
       resolveAdapterId: vi.fn(
-        (_workspaceId: string, adapterId: string) =>
-          ({ "qq-main": "qq-main", "info-main": "info-main" })[adapterId],
+        (adapterId: string) => ({ "qq-main": "qq-main", "info-main": "info-main" })[adapterId],
       ),
     };
     try {
@@ -314,13 +133,13 @@ describe("daemon channel delivery outbox", () => {
         }),
       ).resolves.toEqual({ attempted: 1, delivered: 1, failed: 0, uncertain: 0 });
       expect(sendReply).toHaveBeenCalledTimes(1);
-      expect(sendReply).toHaveBeenCalledWith("workspace-qq-origin", "qq-main", {
+      expect(sendReply).toHaveBeenCalledWith("qq-main", {
         recipient: "c2c:qq-user",
         text: "QQ child final",
         deliveryId: expect.any(String),
         preview: "delegated QQ work",
       });
-      expect(sendReply).not.toHaveBeenCalledWith(expect.anything(), "info-main", expect.anything());
+      expect(sendReply).not.toHaveBeenCalledWith("info-main", expect.anything());
     } finally {
       db.close();
     }
@@ -348,7 +167,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:invocation-1",
         invocationId: "invocation-1",
         sessionId: "session-1",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         externalKey: "qqbot:c2c:user-1",
         target: {
@@ -381,14 +199,14 @@ describe("daemon channel delivery outbox", () => {
       await expect(
         reconcileDaemonChannelDeliveries({ store, channelIngress: ingress, workerId: "worker" }),
       ).resolves.toEqual({ attempted: 1, delivered: 1, failed: 0, uncertain: 0 });
-      expect(sendReply).toHaveBeenNthCalledWith(1, "workspace-1", "qqbot", {
+      expect(sendReply).toHaveBeenNthCalledWith(1, "qqbot", {
         recipient: "c2c:user-1",
         senderId: "user-1",
         messageId: "source-message-1",
         text: "done",
         deliveryId: persisted!.deliveryId,
       });
-      expect(sendReply).toHaveBeenNthCalledWith(2, "workspace-1", "qqbot", {
+      expect(sendReply).toHaveBeenNthCalledWith(2, "qqbot", {
         recipient: "c2c:user-1",
         senderId: "user-1",
         messageId: "source-message-1",
@@ -425,7 +243,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:not-sent",
         invocationId: "not-sent",
         sessionId: "session-not-sent",
-        workspaceId: "workspace-1",
         adapterId: "plain-adapter",
         externalKey: "plain-adapter:user:user-1",
         target: { recipient: "user-1" },
@@ -473,7 +290,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:crashed-dispatch",
         invocationId: "crashed-dispatch",
         sessionId: "session-crashed-dispatch",
-        workspaceId: "workspace-1",
         adapterId: "plain-adapter",
         externalKey: "plain-adapter:user:user-1",
         target: { recipient: "user-1" },
@@ -529,7 +345,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:crashed-preflight",
         invocationId: "crashed-preflight",
         sessionId: "session-crashed-preflight",
-        workspaceId: "workspace-1",
         adapterId: "plain-adapter",
         externalKey: "plain-adapter:user:user-1",
         target: { recipient: "user-1" },
@@ -582,7 +397,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "session.notification:unsafe-timeout",
         sessionId: "session-notification",
         messageId: "mail-notification",
-        workspaceId: "workspace-1",
         adapterId: "infoflow",
         externalKey: "infoflow:user:user-1",
         recipient: "user-1",
@@ -625,7 +439,6 @@ describe("daemon channel delivery outbox", () => {
     try {
       await outbox.enqueueAsk({
         idempotencyKey: "channel.ask:human-request-1",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         recipient: "c2c:user-1",
         request: {
@@ -637,7 +450,6 @@ describe("daemon channel delivery outbox", () => {
       });
       await outbox.enqueueInteractionAck({
         idempotencyKey: "channel.interaction-ack:qqbot:interaction-1",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         interactionId: "interaction-1",
         status: "success",
@@ -653,7 +465,6 @@ describe("daemon channel delivery outbox", () => {
       ).resolves.toEqual({ attempted: 2, delivered: 2, failed: 0, uncertain: 0 });
       expect(ingress.sendAsk).toHaveBeenCalledTimes(1);
       expect(ingress.sendAsk).toHaveBeenCalledWith(
-        "workspace-1",
         "qqbot",
         "c2c:user-1",
         expect.objectContaining({
@@ -661,12 +472,7 @@ describe("daemon channel delivery outbox", () => {
           messageId: "source-message-1",
         }),
       );
-      expect(ingress.ackInteraction).toHaveBeenCalledWith(
-        "workspace-1",
-        "qqbot",
-        "interaction-1",
-        "success",
-      );
+      expect(ingress.ackInteraction).toHaveBeenCalledWith("qqbot", "interaction-1", "success");
     } finally {
       db.close();
     }
@@ -696,7 +502,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:slow-invocation",
         invocationId: "slow-invocation",
         sessionId: "session-1",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         target: { recipient: "c2c:user-1", messageId: "source-message-1" },
         text: "slow done",
@@ -737,7 +542,7 @@ describe("daemon channel delivery outbox", () => {
     migrateSparkDaemonDatabase(db);
     const store = new SparkChannelDeliveryStore(db, { random: () => 1 });
     const outbox = createDaemonChannelDeliveryOutbox(store);
-    const sendReply = vi.fn(async (_workspaceId, _adapterId, target: { text: string }) => {
+    const sendReply = vi.fn(async (_adapterId, target: { text: string }) => {
       if (target.text === "stuck") {
         await new Promise<never>(() => undefined);
       }
@@ -754,7 +559,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:stuck",
         invocationId: "stuck",
         sessionId: "session-1",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         target: { recipient: "c2c:user-1", messageId: "source-message-1" },
         text: "stuck",
@@ -764,7 +568,6 @@ describe("daemon channel delivery outbox", () => {
         idempotencyKey: "channel.reply:final:healthy",
         invocationId: "healthy",
         sessionId: "session-2",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         target: { recipient: "c2c:user-2", messageId: "source-message-2" },
         text: "healthy",
@@ -826,7 +629,6 @@ describe("daemon channel delivery outbox", () => {
     };
     try {
       outbox.enqueueInbound({
-        workspaceId: "workspace-1",
         message: {
           adapter: "infoflow" as const,
           adapterId: "infoflow-account-a",
@@ -858,7 +660,6 @@ describe("daemon channel delivery outbox", () => {
       ).resolves.toEqual({ attempted: 1, delivered: 1, failed: 0, uncertain: 0 });
       expect(admitInbound).toHaveBeenCalledTimes(2);
       expect(admitInbound).toHaveBeenLastCalledWith(
-        "workspace-1",
         expect.objectContaining({
           adapter: "infoflow" as const,
           externalKey: "infoflow:user:alice",
@@ -895,13 +696,12 @@ describe("daemon channel delivery outbox", () => {
         payload: { workspaceId: "workspace-1", message: legacyMessage },
       });
 
-      outbox.enqueueInbound({ workspaceId: "workspace-1", message: accountA });
+      outbox.enqueueInbound({ message: accountA });
       expect(db.prepare("SELECT COUNT(*) AS count FROM channel_deliveries").get()).toMatchObject({
         count: 1,
       });
 
       outbox.enqueueInbound({
-        workspaceId: "workspace-1",
         message: {
           ...accountA,
           adapterId: "infoflow-account-b",
@@ -935,7 +735,6 @@ describe("daemon channel delivery outbox", () => {
       sessionId: "session-atomic",
       prompt: "finish atomically",
       channelReply: {
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         adapter: "qqbot" as const,
         recipient: "c2c:user-1",
@@ -1000,7 +799,6 @@ describe("daemon channel delivery outbox", () => {
       sessionId: `session-owned-delivery-${errorCode}`,
       prompt: "finish once",
       channelReply: {
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         adapter: "qqbot" as const,
         recipient: "c2c:user-1",
@@ -1055,7 +853,6 @@ describe("daemon channel delivery outbox", () => {
       sessionId: "session-rollback",
       prompt: "do not split the commit",
       channelReply: {
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         adapter: "qqbot" as const,
         recipient: "c2c:user-1",

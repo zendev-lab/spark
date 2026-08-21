@@ -1,18 +1,15 @@
-import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FakeChannelTransport,
   channelAdapterAccountIdentity,
   parseChannelsConfig,
-  type ChannelReplyStream,
   type ChannelTransport,
 } from "@zendev-lab/dsh-channels";
-import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
-import { defaultSparkSessionRegistryRoot, SparkSessionRegistry } from "@zendev-lab/spark-session";
-import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
+import { parseSparkSessionState, type SparkSessionState } from "@zendev-lab/spark-protocol";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_INGRESS_FAILURE_REPLY,
   channelIngressIdempotencyKey,
@@ -21,89 +18,69 @@ import {
   enrichInboundMessageReferenceFromSession,
   findChannelMessagePreviewById,
   loadDaemonChannelsConfig,
-  migrateLegacyChannelsConfig,
-  workspaceChannelsConfigPath,
   type ChannelIngressAssignment,
   type ChannelIngressRejectedReply,
 } from "./ingress.ts";
 
 const roots: string[] = [];
 
-async function createRegistryWorkspaceSession(
-  registry: SparkSessionRegistry,
-  workspaceId: string,
-  name: string,
-) {
-  const administrator = await registry.ensureWorkspaceAdministrator({ workspaceId });
-  return await registry.create({
-    scope: { kind: "workspace", workspaceId },
-    lineage: {
-      kind: "child",
-      parentSessionId: administrator.sessionId,
-      origin: { kind: "session" },
-    },
-    name,
-  });
-}
-
-function ingressRegistry(registry: SparkSessionRegistry) {
-  return {
-    ensureWorkspaceAdministrator: async (workspaceId: string) =>
-      await registry.ensureWorkspaceAdministrator({ workspaceId }),
-    resolveBinding: registry.resolveBinding.bind(registry),
-    get: registry.get.bind(registry),
-    recordTurnQueued: registry.recordTurnQueued.bind(registry),
-    recordTurnSettled: registry.recordTurnSettled.bind(registry),
-  };
-}
-
-function mockAdministrator(workspaceId: string) {
-  return workspaceSessionRecord({
-    sessionId: `sess_admin_${workspaceId}`,
-    workspaceId,
-    administrator: true,
-  });
-}
-
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe("channel ingress", () => {
-  it("settles Infoflow text asks before ordinary turn admission", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-text-ask-"));
-    roots.push(sparkHome);
-    const onAssignment = vi.fn(async () => undefined);
-    const onTextAskReply = vi.fn(async () => "settled" as const);
-    let inbound: ((raw: unknown) => void) | undefined;
-    const transport: ChannelTransport = {
-      start: async (handler) => {
-        inbound = handler;
+function channelSession(input?: {
+  sessionId?: string;
+  adapter?: "feishu" | "infoflow" | "qqbot";
+  externalKey?: string;
+  account?: string;
+}): SparkSessionState {
+  const adapter = input?.adapter ?? "infoflow";
+  const externalKey = input?.externalKey ?? "infoflow:user:user-1";
+  return parseSparkSessionState({
+    sessionId: input?.sessionId ?? "sess_channel_1",
+    scope: { kind: "daemon", daemonId: "installation-test" },
+    lifecycle: "open",
+    placement: "active",
+    roleBinding: { kind: "none" },
+    lineage: { kind: "root" },
+    incarnation: 1,
+    visibility: "public",
+    retention: "retain",
+    purpose: "channel",
+    cwd: `/tmp/channels/${input?.sessionId ?? "sess_channel_1"}/workspace`,
+    bindings: [
+      {
+        kind: "channel",
+        adapter,
+        adapterAccountIdentity: input?.account ?? `account:${adapter}:test`,
+        externalKey,
       },
-      stop: async () => undefined,
-      send: async () => undefined,
-    };
+    ],
+    createdAt: "2026-08-21T00:00:00.000Z",
+    updatedAt: "2026-08-21T00:00:00.000Z",
+  });
+}
+
+describe("daemon Channel ingress", () => {
+  it("settles text asks before Session resolution and ordinary admission", async () => {
+    const transport = new FakeChannelTransport();
+    const onAssignment = vi.fn(async () => undefined);
+    const resolveChannelSession = vi.fn(async () => channelSession());
+    const onTextAskReply = vi.fn(async () => "settled" as const);
     const controller = createChannelIngressController({
-      sparkHome,
+      sparkHome: "/unused",
       config: parseChannelsConfig({
-        adapters: { infoflow: { type: "infoflow" } },
+        adapters: { infoflow: { type: "infoflow", app_key: "app" } },
         routes: {},
         ingress: { enabled: true, on_unbound: "create" },
       }),
-      hooks: {
-        onAssignment,
-        onTextAskReply,
-      },
-      sessionRegistry: {
-        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_text_ask"),
-        resolveBinding: async () => ({ sessionId: "sess_text_ask" }) as never,
-      },
-      workspaceId: "ws_text_ask",
+      hooks: { onAssignment, onTextAskReply },
+      sessionRegistry: { resolveChannelSession },
       createTransport: () => transport,
     });
 
     await controller.start();
-    inbound?.({
+    transport.emitInbound({
       user_id: "alice",
       text: "1",
       chat_type: "private",
@@ -111,970 +88,217 @@ describe("channel ingress", () => {
     });
     await controller.stop();
 
-    expect(onTextAskReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "ws_text_ask",
-        recipient: "alice",
-        message: expect.objectContaining({
-          adapter: "infoflow",
-          senderId: "alice",
-          text: "1",
-        }),
-      }),
-    );
+    expect(onTextAskReply).toHaveBeenCalledWith({
+      recipient: "alice",
+      message: expect.objectContaining({ adapter: "infoflow", senderId: "alice", text: "1" }),
+    });
+    expect(resolveChannelSession).not.toHaveBeenCalled();
     expect(onAssignment).not.toHaveBeenCalled();
   });
 
-  it("reports admission failures without changing the session turn state", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-rejected-"));
-    roots.push(sparkHome);
-    const recordTurnQueued = vi.fn(async () => undefined);
-    const recordTurnSettled = vi.fn(async () => undefined);
-    const sendReply = vi.fn(async () => undefined);
-    let inbound: ((raw: unknown) => void) | undefined;
-    const transport: ChannelTransport = {
-      start: async (handler) => {
-        inbound = handler;
-      },
-      stop: async () => undefined,
-      send: async () => undefined,
-      reply: {
-        openReplyStream: async () => undefined,
-        sendReply,
-      },
-    };
+  it("resolves a daemon Channel Session and admits an assignment without Workspace routing", async () => {
+    const account = channelAdapterAccountIdentity({ type: "feishu", app_id: "app-1" });
+    const session = channelSession({
+      sessionId: "sess_feishu",
+      adapter: "feishu",
+      externalKey: "feishu:chat:oc_demo",
+      account,
+    });
+    const resolveChannelSession = vi.fn(async () => session);
+    const recordTurnQueued = vi.fn(async () => session);
+    const assignments: ChannelIngressAssignment[] = [];
+    const transport = new FakeChannelTransport();
     const controller = createChannelIngressController({
-      sparkHome,
+      sparkHome: "/unused",
       config: parseChannelsConfig({
-        adapters: { infoflow: { type: "infoflow" } },
+        adapters: { work: { type: "feishu", app_id: "app-1" } },
         routes: {},
         ingress: { enabled: true, on_unbound: "create" },
       }),
-      hooks: {
-        onAssignment: async () => {
-          throw new Error("provider login expired");
-        },
-      },
-      sessionRegistry: {
-        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_rejected"),
-        resolveBinding: async () => ({ sessionId: "sess_rejected" }) as never,
-        recordTurnQueued: recordTurnQueued as never,
-        recordTurnSettled: recordTurnSettled as never,
-      },
-      workspaceId: "ws_rejected",
+      hooks: { onAssignment: async (assignment) => void assignments.push(assignment) },
+      sessionRegistry: { resolveChannelSession, recordTurnQueued },
       createTransport: () => transport,
     });
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    try {
-      await controller.start();
-      inbound?.({
-        user_id: "user-1",
-        text: "请处理",
-        message_id: "message-1",
-      });
-      await controller.stop();
+    await controller.start();
+    transport.emitInbound({ chat_id: "oc_demo", text: "ship it", message_id: "m1" });
+    await vi.waitFor(() => expect(assignments).toHaveLength(1));
+    await controller.stop();
 
-      expect(recordTurnQueued).not.toHaveBeenCalled();
-      expect(recordTurnSettled).not.toHaveBeenCalled();
-      expect(sendReply).toHaveBeenCalledWith({
-        recipient: "user-1",
-        senderId: "user-1",
-        messageId: "message-1",
-        preview: "请处理",
-        text: CHANNEL_INGRESS_FAILURE_REPLY,
-        deliveryId: expect.stringMatching(/^channel-ingress-failure:/),
-      });
-    } finally {
-      log.mockRestore();
-    }
+    expect(resolveChannelSession).toHaveBeenCalledWith({
+      externalKey: "feishu:chat:oc_demo",
+      adapterId: "work",
+      adapterAccountIdentity: account,
+      allowLegacyAccountClaim: true,
+      onUnbound: "create",
+      name: "channel feishu:chat:oc_demo",
+    });
+    expect(assignments[0]).toMatchObject({
+      sessionId: "sess_feishu",
+      goal: "ship it",
+      assignment: { target: { sessionId: "sess_feishu" } },
+      externalKey: "feishu:chat:oc_demo",
+      adapterAccountIdentity: account,
+      channelReply: { adapter: "feishu", adapterId: "work", recipient: "oc_demo" },
+    });
+    expect(assignments[0]?.assignment.target).not.toHaveProperty("workspaceId");
+    expect(recordTurnQueued).toHaveBeenCalledWith("sess_feishu");
   });
 
-  it("persists one stable admission-failure intent without sending inline", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-rejected-outbox-"));
-    roots.push(sparkHome);
-    const sendReply = vi.fn(async () => undefined);
-    const onRejectedReply = vi.fn(async (_input: ChannelIngressRejectedReply) => undefined);
-    const transport: ChannelTransport = {
-      start: async () => undefined,
-      stop: async () => undefined,
-      send: async () => undefined,
-      reply: {
-        openReplyStream: async () => undefined,
-        sendReply,
-      },
-    };
+  it("persists a stable failure reply intent instead of sending inline", async () => {
+    const rejected: ChannelIngressRejectedReply[] = [];
+    const transport = new FakeChannelTransport();
     const controller = createChannelIngressController({
-      sparkHome,
+      sparkHome: "/unused",
       config: parseChannelsConfig({
-        adapters: { infoflow: { type: "infoflow" } },
+        adapters: { qq: { type: "qqbot", app_id: "app", client_secret: "secret" } },
         routes: {},
         ingress: { enabled: true, on_unbound: "create" },
       }),
       hooks: {
         onAssignment: async () => {
-          throw new Error("admission unavailable");
+          throw new Error("provider unavailable");
         },
-        onRejectedReply,
+        onRejectedReply: async (input) => void rejected.push(input),
       },
       sessionRegistry: {
-        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_rejected_outbox"),
-        resolveBinding: async () => ({ sessionId: "sess_rejected_outbox" }) as never,
+        resolveChannelSession: async () =>
+          channelSession({ adapter: "qqbot", externalKey: "qqbot:c2c:user-1" }),
       },
-      workspaceId: "ws_rejected_outbox",
       createTransport: () => transport,
     });
-    const inbound = {
-      adapter: "infoflow" as const,
-      externalKey: "infoflow:user:user-1",
-      senderId: "user-1",
-      text: "请处理",
-      messageId: "message-1",
-    };
 
-    await expect(controller.admitInbound(inbound)).resolves.toBeUndefined();
-    await expect(controller.admitInbound(inbound)).resolves.toBeUndefined();
+    await controller.start();
+    transport.emitInbound({
+      event_type: "C2C_MESSAGE_CREATE",
+      d: { id: "qm1", content: "hello", author: { user_openid: "user-1" } },
+    });
+    await vi.waitFor(() => expect(rejected).toHaveLength(1));
+    await controller.stop();
 
-    expect(sendReply).not.toHaveBeenCalled();
-    expect(onRejectedReply).toHaveBeenCalledTimes(2);
-    const first = onRejectedReply.mock.calls[0]![0];
-    const second = onRejectedReply.mock.calls[1]![0];
-    expect(first).toMatchObject({
-      sessionId: "sess_rejected_outbox",
-      workspaceId: "ws_rejected_outbox",
-      externalKey: "infoflow:user:user-1",
-      adapterId: "infoflow",
-      adapterAccountIdentity: channelAdapterAccountIdentity({ type: "infoflow" }),
+    expect(rejected[0]).toMatchObject({
       text: CHANNEL_INGRESS_FAILURE_REPLY,
-      deliveryFacts: { replaySafety: "unsafe" },
+      externalKey: "qqbot:c2c:user-1",
+      adapterId: "qq",
+      deliveryIdentity: expect.stringMatching(/^channel-ingress-failure:/u),
     });
-    expect(first.deliveryIdentity).toBe(second.deliveryIdentity);
+    expect(transport.sent).toEqual([]);
   });
 
-  it("forwards reply-stream creation callbacks through ingress", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-stream-created-"));
-    roots.push(sparkHome);
-    const stream: ChannelReplyStream = {
-      appendText: vi.fn(),
-      notifyToolStart: vi.fn(),
-      notifyToolResult: vi.fn(),
-      complete: vi.fn(async () => undefined),
-      fail: vi.fn(async () => undefined),
-    };
-    const openReplyStream = vi.fn(async () => stream);
-    const transport: ChannelTransport = {
-      start: async () => undefined,
-      stop: async () => undefined,
-      send: async () => undefined,
-      reply: {
-        openReplyStream,
-        sendReply: async () => undefined,
-      },
-    };
-    const onCreated = vi.fn(async () => undefined);
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: { infoflow: { type: "infoflow" } },
-        routes: {},
-      }),
-      hooks: { onAssignment: async () => undefined },
-      workspaceId: "ws_stream_created",
-      createTransport: () => transport,
-    });
-
-    await expect(
-      controller.openReplyStream("infoflow", { recipient: "user-1" }, { onCreated }),
-    ).resolves.toBe(stream);
-    expect(openReplyStream).toHaveBeenCalledWith({ recipient: "user-1" });
-    expect(onCreated).toHaveBeenCalledWith(stream);
-  });
-
-  it("derives durable deduplication only from platform message identity", () => {
-    const assignment: ChannelIngressAssignment = {
-      sessionId: "sess_channel",
-      goal: "same text",
+  it("uses account identity in durable ingress keys", () => {
+    const base: ChannelIngressAssignment = {
+      sessionId: "sess_a",
+      goal: "hello",
       assignment: {
-        goal: "same text",
-        target: { sessionId: "sess_channel", workspaceId: "workspace-1" },
+        goal: "hello",
+        target: { sessionId: "sess_a" },
         constraints: [],
         evidence: [],
-        source: { kind: "channel", channel: "infoflow", externalRef: "message-1" },
+        source: { kind: "channel", channel: "qqbot", externalRef: "message-1" },
       },
-      source: { kind: "channel", channel: "infoflow", externalRef: "message-1" },
-      externalKey: "infoflow:user:user-1",
-      adapterAccountIdentity: "channel-account:infoflow:account-a",
+      source: { kind: "channel", channel: "qqbot", externalRef: "message-1" },
+      externalKey: "qqbot:c2c:user-1",
+      adapterAccountIdentity: "account-a",
       channelReply: {
-        workspaceId: "workspace-1",
-        adapter: "infoflow",
-        adapterId: "infoflow",
-        externalKey: "infoflow:user:user-1",
-        recipient: "user-1",
-      },
-      channelContext: {
-        externalKey: "infoflow:user:user-1",
-        messageId: "message-1",
+        adapter: "qqbot",
+        adapterId: "qq-a",
+        externalKey: "qqbot:c2c:user-1",
+        recipient: "c2c:user-1",
       },
     };
-
-    expect(channelIngressIdempotencyKey(assignment)).toBe(
-      channelIngressIdempotencyKey({ ...assignment, goal: "changed after redelivery" }),
+    expect(channelIngressIdempotencyKey({ ...base, sessionId: "sess_b" })).toBe(
+      channelIngressIdempotencyKey(base),
     );
-    expect(
-      channelIngressIdempotencyKey({
-        ...assignment,
-        source: { ...assignment.source, externalRef: "message-2" },
-        channelContext: { externalKey: assignment.externalKey, messageId: "message-2" },
-      }),
-    ).not.toBe(channelIngressIdempotencyKey(assignment));
-    expect(
-      channelIngressIdempotencyKey({
-        ...assignment,
-        source: { kind: "channel", channel: "infoflow" },
-        channelContext: { externalKey: assignment.externalKey },
-      }),
-    ).toBeUndefined();
+    expect(channelIngressIdempotencyKey({ ...base, adapterAccountIdentity: "account-b" })).not.toBe(
+      channelIngressIdempotencyKey(base),
+    );
   });
 
-  it("leaves the real turn state unchanged for a durable platform redelivery", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-duplicate-"));
-    roots.push(sparkHome);
-    const recordTurnQueued = vi.fn(async () => undefined);
-    const recordTurnSettled = vi.fn(async () => undefined);
+  it("drains an already-received handler before stopping the transport", async () => {
+    const finish = deferred<void>();
     const transport = new FakeChannelTransport();
     const controller = createChannelIngressController({
-      sparkHome,
+      sparkHome: "/unused",
       config: parseChannelsConfig({
-        adapters: { infoflow: { type: "infoflow" } },
+        adapters: { info: { type: "infoflow", app_key: "app" } },
         routes: {},
         ingress: { enabled: true, on_unbound: "create" },
       }),
-      hooks: { onAssignment: async () => "duplicate" },
-      sessionRegistry: {
-        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_duplicate"),
-        resolveBinding: async () => ({ sessionId: "sess_duplicate" }) as never,
-        recordTurnQueued: recordTurnQueued as never,
-        recordTurnSettled: recordTurnSettled as never,
-      },
-      workspaceId: "ws_duplicate",
+      hooks: { onAssignment: async () => await finish.promise },
+      sessionRegistry: { resolveChannelSession: async () => channelSession() },
       createTransport: () => transport,
     });
-
     await controller.start();
-    transport.emitInbound({
-      user_id: "user-1",
-      text: "same delivery",
-      message_id: "message-1",
-    });
-    await controller.stop();
+    transport.emitInbound({ user_id: "user-1", text: "wait", message_id: "m1" });
+    await vi.waitFor(() => expect(transport.isRunning).toBe(true));
 
-    expect(recordTurnQueued).not.toHaveBeenCalled();
-    expect(recordTurnSettled).not.toHaveBeenCalled();
-  });
-
-  it("passes workspace identity to daemon-owned transport creation", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-transport-context-"));
-    roots.push(sparkHome);
-    const transport = new FakeChannelTransport();
-    const createWorkspaceTransport = vi.fn(() => transport);
-    const runtime = createDaemonChannelIngressRuntime({
-      sparkHome,
-      hooks: { onAssignment: async () => undefined },
-      createWorkspaceTransport,
-    });
-
-    await runtime.configure(
-      "ws_transport",
-      parseChannelsConfig({
-        adapters: { "qq-main": { type: "qqbot", app_id: "app", client_secret: "secret" } },
-        routes: {},
-      }),
-    );
-
-    expect(createWorkspaceTransport).toHaveBeenCalledWith({
-      workspaceId: "ws_transport",
-      adapterId: "qq-main",
-      config: { type: "qqbot", app_id: "app", client_secret: "secret" },
-    });
-    await runtime.stop();
-  });
-
-  it("resolves binding and emits assignment for feishu inbound", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-ingress-"));
-    roots.push(sparkHome);
-    const registry = new SparkSessionRegistry({
-      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
-    });
-    const session = await createRegistryWorkspaceSession(registry, "ws_demo", "Ops");
-    await registry.bind({
-      sessionId: session.sessionId,
-      externalKey: "feishu:chat:oc_demo",
-    });
-
-    const assignments: ChannelIngressAssignment[] = [];
-    const feishuTransport = new FakeChannelTransport();
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: {
-          feishu: { type: "feishu" },
-        },
-        routes: {},
-        ingress: { enabled: true, on_unbound: "reject" },
-      }),
-      hooks: {
-        onAssignment: async (input) => {
-          assignments.push(input);
-        },
-      },
-      workspaceId: "ws_demo",
-      createTransport: () => feishuTransport,
-    });
-
-    await controller.start();
-    feishuTransport.emitInbound({
-      chat_id: "oc_demo",
-      text: "ship the assign panel",
-      message_id: "m1",
-    });
-    await vi.waitFor(() => expect(assignments).toHaveLength(1));
-    await controller.stop();
-
-    expect(assignments).toEqual([
-      {
-        sessionId: session.sessionId,
-        goal: "ship the assign panel",
-        assignment: {
-          goal: "ship the assign panel",
-          target: { sessionId: session.sessionId, workspaceId: "ws_demo" },
-          constraints: [],
-          evidence: [],
-          source: { kind: "channel", channel: "feishu", externalRef: "m1" },
-        },
-        source: { kind: "channel", channel: "feishu", externalRef: "m1" },
-        externalKey: "feishu:chat:oc_demo",
-        adapterAccountIdentity: channelAdapterAccountIdentity({ type: "feishu" }),
-        channelReply: {
-          workspaceId: "ws_demo",
-          adapter: "feishu",
-          adapterId: "feishu",
-          externalKey: "feishu:chat:oc_demo",
-          recipient: "oc_demo",
-        },
-        channelContext: {
-          externalKey: "feishu:chat:oc_demo",
-          chatId: "oc_demo",
-          messageId: "m1",
-        },
-      },
-    ]);
-    await expect(registry.get(session.sessionId)).resolves.toMatchObject({ lifecycle: "open" });
-    expect(controller.status().configured).toBe(true);
-  });
-
-  it("signs one exact channel direct-memory command with platform message identity", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-direct-intent-"));
-    roots.push(sparkHome);
-    const registry = new SparkSessionRegistry({
-      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
-    });
-    const session = await createRegistryWorkspaceSession(registry, "ws_direct", "Direct");
-    await registry.bind({
-      sessionId: session.sessionId,
-      externalKey: "feishu:chat:oc_direct",
-    });
-    const assignments: ChannelIngressAssignment[] = [];
-    const transport = new FakeChannelTransport();
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: { feishu: { type: "feishu" } },
-        routes: {},
-        ingress: { enabled: true, on_unbound: "reject" },
-      }),
-      hooks: {
-        onAssignment: async (assignment) => {
-          assignments.push(assignment);
-        },
-      },
-      sessionRegistry: ingressRegistry(registry),
-      workspaceId: "ws_direct",
-      createTransport: () => transport,
-    });
-
-    await controller.start();
-    transport.emitInbound({
-      chat_id: "oc_direct",
-      text: "remember: preserve channel intent",
-      message_id: "message-direct",
-    });
-    await vi.waitFor(() => expect(assignments).toHaveLength(1));
-    await controller.stop();
-
-    const receipt = assignments[0]?.memoryDirectIntent;
-    expect(receipt).toMatchObject({
-      surface: "channel",
-      workspaceId: "ws_direct",
-      sessionId: session.sessionId,
-      turnId: "turn:message-direct",
-      messageId: "message:message-direct",
-      operation: "remember",
-      keyId: expect.stringMatching(/^[a-f0-9]{64}$/u),
-      signature: expect.any(String),
-    });
-    expect(JSON.stringify(receipt)).not.toContain("preserve channel intent");
-  });
-
-  it.each(["stale-message", "cross-turn", "proposal-drift", "ambiguous", "replayed"] as const)(
-    "rejects channel feedback case %s before trusted telemetry",
-    async (name) => {
-      const sparkHome = await mkdtemp(join(tmpdir(), `spark-channel-feedback-${name}-`));
-      roots.push(sparkHome);
-      const registry = new SparkSessionRegistry({
-        rootDir: defaultSparkSessionRegistryRoot(sparkHome),
-      });
-      const session = await createRegistryWorkspaceSession(registry, "ws_feedback", "Feedback");
-      await registry.bind({
-        sessionId: session.sessionId,
-        externalKey: `feishu:chat:oc_feedback_${name}`,
-      });
-      const authority = createSparkMemoryDirectIntentTurnAuthority();
-      const writer = vi.fn();
-      const injectedAuthority = {
-        ...authority,
-        async issueFeedback(input: Parameters<typeof authority.issueFeedback>[0]) {
-          if (name === "ambiguous") return undefined;
-          const receipt = await authority.issueFeedback(input);
-          if (!receipt) return undefined;
-          if (name === "replayed") await authority.verifyCurrentFeedback(receipt);
-          if (name === "stale-message") return { ...receipt, messageId: "message:stale" };
-          if (name === "cross-turn") return { ...receipt, turnId: "turn:other" };
-          if (name === "proposal-drift") return { ...receipt, memoryRef: "memory:drift" };
-          return receipt;
-        },
-      };
-      const assignments: ChannelIngressAssignment[] = [];
-      const transport = new FakeChannelTransport();
-      const controller = createChannelIngressController({
-        sparkHome,
-        config: parseChannelsConfig({
-          adapters: { feishu: { type: "feishu" } },
-          routes: {},
-          ingress: { enabled: true, on_unbound: "reject" },
-        }),
-        hooks: {
-          onAssignment: async (assignment) => {
-            assignments.push(assignment);
-          },
-        },
-        sessionRegistry: ingressRegistry(registry),
-        workspaceId: "ws_feedback",
-        createTransport: () => transport,
-        memoryDirectIntentAuthority: injectedAuthority,
-      });
-      await controller.start();
-      transport.emitInbound({
-        chat_id: `oc_feedback_${name}`,
-        text: "memory feedback positive memory:ranked",
-        message_id: `feedback-${name}`,
-      });
-      await vi.waitFor(() => expect(assignments).toHaveLength(1));
-      await controller.stop();
-      const verified = await authority.verifyCurrentFeedback(assignments[0]?.memoryFeedback);
-      if (verified.ok) writer();
-      expect(verified).toEqual({
-        ok: false,
-        code:
-          name === "stale-message"
-            ? "MEMORY_FEEDBACK_STALE_MESSAGE"
-            : name === "cross-turn"
-              ? "MEMORY_FEEDBACK_CROSS_TURN"
-              : name === "proposal-drift"
-                ? "MEMORY_FEEDBACK_PROPOSAL_DRIFT"
-                : name === "replayed"
-                  ? "MEMORY_FEEDBACK_REPLAYED"
-                  : "MEMORY_FEEDBACK_AMBIGUOUS",
-      });
-      expect(writer).toHaveBeenCalledTimes(0);
-    },
-  );
-
-  it.each([
-    "ambiguous",
-    "multiple-proposals",
-    "stale-message",
-    "cross-turn-retry",
-    "proposal-drift",
-    "message-replay",
-  ] as const)("fails closed for channel direct-intent case %s", async (name) => {
-    const sparkHome = await mkdtemp(join(tmpdir(), `spark-channel-direct-${name}-`));
-    roots.push(sparkHome);
-    const snapshotPath = join(sparkHome, ".spark", "memory", "memory.json");
-    await mkdir(join(sparkHome, ".spark", "memory"), { recursive: true });
-    await writeFile(snapshotPath, '{"entries":[]}\n', "utf8");
-    const before = createHash("sha256")
-      .update(await readFile(snapshotPath))
-      .digest("hex");
-    const mutation = vi.fn();
-    const registry = new SparkSessionRegistry({
-      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
-    });
-    const session = await createRegistryWorkspaceSession(registry, "ws_direct", "Direct");
-    await registry.bind({
-      sessionId: session.sessionId,
-      externalKey: `feishu:chat:oc_${name}`,
-    });
-    const authority = createSparkMemoryDirectIntentTurnAuthority();
-    const injectedAuthority = {
-      ...authority,
-      async issue(input: Parameters<typeof authority.issue>[0]) {
-        const receipt = await authority.issue(
-          name === "stale-message"
-            ? { ...input, now: new Date("2000-01-01T00:00:00.000Z"), ttlMs: 1 }
-            : input,
-        );
-        if (!receipt) return undefined;
-        if (name === "cross-turn-retry") authority.clear();
-        if (name === "message-replay") {
-          await authority.issue({
-            ...input,
-            turnId: `${input.turnId}:successor`,
-            messageId: `${input.messageId}:successor`,
-            prompt: "remember: successor channel turn",
-          });
-        }
-        return name === "proposal-drift" ? { ...receipt, contentDigest: "a".repeat(64) } : receipt;
-      },
-    };
-    const assignments: ChannelIngressAssignment[] = [];
-    const transport = new FakeChannelTransport();
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: { feishu: { type: "feishu" } },
-        routes: {},
-        ingress: { enabled: true, on_unbound: "reject" },
-      }),
-      hooks: {
-        onAssignment: async (assignment) => {
-          assignments.push(assignment);
-        },
-      },
-      sessionRegistry: ingressRegistry(registry),
-      workspaceId: "ws_direct",
-      createTransport: () => transport,
-      memoryDirectIntentAuthority: injectedAuthority,
-    });
-    const prompt =
-      name === "ambiguous"
-        ? "remember: one and forget memory:two"
-        : name === "multiple-proposals"
-          ? "remember: first and remember: second"
-          : "remember: preserve channel intent";
-
-    await controller.start();
-    transport.emitInbound({
-      chat_id: `oc_${name}`,
-      text: prompt,
-      message_id: `message-${name}`,
-    });
-    await vi.waitFor(() => expect(assignments).toHaveLength(1));
-    await controller.stop();
-
-    const receipt = assignments[0]?.memoryDirectIntent;
-    const errorCode = receipt
-      ? (await authority.verifyCurrent(receipt))
-        ? undefined
-        : "MEMORY_APPROVAL_INVALID"
-      : "MEMORY_APPROVAL_REQUIRED";
-    if (!errorCode) mutation();
-    expect(errorCode).toBe(
-      name === "ambiguous" || name === "multiple-proposals"
-        ? "MEMORY_APPROVAL_REQUIRED"
-        : "MEMORY_APPROVAL_INVALID",
-    );
-    expect(mutation).toHaveBeenCalledTimes(0);
-    expect(
-      createHash("sha256")
-        .update(await readFile(snapshotPath))
-        .digest("hex"),
-    ).toBe(before);
-  });
-
-  it("waits for already-received inbound admission before stopping", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-drain-"));
-    roots.push(sparkHome);
-    const registry = new SparkSessionRegistry({
-      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
-    });
-    const session = await createRegistryWorkspaceSession(registry, "ws_drain", "Drain");
-    await registry.bind({
-      sessionId: session.sessionId,
-      externalKey: "feishu:chat:oc_drain",
-    });
-    const assignmentStarted = deferred<void>();
-    const finishAssignment = deferred<void>();
-    const transport = new FakeChannelTransport();
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: { feishu: { type: "feishu" } },
-        routes: {},
-        ingress: { enabled: true, on_unbound: "reject" },
-      }),
-      hooks: {
-        onAssignment: async () => {
-          assignmentStarted.resolve(undefined);
-          await finishAssignment.promise;
-        },
-      },
-      workspaceId: "ws_drain",
-      createTransport: () => transport,
-    });
-
-    await controller.start();
-    transport.emitInbound({ chat_id: "oc_drain", text: "queue before restart" });
-    await assignmentStarted.promise;
     let stopped = false;
     const stopping = controller.stop().then(() => {
       stopped = true;
     });
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await Promise.resolve();
     expect(stopped).toBe(false);
-    finishAssignment.resolve(undefined);
+    finish.resolve(undefined);
     await stopping;
     expect(stopped).toBe(true);
   });
+});
 
-  it("resolves binding and emits assignment for qqbot c2c inbound", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-qqbot-"));
+describe("daemon-global Channel runtime", () => {
+  it("stores one private global config and rolls back a failed replacement generation", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-global-channels-"));
     roots.push(sparkHome);
-    const assignments: ChannelIngressAssignment[] = [];
-    const qqbotTransport = new FakeChannelTransport();
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: {
-          qqbot: { type: "qqbot", app_id: "app", client_secret: "secret" },
-        },
-        routes: {},
-        ingress: { enabled: true, on_unbound: "create" },
-      }),
-      hooks: {
-        onAssignment: async (input) => {
-          assignments.push(input);
-        },
-      },
-      workspaceId: "ws_qq",
-      createTransport: () => qqbotTransport,
-    });
-
-    await controller.start();
-    qqbotTransport.emitInbound({
-      event_type: "C2C_MESSAGE_CREATE",
-      d: {
-        id: "qm1",
-        content: "hello from qq",
-        author: { user_openid: "openid_u1" },
-      },
-    });
-    await vi.waitFor(() => expect(assignments).toHaveLength(1));
-    await controller.stop();
-
-    expect(assignments[0]).toMatchObject({
-      goal: "hello from qq",
-      externalKey: "qqbot:c2c:openid_u1",
-      source: { kind: "channel", channel: "qqbot", externalRef: "qm1" },
-      channelReply: {
-        workspaceId: "ws_qq",
-        adapterId: "qqbot",
-        externalKey: "qqbot:c2c:openid_u1",
-        recipient: "c2c:openid_u1",
-      },
-      channelContext: {
-        externalKey: "qqbot:c2c:openid_u1",
-        senderId: "openid_u1",
-        messageId: "qm1",
-      },
-    });
-  });
-
-  it("resolves inbound messages through the injected daemon session owner", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-session-owner-"));
-    roots.push(sparkHome);
-    const assignments: ChannelIngressAssignment[] = [];
-    const resolveBinding = vi.fn(async () =>
-      workspaceSessionRecord({
-        sessionId: "session_owned",
-        workspaceId: "ws_owned",
-        createdAt: "2026-07-10T00:00:00.000Z",
-      }),
-    );
-    const transport = new FakeChannelTransport();
-    const controller = createChannelIngressController({
-      sparkHome,
-      config: parseChannelsConfig({
-        adapters: { infoflow: { type: "infoflow" } },
-        routes: {},
-        ingress: { enabled: true, on_unbound: "create" },
-      }),
-      hooks: {
-        onAssignment: async (input) => {
-          assignments.push(input);
-        },
-      },
-      sessionRegistry: {
-        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_owned"),
-        resolveBinding,
-      },
-      workspaceId: "ws_owned",
-      createTransport: () => transport,
-    });
-
-    await controller.start();
-    transport.emitInbound({
-      user_id: "u_owned",
-      sender_name: "Owned User",
-      text: "owned mutation\n[文件: plan.pdf]",
-      message_id: "infoflow-message-1",
-      content_type: "mixed",
-      attachments: [{ kind: "file", name: "plan.pdf", reference: "fid-plan" }],
-    });
-    await vi.waitFor(() => expect(assignments).toHaveLength(1));
-    await controller.stop();
-
-    expect(resolveBinding).toHaveBeenCalledWith({
-      externalKey: "infoflow:user:u_owned",
-      adapterId: "infoflow",
-      adapterAccountIdentity: channelAdapterAccountIdentity({ type: "infoflow" }),
-      allowLegacyAccountClaim: true,
-      onUnbound: "create",
-      create: {
-        scope: { kind: "workspace", workspaceId: "ws_owned" },
-        name: "channel infoflow:user:u_owned",
-        lineage: {
-          kind: "child",
-          parentSessionId: "sess_admin_ws_owned",
-          origin: { kind: "session" },
-        },
-        roleBinding: { kind: "none" },
-      },
-    });
-    await expect(
-      readFile(join(defaultSparkSessionRegistryRoot(sparkHome), "registry.json"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    expect(assignments[0]).toMatchObject({
-      goal: "owned mutation\n[文件: plan.pdf]",
-      assignment: { goal: "owned mutation\n[文件: plan.pdf]" },
-      channelContext: {
-        externalKey: "infoflow:user:u_owned",
-        senderId: "u_owned",
-        senderName: "Owned User",
-        messageId: "infoflow-message-1",
-        contentType: "mixed",
-        attachments: [{ kind: "file", name: "plan.pdf", reference: "fid-plan" }],
-      },
-    });
-    expect(assignments[0]?.goal).not.toContain("You are handling an Infoflow");
-  });
-
-  it("loads missing workspace config as null", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-config-"));
-    roots.push(sparkHome);
-    const loaded = await loadDaemonChannelsConfig(sparkHome, "ws_missing");
-    expect(loaded.config).toBeNull();
-    expect(loaded.path).toBe(workspaceChannelsConfigPath(sparkHome, "ws_missing"));
-  });
-
-  it("migrates legacy global config into a workspace path", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-migrate-"));
-    roots.push(sparkHome);
-    await mkdir(join(sparkHome, "channels"), { recursive: true });
-    const legacy = {
-      adapters: { infoflow: { type: "infoflow" } },
-      routes: { ops: { adapter: "infoflow", recipient: "u1" } },
-      ingress: { enabled: true },
-    };
-    await writeFile(join(sparkHome, "channels", "config.json"), JSON.stringify(legacy));
-    expect(await migrateLegacyChannelsConfig(sparkHome, "ws_spore")).toBe(true);
-    const loaded = await loadDaemonChannelsConfig(sparkHome, "ws_spore");
-    expect(loaded.config?.adapters.infoflow?.type).toBe("infoflow");
-    expect(await migrateLegacyChannelsConfig(sparkHome, "ws_spore")).toBe(false);
-  });
-
-  it("rejects malformed legacy channel config before creating a workspace copy", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-migrate-invalid-"));
-    roots.push(sparkHome);
-    await mkdir(join(sparkHome, "channels"), { recursive: true });
-    await writeFile(join(sparkHome, "channels", "config.json"), "{not-json\n");
-
-    await expect(migrateLegacyChannelsConfig(sparkHome, "ws_invalid")).rejects.toThrow(
-      /invalid legacy channels config/u,
-    );
-    await expect(
-      readFile(workspaceChannelsConfigPath(sparkHome, "ws_invalid"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("configures channel ingress per workspace and stores credentials privately", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-runtime-"));
-    roots.push(sparkHome);
-    const stableTransport = new FakeChannelTransport();
-    let failNextStart = false;
-    const runtime = createDaemonChannelIngressRuntime({
-      sparkHome,
-      hooks: { onAssignment: async () => {} },
-      createTransport: () => {
-        if (!failNextStart) return stableTransport;
-        return {
-          async start() {
-            throw new Error("replacement transport failed");
-          },
-          async stop() {},
-          async send() {},
-        } satisfies ChannelTransport;
-      },
-      now: () => new Date("2026-07-10T00:00:00.000Z"),
-    });
-    await runtime.start();
-
-    const config = parseChannelsConfig({
-      adapters: {
-        feishu: {
-          type: "feishu",
-          event_mode: "websocket",
-          app_id: "cli_demo",
-          app_secret: "secret_demo",
-        },
-      },
-      routes: { ops: { adapter: "feishu", recipient: "oc_ops" } },
-      ingress: { enabled: true, on_unbound: "reject" },
-    });
-    const configured = await runtime.configure("ws_demo", config);
-    expect(configured).toMatchObject({
-      workspaceId: "ws_demo",
-      configured: true,
-      state: "running",
-      adapters: [{ id: "feishu", running: true, state: "connected" }],
-      routes: [{ name: "ops", adapter: "feishu", recipient: "oc_ops" }],
-    });
-    expect(stableTransport.isRunning).toBe(true);
-    stableTransport.status = () => ({ state: "reconnecting" });
-    expect(runtime.status("ws_demo")).toMatchObject({
-      state: "degraded",
-      adapters: [{ id: "feishu", running: true, state: "reconnecting" }],
-    });
-    const configPath = workspaceChannelsConfigPath(sparkHome, "ws_demo");
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(config);
-    if (process.platform !== "win32") {
-      expect((await stat(join(sparkHome, "workspaces", "ws_demo", "channels"))).mode & 0o777).toBe(
-        0o700,
-      );
-      expect((await stat(configPath)).mode & 0o777).toBe(0o600);
-    }
-
-    failNextStart = true;
-    await expect(runtime.configure("ws_demo", config)).rejects.toThrow(
-      "replacement transport failed",
-    );
-    expect(stableTransport.isRunning).toBe(true);
-    expect(runtime.status("ws_demo")).toMatchObject({
-      workspaceId: "ws_demo",
-      configured: true,
-      state: "degraded",
-      adapters: [{ id: "feishu", running: true }],
-      error: "replacement transport failed",
-    });
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(config);
-    await runtime.stop();
-  });
-
-  it("routes native interactions through a daemon handler installed after runtime creation", async () => {
-    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-interaction-runtime-"));
-    roots.push(sparkHome);
-    const transport = new FakeChannelTransport();
+    const stable = new FakeChannelTransport();
+    let failReplacement = false;
     const runtime = createDaemonChannelIngressRuntime({
       sparkHome,
       hooks: { onAssignment: async () => undefined },
-      createTransport: () => transport,
-    });
-    await runtime.configure(
-      "ws_qq",
-      parseChannelsConfig({
-        adapters: { qq: { type: "qqbot", app_id: "app", client_secret: "secret" } },
-        routes: {},
-        ingress: { enabled: true },
-      }),
-    );
-    const interactions: unknown[] = [];
-    runtime.setInteractionHandler?.(async (input) => {
-      interactions.push(input);
-    });
-
-    await transport.emitInteraction({
-      adapter: "qqbot",
-      interactionId: "interaction_1",
-      actorId: "user_1",
-      scene: "c2c",
-      recipient: "c2c:user_1",
-      buttonData: "opaque_token",
-    });
-
-    await vi.waitFor(() => expect(interactions).toHaveLength(1));
-    expect(interactions).toEqual([
-      {
-        workspaceId: "ws_qq",
-        event: {
-          adapter: "qqbot",
-          adapterId: "qq",
-          interactionId: "interaction_1",
-          actorId: "user_1",
-          scene: "c2c",
-          recipient: "c2c:user_1",
-          buttonData: "opaque_token",
-        },
+      sessionRegistry: { resolveChannelSession: async () => channelSession() },
+      createTransport: () => {
+        if (!failReplacement) return stable;
+        return {
+          start: async () => {
+            throw new Error("replacement failed");
+          },
+          stop: async () => undefined,
+          send: async () => undefined,
+        } satisfies ChannelTransport;
       },
-    ]);
-    runtime.setInteractionHandler?.(async () => {
-      throw new Error("durable settlement unavailable");
     });
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    try {
-      await expect(
-        transport.emitInteraction({
-          adapter: "qqbot",
-          interactionId: "interaction_2",
-          actorId: "user_1",
-          scene: "c2c",
-          recipient: "c2c:user_1",
-          buttonData: "opaque_token_2",
-        }),
-      ).rejects.toThrow("durable settlement unavailable");
-    } finally {
-      log.mockRestore();
-    }
+    const config = parseChannelsConfig({
+      adapters: { info: { type: "infoflow", app_key: "app" } },
+      routes: {},
+      ingress: { enabled: true, on_unbound: "create" },
+    });
+
+    await runtime.configure(config);
+    const path = channelConfigPath(resolveSparkPaths({ app: "daemon", sparkHome }));
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(runtime.status()).toMatchObject({ plane: "daemon", state: "running" });
+
+    failReplacement = true;
+    await expect(runtime.configure(config)).rejects.toThrow("replacement failed");
+    expect(stable.isRunning).toBe(true);
+    expect(runtime.status()).toMatchObject({ state: "degraded" });
     await runtime.stop();
+  });
+
+  it("loads an absent daemon-global config as null", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-global-channels-empty-"));
+    roots.push(sparkHome);
+    await expect(loadDaemonChannelsConfig(sparkHome)).resolves.toMatchObject({ config: null });
   });
 });
 
-describe("channel quote enrichment", () => {
-  it("finds prior channel message text by platform messageId", () => {
+describe("Channel quote enrichment", () => {
+  it("finds prior channel message text by platform message id", () => {
     expect(
       findChannelMessagePreviewById(
         [
           {
             version: 4,
             id: "1",
-            role: "user",
-            text: "先说一声",
-            status: "done",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            metadata: { channel: { messageId: "m-old" } },
-          },
-          {
-            version: 4,
-            id: "2",
             role: "assistant",
             text: "收到",
             status: "done",
@@ -1087,14 +311,8 @@ describe("channel quote enrichment", () => {
     ).toBe("收到");
   });
 
-  it("enriches inbound messageReference preview from session history", async () => {
-    const session = workspaceSessionRecord({
-      sessionId: "sess_quote",
-      workspaceId: "ws",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      sessionPath: "/tmp/does-not-exist-for-enrich.jsonl",
-    });
+  it("keeps a reference intact when its private transcript is unavailable", async () => {
+    const session = channelSession({ sessionId: "sess_quote" });
     const enriched = await enrichInboundMessageReferenceFromSession({
       message: {
         adapter: "qqbot",
@@ -1107,7 +325,6 @@ describe("channel quote enrichment", () => {
       sparkHome: "/tmp/spark-quote-enrich",
       getSession: async () => session,
     });
-    // Missing transcript leaves the reference intact without inventing preview.
     expect(enriched.messageReference).toEqual({ messageId: "m-bot", source: "unknown" });
   });
 });

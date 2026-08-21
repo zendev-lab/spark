@@ -313,41 +313,30 @@ test("session tool routes managed actions through daemon RPC and classifies surf
   );
 });
 
-test("channel sessions can inspect same-workspace local and channel sessions", async () => {
-  const channelCurrent: SparkSessionProjection = {
-    ...sessionRecord("session:channel"),
-    bindings: [
-      {
-        kind: "channel",
-        adapter: "infoflow",
-        externalKey: "infoflow:group:channel",
-        boundAt: NOW,
-      },
-    ],
-  };
-  const localTarget = sessionRecord("session:local");
-  const channelPeer: SparkSessionProjection = {
-    ...sessionRecord("session:channel-peer"),
-    bindings: [
-      {
-        kind: "channel",
-        adapter: "qqbot",
-        externalKey: "qqbot:group:peer",
-        boundAt: NOW,
-      },
-    ],
-  };
-  const otherWorkspace: SparkSessionProjection = {
-    ...sessionRecord("session:other-workspace"),
-    scope: { kind: "workspace", workspaceId: "workspace:other" },
-    lineage: {
-      kind: "child",
-      parentSessionId: "sess_admin_workspace_other",
-      origin: { kind: "session" },
+test("channel sessions can inspect only Channel Sessions in the same daemon", async () => {
+  const channelCurrent = daemonChannelRecord("session:channel", [
+    {
+      kind: "channel",
+      adapter: "infoflow",
+      externalKey: "infoflow:group:channel",
+      boundAt: NOW,
     },
+  ]);
+  const localTarget = sessionRecord("session:local");
+  const channelPeer = daemonChannelRecord("session:channel-peer", [
+    {
+      kind: "channel",
+      adapter: "qqbot",
+      externalKey: "qqbot:group:peer",
+      boundAt: NOW,
+    },
+  ]);
+  const otherDaemon = {
+    ...daemonChannelRecord("session:other-daemon"),
+    scope: { kind: "daemon" as const, daemonId: "installation:other" },
   };
   const records = new Map(
-    [channelCurrent, localTarget, channelPeer, otherWorkspace].map((record) => [
+    [channelCurrent, localTarget, channelPeer, otherDaemon].map((record) => [
       record.sessionId,
       record,
     ]),
@@ -369,20 +358,16 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     (listed.details as { sessions: Array<{ sessionId: string }> }).sessions.map(
       (session) => session.sessionId,
     ),
-    [channelCurrent.sessionId, localTarget.sessionId, channelPeer.sessionId],
+    [channelCurrent.sessionId, channelPeer.sessionId],
   );
   assert.deepEqual(calls.find((call) => call.method === "session.list")?.params, {
-    scope: { kind: "workspace", workspaceId: "workspace:test" },
+    scope: { kind: "daemon" },
     includeArchived: false,
   });
 
-  const selected = await execute(tool, ctx, {
-    action: "get",
-    sessionId: localTarget.sessionId,
-  });
-  assert.equal(
-    (selected.details as { session: { sessionId: string } }).session.sessionId,
-    localTarget.sessionId,
+  await assert.rejects(
+    () => execute(tool, ctx, { action: "get", sessionId: localTarget.sessionId }),
+    /must be Channel Sessions in the current daemon/u,
   );
   const selectedChannel = await execute(tool, ctx, {
     action: "get",
@@ -393,12 +378,8 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     "channel",
   );
   await assert.rejects(
-    () => execute(tool, ctx, { action: "get", sessionId: otherWorkspace.sessionId }),
-    /must be sessions in the current workspace/u,
-  );
-  await assert.rejects(
-    () => execute(tool, ctx, { action: "list", scope: "daemon" }),
-    /their own workspace only/u,
+    () => execute(tool, ctx, { action: "get", sessionId: otherDaemon.sessionId }),
+    /must be Channel Sessions in the current daemon/u,
   );
   const channelOnly = await execute(tool, ctx, { action: "list", surface: "channel" });
   assert.deepEqual(
@@ -870,33 +851,27 @@ test("session request preserves durable recovery data when queue acceptance fail
   }
 });
 
-test("channel sessions may request work only from local sessions in their workspace", async () => {
+test("channel sessions may request work only from Channel Sessions in their daemon", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-channel-request-"));
   try {
     const mailStore = new SparkSessionMailStore({ sparkHome: dir });
-    const channelCurrent: SparkSessionProjection = {
-      ...sessionRecord("session:channel"),
-      bindings: [
-        {
-          kind: "channel",
-          adapter: "infoflow",
-          externalKey: "infoflow:user:channel",
-          boundAt: NOW,
-        },
-      ],
-    };
+    const channelCurrent = daemonChannelRecord("session:channel", [
+      {
+        kind: "channel",
+        adapter: "infoflow",
+        externalKey: "infoflow:user:channel",
+        boundAt: NOW,
+      },
+    ]);
     const localTarget = sessionRecord("session:local");
-    const channelTarget: SparkSessionProjection = {
-      ...sessionRecord("session:channel-target"),
-      bindings: [
-        {
-          kind: "channel",
-          adapter: "qqbot",
-          externalKey: "qqbot:c2c:target",
-          boundAt: NOW,
-        },
-      ],
-    };
+    const channelTarget = daemonChannelRecord("session:channel-target", [
+      {
+        kind: "channel",
+        adapter: "qqbot",
+        externalKey: "qqbot:c2c:target",
+        boundAt: NOW,
+      },
+    ]);
     const records = new Map(
       [channelCurrent, localTarget, channelTarget].map((record) => [record.sessionId, record]),
     );
@@ -920,7 +895,6 @@ test("channel sessions may request work only from local sessions in their worksp
       ...context(channelCurrent.sessionId),
       sessionSurface: "channel" as const,
       channelBinding: {
-        workspaceId: "workspace:test",
         adapter: "infoflow" as const,
         adapterId: "infoflow-main",
         externalKey: "infoflow:user:channel",
@@ -931,7 +905,7 @@ test("channel sessions may request work only from local sessions in their worksp
     const requested = await execute(tool, ctx, {
       action: "send",
       kind: "request",
-      toSessionId: localTarget.sessionId,
+      toSessionId: channelTarget.sessionId,
       intent: "work.request",
       message: "Handle this now",
     });
@@ -943,10 +917,10 @@ test("channel sessions may request work only from local sessions in their worksp
         execute(tool, ctx, {
           action: "send",
           kind: "request",
-          toSessionId: channelTarget.sessionId,
-          message: "Do not execute on a channel session",
+          toSessionId: localTarget.sessionId,
+          message: "Do not execute on a Workspace Session",
         }),
-      /request targets must be local sessions/u,
+      /must be Channel Sessions in the current daemon/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -1206,6 +1180,22 @@ function sessionRecord(
     updatedAt: NOW,
     ...(options.title ? { name: options.title } : {}),
   });
+}
+
+function daemonChannelRecord(
+  sessionId: string,
+  bindings: SparkSessionProjection["bindings"] = [],
+): SparkSessionProjection {
+  return {
+    ...sessionRecord(sessionId),
+    scope: { kind: "daemon", daemonId: "installation:test" },
+    lineage: { kind: "root" },
+    lifetime: "persistent",
+    roleBinding: { kind: "none" },
+    purpose: "channel",
+    cwd: `/private/channels/${sessionId}/workspace`,
+    bindings,
+  };
 }
 
 function toolText(result: SessionToolResult): string {

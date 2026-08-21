@@ -393,13 +393,17 @@ export async function admitSparkDaemonSessionSend(
         "originating channel request is missing immutable origin binding",
       );
     }
+    const source = await lookupSessionProjection(ctx, params.fromSessionId);
     if (
-      target.scope.kind !== "workspace" ||
-      target.scope.workspaceId !== params.originBinding.workspaceId
+      source.scope.kind !== "daemon" ||
+      source.purpose !== "channel" ||
+      target.scope.kind !== "daemon" ||
+      target.purpose !== "channel" ||
+      target.scope.daemonId !== source.scope.daemonId
     ) {
       throw new SparkSessionRegistryError(
         "session_mail_workspace_scope_mismatch",
-        "message-platform sessions can send within their own workspace only",
+        "message-platform sessions can send to Channel Sessions in their own daemon only",
       );
     }
   }
@@ -410,7 +414,7 @@ export async function admitSparkDaemonSessionSend(
         `cannot request archived persistent session: ${params.toSessionId}`,
       );
     }
-    if (target.bindings.length > 0) {
+    if (target.bindings.length > 0 && params.origin.surface !== "channel") {
       throw new SparkSessionRegistryError(
         "session_mail_target_not_local",
         "session request targets must be local sessions",

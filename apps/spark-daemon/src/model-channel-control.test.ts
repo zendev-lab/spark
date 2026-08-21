@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test, vi } from "vitest";
 
 import type { SparkModelControlSnapshot, SparkModelRef } from "@zendev-lab/spark-protocol";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
 import { executeSparkDaemonModelChannelPublicControl } from "./model-channel-control.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
@@ -176,10 +177,9 @@ test("runtime model control exposes a credential-free quick-test result", async 
 
 test("runtime channel status projects configured QQ credentials from the managed data root", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-channel-status-"));
-  const workspaceId = "workspace-qq";
-  const configPath = join(root, "workspaces", workspaceId, "channels", "config.json");
+  const configPath = channelConfigPath(resolveSparkPaths({ app: "daemon", sparkHome: root }));
   try {
-    await mkdir(join(root, "workspaces", workspaceId, "channels"), { recursive: true });
+    await mkdir(dirname(configPath), { recursive: true });
     await writeFile(
       configPath,
       JSON.stringify({
@@ -199,7 +199,6 @@ test("runtime channel status projects configured QQ credentials from the managed
       status: vi.fn(() => ({
         plane: "daemon" as const,
         resource: "channel" as const,
-        workspaceId,
         configPath,
         available: true as const,
         configured: true,
@@ -223,9 +222,8 @@ test("runtime channel status projects configured QQ credentials from the managed
       { channelIngress, sparkHome: root },
       {
         kind: "channel.status.request",
-        scope: "workspace",
-        workspaceId,
-        payload: { workspaceId },
+        scope: "daemon",
+        payload: {},
       },
     );
 
@@ -249,10 +247,9 @@ test("runtime channel status projects configured QQ credentials from the managed
   }
 });
 
-test("runtime channel control routes QQ QR auth within one workspace", async () => {
+test("runtime channel control routes QQ QR auth within one daemon", async () => {
   const flow = {
     id: "qrauth_0123456789abcdef0123456789abcdef",
-    workspaceId: "workspace-a",
     status: "pending" as const,
     qrCodeUrl: "https://q.qq.com/connect?task_id=task-1",
     createdAt: "2026-08-03T12:00:00.000Z",
@@ -279,33 +276,30 @@ test("runtime channel control routes QQ QR auth within one workspace", async () 
     { channelIngress },
     {
       kind: "channel.qqbot.auth.start.request",
-      scope: "workspace",
-      workspaceId: "workspace-a",
-      payload: { workspaceId: "workspace-a" },
+      scope: "daemon",
+      payload: {},
     },
   );
   const status = await executeSparkDaemonModelChannelPublicControl(
     { channelIngress },
     {
       kind: "channel.qqbot.auth.status.request",
-      scope: "workspace",
-      workspaceId: "workspace-a",
-      payload: { workspaceId: "workspace-a", flowId: flow.id },
+      scope: "daemon",
+      payload: { flowId: flow.id },
     },
   );
   const cancelled = await executeSparkDaemonModelChannelPublicControl(
     { channelIngress },
     {
       kind: "channel.qqbot.auth.cancel.request",
-      scope: "workspace",
-      workspaceId: "workspace-a",
-      payload: { workspaceId: "workspace-a", flowId: flow.id },
+      scope: "daemon",
+      payload: { flowId: flow.id },
     },
   );
 
   assert.equal((started.result.flow as { id: string }).id, flow.id);
   assert.equal((status.result.flow as { id: string }).id, flow.id);
   assert.equal((cancelled.result.flow as { status: string }).status, "cancelled");
-  assert.deepEqual(channelIngress.qqbotQrAuthStatus.mock.calls[0], ["workspace-a", flow.id]);
-  assert.deepEqual(channelIngress.cancelQqbotQrAuth.mock.calls[0], ["workspace-a", flow.id]);
+  assert.deepEqual(channelIngress.qqbotQrAuthStatus.mock.calls[0], [flow.id]);
+  assert.deepEqual(channelIngress.cancelQqbotQrAuth.mock.calls[0], [flow.id]);
 });

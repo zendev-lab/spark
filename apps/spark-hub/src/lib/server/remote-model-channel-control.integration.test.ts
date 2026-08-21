@@ -23,7 +23,7 @@ import {
   type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
 
 import {
   handleServerMessage,
@@ -139,12 +139,11 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     const credentialTargets = {
       provider: join(daemonHome, "credentials", "provider.key"),
       oauth: join(daemonHome, "credentials", "oauth.response"),
-      channel: join(daemonHome, "workspaces", daemonWorkspace.id, "channels", "config.json"),
+      channel: channelConfigPath(resolveSparkPaths({ app: "daemon", sparkHome: daemonHome })),
     };
     const modelControl = new FixtureModelControl(registry, credentialTargets);
     const channelIngress = createDaemonChannelIngressRuntime({
       sparkHome: daemonHome,
-      workspaceId: daemonWorkspace.id,
       hooks: { onAssignment: async () => {} },
       sessionRegistry: registry,
       createTransport: () => new FakeChannelTransport(),
@@ -362,7 +361,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
             oauthStartStatusRespondCancel: true,
           },
           channelsPage: {
-            path: "/[workspaceId]/settings/channels",
+            path: "/settings/channels?runtimeId=[runtimeId]",
             statusLoaded: true,
             configured: true,
             reloaded: true,
@@ -372,7 +371,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
         pageAndApiPaths: {
           conversation: "/sessions/[sessionId]",
           models: "/settings/models",
-          channels: "/[workspaceId]/settings/channels",
+          channels: "/settings/channels?runtimeId=[runtimeId]",
           controlApi: "/control",
         },
         exercisedActions: [
@@ -706,10 +705,10 @@ async function runControlAction(
         flowId: String(input.flowId),
       });
     case "channelStatus":
-      return await client.channelStatus(route.workspaceId);
+      return await client.channelStatus(route.runtimeId);
     case "channelConfigure":
       return await client.configureChannel({
-        workspaceId: route.workspaceId,
+        runtimeId: route.runtimeId,
         config: {
           adapters: {
             infoflow: {
@@ -729,7 +728,7 @@ async function runControlAction(
         context: route.context,
       });
     case "channelReload":
-      return await client.reloadChannel({ workspaceId: route.workspaceId });
+      return await client.reloadChannel({ runtimeId: route.runtimeId });
     default:
       throw new Error(`unknown control action: ${String(input.action)}`);
   }

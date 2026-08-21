@@ -187,8 +187,7 @@ export async function executeSparkDaemonModelChannelPublicControl(
       };
     }
     case "channel.status.request": {
-      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
-      const snapshot = await channelSnapshot(options, workspaceId);
+      const snapshot = await channelSnapshot(options);
       const data = publicObject(snapshot);
       return {
         result: { snapshot: data },
@@ -196,9 +195,8 @@ export async function executeSparkDaemonModelChannelPublicControl(
       };
     }
     case "channel.reload.request": {
-      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
-      await requireChannelIngress(options).reload(workspaceId);
-      const snapshot = await channelSnapshot(options, workspaceId);
+      await requireChannelIngress(options).reload();
+      const snapshot = await channelSnapshot(options);
       const data = publicObject(snapshot);
       return {
         result: { snapshot: data },
@@ -206,22 +204,17 @@ export async function executeSparkDaemonModelChannelPublicControl(
       };
     }
     case "channel.qqbot.auth.start.request": {
-      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
-      const flow = await requireChannelIngress(options).startQqbotQrAuth(workspaceId);
+      const flow = await requireChannelIngress(options).startQqbotQrAuth();
       return { result: { flow: publicObject(flow) } };
     }
     case "channel.qqbot.auth.status.request": {
-      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
       const flow = requireChannelIngress(options).qqbotQrAuthStatus(
-        workspaceId,
         requiredString(input.payload.flowId, "flowId"),
       );
       return { result: { flow: publicObject(flow) } };
     }
     case "channel.qqbot.auth.cancel.request": {
-      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
       const flow = requireChannelIngress(options).cancelQqbotQrAuth(
-        workspaceId,
         requiredString(input.payload.flowId, "flowId"),
       );
       return { result: { flow: publicObject(flow) } };
@@ -259,16 +252,12 @@ export async function executeSparkDaemonEphemeralSecretControl(
           completedAt,
         };
       case "channel.configure": {
-        const config = await mergePrivateChannelConfig(
-          options,
-          request.workspaceId,
-          request.config,
-        );
-        await requireChannelIngress(options).configure(request.workspaceId, config);
+        const config = await mergePrivateChannelConfig(options, request.config);
+        await requireChannelIngress(options).configure(config);
         return {
           operation: request.operation,
           status: "succeeded",
-          result: await channelSnapshot(options, request.workspaceId),
+          result: await channelSnapshot(options),
           completedAt,
         };
       }
@@ -286,14 +275,12 @@ export async function executeSparkDaemonEphemeralSecretControl(
 
 export async function channelSnapshot(
   options: SparkDaemonModelChannelControlOptions,
-  workspaceId: string,
 ): Promise<SparkChannelControlSnapshot> {
-  const runtime = requireChannelIngress(options).status(workspaceId);
+  const runtime = requireChannelIngress(options).status();
   const loaded = options.sparkHome
-    ? await loadDaemonChannelsConfig(options.sparkHome, workspaceId)
+    ? await loadDaemonChannelsConfig(options.sparkHome)
     : { config: null };
   return parseSparkChannelControlSnapshot({
-    workspaceId,
     available: true,
     configured: runtime.configured,
     ingressEnabled: runtime.ingressEnabled,
@@ -310,7 +297,7 @@ export async function channelSnapshot(
     lastReloadedAt: runtime.lastReloadedAt,
     observedAt: runtime.observedAt,
     ...(runtime.error ? { error: "Channel runtime reported an error." } : {}),
-    text: `channels workspace=${workspaceId} ${runtime.state} adapters=${runtime.adapters.length} routes=${runtime.routes.length} ingress=${runtime.ingressEnabled ? "on" : "off"}\n`,
+    text: `channels daemon ${runtime.state} adapters=${runtime.adapters.length} routes=${runtime.routes.length} ingress=${runtime.ingressEnabled ? "on" : "off"}\n`,
   });
 }
 
@@ -369,12 +356,11 @@ export function channelConfigurationProjection(
 
 async function mergePrivateChannelConfig(
   options: SparkDaemonModelChannelControlOptions,
-  workspaceId: string,
   value: Record<string, SparkProtocolJsonValue>,
 ): Promise<ChannelsConfig> {
   const incoming = parseChannelsConfig(value);
   const previous = options.sparkHome
-    ? (await loadDaemonChannelsConfig(options.sparkHome, workspaceId)).config
+    ? (await loadDaemonChannelsConfig(options.sparkHome)).config
     : null;
   const previousByType = {
     feishu: adapterOfType(previous, "feishu"),
@@ -520,15 +506,6 @@ function requireChannelIngress(
 ): NonNullable<SparkDaemonModelChannelControlOptions["channelIngress"]> {
   if (!options.channelIngress) throw new Error("Spark daemon channel runtime is not available.");
   return options.channelIngress;
-}
-
-function requireWorkspaceId(routeValue: string | undefined, payloadValue: unknown): string {
-  const route = routeValue?.trim();
-  const payload = optionalString(payloadValue);
-  if (!route || (payload && payload !== route)) {
-    throw new Error("Channel control requires one matching workspace route.");
-  }
-  return route;
 }
 
 function requiredString(value: unknown, name: string): string {

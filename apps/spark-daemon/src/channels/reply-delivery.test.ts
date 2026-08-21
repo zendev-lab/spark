@@ -45,7 +45,6 @@ describe("channel reply delivery", () => {
       sessionId: "sess_empty_inline",
       prompt: "finish silently",
       channelReply: {
-        workspaceId: "workspace-1",
         adapter: "qqbot" as const,
         adapterId: "qqbot",
         externalKey: "qqbot:c2c:user-1",
@@ -130,7 +129,6 @@ describe("channel reply delivery", () => {
       prompt: "请处理",
       workspaceId: "workspace-1",
       channelReply: {
-        workspaceId: "workspace-1",
         adapter: "infoflow" as const,
         adapterId: "infoflow",
         externalKey: "infoflow:group:10838226",
@@ -239,7 +237,6 @@ describe("channel reply delivery", () => {
       deliveries.stage({
         invocationId: invocation.invocationId,
         sessionId: "sess_interrupted",
-        workspaceId: "workspace-1",
         adapterId: "qqbot",
         target: { recipient: "c2c:user-1", messageId: "message-1" },
         text: "answer",
@@ -283,7 +280,6 @@ describe("channel reply delivery", () => {
     const staged = deliveries.stage({
       invocationId: invocation.invocationId,
       sessionId: "sess_stream_crash",
-      workspaceId: "workspace-1",
       adapterId: "infoflow",
       target: { recipient: "group:10838226" },
       text: "answer",
@@ -307,7 +303,7 @@ describe("channel reply delivery", () => {
       ).resolves.toEqual({ attempted: 1, delivered: 1, pending: 0, uncertain: 0 });
 
       expect(sendReply).not.toHaveBeenCalled();
-      expect(recoverReply).toHaveBeenCalledWith("workspace-1", "infoflow", {
+      expect(recoverReply).toHaveBeenCalledWith("infoflow", {
         recipient: "group:10838226",
         text: "answer",
         deliveryId: staged.deliveryId,
@@ -377,7 +373,6 @@ describe("channel reply delivery", () => {
     const staged = deliveries.stage({
       invocationId: invocation.invocationId,
       sessionId: "sess_stream_recovery_failure",
-      workspaceId: "workspace-1",
       adapterId: "infoflow",
       target: { recipient: "group:10838226" },
       text: "answer",
@@ -449,7 +444,7 @@ describe("channel reply delivery", () => {
           now: () => "2026-07-15T00:00:00.000Z",
         }),
       ).resolves.toEqual({ attempted: 1, delivered: 1, pending: 0, uncertain: 0 });
-      expect(sendReply).toHaveBeenCalledWith("workspace-1", "qqbot", {
+      expect(sendReply).toHaveBeenCalledWith("qqbot", {
         recipient: "c2c:user-1",
         messageId: "message-1",
         text: "answer",
@@ -517,7 +512,6 @@ describe("channel reply delivery", () => {
       {
         invocationId: invocation.invocationId,
         sessionId: "sess_backoff",
-        workspaceId: "workspace-1",
         adapterId: "infoflow",
         target: { recipient: "user-1" },
         text: "answer",

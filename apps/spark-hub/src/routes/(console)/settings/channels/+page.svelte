@@ -316,6 +316,28 @@
     statusClass={status.available && status.configured ? "ready" : "offline"}
   />
 
+  <form class="panel runtime-selector" method="GET">
+    <label for="channel-runtime">Daemon installation</label>
+    <select
+      id="channel-runtime"
+      name="runtimeId"
+      required
+      onchange={(event) => event.currentTarget.form?.requestSubmit()}
+    >
+      <option value="" disabled selected={!data.selectedRuntimeId}>Select a daemon</option>
+      {#each data.runtimes as runtime (runtime.runtimeId)}
+        <option value={runtime.runtimeId} selected={runtime.runtimeId === data.selectedRuntimeId}>
+          {runtime.name} · {runtime.installationId} · {runtime.status}
+        </option>
+      {/each}
+    </select>
+    {#if data.requiresRuntimeSelection}
+      <small>Select one daemon explicitly before viewing or changing Channel configuration.</small>
+    {:else if data.runtimes.length === 0}
+      <small>No Spark daemon is registered with this Hub.</small>
+    {/if}
+  </form>
+
   {#if submitState === "error" && errorMessage}
     <div class="form-status" data-state="error" aria-live="polite">{errorMessage}</div>
   {:else if statusMessage}
@@ -369,6 +391,7 @@
     use:enhance={handleEnhance}
     bind:this={editorSection}
   >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
     <div class="panel-heading">
       <div class="credentials-heading">
         <h2 id="platform-editor-title">
@@ -523,7 +546,7 @@
             <Button
               type="button"
               variant="secondary"
-              disabled={qrStarting || qrActive}
+              disabled={!data.selectedRuntimeId || qrStarting || qrActive}
               onclick={() => qrStartForm?.requestSubmit()}
             >
               {qrStarting ? t.connectingPlatform : t.qqbotQrStart}
@@ -572,11 +595,11 @@
         <Button type="button" variant="ghost" onclick={startConnectPlatform}>
           {t.cancelEdit}
         </Button>
-        <Button type="submit" disabled={submitState === "saving"}>
+        <Button type="submit" disabled={!data.selectedRuntimeId || submitState === "saving"}>
           {submitState === "saving" ? t.savingPlatform : t.savePlatformSubmit}
         </Button>
       {:else}
-        <Button type="submit" disabled={submitState === "creating"}>
+        <Button type="submit" disabled={!data.selectedRuntimeId || submitState === "creating"}>
           {submitState === "creating" ? t.connectingPlatform : t.connectPlatformSubmit}
         </Button>
       {/if}
@@ -589,7 +612,9 @@
     action="?/startQqbotQrAuth"
     use:enhance={handleQrStartEnhance}
     bind:this={qrStartForm}
-  ></form>
+  >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
+  </form>
   <form
     class="visually-hidden"
     method="POST"
@@ -597,6 +622,7 @@
     use:enhance={handleQrStatusEnhance}
     bind:this={qrStatusForm}
   >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
     <input type="hidden" name="flowId" value={qrFlow?.id ?? ""} />
   </form>
   <form
@@ -606,6 +632,7 @@
     use:enhance={handleQrCancelEnhance}
     bind:this={qrCancelForm}
   >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
     <input type="hidden" name="flowId" value={qrFlow?.id ?? ""} />
   </form>
 
