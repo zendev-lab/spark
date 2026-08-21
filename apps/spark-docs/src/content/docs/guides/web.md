@@ -11,11 +11,19 @@ spark web
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
 and opens a one-shot token URL such as `http://127.0.0.1:4310/?token=...`.
-An explicit `--host` may expose the token-protected workbench on another
-interface, including `0.0.0.0`.
+An explicit non-loopback `--host` requires at least one `--trusted-host`. The
+server then validates Host, Origin/Fetch Metadata, mutation provenance, and the
+token; this remains a trusted single-user LAN surface rather than a public
+multi-user control plane.
 
-Use `--host`, `--port`, and `--no-open` when you need to change the bind or skip
-opening a browser. This workbench lists every workspace
+Use `--host`, repeatable `--trusted-host`, `--port`, and `--no-open` when you
+need to change the bind or skip opening a browser:
+
+```bash
+spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
+```
+
+This workbench lists every workspace
 bound to this local daemon. Register a local directory from the home page; Hub
 origin and announce stay on `spark daemon login`, not this form. Hub remains
 the multi-daemon proxy and management UI.

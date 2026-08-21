@@ -24,10 +24,12 @@
     type SlashCommandSuggestion,
   } from "@zendev-lab/spark-ui/conversation";
   import {
+    mergeEarlierSparkSessionSnapshotWindow,
     resolveSessionActivityState,
     sparkSlashCommandDescriptors,
     sparkThinkingLevelOptions,
     type SparkSessionView,
+    type SparkSessionSnapshotPage,
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
   import { conversationMessageFromView } from "$lib/conversation";
@@ -35,16 +37,22 @@
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
-  let snapshot = $state<SparkSessionView>(data.snapshot);
+  let windowOverride = $state<SparkSessionSnapshotPage | null>(null);
+  let window = $derived(windowOverride ?? data.window);
+  let snapshot = $derived(window.snapshot);
+  let loadingEarlier = $state(false);
+  let historyError = $state<string | null>(null);
   let prompt = $state("");
   let submitting = $state(false);
   let askWaits = $state<Array<{ interactionRequestId: string; title: string; prompt: string }>>([]);
   let askDraft = $state<Record<string, string>>({});
-  let modelValue = $state(
-    data.snapshot.model
-      ? `${data.snapshot.model.providerName}/${data.snapshot.model.modelId}`
-      : "",
-  );
+  let modelValue = $state("");
+  $effect(() => {
+    const selected = snapshot.model
+      ? `${snapshot.model.providerName}/${snapshot.model.modelId}`
+      : "";
+    if (!modelValue) modelValue = selected;
+  });
   let slashSuggestions = $derived.by((): SlashCommandSuggestion[] => {
     const trimmed = prompt.trim();
     if (!trimmed.startsWith("/")) return [];
@@ -108,7 +116,7 @@
   onMount(() => {
     void refreshAsks();
     return attachWebSessionEvents(snapshot.sessionId, (view) => {
-      snapshot = view;
+      adoptLiveSnapshot(view);
       void refreshAsks();
     });
   });
@@ -122,7 +130,7 @@
       if (text.startsWith("/")) await applySlash(text);
       else await webRpc("turn.submit", { sessionId: snapshot.sessionId, prompt: text });
       prompt = "";
-      snapshot = await webRpc("session.snapshot", { sessionId: snapshot.sessionId });
+      adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
     } finally {
       submitting = false;
     }
@@ -163,7 +171,50 @@
 
   async function setThinking(thinkingLevel: SparkThinkingLevel) {
     await webRpc("session.thinking.set", { sessionId: snapshot.sessionId, thinkingLevel });
-    snapshot = await webRpc("session.snapshot", { sessionId: snapshot.sessionId });
+    adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
+  }
+
+  function adoptLiveSnapshot(view: SparkSessionView) {
+    const seen = new Set<string>();
+    const messages = [...window.snapshot.messages, ...view.messages].filter((message) => {
+      if (seen.has(message.id)) return false;
+      seen.add(message.id);
+      return true;
+    });
+    const totalMessages = Math.max(window.history.totalMessages, messages.length);
+    const earlierMessages = Math.max(0, totalMessages - messages.length);
+    windowOverride = {
+      ...window,
+      snapshot: { ...view, messages },
+      history: {
+        ...window.history,
+        totalMessages,
+        loadedMessages: messages.length,
+        hiddenMessages: earlierMessages,
+        earlierMessages,
+        laterMessages: 0,
+        hasEarlierMessages: earlierMessages > 0,
+      },
+    };
+  }
+
+  async function loadEarlier() {
+    const beforeMessageId = window.history.nextBeforeMessageId;
+    if (!beforeMessageId || loadingEarlier) return;
+    loadingEarlier = true;
+    historyError = null;
+    try {
+      const page = await webRpc("session.snapshot-page", {
+        sessionId: snapshot.sessionId,
+        messageLimit: 32,
+        beforeMessageId,
+      });
+      windowOverride = mergeEarlierSparkSessionSnapshotWindow(window, page);
+    } catch (error) {
+      historyError = error instanceof Error ? error.message : String(error);
+    } finally {
+      loadingEarlier = false;
+    }
   }
 
   async function answerAsk(interactionRequestId: string) {
@@ -197,6 +248,14 @@
 </script>
 
 <section class="workbench">
+  {#if window.history.hasEarlierMessages}
+    <div class="history-controls">
+      <button type="button" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
+        {loadingEarlier ? "Loading earlier messages…" : `Load earlier (${window.history.earlierMessages})`}
+      </button>
+      {#if historyError}<span role="alert">{historyError}</span>{/if}
+    </div>
+  {/if}
   <ConversationViewport label="Transcript" followKey={snapshot.updatedAt} jumpToLatestLabel="Jump to latest">
     {#each messages as item (item.id)}
       <MessageShell
@@ -402,6 +461,12 @@
     grid-template-rows: 1fr auto auto auto;
     gap: 8px;
     padding: 12px;
+  }
+  .history-controls {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
   }
   .controls {
     display: flex;

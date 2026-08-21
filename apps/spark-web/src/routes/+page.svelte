@@ -5,10 +5,14 @@
 
   let { data } = $props();
   const sessions = $derived(data.sessions as SparkWebSession[]);
-  let localPath = $state(data.launchCwd);
+  let localPath = $state("");
   let displayName = $state("");
   let registering = $state(false);
   let registerError = $state("");
+
+  $effect(() => {
+    if (!localPath) localPath = data.launchCwd;
+  });
 
   async function registerWorkspace(event: SubmitEvent) {
     event.preventDefault();

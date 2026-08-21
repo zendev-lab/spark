@@ -1,25 +1,86 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { parseSparkWebBindArgs } from "./bind.ts";
-import { tokensMatch, tokenFromRequest } from "./auth.ts";
+import { parseSparkWebBindArgs, sparkWebBrowserAuthority } from "./bind.ts";
+import { sparkWebRequestTrustError, tokensMatch, tokenFromRequest } from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
 import { invokeSparkWebRpc, sanitizeSparkWebRpcInput, SparkWebRpcForbiddenError } from "./rpc.ts";
 import { collectSessionLiveEvents, formatSseFrame, sessionSnapshotCursor } from "./sse.ts";
 
-test("bind arguments default to loopback and accept an explicit network host", () => {
-  assert.deepEqual(parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311"]), {
-    host: "0.0.0.0",
-    port: 4311,
-    open: true,
-    argv: [],
-  });
+test("bind arguments default to loopback and require an explicit trusted network host", () => {
+  assert.deepEqual(
+    parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311", "--trusted-host", "spark.lan"]),
+    {
+      host: "0.0.0.0",
+      port: 4311,
+      open: true,
+      trustedHosts: ["spark.lan"],
+      argv: [],
+    },
+  );
   assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open"]), {
     host: "127.0.0.1",
     port: 4311,
     open: false,
+    trustedHosts: [],
     argv: [],
   });
+  assert.throws(() => parseSparkWebBindArgs(["--host", "0.0.0.0"]), /requires --trusted-host/u);
+  assert.equal(sparkWebBrowserAuthority("spark.lan", 4310), "spark.lan:4310");
+  assert.equal(sparkWebBrowserAuthority("spark.lan:8443", 4310), "spark.lan:8443");
+  assert.equal(sparkWebBrowserAuthority("::1", 4310), "[::1]:4310");
+});
+
+test("request trust enforces Host, Origin, Fetch Metadata, and cookie mutation CSRF", () => {
+  const trust = { bindHost: "0.0.0.0", bindPort: 4310, trustedHosts: ["spark.lan"] };
+  assert.equal(
+    sparkWebRequestTrustError({
+      request: new Request("http://spark.lan:4310/api/v1/rpc", {
+        method: "POST",
+        headers: {
+          host: "spark.lan:4310",
+          origin: "http://spark.lan:4310",
+          "sec-fetch-site": "same-origin",
+        },
+      }),
+      authSource: "cookie",
+      trust,
+    }),
+    null,
+  );
+  assert.match(
+    sparkWebRequestTrustError({
+      request: new Request("http://evil.test/api/v1/rpc", {
+        method: "POST",
+        headers: { host: "evil.test", origin: "http://evil.test" },
+      }),
+      authSource: "cookie",
+      trust,
+    }) ?? "",
+    /Host/u,
+  );
+  assert.match(
+    sparkWebRequestTrustError({
+      request: new Request("http://spark.lan:4310/api/v1/rpc", {
+        method: "POST",
+        headers: { host: "spark.lan:4310" },
+      }),
+      authSource: "cookie",
+      trust,
+    }) ?? "",
+    /same-origin metadata/u,
+  );
+  assert.equal(
+    sparkWebRequestTrustError({
+      request: new Request("http://spark.lan:4310/api/v1/rpc", {
+        method: "POST",
+        headers: { host: "spark.lan:4310" },
+      }),
+      authSource: "header",
+      trust,
+    }),
+    null,
+  );
 });
 
 test("token comparison rejects missing and mismatched values", () => {

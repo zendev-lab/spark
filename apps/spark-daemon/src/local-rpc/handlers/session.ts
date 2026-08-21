@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   parseSparkSessionPeerProjection,
   parseSparkSessionProjection,
+  sparkSessionSnapshotPageSchema,
   parseSparkSessionView,
   projectSparkSessionState,
   SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES,
@@ -50,6 +51,8 @@ type SessionRequest = Extract<
       | "session.get"
       | "session.lookup"
       | "session.snapshot"
+      | "session.snapshot-page"
+      | "session.media.read"
       | "session.prompt-history"
       | "session.retry-target"
       | "session.create"
@@ -135,7 +138,8 @@ export async function handleSessionRequest(
         }),
       );
     }
-    case "session.snapshot": {
+    case "session.snapshot":
+    case "session.snapshot-page": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         {
@@ -145,7 +149,8 @@ export async function handleSessionRequest(
           payload: { ...request.params },
         },
       );
-      const snapshot = parseSparkSessionView(executed.result.snapshot);
+      const page = sparkSessionSnapshotPageSchema.parse(executed.result);
+      const snapshot = parseSparkSessionView(page.snapshot);
       const loops = new SparkLoopStore(db)
         .list({ ownerSessionId: request.params.sessionId })
         .map((loop) => ({
@@ -199,7 +204,25 @@ export async function handleSessionRequest(
         loops,
         ...(work ? { work } : {}),
       });
-      return await projectSessionMailbox(options, withLoops);
+      const projected = await projectSessionMailbox(options, withLoops);
+      return request.method === "session.snapshot"
+        ? parseLocalRpcServiceOutput(request.method, projected)
+        : parseLocalRpcServiceOutput(request.method, {
+            snapshot: projected,
+            history: page.history,
+          });
+    }
+    case "session.media.read": {
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.media.read.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "session.prompt-history": {
       const history = await readSparkDaemonSessionPromptHistory(

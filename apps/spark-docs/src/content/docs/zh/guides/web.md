@@ -10,11 +10,18 @@ spark web
 ```
 
 `spark web` 默认绑定回环地址，会启动或重连本地 daemon，并打开一次性 token
-URL，例如 `http://127.0.0.1:4310/?token=...`。显式传入 `--host` 可将受 token
-保护的工作台暴露到其他网络接口，包括 `0.0.0.0`。
+URL，例如 `http://127.0.0.1:4310/?token=...`。显式传入非回环 `--host` 时必须
+同时给出至少一个 `--trusted-host`。服务器会校验 Host、Origin/Fetch Metadata、
+mutation 来源与 token；这仍是受信任的单用户 LAN 界面，不是公网多用户控制面。
 
-需要改变绑定、端口或跳过打开浏览器时，使用 `--host`、`--port` 和
-`--no-open`。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
+需要改变绑定、端口或跳过打开浏览器时，使用 `--host`、可重复的
+`--trusted-host`、`--port` 和 `--no-open`：
+
+```bash
+spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
+```
+
+本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
 本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
 Hub 仍是多 daemon 代理与管理界面。
 

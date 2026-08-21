@@ -138,6 +138,23 @@ describe("local-rpc direct oRPC service", () => {
           timestamp: "2026-08-12T00:00:03.000Z",
           message: { role: "user", content: "second prompt" },
         },
+        {
+          type: "message",
+          id: "image-1",
+          parentId: "prompt-2",
+          timestamp: "2026-08-12T00:00:03.500Z",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "image",
+                data: Buffer.from("native image").toString("base64"),
+                mimeType: "image/png",
+                name: "result.png",
+              },
+            ],
+          },
+        },
       ]
         .map((entry) => JSON.stringify(entry))
         .join("\n")}\n`,
@@ -195,6 +212,53 @@ describe("local-rpc direct oRPC service", () => {
         failedAt: "2026-08-12T00:00:05.000Z",
       },
     });
+    const latestPage = await invokeSparkDaemonOrpcLiveMethod(
+      handle.client,
+      "session.snapshot-page",
+      { sessionId, messageLimit: 2 },
+    );
+    expect(latestPage).toMatchObject({
+      history: {
+        totalMessages: 4,
+        loadedMessages: 2,
+        earlierMessages: 2,
+        laterMessages: 0,
+        hasEarlierMessages: true,
+        nextBeforeMessageId: "prompt-2",
+      },
+    });
+    await expect(
+      invokeSparkDaemonOrpcLiveMethod(handle.client, "session.media.read", {
+        sessionId,
+        messageId: "image-1",
+        contentIndex: 0,
+        limit: 7,
+      }),
+    ).resolves.toMatchObject({
+      sessionId,
+      messageId: "image-1",
+      contentIndex: 0,
+      mediaType: "image/png",
+      name: "result.png",
+      offset: 0,
+      sizeBytes: 12,
+      nextOffset: 7,
+      complete: false,
+    });
+    for (const method of ["session.snapshot-page", "session.media.read"] as const) {
+      await expect(
+        handleLocalRpcLine(
+          JSON.stringify({ id: `legacy-${method}`, method, params: { sessionId } }),
+          paths,
+          db,
+          undefined,
+          { sessionRegistry },
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        error: { message: `Unknown local RPC method: ${method}` },
+      });
+    }
     await expect(
       handleLocalRpcLine(
         JSON.stringify({

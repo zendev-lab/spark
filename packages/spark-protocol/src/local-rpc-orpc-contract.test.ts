@@ -124,11 +124,22 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session",
       "promptHistory",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.snapshot-page"]).toEqual([
+      "session",
+      "snapshotPage",
+    ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.media.read"]).toEqual([
+      "session",
+      "media",
+      "read",
+    ]);
     expect(sparkLocalRpcOrpcMethodPaths["session.retry-target"]).toEqual([
       "session",
       "retryTarget",
     ]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "session.snapshot-page",
+      "session.media.read",
       "session.prompt-history",
       "session.retry-target",
     ]);

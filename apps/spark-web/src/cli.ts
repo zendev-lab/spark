@@ -6,8 +6,14 @@ import { fileURLToPath } from "node:url";
 import { ensureSparkDaemonRunning, SparkDaemonStartupError } from "@zendev-lab/spark-daemon-client";
 import { formatSparkCliError, SparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
 
-import { resolveSparkWebToken, SPARK_WEB_TOKEN_ENV } from "./lib/server/auth.ts";
-import { parseSparkWebBindArgs } from "./lib/server/bind.ts";
+import {
+  resolveSparkWebToken,
+  SPARK_WEB_BIND_HOST_ENV,
+  SPARK_WEB_BIND_PORT_ENV,
+  SPARK_WEB_TOKEN_ENV,
+  SPARK_WEB_TRUSTED_HOSTS_ENV,
+} from "./lib/server/auth.ts";
+import { parseSparkWebBindArgs, sparkWebBrowserAuthority } from "./lib/server/bind.ts";
 import {
   attachSparkWebLease,
   heartbeatSparkWebLease,
@@ -53,6 +59,9 @@ export async function runSparkWebCli(
   }
   const token = resolveSparkWebToken();
   process.env[SPARK_WEB_TOKEN_ENV] = token;
+  process.env[SPARK_WEB_BIND_HOST_ENV] = bind.host;
+  process.env[SPARK_WEB_BIND_PORT_ENV] = String(bind.port);
+  process.env[SPARK_WEB_TRUSTED_HOSTS_ENV] = bind.trustedHosts.join(",");
 
   try {
     await (options.ensureDaemonRunning ?? ensureSparkDaemonRunning)();
@@ -66,7 +75,8 @@ export async function runSparkWebCli(
   }, 15_000);
   heartbeat.unref();
 
-  const origin = `http://${bind.host}:${bind.port}`;
+  const browserHost = bind.trustedHosts[0] ?? bind.host;
+  const origin = `http://${sparkWebBrowserAuthority(browserHost, bind.port)}`;
   const url = `${origin}/?token=${encodeURIComponent(token)}`;
 
   const stop = async () => {
@@ -192,10 +202,11 @@ export function sparkWebHelpText(): string {
   return `spark-web - local Spark daemon workbench
 
 Usage:
-  spark-web [--host 127.0.0.1] [--port 4310] [--no-open]
+  spark-web [--host 127.0.0.1] [--port 4310] [--trusted-host HOST] [--no-open]
 
-Binds to 127.0.0.1 by default. An explicit --host may expose the token-protected
-workbench on another interface. Shows every workspace bound to the local daemon.
+Binds to 127.0.0.1 by default. A non-loopback --host requires one or more
+--trusted-host values; Host, same-origin metadata, and the token are all checked.
+Shows every workspace bound to the local daemon.
 Hub remains the multi-daemon proxy and management plane.
 `;
 }

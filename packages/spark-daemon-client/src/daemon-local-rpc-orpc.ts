@@ -427,6 +427,16 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.snapshot"].output,
       client.session.snapshot(input, options),
     ),
+  "session.snapshot-page": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.snapshot-page"].output,
+      client.session.snapshotPage(input, options),
+    ),
+  "session.media.read": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.media.read"].output,
+      client.session.media.read(input, options),
+    ),
   "session.prompt-history": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.prompt-history"].output,
@@ -518,6 +528,8 @@ const sessionInvokers = {
   | "session.get"
   | "session.lookup"
   | "session.snapshot"
+  | "session.snapshot-page"
+  | "session.media.read"
   | "session.prompt-history"
   | "session.retry-target"
   | "session.create"
