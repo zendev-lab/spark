@@ -75,7 +75,6 @@ export interface SparkSessionToolContext {
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   channelBinding?: {
-    workspaceId?: string;
     adapter: SparkChannelAdapter;
     externalKey: string;
     recipient?: string;

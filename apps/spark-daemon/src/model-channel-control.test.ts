@@ -4,9 +4,19 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test, vi } from "vitest";
 
-import type { SparkModelControlSnapshot, SparkModelRef } from "@zendev-lab/spark-protocol";
+import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channels";
+import type {
+  SparkModelControlSnapshot,
+  SparkModelRef,
+  SparkProtocolJsonValue,
+} from "@zendev-lab/spark-protocol";
 import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
-import { executeSparkDaemonModelChannelPublicControl } from "./model-channel-control.ts";
+import {
+  channelConfigurationProjection,
+  executeSparkDaemonEphemeralSecretControl,
+  executeSparkDaemonModelChannelPublicControl,
+  type SparkDaemonModelChannelControlOptions,
+} from "./model-channel-control.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
@@ -303,3 +313,189 @@ test("runtime channel control routes QQ QR auth within one daemon", async () => 
   assert.deepEqual(channelIngress.qqbotQrAuthStatus.mock.calls[0], [flow.id]);
   assert.deepEqual(channelIngress.cancelQqbotQrAuth.mock.calls[0], [flow.id]);
 });
+
+test("Channel secret retention matches the exact adapter id across same-type accounts", async () => {
+  const root = await createStoredInfoflowAccounts();
+  try {
+    const { runtime: channelIngress, configure } = channelIngressForConfigure();
+    const result = await executeSparkDaemonEphemeralSecretControl(
+      { channelIngress, sparkHome: root },
+      {
+        operation: "channel.configure",
+        config: channelConfigWithAdapters({
+          "info-b": {
+            type: "infoflow",
+            app_agent_id: "agent-b",
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(configure.mock.calls[0]?.[0].adapters["info-b"], {
+      type: "infoflow",
+      app_key: "key-b",
+      app_secret: "secret-b",
+      app_agent_id: "agent-b",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Channel secret retention follows stable account identity after an adapter rename", async () => {
+  const root = await createStoredInfoflowAccounts();
+  try {
+    const { runtime: channelIngress, configure } = channelIngressForConfigure();
+    const result = await executeSparkDaemonEphemeralSecretControl(
+      { channelIngress, sparkHome: root },
+      {
+        operation: "channel.configure",
+        config: channelConfigWithAdapters({
+          renamed: {
+            type: "infoflow",
+            app_key: "key-b",
+            app_agent_id: "agent-b",
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(configure.mock.calls[0]?.[0].adapters.renamed, {
+      type: "infoflow",
+      app_key: "key-b",
+      app_secret: "secret-b",
+      app_agent_id: "agent-b",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Channel secret retention fails closed when same-type accounts are ambiguous", async () => {
+  const root = await createStoredInfoflowAccounts();
+  try {
+    const { runtime: channelIngress, configure } = channelIngressForConfigure();
+    const result = await executeSparkDaemonEphemeralSecretControl(
+      { channelIngress, sparkHome: root },
+      {
+        operation: "channel.configure",
+        config: channelConfigWithAdapters({
+          unknown: {
+            type: "infoflow",
+            app_agent_id: "agent-unknown",
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.status, "failed");
+    assert.equal(configure.mock.calls.length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a fully credentialed new Channel account does not depend on same-type secret retention", async () => {
+  const root = await createStoredInfoflowAccounts();
+  try {
+    const { runtime: channelIngress, configure } = channelIngressForConfigure();
+    const result = await executeSparkDaemonEphemeralSecretControl(
+      { channelIngress, sparkHome: root },
+      {
+        operation: "channel.configure",
+        config: channelConfigWithAdapters({
+          "info-new": {
+            type: "infoflow",
+            app_key: "key-new",
+            app_secret: "secret-new",
+            app_agent_id: "agent-new",
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(configure.mock.calls[0]?.[0].adapters["info-new"], {
+      type: "infoflow",
+      app_key: "key-new",
+      app_secret: "secret-new",
+      app_agent_id: "agent-new",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy single-account configuration projection omits ambiguous adapter types", () => {
+  const projection = channelConfigurationProjection(
+    parseChannelsConfig(
+      channelConfigWithAdapters({
+        "qq-a": { type: "qqbot", app_id: "qq-a", client_secret: "secret-a" },
+        "qq-b": { type: "qqbot", app_id: "qq-b", client_secret: "secret-b" },
+      }),
+    ),
+  );
+
+  assert.equal(projection.qqbot, undefined);
+});
+
+function channelConfigWithAdapters(
+  adapters: Record<string, Record<string, SparkProtocolJsonValue>>,
+): Record<string, SparkProtocolJsonValue> {
+  return {
+    adapters,
+    routes: {},
+    ingress: { enabled: true, on_unbound: "create" },
+  };
+}
+
+async function createStoredInfoflowAccounts(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "spark-channel-secret-accounts-"));
+  const configPath = channelConfigPath(resolveSparkPaths({ app: "daemon", sparkHome: root }));
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify(
+      channelConfigWithAdapters({
+        "info-a": {
+          type: "infoflow",
+          app_key: "key-a",
+          app_secret: "secret-a",
+          app_agent_id: "agent-a",
+        },
+        "info-b": {
+          type: "infoflow",
+          app_key: "key-b",
+          app_secret: "secret-b",
+          app_agent_id: "agent-b",
+        },
+      }),
+    ),
+  );
+  return root;
+}
+
+function channelIngressForConfigure() {
+  const configure = vi.fn(async (_config: ChannelsConfig) => undefined);
+  const status = vi.fn(() => ({
+    plane: "daemon" as const,
+    resource: "channel" as const,
+    configPath: "/redacted/channels.json",
+    available: true as const,
+    configured: true,
+    ingressEnabled: true,
+    state: "running" as const,
+    adapters: [],
+    routes: [],
+    observedAt: "2026-08-21T00:00:00.000Z",
+    text: "running\n",
+  }));
+  return {
+    runtime: { configure, status } as unknown as NonNullable<
+      SparkDaemonModelChannelControlOptions["channelIngress"]
+    >,
+    configure,
+  };
+}

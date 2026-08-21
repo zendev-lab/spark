@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { parseChannelsConfig } from "@zendev-lab/dsh-channels";
 import {
   parseSparkModelValue,
   sparkModelValue,
@@ -296,6 +298,18 @@ async function channelCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo):
   let result: unknown;
   if (action === "status" || action === "list") {
     result = await localRpcRequest(paths, "channel.status", {});
+  } else if (action === "configure") {
+    const configFile = option(parsed, "file") ?? parsed.positionals[1];
+    if (!configFile) {
+      throw new Error("Usage: spark daemon channel configure --file <channels.json> [--json]");
+    }
+    let config;
+    try {
+      config = parseChannelsConfig(JSON.parse(await readFile(configFile, "utf8")));
+    } catch (error) {
+      throw new Error(`Cannot read Channel configuration from ${configFile}.`, { cause: error });
+    }
+    result = await localRpcRequest(paths, "channel.configure", { config });
   } else if (action === "reload") {
     result = await localRpcRequest(paths, "channel.reload", {});
   } else if (action === "notify") {

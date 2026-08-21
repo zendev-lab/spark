@@ -1,10 +1,12 @@
 import { error as kitError, fail } from "@sveltejs/kit";
 import { getCurrentUserIdBySessionToken } from "@zendev-lab/spark-hub-coordination/hub-queries";
+import { listRuntimeSessionProjections } from "@zendev-lab/spark-hub-coordination/runtime-session-control";
 import type { SparkQqbotQrAuthFlow } from "@zendev-lab/spark-protocol";
 import { renderSVG } from "uqr";
+import { daemonChannelSessionSummaries } from "$lib/daemon-channel-session";
 import {
+  daemonMessagePlatformConnections,
   isMessagePlatformAdapter,
-  workspaceMessagePlatformConnections,
   type MessagePlatformAdapter,
   type MessagePlatformFormValues,
 } from "$lib/message-platform";
@@ -23,6 +25,7 @@ import {
 } from "$lib/server/channel-status";
 import { getDatabase } from "$lib/server/db";
 import { createHubRuntimeModelChannelClient } from "$lib/server/hub-runtime-model-channel-client";
+import { createHubRuntimeSessionClient } from "$lib/server/hub-runtime-session-client";
 import { requireSecretRequestContext } from "$lib/server/secret-request-context";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -46,19 +49,47 @@ export const load: PageServerLoad = async ({ url }) => {
           : "Select a Spark daemon to manage its Channels.",
       );
   const editor = channelEditorValuesFromProjection(channelStatus.configuration);
+  const channelSessions = selectedRuntime
+    ? await loadDaemonChannelSessionSummaries(selectedRuntime.runtimeId, channelStatus.available)
+    : [];
   return {
     runtimes,
     selectedRuntimeId: selectedRuntime?.runtimeId ?? null,
     requiresRuntimeSelection: runtimes.length > 1 && !selectedRuntime,
     channelStatus,
     editor,
-    platforms: workspaceMessagePlatformConnections(editor, channelStatus.adapters),
+    platforms: daemonMessagePlatformConnections(editor, channelStatus.adapters),
+    channelSessions,
     defaults: {
       infoflowEndpoint: DEFAULT_INFOFLOW_ENDPOINT,
       adapter: defaultMessagePlatformAdapter(editor),
     },
   };
 };
+
+async function loadDaemonChannelSessionSummaries(runtimeId: string, live: boolean) {
+  const database = getDatabase();
+  const projected = () =>
+    daemonChannelSessionSummaries(
+      listRuntimeSessionProjections(database, {
+        runtimeId,
+        scope: "daemon",
+        includeArchived: true,
+      }).map(({ session }) => session),
+    );
+  if (!live) return projected();
+  try {
+    const result = await createHubRuntimeSessionClient(database).listWithControlState({
+      runtimeId,
+      scope: { kind: "daemon" },
+      includeArchived: true,
+      timeoutMs: 5_000,
+    });
+    return daemonChannelSessionSummaries(result.sessions);
+  } catch {
+    return projected();
+  }
+}
 
 export const actions: Actions = {
   savePlatform: async (event) => {

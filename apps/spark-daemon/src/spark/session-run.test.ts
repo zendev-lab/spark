@@ -2569,6 +2569,45 @@ describe("daemon native session execution", () => {
       }),
     );
   });
+
+  it("keeps Workflow unavailable even if a Channel turn receives stale loop context", async () => {
+    const executeSession = vi.fn(async () => ({ assistantText: "safe" }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_channel_stale_workflow",
+      prompt: "run the workflow",
+      channelReply: {
+        adapterId: "infoflow",
+        adapter: "infoflow",
+        recipient: "user:owner",
+        externalKey: "infoflow:user:owner",
+      },
+    };
+
+    await executeSparkDaemonSessionRunTask(
+      task,
+      context(task),
+      {
+        paths,
+        executeSession,
+        sessionRegistry: {
+          get: vi.fn(async () => daemonChannelSession(task.sessionId)),
+          recordRun: vi.fn(async () => ({}) as never),
+          recordTurnQueued: vi.fn(async () => ({}) as never),
+          recordTurnSettled: vi.fn(async () => ({}) as never),
+        },
+      },
+      loopContext("workflow", 1, "workflow:stale"),
+    );
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionSurface: "channel",
+        allowedTools: ["session", "ask", "context", "todo"],
+      }),
+    );
+  });
+
   it("keeps direct session requests exact and projects their execution source as session", async () => {
     const messageMetadata = {
       invocationId: "invocation-1",

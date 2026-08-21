@@ -212,7 +212,11 @@ export class SparkAgentSession {
     this.services.runtime.setSessionId(record.header.id);
     this.services.agentLoop.setViewSessionId(record.header.id);
     const promptText = typeof options.prompt === "string" ? options.prompt : undefined;
-    const directIntentAuthority = this.services.memoryDirectIntentAuthority;
+    // Daemon Channel Sessions have no Workspace/repository Memory authority.
+    const directIntentAuthority =
+      this.services.runtime.sessionSurface === "channel"
+        ? undefined
+        : this.services.memoryDirectIntentAuthority;
     directIntentAuthority?.clear();
     const runtimeContext = this.services.runtime.makeContext();
     const turnIdentity = this.services.runtime.invocationId ?? globalThis.crypto.randomUUID();
@@ -225,10 +229,7 @@ export class SparkAgentSession {
                 : this.services.runtime.sessionSource === "web"
                   ? ("hub" as const)
                   : ("tui" as const),
-            workspaceId:
-              runtimeContext.sessionLease?.()?.workspaceId ??
-              this.services.runtime.channelBinding?.workspaceId ??
-              this.services.cwd,
+            workspaceId: runtimeContext.sessionLease?.()?.workspaceId ?? this.services.cwd,
             sessionId: record.header.id,
             turnId: `turn:${turnIdentity}`,
             messageId: `message:${turnIdentity}`,

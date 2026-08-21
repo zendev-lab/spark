@@ -1413,7 +1413,9 @@ function sessionExecutionPolicy(
     ...(taskExecutionScope?.isolation === "readonly"
       ? { allowedToolEffects: ["read"] as const }
       : {}),
-    ...(loop?.binding.workflowRunId && !loop.binding.reproId ? { allowedTools: ["workflow"] } : {}),
+    ...(sessionContext.surface !== "channel" && loop?.binding.workflowRunId && !loop.binding.reproId
+      ? { allowedTools: ["workflow"] }
+      : {}),
   };
 }
 
@@ -1423,7 +1425,13 @@ function allowedToolsForSessionExecution(
 ): string[] | undefined {
   let allowedTools: string[] | undefined =
     sessionContext.surface === "channel" ? [...SPARK_CHANNEL_ALLOWED_TOOLS] : undefined;
-  if (loop?.binding.workflowRunId && !loop.binding.reproId) allowedTools = ["workflow"];
+  if (
+    sessionContext.surface !== "channel" &&
+    loop?.binding.workflowRunId &&
+    !loop.binding.reproId
+  ) {
+    allowedTools = ["workflow"];
+  }
   const roleTools = sessionContext.role?.allowedTools;
   if (!roleTools) return allowedTools;
   if (!allowedTools) return [...roleTools];
