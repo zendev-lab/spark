@@ -75,7 +75,6 @@ import {
 } from "./core/index.ts";
 import {
   isRetryableInvocationError,
-  MAX_PERSISTED_INVOCATION_EVENT_BYTES,
   SparkInvocationStore,
   type SparkInvocationRecord,
 } from "./store/invocations.ts";
@@ -85,10 +84,6 @@ import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 // Result and projection carry the same public page, so each copy must leave
 // room for the other copy and terminal envelope metadata under the 64 KiB wire cap.
 const maxSessionControlProjectionBytes = 24 * 1024;
-// Local oRPC must be able to return every event accepted by the invocation
-// store. Keep runtime-WS projections at the smaller control-plane bound, while
-// leaving room for the stream page envelope around one maximum-sized event.
-const maxLocalTurnStreamProjectionBytes = MAX_PERSISTED_INVOCATION_EVENT_BYTES + 16 * 1024;
 const maxSessionListRecords = 100;
 const defaultSessionSnapshotMessages = 32;
 const maxTurnStreamEvents = 100;
@@ -616,15 +611,16 @@ export async function executeSparkDaemonSessionControl(
         false,
         true,
       );
-      const page = boundedTurnStreamPage(
-        store,
-        parsed.invocationId,
-        parsed.after,
-        parsed.limit,
+      const page =
         options.actor === "spark-daemon-local-rpc"
-          ? maxLocalTurnStreamProjectionBytes
-          : maxSessionControlProjectionBytes,
-      );
+          ? sparkTurnStreamPageSchema.parse(
+              store.eventPage(
+                parsed.invocationId,
+                parsed.after,
+                Math.min(maxTurnStreamEvents, parsed.limit),
+              ),
+            )
+          : boundedTurnStreamPage(store, parsed.invocationId, parsed.after, parsed.limit);
       const data = publicObject(page);
       return {
         result: data,
@@ -1406,12 +1402,11 @@ function boundedTurnStreamPage(
   invocationId: string,
   after: number,
   requestedLimit: number,
-  maxProjectionBytes: number,
 ) {
   let limit = Math.min(maxTurnStreamEvents, requestedLimit);
   while (limit > 0) {
     const page = sparkTurnStreamPageSchema.parse(store.eventPage(invocationId, after, limit));
-    if (encodedBytes(page) <= maxProjectionBytes) return page;
+    if (encodedBytes(page) <= maxSessionControlProjectionBytes) return page;
     limit = Math.floor(limit / 2);
   }
   throw new Error("Invocation event exceeds the bounded runtime projection limit.");

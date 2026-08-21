@@ -1332,9 +1332,8 @@ describe("Spark daemon local RPC", () => {
         error: { message: expect.stringContaining("CURSOR_GAP") },
       });
 
-      store.appendEvent(result.invocationId, "large-delta", {
-        text: "x".repeat(32 * 1024),
-      });
+      const largeText = "x".repeat(300 * 1024);
+      store.appendEvent(result.invocationId, "large-delta", { text: largeText });
       const largePage = await handleLocalRpcLine(
         JSON.stringify({
           id: "turn_stream_large_event",
@@ -1349,7 +1348,7 @@ describe("Spark daemon local RPC", () => {
         ok: true,
         result: {
           invocationId: result.invocationId,
-          events: [{ sequence: 3, kind: "large-delta" }],
+          events: [{ sequence: 3, kind: "large-delta", payload: { text: largeText } }],
           nextCursor: 3,
           hasMore: false,
         },
