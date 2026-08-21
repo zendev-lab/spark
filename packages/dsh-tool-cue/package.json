@@ -21,6 +21,7 @@
   "scripts": {
     "build:dsh-plugin": "esbuild src/index.ts --bundle --format=esm --platform=node --target=node22 --outfile=dist/index.mjs --external:@deepseek-ai/* --external:@deepseek-ai/cordis",
     "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test:real-host": "vp test run src/code-mode.test.ts",
     "verify:presets": "node scripts/verify-presets.mjs",
     "test": "vp test run"
   },

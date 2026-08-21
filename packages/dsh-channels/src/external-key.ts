@@ -1,17 +1,15 @@
-import {
-  normalizeChannelExternalKey,
-  type SparkChannelAdapter,
-} from "@zendev-lab/spark-protocol/session-assignment";
+export const channelAdapterTypes = ["feishu", "infoflow", "qqbot"] as const;
+export type ChannelAdapterType = (typeof channelAdapterTypes)[number];
 
-const defaultScopes: Record<SparkChannelAdapter, string> = {
+const defaultScopes: Record<ChannelAdapterType, string> = {
   feishu: "chat",
   infoflow: "user",
   qqbot: "c2c",
 };
 
-/** Build a protocol-normalized external key: `feishu:chat:<id>`, `infoflow:user:<id>`, … */
+/** Build a channel key: `feishu:chat:<id>`, `infoflow:user:<id>`, … */
 export function createChannelExternalKey(
-  adapter: SparkChannelAdapter,
+  adapter: ChannelAdapterType,
   scope: string,
   id: string,
 ): string {
@@ -19,13 +17,17 @@ export function createChannelExternalKey(
   if (!trimmedId) {
     throw new Error("channel external id must be non-empty");
   }
-  return normalizeChannelExternalKey(`${adapter}:${scope}:${trimmedId}`);
+  const parts = `${adapter}:${scope}:${trimmedId}`.trim().split(":").filter(Boolean);
+  if (parts.length < 3) {
+    throw new Error("channel external key requires a non-empty scope and id");
+  }
+  return `${adapter}:${parts[1]}:${parts.slice(2).join(":")}`;
 }
 
-export function defaultChannelScope(adapter: SparkChannelAdapter): string {
+export function defaultChannelScope(adapter: ChannelAdapterType): string {
   return defaultScopes[adapter];
 }
 
-export function createDefaultChannelExternalKey(adapter: SparkChannelAdapter, id: string): string {
+export function createDefaultChannelExternalKey(adapter: ChannelAdapterType, id: string): string {
   return createChannelExternalKey(adapter, defaultChannelScope(adapter), id);
 }
