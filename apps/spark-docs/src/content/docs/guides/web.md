@@ -30,13 +30,13 @@ and plugin behavior is required:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-The compatibility app restores the Spark LLM and Cue plugins and mounts its
-bundled `spark-cue` Skill in the DSH Skill catalog. It handles plain-HTTP UUID
-and remote credential onboarding, and rejects oversized cold history artifacts
-before DSH materializes the whole transcript. For histories that are safe to
-inspect, it predicts a smaller initial page, enforces a response-byte budget,
-compacts redundant token chunks, and returns a marked preview instead of timing
-out when one final message is unusually large.
+The compatibility app restores the Spark LLM and Cue plugins and mounts a
+verified snapshot of Cue's `spark-cue` Skill in the DSH Skill catalog. It handles
+plain-HTTP UUID and remote credential onboarding, and rejects oversized cold
+history artifacts before DSH materializes the whole transcript. For histories
+that are safe to inspect, it predicts a smaller initial page, enforces a
+response-byte budget, compacts redundant token chunks, and returns a marked
+preview instead of timing out when one final message is unusually large.
 
 ## Start with the outcome
 

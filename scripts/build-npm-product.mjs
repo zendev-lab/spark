@@ -323,12 +323,13 @@ await Promise.all([
     ),
 ]);
 
+await run(process.execPath, ["scripts/verify-cue-skill.mjs"]);
 await Promise.all(
   npmDistributions
     .filter((distribution) => distribution.skills)
     .map((distribution) =>
       cp(
-        resolve(root, "apps/spark-web-dsh/skills/spark-cue"),
+        resolve(root, "vendor/cue/skills/spark-cue"),
         resolve(distribution.directory, "skills/spark-cue"),
         { recursive: true },
       ),

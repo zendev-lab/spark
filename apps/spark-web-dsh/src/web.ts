@@ -12,8 +12,8 @@
  *    `plugins/spark-llm/`, then mounted through a generated patch overlay —
  *    no manual install or copy step.
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
- *    presets and bundled spark-cue Skill**, so Cue replaces DSH
- *    Bash/Pwsh/Jobs with product-owned guidance and no manual setup.
+ *    presets and a verified spark-cue Skill snapshot**, so Cue replaces DSH
+ *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
  * 3. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare
@@ -56,7 +56,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertSupportedDshPackage, installManagedCuePresets } from "./cue-presets.ts";
 
@@ -351,6 +351,17 @@ export function resolveSparkWebDshPackageDir(): string {
     throw new Error(`spark web: cannot locate ${SPARK_WEB_PACKAGE} from ${here}`);
   }
   return root;
+}
+
+/** Resolve the packaged Skill or the verified Cue snapshot in a source checkout. */
+export function resolveSparkCueSkillsDir(
+  packageDir: string = resolveSparkWebDshPackageDir(),
+): string {
+  const packaged = join(packageDir, "skills");
+  if (existsSync(join(packaged, "spark-cue", "SKILL.md"))) return packaged;
+  const snapshot = resolve(packageDir, "../../vendor/cue/skills");
+  if (existsSync(join(snapshot, "spark-cue", "SKILL.md"))) return snapshot;
+  throw new Error(`spark web: cannot locate the verified Cue Skill snapshot from ${packageDir}`);
 }
 
 export interface SparkWebPatch {
@@ -724,7 +735,7 @@ export async function prepareSparkWebDispatch(
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
   // Metadata and upstream source verification happen before any managed write.
   assertSupportedDshPackage(dshPackageDir);
-  const skillDir = join(resolveSparkWebDshPackageDir(), "skills");
+  const skillDir = resolveSparkCueSkillsDir();
   const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
   for (const preset of presets) {
     if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);

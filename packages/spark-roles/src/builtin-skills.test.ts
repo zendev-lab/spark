@@ -28,10 +28,10 @@ test("packaged skills resolve from the generated product root", async () => {
   expect(defaultSparkCueSkillsDir()).toBe(join(skills, "spark-cue"));
 });
 
-test("source-tree Cue skills resolve from the spark-web-dsh product owner", async () => {
+test("source-tree Cue skills resolve from the verified Cue vendor snapshot", async () => {
   delete process.env.SPARK_PRODUCT_DIST;
   const skills = defaultSparkCueSkillsDir();
 
-  expect(skills.endsWith(join("apps", "spark-web-dsh", "skills"))).toBe(true);
+  expect(skills.endsWith(join("vendor", "cue", "skills"))).toBe(true);
   await expect(access(join(skills, "spark-cue", "SKILL.md"))).resolves.toBeUndefined();
 });
