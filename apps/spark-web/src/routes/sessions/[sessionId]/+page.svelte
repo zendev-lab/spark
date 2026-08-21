@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
     ApprovalPart,
@@ -7,6 +8,7 @@
     Composer,
     ConversationViewport,
     ErrorPart,
+    HumanInteractionPanel,
     ImagePart,
     MessageShell,
     ModelSelector,
@@ -14,6 +16,7 @@
     ReasoningPart,
     SessionQueue,
     SessionStatusBar,
+    SlashActionBar,
     SlashCommandMenu,
     TaskRunPart,
     ThinkingChainPart,
@@ -23,13 +26,21 @@
     type ConversationPartLabels,
     type SlashCommandSuggestion,
   } from "@zendev-lab/spark-ui/conversation";
+  import { SessionTree } from "@zendev-lab/spark-ui/workbench";
   import {
     mergeEarlierSparkSessionSnapshotWindow,
     resolveSessionActivityState,
+    sparkActionBarDefaultAction,
+    sparkAskQuestionViewSchema,
+    sparkActionViewSchema,
+    sparkSlashActionBarForInput,
     sparkSlashCommandDescriptors,
     sparkThinkingLevelOptions,
     type SparkSessionView,
     type SparkSessionSnapshotPage,
+    type SparkSessionProjection,
+    type SparkAskQuestionView,
+    type SparkActionView,
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
   import { conversationMessageFromView } from "$lib/conversation";
@@ -41,11 +52,22 @@
   let window = $derived(windowOverride ?? data.window);
   let snapshot = $derived(window.snapshot);
   let loadingEarlier = $state(false);
+  let treeSessionsOverride = $state<SparkSessionProjection[] | null>(null);
+  let treeSessions = $derived(treeSessionsOverride ?? data.sessions);
+  let busySessionId = $state<string | undefined>();
+  let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
   let prompt = $state("");
   let submitting = $state(false);
-  let askWaits = $state<Array<{ interactionRequestId: string; title: string; prompt: string }>>([]);
-  let askDraft = $state<Record<string, string>>({});
+  let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
+  let askWaits = $state<
+    Array<{
+      interactionRequestId: string;
+      title: string;
+      prompt: string;
+      questions: SparkAskQuestionView[];
+    }>
+  >([]);
   let modelValue = $state("");
   $effect(() => {
     const selected = snapshot.model
@@ -66,6 +88,7 @@
         description: item.actionBar.title,
       }));
   });
+  let slashActionBar = $derived(sparkSlashActionBarForInput(prompt));
   let messages = $derived(snapshot.messages.map(conversationMessageFromView));
   let activity = $derived(resolveSessionActivityState({ session: snapshot, projectedTurns: [] }));
   const partLabels: ConversationPartLabels = {
@@ -110,6 +133,19 @@
         interactionRequestId: wait.interactionRequestId,
         title: wait.title,
         prompt: wait.prompt,
+        questions: wait.questions.flatMap((question, index) => {
+          const parsed = sparkAskQuestionViewSchema.safeParse(question);
+          return parsed.success
+            ? [parsed.data]
+            : [
+                sparkAskQuestionViewSchema.parse({
+                  id: `question-${index + 1}`,
+                  prompt: wait.prompt,
+                  type: "freeform",
+                  required: true,
+                }),
+              ];
+        }),
       }));
   }
 
@@ -127,10 +163,16 @@
     if (!text || submitting) return;
     submitting = true;
     try {
+      actionFeedback = null;
       if (text.startsWith("/")) await applySlash(text);
       else await webRpc("turn.submit", { sessionId: snapshot.sessionId, prompt: text });
       prompt = "";
       adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
+    } catch (error) {
+      actionFeedback = {
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
     } finally {
       submitting = false;
     }
@@ -140,7 +182,9 @@
     const [name, ...rest] = text.slice(1).split(/\s+/u);
     const argument = rest.join(" ");
     if (name === "model" && argument.includes("/")) {
-      const [providerName, modelId] = argument.split("/");
+      const separator = argument.indexOf("/");
+      const providerName = argument.slice(0, separator);
+      const modelId = argument.slice(separator + 1);
       if (providerName && modelId) {
         await webRpc("session.model.set", {
           sessionId: snapshot.sessionId,
@@ -154,6 +198,124 @@
         sessionId: snapshot.sessionId,
         thinkingLevel: argument as "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
       });
+      return;
+    }
+    if (name === "compact") {
+      const result = await webRpc("session.compact", {
+        sessionId: snapshot.sessionId,
+        ...(argument ? { customInstructions: argument } : {}),
+        idempotencyKey: globalThis.crypto.randomUUID(),
+      });
+      actionFeedback = {
+        tone: "status",
+        message: `Compaction queued as ${result.invocationId}.`,
+      };
+      return;
+    }
+    if (argument) {
+      throw new Error(`/${name} does not accept free-form arguments in Spark Web.`);
+    }
+    const view = sparkSlashActionBarForInput(text);
+    const action = view ? sparkActionBarDefaultAction(view) : undefined;
+    if (!action) throw new Error(`Unsupported Spark Web command: /${name}`);
+    await handleSlashAction(action);
+  }
+
+  async function handleSlashAction(action: SparkActionView) {
+    const feedback = (message: string) => {
+      actionFeedback = { tone: "status", message };
+      prompt = "";
+    };
+    switch (action.intent) {
+      case "model.select":
+        feedback("Use the model picker above the composer.");
+        document.getElementById("spark-web-model")?.focus();
+        return;
+      case "thinking.select": {
+        const level = action.payload.thinkingLevel;
+        if (
+          typeof level === "string" &&
+          (sparkThinkingLevelOptions as readonly string[]).includes(level)
+        ) {
+          await setThinking(level as SparkThinkingLevel);
+          feedback(`Thinking set to ${level}.`);
+        } else {
+          feedback("Use the Thinking selector above the composer.");
+        }
+        return;
+      }
+      case "settings.inspect":
+      case "settings.providers":
+      case "settings.enabled-models":
+        prompt = "";
+        await goto("/settings");
+        return;
+      case "status.inspect":
+        adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
+        feedback(`Session status: ${snapshot.status}.`);
+        return;
+      case "session.select":
+        prompt = "";
+        await goto("/sessions");
+        return;
+      case "session.create": {
+        const current = treeSessions.find((session) => session.sessionId === snapshot.sessionId);
+        prompt = "";
+        await goto(current?.scope.kind === "workspace" ? `/workspaces/${current.scope.workspaceId}` : "/");
+        return;
+      }
+      case "session.inspect":
+        feedback(`${snapshot.messages.length} loaded messages · ${snapshot.tools.length} tools · ${snapshot.tasks.length} tasks.`);
+        return;
+      case "queue.inspect":
+        feedback(`${activity.pendingTurns.length} queued turn(s).`);
+        document.querySelector<HTMLElement>("[data-session-queue]")?.focus();
+        return;
+      case "turn.stop":
+        await cancelTurn();
+        feedback("Cancellation requested.");
+        return;
+      case "turn.retry":
+        await retryTurn();
+        feedback("Retry requested.");
+        return;
+      case "loop.status": {
+        const result = await webRpc("loop.status", {
+          ownerSessionId: snapshot.sessionId,
+          includeTerminal: true,
+        });
+        feedback(`${result.loops.length} Loop record(s) for this Session.`);
+        return;
+      }
+      case "repro.status": {
+        const result = await webRpc("repro.status", { ownerSessionId: snapshot.sessionId });
+        feedback(result.repro ? `Repro status: ${result.repro.status}.` : "No Repro is bound to this Session.");
+        return;
+      }
+      case "goal.status":
+        feedback(snapshot.work?.goal ? `Goal status: ${snapshot.work.goal.status}.` : "No Goal is bound to this Session.");
+        return;
+      case "workflow.open":
+      case "workflow.inspect":
+        feedback(`${snapshot.runs.length} Workflow/run projection(s) are visible in this Session.`);
+        return;
+      case "help.commands":
+        feedback(`Commands: ${sparkSlashCommandDescriptors.map((item) => `/${item.name}`).join(", ")}, /compact.`);
+        return;
+      case "help.hotkeys":
+        feedback("Composer: Cmd/Ctrl+Enter sends. Escape closes open dialogs. Tab moves through controls.");
+        return;
+      case "mode.select":
+        throw new Error("Plan/execute/fleet mode switching requires the pending DSH rc.8 daemon-root adapter.");
+      case "goal.start":
+      case "goal.restart":
+      case "goal.stop":
+      case "loop.start":
+      case "loop.restart":
+      case "loop.stop":
+      case "repro.start":
+      case "repro.stop":
+        throw new Error(`${action.label} requires its typed configuration panel; Spark Web will not invent missing owner inputs.`);
     }
   }
 
@@ -217,16 +379,53 @@
     }
   }
 
-  async function answerAsk(interactionRequestId: string) {
-    const text = askDraft[interactionRequestId]?.trim();
-    if (!text) return;
+  async function mutateSessionTree(
+    session: SparkSessionProjection,
+    action: "archive" | "restore" | "close",
+  ) {
+    if (busySessionId) return;
+    if (
+      action === "close" &&
+      typeof globalThis.confirm === "function" &&
+      !globalThis.confirm(`Close ${session.name ?? session.sessionId}?`)
+    ) {
+      return;
+    }
+    busySessionId = session.sessionId;
+    treeError = null;
+    try {
+      const updated =
+        action === "archive"
+          ? await webRpc("session.archive", { sessionId: session.sessionId, source: "manual" })
+          : action === "restore"
+            ? await webRpc("session.restore", { sessionId: session.sessionId })
+            : await webRpc("session.close", {
+                sessionId: session.sessionId,
+                reason: "Closed from Spark Web",
+              });
+      treeSessionsOverride = treeSessions.map((item) =>
+        item.sessionId === updated.sessionId ? updated : item,
+      );
+      if (session.sessionId === snapshot.sessionId && action !== "restore") {
+        await goto("/sessions");
+      }
+    } catch (error) {
+      treeError = error instanceof Error ? error.message : String(error);
+    } finally {
+      busySessionId = undefined;
+    }
+  }
+
+  async function answerAsk(
+    interactionRequestId: string,
+    response: { status: "answered" | "cancelled"; answers: Record<string, unknown> },
+  ) {
     await webRpc("human.interaction.respond", {
       interactionRequestId,
       sessionId: snapshot.sessionId,
-      status: "answered",
-      answers: { text },
+      status: response.status,
+      answers: response.answers,
     });
-    askDraft[interactionRequestId] = "";
     await refreshAsks();
   }
 
@@ -247,7 +446,33 @@
   );
 </script>
 
-<section class="workbench">
+<div class="workbench-shell">
+  <aside>
+    <SessionTree
+      sessions={treeSessions}
+      selectedSessionId={snapshot.sessionId}
+      includeArchived={true}
+      {busySessionId}
+      labels={{
+        region: "Session tree",
+        search: "Search sessions",
+        empty: "No matching sessions",
+        untitled: "Untitled session",
+        archived: "Archived",
+        orphan: "Missing parent",
+        cycle: "Lineage cycle",
+        archive: "Archive",
+        restore: "Restore",
+        close: "Close",
+      }}
+      hrefFor={(sessionId) => `/sessions/${sessionId}`}
+      onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
+      onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
+      onClose={(session) => mutateSessionTree(session as SparkSessionProjection, "close")}
+    />
+    {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
+  </aside>
+  <section class="workbench">
   {#if window.history.hasEarlierMessages}
     <div class="history-controls">
       <button type="button" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
@@ -355,19 +580,31 @@
   {#if askWaits.length > 0}
     <section class="asks">
       {#each askWaits as wait (wait.interactionRequestId)}
-        <article>
-          <h2>{wait.title}</h2>
-          <p>{wait.prompt}</p>
-          <form
-            onsubmit={(event) => {
-              event.preventDefault();
-              void answerAsk(wait.interactionRequestId);
-            }}
-          >
-            <textarea bind:value={askDraft[wait.interactionRequestId]} rows="3"></textarea>
-            <button type="submit">Answer</button>
-          </form>
-        </article>
+        <HumanInteractionPanel
+          title={wait.title}
+          prompt={wait.prompt}
+          questions={wait.questions.length > 0
+            ? wait.questions
+            : [
+                sparkAskQuestionViewSchema.parse({
+                  id: "message",
+                  prompt: wait.prompt,
+                  type: "freeform",
+                  required: true,
+                }),
+              ]}
+          labels={{
+            region: "Pending human interaction",
+            customAnswer: "Custom answer",
+            customPlaceholder: "Enter an answer",
+            selectPlaceholder: "Select an option",
+            required: "Answer every required question.",
+            answer: "Answer",
+            answering: "Sending…",
+            cancel: "Cancel",
+          }}
+          onRespond={(response) => answerAsk(wait.interactionRequestId, response)}
+        />
       {/each}
     </section>
   {/if}
@@ -431,7 +668,13 @@
         </div>
       {/snippet}
       {#snippet tools()}
-        {#if slashSuggestions.length > 0}
+        {#if slashActionBar}
+          <SlashActionBar
+            view={slashActionBar}
+            disabled={submitting}
+            onAction={(action) => handleSlashAction(sparkActionViewSchema.parse(action))}
+          />
+        {:else if slashSuggestions.length > 0}
           <SlashCommandMenu
             id="spark-web-slash"
             suggestions={slashSuggestions}
@@ -444,6 +687,11 @@
       {/snippet}
     </Composer>
   </form>
+  {#if actionFeedback}
+    <p class:action-error={actionFeedback.tone === "error"} class="action-feedback" role={actionFeedback.tone === "error" ? "alert" : "status"}>
+      {actionFeedback.message}
+    </p>
+  {/if}
 
   <SessionStatusBar
     labels={statusLabels}
@@ -452,11 +700,29 @@
     inputTokens={snapshot.usage?.inputTokens}
     outputTokens={snapshot.usage?.outputTokens}
   />
-</section>
+  </section>
+</div>
 
 <style>
-  .workbench {
+  .workbench-shell {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     height: calc(100vh - 53px);
+    min-height: 0;
+  }
+  aside {
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border);
+    min-height: 0;
+    overflow: auto;
+    padding: 12px;
+  }
+  .tree-error {
+    color: var(--color-danger);
+    font-size: var(--text-caption);
+  }
+  .workbench {
+    min-height: 0;
     display: grid;
     grid-template-rows: 1fr auto auto auto;
     gap: 8px;
@@ -468,9 +734,31 @@
     gap: 8px;
     justify-content: center;
   }
+  @media (max-width: 760px) {
+    .workbench-shell {
+      display: block;
+      height: auto;
+    }
+    aside {
+      border-bottom: 1px solid var(--color-border);
+      border-right: 0;
+      max-height: 34vh;
+    }
+    .workbench {
+      height: 66vh;
+    }
+  }
   .controls {
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+  .action-feedback {
+    color: var(--color-ink-muted);
+    font-size: var(--text-caption);
+    margin: 0;
+  }
+  .action-feedback.action-error {
+    color: var(--color-danger);
   }
 </style>

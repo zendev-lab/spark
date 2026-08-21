@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   adoptWholeValueProjection,
+  buildSparkSessionTree,
   isProjectionCacheCurrent,
   projectionCacheKey,
   sliceAsOfSeq,
@@ -49,5 +50,34 @@ describe("session projection contract", () => {
     const records = [{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }];
     expect(sliceAsOfSeq(records, 3)).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
     expect(sliceAsOfSeq(records, 0)).toEqual([]);
+  });
+
+  it("flattens recursive lineage and preserves orphan diagnostics", () => {
+    const rows = buildSparkSessionTree(
+      [
+        { sessionId: "parent", lineage: { kind: "root" as const } },
+        {
+          sessionId: "child",
+          lineage: { kind: "child" as const, parentSessionId: "parent" },
+        },
+        {
+          sessionId: "implicit",
+          lineage: { kind: "child" as const, parentSessionId: "sess_admin_workspace" },
+        },
+        {
+          sessionId: "orphan",
+          lineage: { kind: "child" as const, parentSessionId: "missing" },
+        },
+      ],
+      { isImplicitRootParent: (id) => id.includes("admin") },
+    );
+    expect(
+      rows.map(({ session, ariaLevel, diagnostic }) => [session.sessionId, ariaLevel, diagnostic]),
+    ).toEqual([
+      ["parent", 1, undefined],
+      ["child", 2, undefined],
+      ["implicit", 1, undefined],
+      ["orphan", 1, "orphan"],
+    ]);
   });
 });

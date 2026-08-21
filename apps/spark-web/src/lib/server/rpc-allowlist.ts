@@ -54,6 +54,9 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "loop.restart",
   "loop.wake",
   "loop.schedule",
+  "repro.start",
+  "repro.status",
+  "repro.stop",
   "daemon.status",
   "daemon.restart",
 ] as const satisfies readonly SparkLocalRpcMethod[];
