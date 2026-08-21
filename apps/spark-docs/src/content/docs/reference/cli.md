@@ -28,7 +28,7 @@ Hub, or workflow.
 | --- | --- | --- |
 | `spark` | Print help or invoke top-level foreground, background, installation, diagnostic, and version workflows | `spark --help` |
 | `spark web` | Open the local loopback browser workbench bound to the daemon | `spark web --help` |
-| `spark web-dsh` | Open the optional DeepSeek Harness compatibility workbench | `spark web-dsh --help` |
+| `spark web-dsh` | Open the Spark product workbench hosted by DeepSeek Harness | `spark web-dsh --help` |
 | `spark daemon` | Operate the daemon-owned execution, session, workspace, model, authentication, and channel state | `spark daemon --help` |
 | `spark hub` | Run and administer Hub coordination and Web surfaces | `spark hub --help` |
 | ACP and MCP adapters | Connect compatible clients through their configured Spark adapter | See [collaboration and clients](/guides/collaboration/) |
@@ -75,8 +75,8 @@ spark web
 spark web --port 4310 --no-open
 ```
 
-The additional `spark web-dsh` command starts the separately packaged DSH
-compatibility app without changing `spark web`:
+The additional `spark web-dsh` command starts the separately packaged
+DSH-hosted Spark product app without changing `spark web`:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888

@@ -16,6 +16,8 @@ created: 2026-08-20
 
 - `responseId` prefix remains `spark-web:`; store remains `.spark/web/content.json`.
 - `@zendev-lab/spark-web/extension` rewrites to `@zendev-lab/spark-tool-web/extension`.
-- The former `spark-web-dsh` overlay is retired.
+- `spark-web-dsh` remains the distinct DSH-hosted Spark application; it does not
+  own this search/fetch capability and is not a compatibility alias for
+  `spark-web`.
 
 See `2026-08-19-spark-web-surface.md` for the workbench/TUI retirement.

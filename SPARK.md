@@ -88,7 +88,9 @@ updated: 2026-08-21
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
-- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算以 `architecture/packages.json` 为唯一事实源，新增 workspace 需要新的 architecture 决策。
+- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。
+  `spark-web-dsh` 作为独立的 DSH-hosted Spark 产品应用保留；包预算的当前值和理由
+  只由 `architecture/packages.json` 维护，新增 workspace 需要新的 architecture 决策。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
   persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
   AgentLoop。transcript v4 已把模型可见内容迁入原生 DSH surface，并在 daemon

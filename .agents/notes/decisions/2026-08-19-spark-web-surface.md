@@ -10,18 +10,20 @@ management, not the cross-workspace owner.
 
 The search/fetch capability is `@zendev-lab/spark-tool-web`; `spark-web` is the app.
 
-Raise `packageBudget` for the browser-runtime boundary, then reduce it when
-`spark-web-dsh`, `spark-tui`, `spark-tui-adapter`, and `pi-spark` retire. The
-closed budget after those retirements is 41.
+Raise `packageBudget` for the browser-runtime boundary. `spark-tui`,
+`spark-tui-adapter`, and `pi-spark` retire, while `spark-web-dsh` remains a
+separate DSH-hosted Spark product application. The closed budget is therefore
+42; DSH convergence must keep or reduce that number.
 
 `private-adapter` (`spark-ui`) may be imported from `@zendev-lab/spark-hub` and
 `@zendev-lab/spark-web` only.
 
 ## Rationale
 
-dsh web is an external CLI overlay, not a Spark product surface. A Spark-owned
-loopback workbench is required before that overlay and the TUI can retire. The
-capability rename avoids two packages competing for `spark-web`.
+`spark-web` is the daemon-backed local workbench. `spark-web-dsh` is a separate
+Spark product application hosted on the DSH Web stack; it is not a temporary
+fixture or a search-tool owner. The capability rename avoids either application
+competing with the search/fetch package for `spark-web`.
 
 ## Consequences
 
@@ -31,5 +33,5 @@ capability rename avoids two packages competing for `spark-web`.
   enrolled daemon profiles even when workspaces are still local-only.
 - Shared command/event vocabulary stays in `spark-protocol`; each browser
   surface owns only its carrier.
-- Do not vendor dsh web packages, introduce `ctx.sessionProjections`, or keep a
-  `--legacy` dsh web path.
+- Do not introduce `ctx.sessionProjections` as a second Spark session owner or
+  route `spark-web-dsh` through a `--legacy` path.

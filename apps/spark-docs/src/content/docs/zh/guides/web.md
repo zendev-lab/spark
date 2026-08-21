@@ -18,16 +18,16 @@ URL，例如 `http://127.0.0.1:4310/?token=...`。显式传入 `--host` 可将�
 本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
 Hub 仍是多 daemon 代理与管理界面。
 
-## 可选的 DSH 兼容工作台
+## DSH 宿主的 Spark 工作台
 
-`spark web-dsh` 启动独立打包的 DeepSeek Harness 兼容界面；它不会替代或
-修改 `spark web`。需要 DSH workspace 和插件行为时使用：
+`spark web-dsh` 启动独立打包、基于 DeepSeek Harness 宿主的 Spark 产品界面；
+它不会替代或修改 `spark web`。需要 DSH workspace 和插件行为时使用：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-兼容应用会恢复 Spark LLM 与 Cue 插件，处理明文 HTTP UUID 和远程 credential
+DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，处理明文 HTTP UUID 和远程 credential
 onboarding，并在 DSH 将完整 transcript 载入内存前拒绝过大的冷历史文件。对于
 可以安全读取的历史，它会预估并缩小初始页、限制响应字节数、压缩重复的 token
 chunk；即使单条最终消息仍很大，也会返回带截断标记的预览，而不是等待请求超时。
