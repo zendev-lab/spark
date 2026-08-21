@@ -25,7 +25,7 @@ RUN pnpm fetch --frozen-lockfile --ignore-scripts
 COPY . .
 
 RUN pnpm install --offline --frozen-lockfile --ignore-scripts
-RUN pnpm run release:pack
+RUN SPARK_CONTAINER_PRODUCT_ONLY=1 pnpm run release:pack
 
 FROM base AS runtime
 

@@ -25,6 +25,7 @@ import { SPARK_PROTOCOL_VERSION } from "../packages/spark-protocol/src/version.t
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+const buildNativeProducts = process.env.SPARK_SKIP_NATIVE_PRODUCTS !== "1";
 
 const externalPackages = [
   "@ast-grep/napi",
@@ -285,8 +286,12 @@ await rm(productsDirectory, { recursive: true, force: true });
 for (const distribution of npmDistributions) {
   await mkdir(resolve(distribution.directory, "dist"), { recursive: true });
 }
-for (const distribution of nativeNpmDistributions) {
-  await mkdir(resolve(distribution.directory, "vendor", distribution.target), { recursive: true });
+if (buildNativeProducts) {
+  for (const distribution of nativeNpmDistributions) {
+    await mkdir(resolve(distribution.directory, "vendor", distribution.target), {
+      recursive: true,
+    });
+  }
 }
 
 await run("node", ["scripts/sync-workspace-versions.mjs"]);
@@ -330,7 +335,7 @@ await Promise.all([
     recursive: true,
   }),
   ...npmDistributions.map(copyCommonFiles),
-  ...nativeNpmDistributions.map(copyCommonFiles),
+  ...(buildNativeProducts ? nativeNpmDistributions.map(copyCommonFiles) : []),
   ...npmDistributions
     .filter((distribution) => distribution.migrationSource)
     .map((distribution) =>
@@ -346,31 +351,33 @@ await cp(
   resolve(cli.directory, "dist/cli-diagnostics.json"),
 );
 
-const nativeBinaryRoot = resolve(root, process.env.SPARK_NATIVE_BIN_DIR ?? "dist/native");
-for (const distribution of nativeNpmDistributions) {
-  const source = resolve(nativeBinaryRoot, distribution.target, "spark");
-  const destination = resolve(distribution.directory, "vendor", distribution.target, "spark");
-  await cp(source, destination);
-  await chmod(destination, 0o755);
-  await writeFile(
-    resolve(distribution.directory, "package.json"),
-    `${JSON.stringify(
-      {
-        name: distribution.packageName,
-        version: distribution.version,
-        description: `Native Spark CLI payload for ${distribution.target}.`,
-        license: rootManifest.license,
-        author: rootManifest.author,
-        repository: rootManifest.repository,
-        os: [distribution.os],
-        cpu: [distribution.cpu],
-        files: ["vendor", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-        publishConfig: { access: "public", registry: "https://registry.npmjs.org/" },
-      },
-      null,
-      2,
-    )}\n`,
-  );
+if (buildNativeProducts) {
+  const nativeBinaryRoot = resolve(root, process.env.SPARK_NATIVE_BIN_DIR ?? "dist/native");
+  for (const distribution of nativeNpmDistributions) {
+    const source = resolve(nativeBinaryRoot, distribution.target, "spark");
+    const destination = resolve(distribution.directory, "vendor", distribution.target, "spark");
+    await cp(source, destination);
+    await chmod(destination, 0o755);
+    await writeFile(
+      resolve(distribution.directory, "package.json"),
+      `${JSON.stringify(
+        {
+          name: distribution.packageName,
+          version: distribution.version,
+          description: `Native Spark CLI payload for ${distribution.target}.`,
+          license: rootManifest.license,
+          author: rootManifest.author,
+          repository: rootManifest.repository,
+          os: [distribution.os],
+          cpu: [distribution.cpu],
+          files: ["vendor", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+          publishConfig: { access: "public", registry: "https://registry.npmjs.org/" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
 }
 
 await Promise.all(
@@ -401,7 +408,9 @@ for (const distribution of npmDistributions) {
 
 console.log(
   `Built npm distributions: ${[
-    ...nativeNpmDistributions.map(({ version }) => `@zendev-lab/spark-cli@${version}`),
+    ...(buildNativeProducts
+      ? nativeNpmDistributions.map(({ version }) => `@zendev-lab/spark-cli@${version}`)
+      : []),
     ...npmDistributions.map(({ packageName }) => packageName),
   ].join(", ")}`,
 );

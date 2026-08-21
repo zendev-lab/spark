@@ -64,7 +64,10 @@ if test ! -x "$BINARY" || test "$STAMPED_FINGERPRINT" != "$FINGERPRINT"; then
 
   if test "$acquired_build_lock" = true; then
     if test ! -x "$BINARY" || test ! -f "$STAMP" || test "$(sed -n '1p' "$STAMP")" != "$FINGERPRINT"; then
-      cargo build --quiet --manifest-path "$REPOSITORY_ROOT/Cargo.toml" --package spark-cli
+      (
+        cd "$REPOSITORY_ROOT"
+        cargo build --quiet --locked --package spark-cli
+      )
       temporary_stamp="$STAMP.$$"
       printf '%s\n' "$FINGERPRINT" > "$temporary_stamp"
       mv "$temporary_stamp" "$STAMP"

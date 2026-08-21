@@ -18,17 +18,25 @@ import {
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+const containerProductOnly = process.env.SPARK_CONTAINER_PRODUCT_ONLY === "1";
 
 await rm(releaseDirectory, { recursive: true, force: true });
 await mkdir(releaseDirectory, { recursive: true });
 await execFileAsync("node", ["scripts/build-npm-product.mjs"], {
   cwd: root,
-  env: process.env,
+  env: {
+    ...process.env,
+    ...(containerProductOnly ? { SPARK_SKIP_NATIVE_PRODUCTS: "1" } : {}),
+  },
   maxBuffer: 64 * 1024 * 1024,
 });
 
 const manifests = [];
-for (const distribution of [...nativeNpmDistributions, ...npmDistributions]) {
+const distributions = containerProductOnly
+  ? npmDistributions.filter((distribution) => distribution.id === "hub")
+  : [...nativeNpmDistributions, ...npmDistributions];
+if (distributions.length === 0) throw new Error("No release distributions selected");
+for (const distribution of distributions) {
   const packedResult = await execFileAsync(
     "npm",
     ["pack", "--json", "--pack-destination", releaseDirectory],
@@ -101,7 +109,7 @@ for (const distribution of [...nativeNpmDistributions, ...npmDistributions]) {
 }
 
 const tarballs = (await readdir(releaseDirectory)).filter((name) => name.endsWith(".tgz"));
-const expectedTarballs = npmDistributions.length + nativeNpmDistributions.length;
+const expectedTarballs = distributions.length;
 if (tarballs.length !== expectedTarballs) {
   throw new Error(`Expected ${expectedTarballs} release tarballs, found ${tarballs.length}`);
 }
@@ -111,7 +119,14 @@ await writeFile(
     .map(({ manifest }) => `${manifest.assetSha256}  ${manifest.assetName}`)
     .join("\n")}\n`,
 );
-await import("./lint-release-packages.mjs");
+if (containerProductOnly) {
+  await execFileAsync("pnpm", ["exec", "publint", distributions[0].directory], {
+    cwd: root,
+    env: process.env,
+  });
+} else {
+  await import("./lint-release-packages.mjs");
+}
 console.log(
   JSON.stringify(
     Object.fromEntries(manifests.map(({ distribution, manifest }) => [distribution.id, manifest])),

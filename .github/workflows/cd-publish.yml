@@ -108,10 +108,12 @@ jobs:
       - name: Install the pinned Rust target
         run: |
           rustup target add "${{ matrix.target }}"
-          if [[ "${{ matrix.target }}" == *-linux-musl ]]; then
-            sudo apt-get update
-            sudo apt-get install --yes musl-tools
-          fi
+          case "${{ matrix.target }}" in
+            *-linux-musl)
+              sudo apt-get update
+              sudo apt-get install --yes musl-tools
+              ;;
+          esac
       - name: Test and build the native CLI
         env:
           SPARK_BUILD_GIT_SHA: ${{ github.sha }}

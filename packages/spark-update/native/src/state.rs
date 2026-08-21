@@ -3,10 +3,9 @@ use crate::model::{
 };
 use crate::util::backup_timestamp;
 use serde_json::Value;
-use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::{ErrorKind, Seek, SeekFrom, Write};
+use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateRead {
@@ -151,8 +150,6 @@ pub fn atomic_write(path: &Path, source: &[u8], mode: u32) -> Result<(), String>
 
 #[derive(Debug)]
 pub struct UpdateLock {
-    path: PathBuf,
-    owner: String,
     _file: File,
 }
 
@@ -161,67 +158,38 @@ impl UpdateLock {
         if let Some(parent) = paths.lock_file.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        match create_lock(&paths.lock_file) {
-            Ok(lock) => Ok(lock),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                let owner = fs::read_to_string(&paths.lock_file).unwrap_or_default();
-                let pid = owner.trim().parse::<u32>().ok();
-                if pid.is_some_and(process_is_alive) {
-                    return Err(format!(
-                        "Another Spark update is already running ({})",
-                        paths.lock_file.display()
-                    ));
-                }
-                fs::remove_file(&paths.lock_file).map_err(|remove_error| {
-                    format!(
-                        "failed to remove stale update lock {}: {remove_error}",
-                        paths.lock_file.display()
-                    )
-                })?;
-                create_lock(&paths.lock_file).map_err(|create_error| create_error.to_string())
+        let mut options = OpenOptions::new();
+        options.create(true).read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&paths.lock_file)
+            .map_err(|error| error.to_string())?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                return Err(format!(
+                    "Another Spark update is already running ({})",
+                    paths.lock_file.display()
+                ));
             }
-            Err(error) => Err(error.to_string()),
+            Err(TryLockError::Error(error)) => {
+                return Err(format!(
+                    "failed to lock {}: {error}",
+                    paths.lock_file.display()
+                ));
+            }
         }
-    }
-}
-
-fn create_lock(path: &Path) -> std::io::Result<UpdateLock> {
-    let owner = format!("{}\n", std::process::id());
-    let mut options = OpenOptions::new();
-    options.create_new(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    file.write_all(owner.as_bytes())?;
-    file.sync_all()?;
-    Ok(UpdateLock {
-        path: path.to_path_buf(),
-        owner,
-        _file: file,
-    })
-}
-
-fn process_is_alive(pid: u32) -> bool {
-    if pid == std::process::id() {
-        return true;
-    }
-    Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-impl Drop for UpdateLock {
-    fn drop(&mut self) {
-        if fs::read_to_string(&self.path).ok().as_deref() == Some(&self.owner) {
-            let _ = fs::remove_file(&self.path);
-        }
+        file.set_len(0).map_err(|error| error.to_string())?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| error.to_string())?;
+        file.write_all(format!("{}\n", std::process::id()).as_bytes())
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        Ok(Self { _file: file })
     }
 }
 
@@ -298,6 +266,7 @@ mod tests {
         );
         assert!(UpdateLock::acquire(&paths).is_err());
         drop(lock);
-        assert!(!paths.lock_file.exists());
+        assert!(UpdateLock::acquire(&paths).is_ok());
+        assert!(paths.lock_file.exists());
     }
 }
