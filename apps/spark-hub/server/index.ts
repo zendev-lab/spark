@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { formatSparkCliError } from "@zendev-lab/spark-i18n/cli";
 import { configureHubPublicUrl } from "../src/lib/server/public-url.js";
 import { closeDatabase, getDatabase, pinDatabase, unpinDatabase } from "../src/lib/server/db.js";
 import {
@@ -90,7 +91,14 @@ const requestShutdown = () => {
 };
 process.once("SIGINT", requestShutdown);
 process.once("SIGTERM", requestShutdown);
-server.on("error", () => {
+server.on("error", (error) => {
+  process.stderr.write(
+    formatSparkCliError(error, {
+      code: "HUB_LISTEN_FAILED",
+      title: `Spark Hub could not listen on ${host}:${port}`,
+      hints: ["Choose a free port or stop the process already using this address."],
+    }),
+  );
   process.exitCode = 1;
   stopWebPushDispatcher();
   closeDatabase();

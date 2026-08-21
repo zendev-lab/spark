@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
+  addInvocationSerializationKey,
   addMissingInvocationColumns,
   addMissingUsageExecutionColumns,
   backfillInvocationEventDeliveryConsumers,
@@ -35,6 +36,11 @@ export const invocationSchemaMigrations = [
     id: "invocations.lifecycle-columns-and-indexes",
     owner: "invocations",
     up: addMissingInvocationColumns,
+  },
+  {
+    id: "invocations.serialization-key-v1",
+    owner: "invocations",
+    up: addInvocationSerializationKey,
   },
   {
     id: "invocations.workspace-projection-index",

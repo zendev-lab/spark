@@ -27,6 +27,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:",
     "@optique/core": "catalog:",
+    "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-memory": "workspace:^",
     "zod": "^4.1.5"
   },

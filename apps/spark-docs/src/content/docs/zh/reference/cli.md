@@ -111,5 +111,19 @@ Channel control 属于 daemon scope，不接受 `--workspace`。configure 会在
 - 结果未知时，重试前先检查 owner 状态。浏览器外观、transcript 文本和经过时间
   都不是执行事实。
 
+dispatcher、daemon、Web、Hub、ACP、MCP 与 updater 的人类可读错误使用同一版式：
+
+```text
+error [DAEMON_START_FAILED]: Spark daemon failed to start
+  Spark web started the daemon service, but it did not become ready.
+hint: Run "spark doctor" to check the daemon installation and state.
+hint: Run "spark daemon logs --lines 100" to inspect the startup log.
+details: no such column: serialization_key
+```
+
+首行说明结果并提供诊断代码；`hint` 是可安全执行的下一步；`details` 单独保留
+底层根因，便于复制到问题报告。该文本是面向人的界面，不是自动化解析契约。
+支持 `--json` 的命令仍按文档返回 JSON payload，自动化应继续使用 JSON。
+
 需要逐步引导时，继续阅读[快速开始](/zh/getting-started/)、
 [TUI](/zh/guides/tui/)或[运维手册](/zh/guides/operator-handbook/)。

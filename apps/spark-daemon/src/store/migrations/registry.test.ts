@@ -18,6 +18,7 @@ describe("daemon migration registry", () => {
         "execution-attempts.schema",
         "human-waits.answer-event-mailbox",
         "human-waits.respondent-user",
+        "invocations.serialization-key-v1",
         "invocations.workspace-projection-index",
         "migration.driver-to-loop-v1",
         "migration.retire-daemon-error-outbox-v1",
@@ -177,6 +178,61 @@ describe("daemon migration registry", () => {
           )
           .get(),
       ).toEqual({ name: "invocation_events_delivery_head_idx" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("adds a serialization key after the older invocation migration was already recorded", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE daemon_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE invocations (
+          id TEXT PRIMARY KEY,
+          session_id TEXT,
+          task_json TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO daemon_meta (key, value, updated_at)
+        VALUES (
+          'invocations.lifecycle-columns-and-indexes',
+          'complete',
+          '2026-08-19T00:00:00.000Z'
+        );
+        INSERT INTO invocations (id, session_id, task_json, status, created_at, updated_at)
+        VALUES (
+          'inv_legacy',
+          'session_parent',
+          '{}',
+          'queued',
+          '2026-08-19T00:00:00.000Z',
+          '2026-08-19T00:00:00.000Z'
+        );
+      `);
+
+      const migration = daemonMigrations.filter(
+        (candidate) => candidate.id === "invocations.serialization-key-v1",
+      );
+      runDaemonMigrations(db, migration);
+      runDaemonMigrations(db, migration);
+
+      expect(
+        db.prepare("SELECT serialization_key AS serializationKey FROM invocations").get(),
+      ).toEqual({ serializationKey: "session_parent" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'invocations_serialization_status_fifo_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "invocations_serialization_status_fifo_idx" });
     } finally {
       db.close();
     }

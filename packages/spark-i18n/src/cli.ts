@@ -1,5 +1,7 @@
 import type { SparkLanguage } from "./index.ts";
 
+export * from "./cli-presentation.ts";
+
 export {
   sparkCliDispatcherStrings,
   type SparkCliDispatcherStrings,

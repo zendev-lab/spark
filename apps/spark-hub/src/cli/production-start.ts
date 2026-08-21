@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -22,7 +23,14 @@ export async function startHubProductionHost(args: string[] = []): Promise<numbe
   const handlerPath = join(appDir, "build", "handler.js");
   if (!existsSync(handlerPath)) {
     process.stderr.write(
-      "Spark Hub production build not found. Build the app through its package script before starting it.\n",
+      formatSparkCliError(
+        new SparkCliError({
+          code: "HUB_BUILD_MISSING",
+          title: "Spark Hub production build is missing",
+          description: `The server handler was not found at ${handlerPath}.`,
+          hints: ["Build the Hub app through its package script before starting it."],
+        }),
+      ),
     );
     return 1;
   }
@@ -41,7 +49,12 @@ async function runHubHost(command: string, args: string[], cwd: string): Promise
 
   return await new Promise<number>((resolveExit) => {
     child.on("error", (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(
+        formatSparkCliError(error, {
+          code: "HUB_START_FAILED",
+          title: "Spark Hub could not start",
+        }),
+      );
       resolveExit(1);
     });
     child.on("exit", (code, signal) => {

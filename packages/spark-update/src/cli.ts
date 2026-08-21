@@ -1,6 +1,7 @@
 import { object, or } from "@optique/core/constructs";
 import { parse } from "@optique/core/parser";
 import { command, constant, passThrough } from "@optique/core/primitives";
+import { formatSparkCliError, SparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
 
 import { readSparkBuildInfo } from "./build-info.ts";
 import { parseChannel, parsePolicy } from "./config.ts";
@@ -20,7 +21,13 @@ export async function runSparkVersionCommand(
 ): Promise<number> {
   const stdout = io.stdout ?? process.stdout;
   if (argv.length > 1 || (argv.length === 1 && argv[0] !== "--json")) {
-    (io.stderr ?? process.stderr).write('spark version accepts only the optional "--json" flag\n');
+    (io.stderr ?? process.stderr).write(
+      formatSparkCliError(
+        invalidUpdateArgument("Invalid spark version options", [
+          'The command accepts only the optional "--json" flag.',
+        ]),
+      ),
+    );
     return 2;
   }
   const build = readSparkBuildInfo();
@@ -43,7 +50,9 @@ export async function runSparkManagedInstallCommand(
         argv[index - 1] !== "--version" &&
         argv[index - 1] !== "--prefix",
     );
-    if (unknown.length > 0) throw new Error(`Unknown managed install option: ${unknown[0]}`);
+    if (unknown.length > 0) {
+      throw invalidUpdateArgument(`Unknown managed install option: ${unknown[0]}`);
+    }
     const status = await new SparkUpdateManager({ prefix }).installManaged(version);
     (io.stdout ?? process.stdout).write(`${formatStatus(status)}\n`);
   });
@@ -56,7 +65,9 @@ export async function runSparkUpdateCommand(
   return await guarded(io, async () => {
     const classified = classifySparkUpdateAction(argv);
     if (classified.action === "unknown") {
-      throw new Error(`Unknown spark update action: ${classified.command}`);
+      throw invalidUpdateArgument(`Unknown spark update action: ${classified.command}`, [
+        'Run "spark update --help" to see the supported actions.',
+      ]);
     }
     const rest = classified.argv;
     const prefix = optionValue(rest, "--prefix");
@@ -121,10 +132,14 @@ const UPDATE_COMMAND_HANDLERS: Readonly<Record<string, UpdateCommandHandler>> = 
     const policy = policyValue ? parsePolicy(policyValue) : undefined;
     const channel = channelValue ? parseChannel(channelValue) : undefined;
     const checkIntervalHours = intervalValue ? Number(intervalValue) : undefined;
-    if (policyValue && !policy) throw new Error(`Invalid update policy: ${policyValue}`);
-    if (channelValue && !channel) throw new Error(`Invalid update channel: ${channelValue}`);
+    if (policyValue && !policy) {
+      throw invalidUpdateArgument(`Invalid update policy: ${policyValue}`);
+    }
+    if (channelValue && !channel) {
+      throw invalidUpdateArgument(`Invalid update channel: ${channelValue}`);
+    }
     if (!policy && !channel && checkIntervalHours === undefined) {
-      throw new Error(
+      throw invalidUpdateArgument(
         "spark update configure requires --policy, --channel, and/or --interval-hours",
       );
     }
@@ -175,7 +190,7 @@ function optionValue(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name);
   if (index < 0) return undefined;
   const value = argv[index + 1];
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  if (!value || value.startsWith("--")) throw invalidUpdateArgument(`${name} requires a value`);
   return value;
 }
 
@@ -192,7 +207,12 @@ function positional(argv: string[]): string | undefined {
 
 function requireConfirmation(argv: string[]): void {
   if (!argv.includes("--yes")) {
-    throw new Error("This command changes the managed installation; rerun with --yes to confirm");
+    throw new SparkCliError({
+      code: "CONFIRMATION_REQUIRED",
+      title: "Managed installation confirmation is required",
+      hints: ["Rerun with --yes to confirm the change."],
+      exitCode: 2,
+    });
   }
 }
 
@@ -220,8 +240,20 @@ async function guarded(io: SparkUpdateCliIo, operation: () => Promise<void>): Pr
     return 0;
   } catch (error) {
     (io.stderr ?? process.stderr).write(
-      `${error instanceof Error ? error.message : String(error)}\n`,
+      formatSparkCliError(error, {
+        code: "UPDATE_FAILED",
+        title: "Spark update command failed",
+      }),
     );
-    return 1;
+    return sparkCliExitCode(error);
   }
+}
+
+function invalidUpdateArgument(title: string, hints: readonly string[] = []): SparkCliError {
+  return new SparkCliError({
+    code: "INVALID_ARGUMENT",
+    title,
+    hints: hints.length > 0 ? hints : ['Run "spark update --help" to see the supported options.'],
+    exitCode: 2,
+  });
 }

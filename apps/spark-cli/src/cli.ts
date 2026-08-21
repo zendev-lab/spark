@@ -7,7 +7,11 @@ import { object, or } from "@optique/core/constructs";
 import { formatMessage } from "@optique/core/message";
 import { parse } from "@optique/core/parser";
 import { command, constant, option, passThrough } from "@optique/core/primitives";
-import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
+import {
+  formatSparkCliError,
+  sparkCliDispatcherStrings,
+  SparkCliError,
+} from "@zendev-lab/spark-i18n/cli";
 import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 const dispatcherStrings = sparkCliDispatcherStrings();
@@ -23,7 +27,7 @@ export type SparkDispatcherCommand =
     }
   | { kind: "help" }
   | { kind: "paths"; json: boolean }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; code: string; hints: readonly string[] };
 
 type SparkDispatcherOutput = Pick<NodeJS.WriteStream, "write"> & { isTTY?: boolean };
 type SparkDispatcherInput = { isTTY?: boolean };
@@ -103,7 +107,10 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
   if (!result.success) {
     const first = argv[0];
     if (first !== undefined && !knownDispatcherCommands.has(first)) {
-      return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
+      const [title = "Unknown spark command", ...hints] = dispatcherStrings
+        .unknownSubcommand(first, argv)
+        .split("\n");
+      return errorCommand(title, { code: "UNKNOWN_COMMAND", hints });
     }
     return errorCommand(formatMessage(result.error));
   }
@@ -131,9 +138,13 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "doctor":
       return { kind: "dispatch", target: "daemon", argv: ["doctor", ...parsed.argv] };
     case "tui":
-      return errorCommand(
-        'The Spark TUI was removed. Use "spark web" for the local browser workbench or "spark run <prompt>" for headless turns.',
-      );
+      return errorCommand("The Spark TUI was removed", {
+        code: "COMMAND_REMOVED",
+        hints: [
+          'Use "spark web" for the local browser workbench.',
+          'Use "spark run <prompt>" for a headless turn.',
+        ],
+      });
     case "daemon":
       return { kind: "dispatch", target: "daemon", argv: [...parsed.argv] };
     case "hub":
@@ -143,7 +154,10 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "mcp":
       return { kind: "dispatch", target: "mcp", argv: [...parsed.argv] };
     case "server":
-      return errorCommand('The "spark server" namespace was removed. Use "spark hub" instead.');
+      return errorCommand('The "spark server" namespace was removed', {
+        code: "COMMAND_REMOVED",
+        hints: ['Use "spark hub" instead.'],
+      });
     case "web":
       return { kind: "dispatch", target: "web", argv: [...parsed.argv] };
     case "web-dsh":
@@ -180,7 +194,16 @@ export async function runSparkDispatcher(
       return 0;
     }
     case "error":
-      stderr.write(`${command.message}\n`);
+      stderr.write(
+        formatSparkCliError(
+          new SparkCliError({
+            code: command.code,
+            title: command.message,
+            hints: command.hints,
+            exitCode: 2,
+          }),
+        ),
+      );
       return 2;
     case "dispatch": {
       const dispatchArgv = command.autoSessionPrefix
@@ -324,8 +347,16 @@ function formatSparkPaths(payload: {
   return `${lines.join("\n")}\n`;
 }
 
-function errorCommand(message: string): SparkDispatcherCommand {
-  return { kind: "error", message };
+function errorCommand(
+  message: string,
+  options: { code?: string; hints?: readonly string[] } = {},
+): SparkDispatcherCommand {
+  return {
+    kind: "error",
+    message,
+    code: options.code ?? "INVALID_ARGUMENT",
+    hints: options.hints ?? ['Run "spark --help" to see the supported commands.'],
+  };
 }
 
 function withGeneratedSession(argv: string[], prefix: string): string[] {
@@ -354,13 +385,29 @@ const defaultLauncher: SparkDispatcherLauncher = {
       child.on("error", (error: NodeJS.ErrnoException) => {
         releaseIpcBridge();
         const detail = error.code === "ENOENT" ? "executable was not found on PATH" : error.message;
-        process.stderr.write(`${dispatcherStrings.dispatchFailure(command.label, detail)}\n`);
+        process.stderr.write(
+          formatSparkCliError(
+            new SparkCliError({
+              code: "DISPATCH_FAILED",
+              title: `Could not launch ${command.label}`,
+              hints: ['Run "spark doctor" to check the installed companion commands.'],
+              detail,
+            }),
+          ),
+        );
         resolve(error.code === "ENOENT" ? 127 : 1);
       });
       child.on("close", (code, signal) => {
         releaseIpcBridge();
         if (signal) {
-          process.stderr.write(`${dispatcherStrings.signalExit(command.label, signal)}\n`);
+          process.stderr.write(
+            formatSparkCliError(
+              new SparkCliError({
+                code: "COMMAND_INTERRUPTED",
+                title: dispatcherStrings.signalExit(command.label, signal),
+              }),
+            ),
+          );
           resolve(1);
           return;
         }
@@ -428,7 +475,15 @@ function bridgeDaemonIpc(
 function reportIpcForwardingError(direction: string): (error: Error | null) => void {
   return (error) => {
     if (!error) return;
-    process.stderr.write(`Spark daemon IPC bridge failed (${direction}): ${error.message}\n`);
+    process.stderr.write(
+      formatSparkCliError(
+        new SparkCliError({
+          code: "DAEMON_IPC_BRIDGE_FAILED",
+          title: "Spark daemon IPC bridge failed",
+          detail: `${direction}: ${error.message}`,
+        }),
+      ),
+    );
   };
 }
 
@@ -517,7 +572,13 @@ if (isDirectRun(import.meta.url, process.argv[1])) {
       process.exitCode = code;
     })
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.stack || error.message : String(error));
+      process.stderr.write(
+        formatSparkCliError(error, {
+          code: "DISPATCHER_FAILED",
+          title: "Spark command dispatcher failed",
+          hints: ['Run "spark doctor" to check the installation.'],
+        }),
+      );
       process.exitCode = 1;
     });
 }

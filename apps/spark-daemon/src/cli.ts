@@ -103,6 +103,8 @@ import {
   promptSecret,
   promptWithDefault,
   resolveInvocationCwd,
+  writeSparkDaemonCliError,
+  writeSparkDaemonUsageError,
 } from "./cli-shared.ts";
 import {
   bindCliDaemonLogs,
@@ -198,10 +200,16 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
         return await defaultWorkspace(paths, classified.argv, io);
       case "empty":
         return await defaultWorkspace(paths, [], io);
-      case "unknown":
-        io.stderr.write(`${STRINGS.unknownCommand(classified.command)}\n`);
-        printHelp(io);
+      case "unknown": {
+        const title = STRINGS.unknownCommand(classified.command);
+        writeSparkDaemonCliError(io, new Error(title), {
+          code: "UNKNOWN_COMMAND",
+          title,
+          hints: ['Run "spark daemon --help" to see the supported commands.'],
+          exitCode: 2,
+        });
         return 2;
+      }
       case "install":
         return install(paths, io);
       case "doctor":
@@ -275,18 +283,36 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       }
     }
   } catch (error) {
-    io.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     if (
       error instanceof WorkspacePathConflictError ||
       error instanceof WorkspacePathValidationError ||
       error instanceof RegistrationGrantRefusedError ||
       error instanceof DeviceAuthorizationError
     ) {
+      writeSparkDaemonCliError(io, error, {
+        code: "DAEMON_REQUEST_REJECTED",
+        title: "Spark daemon rejected the request",
+        hints: ['Run the selected command with "--help" and correct the reported input.'],
+        exitCode: 3,
+      });
       return 3;
     }
     if (error instanceof SparkDaemonUnavailableError || error instanceof LocalRpcUnavailableError) {
+      writeSparkDaemonCliError(io, error, {
+        code: "DAEMON_UNAVAILABLE",
+        title: "Spark daemon is unavailable",
+        hints: [
+          'Run "spark daemon status" to inspect the service.',
+          'Run "spark daemon logs --lines 100" for startup details.',
+        ],
+        exitCode: 2,
+      });
       return 2;
     }
+    writeSparkDaemonCliError(io, error, {
+      code: "DAEMON_COMMAND_FAILED",
+      title: "Spark daemon command failed",
+    });
     return 1;
   }
 }
@@ -378,7 +404,10 @@ async function providerAuth(
         )}\n`,
       );
     } else {
-      io.stderr.write(`${message}\n`);
+      writeSparkDaemonCliError(io, new Error(message), {
+        code: "AUTH_IMPORT_FAILED",
+        title: "Provider credential import failed",
+      });
     }
     return 1;
   }
@@ -567,10 +596,10 @@ function printProviderAuthHelp(io: CliIo): void {
 }
 
 function providerAuthUsageError(io: CliIo): number {
-  io.stderr.write(
-    "Usage: spark daemon auth <status|login|logout|import> (run `spark daemon auth --help`)\n",
-  );
-  return 2;
+  return writeSparkDaemonUsageError(io, "Invalid provider authentication command", [
+    "Usage: spark daemon auth <status|login|logout|import>",
+    'Run "spark daemon auth --help" to see the supported commands.',
+  ]);
 }
 
 function renderProviderAuthImportReport(
@@ -729,8 +758,10 @@ async function doctor(
   io: CliIo,
 ): Promise<number> {
   if (args.some((arg) => arg !== "--json")) {
-    io.stderr.write('spark daemon doctor accepts only the optional "--json" flag\n');
-    return 2;
+    return writeSparkDaemonUsageError(io, "Invalid spark daemon doctor options", [
+      'The command accepts only the optional "--json" flag.',
+      'Run "spark daemon doctor --help" for usage.',
+    ]);
   }
   const report = await buildDoctorReport(paths, io);
   io.stdout.write(
@@ -924,8 +955,10 @@ async function status(
   io: CliIo,
 ): Promise<number> {
   if (args.some((arg) => arg !== "--json")) {
-    io.stderr.write('spark daemon status accepts only the optional "--json" flag\n');
-    return 2;
+    return writeSparkDaemonUsageError(io, "Invalid spark daemon status options", [
+      'The command accepts only the optional "--json" flag.',
+      'Run "spark daemon status --help" for usage.',
+    ]);
   }
   const report = await buildStatusReport(paths, io);
   io.stdout.write(
