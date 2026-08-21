@@ -7,19 +7,30 @@ sidebar:
 
 ## 环境要求
 
-Spark 当前要求 Node.js `>=24`。`@zendev-lab/spark` 是完整安装包，并会
-安装版本匹配的 daemon、Hub 与本地 Web app package。仅部署单个进程时，也可以独立
-安装对应 app。
+Spark 当前要求 Node.js `>=24` 和 npm。`@zendev-lab/spark` 是完整产品载荷，
+会安装版本匹配的 daemon、Hub 与本地 Web app package。native bootstrap
+不捆绑 Node runtime。
 
 ## 安装
 
-推荐使用 managed installation，以获得原子升级与回滚能力：
+推荐使用经过校验的 curl bootstrap。它会检测 macOS/Linux 的 x64/arm64 target、
+验证 release SHA-256，再由该精确版本的 native CLI 安装匹配的 managed npm 载荷：
 
 ```bash
-pnpm dlx @zendev-lab/spark install --managed
+curl -fsSL https://github.com/zendev-lab/spark/releases/latest/download/install.sh | sh
 spark version --json
 spark update status --json
 ```
+
+稳定入口默认安装到 `~/.local/bin/spark`。需要其他位置时传入绝对 prefix：
+
+```bash
+curl -fsSL https://github.com/zendev-lab/spark/releases/latest/download/install.sh \
+  | sh -s -- --prefix /opt/spark
+```
+
+如果 shell 仍解析到另一个全局 npm 命令，installer 会打印精确的 `PATH` 修复提示；
+它不会静默回退到旧 Node dispatcher。
 
 也可以继续由 package manager 管理完整安装：
 
@@ -36,7 +47,8 @@ spark-daemon --help
 ```
 
 全局 npm、pnpm、Yarn、Bun 与 Vite+ 安装会把精确版本更新委托给原安装所有者；源码
-checkout 只报告迁移指引，不会替换自身。
+checkout 只报告迁移指引，不会替换自身；Cargo/source fingerprint 改变时，源码入口
+会增量构建同一套 Rust CLI。
 
 在排查某个界面前，先运行健康检查：
 

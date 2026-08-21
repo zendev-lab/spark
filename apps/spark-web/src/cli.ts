@@ -3,7 +3,8 @@ import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
+import { ensureSparkDaemonRunning, SparkDaemonStartupError } from "@zendev-lab/spark-daemon-client";
+import { formatSparkCliError, SparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
 
 import { resolveSparkWebToken, SPARK_WEB_TOKEN_ENV } from "./lib/server/auth.ts";
 import { parseSparkWebBindArgs } from "./lib/server/bind.ts";
@@ -23,6 +24,7 @@ export interface SparkWebDevelopmentServerOptions {
 
 export interface SparkWebCliOptions {
   startDevelopmentServer?: (options: SparkWebDevelopmentServerOptions) => Promise<void>;
+  ensureDaemonRunning?: typeof ensureSparkDaemonRunning;
 }
 
 export async function runSparkWebCli(
@@ -34,11 +36,29 @@ export async function runSparkWebCli(
     return 0;
   }
 
-  const bind = parseSparkWebBindArgs(argv);
+  let bind: ReturnType<typeof parseSparkWebBindArgs>;
+  try {
+    bind = parseSparkWebBindArgs(argv);
+  } catch (error) {
+    throw new SparkCliError(
+      {
+        code: "INVALID_ARGUMENT",
+        title: "Invalid spark web options",
+        description: errorMessage(error),
+        hints: ['Run "spark web --help" to see the supported options.'],
+        exitCode: 2,
+      },
+      { cause: error },
+    );
+  }
   const token = resolveSparkWebToken();
   process.env[SPARK_WEB_TOKEN_ENV] = token;
 
-  await ensureSparkDaemonRunning();
+  try {
+    await (options.ensureDaemonRunning ?? ensureSparkDaemonRunning)();
+  } catch (error) {
+    throw sparkWebDaemonError(error);
+  }
   const lease = await attachSparkWebLease({ localPath: process.cwd() });
   const heartbeat = setInterval(() => {
     if (!lease) return;
@@ -70,13 +90,18 @@ export async function runSparkWebCli(
     };
     await new Promise<void>((resolveListen, reject) => {
       const server = createServer(handler);
-      server.on("error", reject);
+      server.on("error", (error) => reject(sparkWebListenError(error, bind)));
       server.listen(bind.port, bind.host, () => resolveListen());
     });
   } else if (options.startDevelopmentServer) {
     await options.startDevelopmentServer({ appDir, host: bind.host, port: bind.port });
   } else {
-    throw new Error(`Spark web build is missing at ${handlerPath}`);
+    throw new SparkCliError({
+      code: "WEB_BUILD_MISSING",
+      title: "Spark web build is missing",
+      description: `The server handler was not found at ${handlerPath}.`,
+      hints: ["Build the Spark web app through its package script, then retry."],
+    });
   }
 
   process.stdout.write(`Spark web listening on ${url}\n`);
@@ -94,9 +119,73 @@ export function runSparkWebProcess(options: SparkWebCliOptions = {}): void {
       process.exitCode = code;
     })
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
+      process.stderr.write(
+        formatSparkCliError(error, {
+          code: "WEB_START_FAILED",
+          title: "Spark web could not start",
+        }),
+      );
+      process.exitCode = sparkCliExitCode(error);
     });
+}
+
+function sparkWebDaemonError(error: unknown): SparkCliError {
+  if (error instanceof SparkDaemonStartupError) {
+    return new SparkCliError(
+      {
+        code: error.code,
+        title: "Spark daemon failed to start",
+        description: "Spark web started the daemon service, but it did not become ready.",
+        hints: [
+          'Run "spark doctor" to check the daemon installation and state.',
+          'Run "spark daemon logs --lines 100" to inspect the startup log.',
+        ],
+        detail: error.diagnostic,
+      },
+      { cause: error },
+    );
+  }
+  return new SparkCliError(
+    {
+      code: "DAEMON_UNAVAILABLE",
+      title: "Spark daemon is unavailable",
+      description: "Spark web needs the local daemon before it can open the workbench.",
+      hints: ['Run "spark daemon start", then retry "spark web".'],
+      detail: errorMessage(error),
+    },
+    { cause: error },
+  );
+}
+
+function sparkWebListenError(error: unknown, bind: { host: string; port: number }): SparkCliError {
+  const code =
+    error instanceof Error && "code" in error && typeof error.code === "string"
+      ? error.code
+      : undefined;
+  if (code === "EADDRINUSE") {
+    return new SparkCliError(
+      {
+        code: "WEB_PORT_IN_USE",
+        title: `Spark web could not bind to ${bind.host}:${bind.port}`,
+        description: "The address is already in use.",
+        hints: [`Choose another port, for example "spark web --port ${bind.port + 1}".`],
+        detail: errorMessage(error),
+      },
+      { cause: error },
+    );
+  }
+  return new SparkCliError(
+    {
+      code: "WEB_LISTEN_FAILED",
+      title: `Spark web could not bind to ${bind.host}:${bind.port}`,
+      detail: errorMessage(error),
+    },
+    { cause: error },
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function sparkWebHelpText(): string {

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "diagnostics": {
+    "CHECKSUM_MISMATCH": {
+      "code": "CHECKSUM_MISMATCH",
+      "title": "Spark download checksum did not match",
+      "description": "The downloaded artifact was not installed because its SHA-256 digest differed from the release manifest.",
+      "hints": ["Retry the installation from the official Spark GitHub Release."],
+      "exitCode": 65
+    },
+    "COMMAND_REMOVED": {
+      "code": "COMMAND_REMOVED",
+      "title": "This Spark command has been removed",
+      "hints": ["Run \"spark --help\" to see the supported commands."],
+      "exitCode": 2
+    },
+    "CONFIRMATION_REQUIRED": {
+      "code": "CONFIRMATION_REQUIRED",
+      "title": "Managed installation confirmation is required",
+      "hints": ["Rerun with --yes to confirm the change."],
+      "exitCode": 2
+    },
+    "DISPATCH_FAILED": {
+      "code": "DISPATCH_FAILED",
+      "title": "Spark could not launch a companion command",
+      "hints": ["Run \"spark doctor\" to check the installed companion commands."],
+      "exitCode": 127
+    },
+    "INVALID_ARGUMENT": {
+      "code": "INVALID_ARGUMENT",
+      "title": "The Spark command arguments are invalid",
+      "hints": ["Run \"spark --help\" to see the supported options."],
+      "exitCode": 2
+    },
+    "LEGACY_MANAGED_INSTALL": {
+      "code": "LEGACY_MANAGED_INSTALL",
+      "title": "This managed installation uses the legacy updater state",
+      "description": "The native updater will not modify schema v1 deployment state in place.",
+      "hints": ["Run \"spark install --managed\" to create a backed-up native generation."],
+      "exitCode": 78
+    },
+    "NATIVE_PACKAGE_MISSING": {
+      "code": "NATIVE_PACKAGE_MISSING",
+      "title": "The native Spark CLI package is missing",
+      "description": "The npm installation does not contain the optional package for this operating system and architecture.",
+      "hints": ["Reinstall @zendev-lab/spark with optional dependencies enabled."],
+      "exitCode": 78
+    },
+    "UNKNOWN_COMMAND": {
+      "code": "UNKNOWN_COMMAND",
+      "title": "Unknown Spark command",
+      "hints": ["Run \"spark --help\" to see the supported commands."],
+      "exitCode": 2
+    },
+    "UNSUPPORTED_PLATFORM": {
+      "code": "UNSUPPORTED_PLATFORM",
+      "title": "Spark does not publish a native CLI for this platform",
+      "hints": ["Use macOS or Linux on arm64 or x64."],
+      "exitCode": 78
+    },
+    "UPDATE_FAILED": {
+      "code": "UPDATE_FAILED",
+      "title": "Spark update command failed",
+      "hints": ["Run \"spark update status\" to inspect the deployment state."],
+      "exitCode": 1
+    }
+  }
+}

@@ -15,13 +15,21 @@ browser supervision.
 
 ## Quick start
 
-Spark requires Node.js `>=24`. The managed installation is recommended
-because it supports atomic upgrades and rollback:
+Spark requires Node.js `>=24` and npm. The verified curl bootstrap is the
+recommended direct native entry; it installs the exact managed npm payload and
+keeps atomic upgrades and rollback:
 
 ```bash
-pnpm dlx @zendev-lab/spark install --managed
+curl -fsSL https://github.com/zendev-lab/spark/releases/latest/download/install.sh | sh
 spark doctor
 spark
+```
+
+Global npm installation remains supported when the package manager should own
+the command:
+
+```bash
+npm install --global @zendev-lab/spark
 ```
 
 Run a foreground task without opening the TUI:
@@ -37,7 +45,7 @@ npm install --global @zendev-lab/spark-hub
 spark-hub
 ```
 
-The complete `@zendev-lab/spark` package installs matching daemon, TUI, and Hub
+The complete `@zendev-lab/spark` package installs matching daemon, Hub, and web
 companions, so its dispatcher can also use:
 
 ```bash
@@ -120,10 +128,11 @@ knowledge of internal packages or storage.
 | `spark-hub` | Global browser management, coordination, and delegation |
 | `spark-acp` | ACP-compatible clients over canonical daemon sessions |
 
-The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark web`,
+The native root CLI accepts `spark daemon`, `spark hub`, `spark web`,
 `spark acp`, and `spark mcp` as convenience forms and executes the matching
 `spark-*` companion. The complete meta package installs every companion; the
-real dispatcher remains in `@zendev-lab/spark-cli`. Run `spark --help` for the
+real parser, diagnostics, updater, and router remain in
+`@zendev-lab/spark-cli`. Run `spark --help` for the
 current command map. The complete command reference is
 maintained in the [user documentation][cli-reference].
 
@@ -143,23 +152,30 @@ maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-Spark publishes five lockstep-versioned npm distributions from the same private
-monorepo:
+Spark publishes six lockstep-versioned product distributions plus four native
+CLI payload versions from the same private monorepo:
 
 - `@zendev-lab/spark` is the **complete installation meta package**. It pins the
-  matching CLI, daemon, Hub, and web app packages and keeps `spark` available through
-  a thin forwarding launcher, but contains no dispatcher or app implementation.
-- `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP, MCP and updater
-  entrypoints, and companion command shims.
+  matching CLI, daemon, Hub, and web app packages and keeps `spark` available
+  through a thin forwarding launcher, but contains no parser or app implementation.
+- `@zendev-lab/spark-cli` owns the native `spark` parser, diagnostics, updater,
+  companion routing, ACP/MCP adapters, and platform-specific optional payloads.
 
 - `@zendev-lab/spark-daemon`, `@zendev-lab/spark-hub`, and
-  `@zendev-lab/spark-web` are independently installable executable apps.
+  `@zendev-lab/spark-web` are independently installable executable apps;
+  `@zendev-lab/spark-web-dsh` is the optional DSH compatibility app.
 
 The split is a deployment and trust boundary, not a source-code ownership split.
 The private app composition roots and internal adapter/capability workspaces
-remain unpublished source boundaries. All five public tarballs share one release
-version and protocol compatibility contract, while the app packages can be
-installed and deployed independently.
+remain unpublished source boundaries. The six product tarballs share one
+release version and protocol compatibility contract. npm resolves exactly one
+of the four macOS/Linux native CLI payloads for the current platform, while the
+app packages can be installed and deployed independently.
+
+GitHub Releases also publish four verified native bootstrap archives,
+`native-release-manifest.json`, `SHA256SUMS`, provenance, and an exact-version
+`install.sh`. The bootstrap contains no Node runtime: it verifies Node 24 and
+npm, then delegates the product payload transaction to the native updater.
 
 Spark is under active development. Managed root installations provide explicit
 update and rollback behavior; source checkouts are never self-modified. Direct

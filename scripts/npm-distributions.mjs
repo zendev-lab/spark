@@ -10,6 +10,52 @@ export const npmTag = releaseVersion.includes("-") ? "next" : "latest";
 export const productsDirectory = resolve(root, "dist/npm-products");
 export const releaseDirectory = resolve(root, "dist/release");
 
+export const nativeNpmDistributions = [
+  {
+    id: "native-darwin-arm64",
+    target: "aarch64-apple-darwin",
+    suffix: "darwin-arm64",
+    os: "darwin",
+    cpu: "arm64",
+  },
+  {
+    id: "native-darwin-x64",
+    target: "x86_64-apple-darwin",
+    suffix: "darwin-x64",
+    os: "darwin",
+    cpu: "x64",
+  },
+  {
+    id: "native-linux-arm64",
+    target: "aarch64-unknown-linux-musl",
+    suffix: "linux-arm64",
+    os: "linux",
+    cpu: "arm64",
+  },
+  {
+    id: "native-linux-x64",
+    target: "x86_64-unknown-linux-musl",
+    suffix: "linux-x64",
+    os: "linux",
+    cpu: "x64",
+  },
+].map((target) => ({
+  ...target,
+  packageName: "@zendev-lab/spark-cli",
+  aliasPackageName: `@zendev-lab/spark-cli-${target.suffix}`,
+  version: `${releaseVersion}-${target.suffix}`,
+  directory: resolve(productsDirectory, "native", target.target),
+  assetName: `spark-cli-${target.target}-npm-v${releaseVersion}.tgz`,
+  manifestName: `native-${target.target}-release-manifest.json`,
+}));
+
+export const nativeOptionalDependencies = Object.fromEntries(
+  nativeNpmDistributions.map((distribution) => [
+    distribution.aliasPackageName,
+    `npm:${distribution.packageName}@${distribution.version}`,
+  ]),
+);
+
 export const npmDistributions = [
   {
     id: "spark",
@@ -39,21 +85,21 @@ export const npmDistributions = [
     assetName: `spark-cli-v${releaseVersion}.tgz`,
     manifestName: "cli-release-manifest.json",
     bins: {
-      spark: "spark-cli.js",
+      spark: "npm-resolver.mjs",
       "spark-acp": "spark-acp.js",
       "spark-daemon": "spark-daemon-companion.js",
       "spark-hub": "spark-hub-companion.js",
       "spark-mcp": "spark-mcp.js",
+      "spark-paths": "spark-paths.js",
       "spark-web": "spark-web-companion.js",
       "spark-web-dsh": "spark-web-dsh-companion.js",
-      "spark-update": "spark-update.js",
     },
     bundles: {
-      "spark-cli.js": "apps/spark-cli/src/cli.ts",
       "spark-acp.js": "packages/spark-acp/bin/spark-acp.ts",
       "spark-mcp.js": "packages/spark-mcp/bin/spark-mcp.ts",
-      "spark-update.js": "packages/spark-update/src/entry.ts",
+      "spark-paths.js": "apps/spark-cli/src/paths.ts",
     },
+    copyModules: { "npm-resolver.mjs": "apps/spark-cli/src/npm-resolver.mjs" },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [
       "@zendev-lab/spark-daemon",
@@ -62,13 +108,15 @@ export const npmDistributions = [
       "@zendev-lab/spark-web-dsh",
     ],
     exports: {
-      "./cli": "./dist/spark-cli.js",
+      "./acp-executable": "./bin/spark-acp",
       "./mcp-executable": "./bin/spark-mcp",
       "./executable": "./bin/spark",
-      "./update-executable": "./bin/spark-update",
+      "./paths-executable": "./bin/spark-paths",
+      "./resolver": "./dist/npm-resolver.mjs",
       "./web-executable": "./bin/spark-web",
       "./web-dsh-executable": "./bin/spark-web-dsh",
     },
+    optionalDependencies: nativeOptionalDependencies,
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
   },

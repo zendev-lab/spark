@@ -1,4 +1,81 @@
-#!/usr/bin/env sh
+#!/bin/sh
 set -eu
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec node --experimental-strip-types "$SCRIPT_DIR/../src/cli.ts" "$@"
+REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)
+
+BINARY="$REPOSITORY_ROOT/target/debug/spark"
+STAMP="$REPOSITORY_ROOT/target/.spark-cli-source-fingerprint"
+BUILD_LOCK="$REPOSITORY_ROOT/target/.spark-cli-build.lock"
+FINGERPRINT=$(
+  cd "$REPOSITORY_ROOT"
+  {
+    git hash-object Cargo.toml Cargo.lock rust-toolchain.toml
+    find apps/spark-cli/native packages/spark-update/native -type f \
+      \( -name '*.rs' -o -name 'Cargo.toml' \) -print | LC_ALL=C sort | while IFS= read -r file; do
+      git hash-object "$file"
+    done
+    git hash-object packages/spark-i18n/src/cli-diagnostics.json
+  } | git hash-object --stdin
+)
+
+STAMPED_FINGERPRINT=
+if test -f "$STAMP"; then
+  STAMPED_FINGERPRINT=$(sed -n '1p' "$STAMP")
+fi
+if test ! -x "$BINARY" || test "$STAMPED_FINGERPRINT" != "$FINGERPRINT"; then
+  mkdir -p "$REPOSITORY_ROOT/target"
+  acquired_build_lock=false
+  cleanup_build_lock() {
+    if test "$acquired_build_lock" = true; then
+      rm -f "$BUILD_LOCK/pid"
+      rmdir "$BUILD_LOCK" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_build_lock 0 HUP INT TERM
+
+  while test "$acquired_build_lock" = false; do
+    if mkdir "$BUILD_LOCK" 2>/dev/null; then
+      acquired_build_lock=true
+      printf '%s\n' "$$" > "$BUILD_LOCK/pid"
+      break
+    fi
+    if test -x "$BINARY" && test -f "$STAMP" && test "$(sed -n '1p' "$STAMP")" = "$FINGERPRINT"; then
+      break
+    fi
+    owner_pid=
+    if test -f "$BUILD_LOCK/pid"; then
+      owner_pid=$(sed -n '1p' "$BUILD_LOCK/pid")
+    fi
+    case "$owner_pid" in
+      "" | *[!0-9]*) ;;
+      *)
+        if ! kill -0 "$owner_pid" 2>/dev/null; then
+          stale_lock="$BUILD_LOCK.stale.$$"
+          if mv "$BUILD_LOCK" "$stale_lock" 2>/dev/null; then
+            rm -f "$stale_lock/pid"
+            rmdir "$stale_lock" 2>/dev/null || true
+          fi
+        fi
+        ;;
+    esac
+    sleep 0.1
+  done
+
+  if test "$acquired_build_lock" = true; then
+    if test ! -x "$BINARY" || test ! -f "$STAMP" || test "$(sed -n '1p' "$STAMP")" != "$FINGERPRINT"; then
+      (
+        cd "$REPOSITORY_ROOT"
+        cargo build --quiet --locked --package spark-cli
+      )
+      temporary_stamp="$STAMP.$$"
+      printf '%s\n' "$FINGERPRINT" > "$temporary_stamp"
+      mv "$temporary_stamp" "$STAMP"
+    fi
+    cleanup_build_lock
+    acquired_build_lock=false
+    trap - 0 HUP INT TERM
+  fi
+fi
+
+exec "$BINARY" "$@"

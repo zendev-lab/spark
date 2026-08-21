@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { test } from "vitest";
 
-import { parseSparkDispatcherArgs } from "./cli.ts";
 import {
   extractHubStatusContract,
   extractDaemonStatusContract,
@@ -19,12 +18,6 @@ const DEPRECATIONS_PATH = new URL(
 );
 
 test("root dispatcher reaches spark-hub while rejecting removed namespaces", async () => {
-  assert.deepEqual(parseSparkDispatcherArgs(["server", "task", "list"]), {
-    kind: "error",
-    message: 'The "spark server" namespace was removed. Use "spark hub" instead.',
-  });
-  assert.equal(parseSparkDispatcherArgs(["cockpit", "--help"]).kind, "error");
-
   const dispatcher = fileURLToPath(new URL("../bin/spark", import.meta.url));
   const hub = await execFileAsync(dispatcher, ["hub", "--help"]);
   assert.match(hub.stdout, /spark-hub - Spark control plane and embedded management UI/u);
@@ -38,8 +31,8 @@ test("root dispatcher reaches spark-hub while rejecting removed namespaces", asy
     await assert.rejects(execFileAsync(dispatcher, argv), (error: unknown) => {
       const failure = error as { code?: number; stderr?: string };
       assert.equal(failure.code, 2);
-      if (argv[0] === "server") assert.match(failure.stderr ?? "", /Use "spark hub" instead/u);
-      else assert.match(failure.stderr ?? "", /Unknown spark subcommand: cockpit/u);
+      if (argv[0] === "server") assert.match(failure.stderr ?? "", /\[COMMAND_REMOVED\]/u);
+      else assert.match(failure.stderr ?? "", /\[UNKNOWN_COMMAND\]/u);
       return true;
     });
   }
@@ -50,11 +43,6 @@ test("root dispatcher reaches supported stdio adapters", async () => {
   const mcp = await execFileAsync(dispatcher, ["mcp", "--help"]);
   assert.match(mcp.stdout, /spark-mcp - Spark Model Context Protocol stdio adapter/u);
   assert.equal(mcp.stderr, "");
-  assert.deepEqual(parseSparkDispatcherArgs(["mcp"]), {
-    kind: "dispatch",
-    target: "mcp",
-    argv: [],
-  });
 });
 
 test("daemon and Hub-compatible status JSON contracts validate current envelopes", () => {
@@ -193,11 +181,20 @@ test("deprecation map covers legacy slash aliases and only advertises real CLI t
       /^spark server\b/u,
       row.legacy ?? "unknown legacy alias",
     );
-    const command = parseSparkDispatcherArgs(argv);
-    if (command.kind !== "dispatch") {
-      assert.fail(`${row.legacy} canonical target is not dispatcher-reachable`);
-    }
-    assert.equal(command.target, argv[0], `${row.legacy} dispatcher target`);
-    assert.deepEqual(command.argv, argv.slice(1), `${row.legacy} dispatcher argv`);
+    const dispatcher = fileURLToPath(new URL("../bin/spark", import.meta.url));
+    const routed = await execFileAsync(dispatcher, argv, {
+      env: {
+        ...process.env,
+        SPARK_DAEMON_COMMAND: "/usr/bin/true",
+        SPARK_HUB_COMMAND: "/usr/bin/true",
+        SPARK_ACP_COMMAND: "/usr/bin/true",
+        SPARK_MCP_COMMAND: "/usr/bin/true",
+        SPARK_PATHS_COMMAND: "/usr/bin/true",
+        SPARK_WEB_COMMAND: "/usr/bin/true",
+        SPARK_WEB_DSH_COMMAND: "/usr/bin/true",
+      },
+    });
+    assert.equal(routed.stdout, "", `${row.legacy} canonical target stdout`);
+    assert.equal(routed.stderr, "", `${row.legacy} canonical target stderr`);
   }
 });

@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/dsh-tool-cue",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "DeepSeek Harness rc.7 adapter for Spark's canonical cue-shell tool operations.",
   "license": "MIT",

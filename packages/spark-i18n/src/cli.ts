@@ -1,10 +1,6 @@
 import type { SparkLanguage } from "./index.ts";
 
-export {
-  sparkCliDispatcherStrings,
-  type SparkCliDispatcherStrings,
-  type SparkCliDispatcherTarget,
-} from "./dispatcher.ts";
+export * from "./cli-presentation.ts";
 
 export interface SparkDaemonCliStrings {
   submitRequiresSession: string;

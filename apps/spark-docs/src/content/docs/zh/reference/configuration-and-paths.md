@@ -3,7 +3,7 @@ title: 配置与路径
 description: 查看 Spark 配置、凭据、运行状态和 workspace 自有文件。
 ---
 
-不要根据旧安装推断当前路径，应直接询问分发器：
+不要根据旧安装推断当前路径，应直接询问 native 根路由：
 
 ```bash
 spark paths
@@ -90,8 +90,21 @@ $XDG_DATA_HOME/spark/versions/<version>/
 $XDG_DATA_HOME/spark/versions/current
 $XDG_CONFIG_HOME/spark/update.toml
 $XDG_STATE_HOME/spark/update/
+$XDG_STATE_HOME/spark/update-backups/<timestamp>/
 $XDG_CACHE_HOME/spark/update/
+<install-prefix>/bin/spark
 ```
+
+默认安装 prefix 是 `~/.local`。显式 `--prefix` 的优先级高于
+`SPARK_INSTALL_PREFIX`；两者都不会改变拥有 updater 配置与 deployment 状态的
+XDG 根目录。
+
+Native managed state 使用 schema v2 与显式 generation。普通 `spark update`
+把 legacy state 当作只读状态，并提示重新安装。显式执行
+`spark install --managed` cutover 时会获取旧锁、保留有效的 `update.toml`，并把
+旧 versions、state 与稳定 launcher 原子移动到带时间戳的备份目录。如果候选版本
+健康检查失败，Spark 会恢复所有旧路径。成功 cutover 后仍保留备份并报告位置；
+Spark 不会自动删除备份。
 
 可用 `SPARK_UPDATE_POLICY` 与 `SPARK_UPDATE_CHANNEL` 临时覆盖策略。运行
 `spark update status --json` 查看有效策略与 transaction 状态。持久化的

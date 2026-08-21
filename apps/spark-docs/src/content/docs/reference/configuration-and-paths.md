@@ -3,7 +3,7 @@ title: Configuration and paths
 description: Inspect Spark configuration, credentials, runtime state, and workspace-owned files.
 ---
 
-Never infer an active path from an old installation. Ask the dispatcher:
+Never infer an active path from an old installation. Ask the native root router:
 
 ```bash
 spark paths
@@ -98,8 +98,22 @@ $XDG_DATA_HOME/spark/versions/<version>/
 $XDG_DATA_HOME/spark/versions/current
 $XDG_CONFIG_HOME/spark/update.toml
 $XDG_STATE_HOME/spark/update/
+$XDG_STATE_HOME/spark/update-backups/<timestamp>/
 $XDG_CACHE_HOME/spark/update/
+<install-prefix>/bin/spark
 ```
+
+The default install prefix is `~/.local`. An explicit `--prefix` takes
+precedence over `SPARK_INSTALL_PREFIX`; neither changes the XDG roots that own
+updater configuration and deployment state.
+
+Native managed state uses schema v2 and an explicit generation. A normal
+`spark update` treats legacy state as read-only and asks you to reinstall.
+The explicit `spark install --managed` cutover acquires the legacy lock, keeps
+a valid `update.toml`, and atomically moves the old versions, state, and stable
+launcher into the timestamped backup directory. If candidate health checks
+fail, Spark restores every old path. A successful cutover keeps the backup and
+reports its location; Spark never deletes it automatically.
 
 Use `SPARK_UPDATE_POLICY` and `SPARK_UPDATE_CHANNEL` for temporary policy
 overrides. Run `spark update status --json` to inspect the effective policy and

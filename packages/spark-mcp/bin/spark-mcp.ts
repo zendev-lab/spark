@@ -6,6 +6,7 @@ import { object, or } from "@optique/core/constructs";
 import { parse } from "@optique/core/parser";
 import { command, constant } from "@optique/core/primitives";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 import { SparkMemoryStore, sparkMemoryStorePath } from "@zendev-lab/spark-memory";
 
 import { createSparkMcpServer } from "../src/index.ts";
@@ -37,7 +38,16 @@ export async function runSparkMcpStdio(
     return 0;
   }
   if (classified.kind === "unknown") {
-    process.stderr.write(`Unknown spark-mcp argument: ${classified.argument}\n${HELP}`);
+    process.stderr.write(
+      formatSparkCliError(
+        new SparkCliError({
+          code: "INVALID_ARGUMENT",
+          title: `Unknown spark-mcp argument: ${classified.argument}`,
+          hints: ['Run "spark mcp --help" to see the supported options.'],
+          exitCode: 2,
+        }),
+      ),
+    );
     return 2;
   }
 

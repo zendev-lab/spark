@@ -13,13 +13,19 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { npmDistributions, productsDirectory, releaseVersion } from "./npm-distributions.mjs";
+import {
+  nativeNpmDistributions,
+  npmDistributions,
+  productsDirectory,
+  releaseVersion,
+} from "./npm-distributions.mjs";
 import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
 import { SPARK_PROTOCOL_VERSION } from "../packages/spark-protocol/src/version.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+const buildNativeProducts = process.env.SPARK_SKIP_NATIVE_PRODUCTS !== "1";
 
 const externalPackages = [
   "@ast-grep/napi",
@@ -114,6 +120,9 @@ async function writeProductManifest(distribution, dependencies) {
       registry: "https://registry.npmjs.org/",
     },
     ...(Object.keys(dependencies).length > 0 ? { dependencies } : {}),
+    ...(distribution.optionalDependencies
+      ? { optionalDependencies: sortedRecord(distribution.optionalDependencies) }
+      : {}),
   };
   await writeFile(
     resolve(distribution.directory, "package.json"),
@@ -148,6 +157,7 @@ async function writeBuildInfo(distribution, gitSha, protocolVersion) {
         minimumNodeVersion: rootManifest.engines.node,
         migrationHead,
         migrationMode: rootManifest.sparkRelease.migrationMode,
+        deploymentGeneration: 2,
         fingerprint,
       },
       null,
@@ -180,7 +190,7 @@ const cliCompanionExecutables = {
 };
 
 function distributionPrelude(distribution, executableName) {
-  const common = launcherPrelude(distribution.id === "cli" && executableName === "spark-update");
+  const common = launcherPrelude();
   switch (distribution.id) {
     case "spark":
     case "cli":
@@ -188,10 +198,11 @@ function distributionPrelude(distribution, executableName) {
 process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spark-daemon/entrypoint")};
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
 process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/executable")};
+process.env.SPARK_ACP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/acp-executable")};
 process.env.SPARK_MCP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/mcp-executable")};
+process.env.SPARK_PATHS_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/paths-executable")};
 process.env.SPARK_WEB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-web/executable")};
 process.env.SPARK_WEB_DSH_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-web-dsh/executable")};
-process.env.SPARK_UPDATE_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/update-executable")};
 `;
     case "daemon":
       return `${common}process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
@@ -225,8 +236,8 @@ async function writeLaunchers(distribution) {
     Object.entries(distribution.bins).map(async ([name, entry]) => {
       let launcher;
       if (distribution.id === "spark") {
-        launcher = `${distributionPrelude(distribution, name)}const { runSparkDispatcher } = await import("@zendev-lab/spark-cli/cli");
-process.exitCode = await runSparkDispatcher(process.argv.slice(2));
+        launcher = `${distributionPrelude(distribution, name)}const { runNativeSpark } = await import("@zendev-lab/spark-cli/resolver");
+process.exitCode = runNativeSpark(process.argv.slice(2));
 `;
       } else if (distribution.id === "cli" && cliCompanionExecutables[name]) {
         launcher = `${distributionPrelude(distribution, name)}const entry = ${resolvedDependencyPath(cliCompanionExecutables[name])};
@@ -234,10 +245,10 @@ process.argv[1] = entry;
 await import(pathToFileURL(entry).href);
 `;
       } else if (name === "spark") {
-        launcher = `${distributionPrelude(distribution, name)}const { runSparkDispatcher } = await import(
-  pathToFileURL(resolve(productDist, "spark-cli.js")).href
+        launcher = `${distributionPrelude(distribution, name)}const { runNativeSpark } = await import(
+  pathToFileURL(resolve(productDist, "npm-resolver.mjs")).href
 );
-process.exitCode = await runSparkDispatcher(process.argv.slice(2));
+process.exitCode = runNativeSpark(process.argv.slice(2));
 `;
       } else {
         launcher = `${distributionPrelude(distribution, name)}const entry = resolve(productDist, ${JSON.stringify(entry)});
@@ -275,6 +286,13 @@ await rm(productsDirectory, { recursive: true, force: true });
 for (const distribution of npmDistributions) {
   await mkdir(resolve(distribution.directory, "dist"), { recursive: true });
 }
+if (buildNativeProducts) {
+  for (const distribution of nativeNpmDistributions) {
+    await mkdir(resolve(distribution.directory, "vendor", distribution.target), {
+      recursive: true,
+    });
+  }
+}
 
 await run("node", ["scripts/sync-workspace-versions.mjs"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-daemon", "run", "build"]);
@@ -289,6 +307,9 @@ await Promise.all(
     ),
     ...Object.entries(distribution.modules ?? {}).map(([output, source]) =>
       writeFile(resolve(distribution.directory, "dist", output), `${source.trimEnd()}\n`),
+    ),
+    ...Object.entries(distribution.copyModules ?? {}).map(([output, source]) =>
+      cp(resolve(root, source), resolve(distribution.directory, "dist", output)),
     ),
   ]),
 );
@@ -314,6 +335,7 @@ await Promise.all([
     recursive: true,
   }),
   ...npmDistributions.map(copyCommonFiles),
+  ...(buildNativeProducts ? nativeNpmDistributions.map(copyCommonFiles) : []),
   ...npmDistributions
     .filter((distribution) => distribution.migrationSource)
     .map((distribution) =>
@@ -322,6 +344,41 @@ await Promise.all([
       }),
     ),
 ]);
+const cli = npmDistributions.find((distribution) => distribution.id === "cli");
+if (!cli) throw new Error("Missing CLI distribution configuration");
+await cp(
+  resolve(root, "packages/spark-i18n/src/cli-diagnostics.json"),
+  resolve(cli.directory, "dist/cli-diagnostics.json"),
+);
+
+if (buildNativeProducts) {
+  const nativeBinaryRoot = resolve(root, process.env.SPARK_NATIVE_BIN_DIR ?? "dist/native");
+  for (const distribution of nativeNpmDistributions) {
+    const source = resolve(nativeBinaryRoot, distribution.target, "spark");
+    const destination = resolve(distribution.directory, "vendor", distribution.target, "spark");
+    await cp(source, destination);
+    await chmod(destination, 0o755);
+    await writeFile(
+      resolve(distribution.directory, "package.json"),
+      `${JSON.stringify(
+        {
+          name: distribution.packageName,
+          version: distribution.version,
+          description: `Native Spark CLI payload for ${distribution.target}.`,
+          license: rootManifest.license,
+          author: rootManifest.author,
+          repository: rootManifest.repository,
+          os: [distribution.os],
+          cpu: [distribution.cpu],
+          files: ["vendor", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+          publishConfig: { access: "public", registry: "https://registry.npmjs.org/" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+}
 
 await run(process.execPath, ["scripts/verify-cue-skill.mjs"]);
 await Promise.all(
@@ -351,5 +408,10 @@ for (const distribution of npmDistributions) {
 }
 
 console.log(
-  `Built npm distributions: ${npmDistributions.map(({ packageName }) => packageName).join(", ")}`,
+  `Built npm distributions: ${[
+    ...(buildNativeProducts
+      ? nativeNpmDistributions.map(({ version }) => `@zendev-lab/spark-cli@${version}`)
+      : []),
+    ...npmDistributions.map(({ packageName }) => packageName),
+  ].join(", ")}`,
 );

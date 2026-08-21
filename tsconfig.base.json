@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "module": "ES2022",
+    "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
     "erasableSyntaxOnly": true,
@@ -114,7 +114,6 @@
       ],
       "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
       "@zendev-lab/spark-update": ["./packages/spark-update/src/index.ts"],
-      "@zendev-lab/spark-update/cli": ["./packages/spark-update/src/cli.ts"],
       "@zendev-lab/spark-extension/extension": [
         "./packages/spark-extension/src/extension/index.ts"
       ],

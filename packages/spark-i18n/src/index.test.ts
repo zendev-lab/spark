@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sparkCliDispatcherStrings, sparkDaemonCliStrings } from "./cli";
+import { sparkDaemonCliStrings } from "./cli";
 import {
   defaultLocale,
   detectSparkLanguage,
@@ -89,17 +89,8 @@ describe("spark-i18n messages and formatting", () => {
   });
 });
 
-describe("CLI strings", () => {
-  it("exposes entry strings from the shared package", () => {
-    const dispatcher = sparkCliDispatcherStrings();
-    expect(dispatcher.helpText).toContain("spark - Spark command dispatcher");
-    expect(dispatcher.helpText).toContain("spark-hub");
-    expect(dispatcher.helpText).toContain("spark hub [command]");
-    expect(dispatcher.helpText).not.toContain("spark cockpit");
-    expect(dispatcher.helpText).toContain("spark web");
-    expect(sparkCliDispatcherStrings("zh").unknownSubcommand("foo", ["foo"])).toContain(
-      "未知 spark 子命令",
-    );
+describe("daemon CLI strings", () => {
+  it("exposes daemon entry strings from the shared package", () => {
     const daemon = sparkDaemonCliStrings();
     expect(daemon.helpText).toContain("spark daemon - daemon execution plane");
     expect(daemon.helpText).toContain("spark daemon submit");
