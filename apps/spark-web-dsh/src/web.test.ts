@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -213,6 +214,13 @@ test("ensureSparkWebClient links the package where the profile resolves it", asy
     const link = join(profile, "node_modules", "@zendev-lab", "spark-web-dsh");
     assert.ok(lstatSync(link).isSymbolicLink(), "single-scope symlink under the profile");
     assert.equal(realpathSync(link), realpathSync(first.packageDir));
+    const hostBundle = readFileSync(join(first.packageDir, "lib", "index.js"), "utf8");
+    assert.match(
+      hostBundle,
+      /from "@deepseek-ai\/dsh-sandbox"/u,
+      "host bundle resolves DSH from the running harness",
+    );
+    assert.doesNotMatch(hostBundle, /schemastery/u, "host bundle does not embed DSH internals");
     // The contract that matters: the package resolves from the profile root.
     const resolved = resolveFromDirectory(profile, "@zendev-lab/spark-web-dsh");
     assert.ok(resolved !== undefined && existsSync(resolved), "resolvable from the profile");

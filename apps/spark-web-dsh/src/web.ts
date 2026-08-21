@@ -425,6 +425,7 @@ return module.exports;
       platform: "node",
       target: "node22",
       outfile: hostBundle,
+      external: ["@deepseek-ai/*"],
       logLevel: "silent",
     });
     rebuilt = true;

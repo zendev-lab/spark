@@ -36,6 +36,7 @@ await build({
   platform: "node",
   target: "node22",
   outfile: "lib/index.js",
+  external: ["@deepseek-ai/*"],
   logLevel: "info",
 });
 

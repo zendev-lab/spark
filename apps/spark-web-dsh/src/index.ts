@@ -1,5 +1,7 @@
 import { stat } from "node:fs/promises";
 
+import { startSandboxEscalationCompatibility } from "./sandbox-escalation-compat.ts";
+
 /**
  * Spark-owned safety policy for the DSH Web history surface.
  *
@@ -52,13 +54,37 @@ interface SparkWebHostContext {
     list(): Promise<SessionHeader[]>;
     locate(meta: SessionHeader): { path: string } | undefined;
   };
-  effect?(install: () => () => void): unknown;
+  effect?(install: () => (() => void) | (() => Promise<void>), label?: string): unknown;
   logger?: {
     warn(message: string): void;
   };
+  agents?: unknown;
+  tools?: unknown;
+  sandboxPolicy?: unknown;
+  approval?: unknown;
 }
 
-export const inject = ["apiProxy", "sessionPersistence", "sessions"];
+export const inject = [
+  "apiProxy",
+  "sessionPersistence",
+  "sessions",
+  "agents",
+  "tools",
+  "sandboxPolicy",
+  "approval",
+];
+
+function hasSandboxCompatibilityServices(
+  ctx: SparkWebHostContext,
+): ctx is SparkWebHostContext & Parameters<typeof startSandboxEscalationCompatibility>[0] {
+  return (
+    ctx.effect !== undefined &&
+    ctx.agents !== undefined &&
+    ctx.tools !== undefined &&
+    ctx.sandboxPolicy !== undefined &&
+    ctx.approval !== undefined
+  );
+}
 
 function positiveIntegerEnv(name: string, fallback: number, raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -391,6 +417,12 @@ async function boundedHistory(
 }
 
 export function apply(ctx: SparkWebHostContext): void {
+  if (hasSandboxCompatibilityServices(ctx)) {
+    ctx.effect(
+      () => startSandboxEscalationCompatibility(ctx),
+      "spark-web-dsh.sandbox-escalation-compatibility()",
+    );
+  }
   const artifactFence = maxColdHistoryArtifactBytes();
   const responseFence = maxHistoryResponseBytes();
   const sessionsApi = ctx.apiProxy.sessions;

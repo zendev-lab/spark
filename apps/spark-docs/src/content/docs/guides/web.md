@@ -38,6 +38,12 @@ that are safe to inspect, it predicts a smaller initial page, enforces a
 response-byte budget, compacts redundant token chunks, and returns a marked
 preview instead of timing out when one final message is unusually large.
 
+For the pinned DSH rc.7 runtime, the compatibility app also projects the
+model-visible `write` and `edit` schemas from each session's live Sandbox Mode
+and Approval Policy. It hides escalation fields that cannot succeed and keeps
+strictly wider requests on DSH's normal approval path. The app does not replace
+DSH filesystem tools or bypass their sandbox.
+
 ## Start with the outcome
 
 Create or open a session, then describe the intended result in ordinary

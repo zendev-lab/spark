@@ -33,6 +33,11 @@ spark web-dsh --host 0.0.0.0 --port 8888
 历史，它会预估并缩小初始页、限制响应字节数、压缩重复的 token chunk；即使
 单条最终消息仍很大，也会返回带截断标记的预览，而不是等待请求超时。
 
+对于当前固定的 DSH rc.7 runtime，兼容应用还会根据每个会话实时的 Sandbox
+Mode 与 Approval Policy 投影模型可见的 `write` / `edit` schema：无法成功的
+升权字段不会暴露，真正的严格升权请求仍走 DSH 原有审批链。应用不会替换
+DSH 文件工具，也不会绕过其 sandbox。
+
 ## 从结果开始
 
 创建或打开会话，然后用自然语言描述预期结果。不必先选择工具、Loop 或

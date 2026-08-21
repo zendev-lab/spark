@@ -17,6 +17,13 @@ Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` writes the host and client
 bundles under `lib/`.
 
+The rc.7 host projects `write` and `edit` escalation parameters from each
+session's live Sandbox Mode and Approval Policy. All Access sessions and any
+session with approval disabled do not advertise impossible
+`sandbox_permissions` / `justification` fields; narrower sessions advertise
+only strictly wider modes. DSH still owns file execution, sandbox enforcement,
+and approval. Spark does not replace these tools with its native file tools.
+
 For DSH `0.1.0-rc.7`, Spark rejects cold history artifacts larger than 8 MiB
 before upstream `inspect()` can materialize the complete transcript. Servable
 history pages are sized adaptively from the artifact, then checked against an
