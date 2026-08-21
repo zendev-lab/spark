@@ -46,14 +46,9 @@ fn routes_web_arguments_with_the_companion_exit_code() {
 
 #[test]
 fn preserves_companion_signals_through_unix_exec() {
-    let temporary = temporary_directory("signal");
-    let companion = temporary.join("web");
-    fs::write(&companion, "#!/bin/sh\nkill -TERM $$\n").unwrap();
-    fs::set_permissions(&companion, fs::Permissions::from_mode(0o755)).unwrap();
-
     let status = spark()
-        .env("SPARK_WEB_COMMAND", companion)
-        .args(["web"])
+        .env("SPARK_WEB_COMMAND", "/bin/sh")
+        .args(["web", "-c", "kill -TERM $$"])
         .status()
         .unwrap();
     assert_eq!(status.signal(), Some(15));

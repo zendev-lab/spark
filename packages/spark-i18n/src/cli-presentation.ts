@@ -1,8 +1,5 @@
-import { createRequire } from "node:module";
-
 import type { SparkLanguage } from "./index.ts";
-
-const diagnosticCatalogJson = createRequire(import.meta.url)("./cli-diagnostics.json") as unknown;
+import diagnosticCatalogJson from "./cli-diagnostics.json" with { type: "json" };
 
 export interface SparkCliErrorDescriptor {
   /** Stable diagnostic identity for support and automation. */
