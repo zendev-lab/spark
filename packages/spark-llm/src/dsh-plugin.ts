@@ -25,8 +25,7 @@
  * Build contract: `pnpm --filter @zendev-lab/spark-llm run build:dsh-plugin`
  * produces `dist/dsh-plugin.mjs` with `@deepseek-ai/*`, `@earendil-works/pi-ai`,
  * and `@deepseek-ai/schemastery` externalized, so the hosting process must
- * provide them. DSH ships `dsh-llm` 0.1.0-rc.6, `dsh-settings` 0.1.0-rc.6,
- * and pi-ai 0.82.1; the APIs this entry uses are stable across those versions.
+ * provide versions compatible with Spark's supported DSH ABI.
  *
  * The gateway endpoint still honors the spark-llm environment contract
  * (`BAIDU_ONEAPI_BASE_URL` / `BAIDU_ONEAPI_OPENAI_BASE_URL`); a settings

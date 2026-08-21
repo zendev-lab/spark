@@ -1,4 +1,4 @@
-import type { SparkChannelAdapter } from "@zendev-lab/spark-protocol/session-assignment";
+import type { ChannelAdapterType } from "./external-key.ts";
 
 /** One selectable action rendered by a channel-native ask surface. */
 export interface ChannelAskOption {
@@ -37,7 +37,7 @@ export type ChannelInteractionScene = "c2c" | "group" | "channel";
 
 /** A native interaction, kept separate from ordinary text ingress. */
 export interface ChannelInteractionEvent {
-  adapter: SparkChannelAdapter;
+  adapter: ChannelAdapterType;
   interactionId: string;
   actorId: string;
   scene: ChannelInteractionScene;

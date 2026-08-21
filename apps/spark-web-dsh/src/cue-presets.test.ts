@@ -4,9 +4,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  assertSupportedDshPackage,
   addSparkCueSkillProvider,
   installManagedCuePresets,
+  readDshPackageVersion,
   removeDshShellAndJobsRows,
   verifyDshPresetSources,
 } from "./cue-presets.ts";
@@ -19,22 +19,27 @@ const dshPackageDir = join(
 );
 const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../vendor/cue/skills");
 
-describe("managed rc.7 Cue-first presets", () => {
+describe("managed Cue-first presets", () => {
   it("verifies the installed package metadata and committed upstream digests", () => {
-    expect(() => assertSupportedDshPackage(dshPackageDir)).not.toThrow();
+    expect(readDshPackageVersion(dshPackageDir)).toBe("fixture-release");
     expect(verifyDshPresetSources(dshPackageDir)).toMatch(/^[a-f0-9]{64}$/u);
   });
 
-  it("rejects every DSH version except rc.7 before preset generation", () => {
+  it("rejects invalid package metadata without duplicating the supported release", () => {
     const packageDir = mkdtempSync(join(tmpdir(), "spark-cue-dsh-version-"));
     try {
       writeFileSync(
         join(packageDir, "package.json"),
-        JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.1.0-rc.8" }),
+        JSON.stringify({ name: "@deepseek-ai/not-dsh", version: "fixture-release" }),
       );
-      expect(() => assertSupportedDshPackage(packageDir)).toThrow(
-        /supports exactly @deepseek-ai\/dsh@0\.1\.0-rc\.7/u,
+      expect(() => readDshPackageVersion(packageDir)).toThrow(
+        /expected installed @deepseek-ai\/dsh package metadata/u,
       );
+      writeFileSync(
+        join(packageDir, "package.json"),
+        JSON.stringify({ name: "@deepseek-ai/dsh", version: "" }),
+      );
+      expect(() => readDshPackageVersion(packageDir)).toThrow(/package has no version/u);
     } finally {
       rmSync(packageDir, { recursive: true, force: true });
     }
@@ -75,6 +80,9 @@ describe("managed rc.7 Cue-first presets", () => {
         );
         expect(readFileSync(join(item.path, ".spark-managed.json"), "utf8")).toContain(
           "@zendev-lab/spark-web-dsh",
+        );
+        expect(readFileSync(join(item.path, ".spark-managed.json"), "utf8")).toContain(
+          '"dshVersion": "fixture-release"',
         );
       }
       expect(

@@ -145,6 +145,23 @@ function validateTemporaryDependencyExceptionSnapshot(inventory, label) {
   return failures;
 }
 
+function dshIndependenceExceptionEntries(inventory) {
+  const entries = [];
+  for (const [packageName, packageInfo] of Object.entries(inventory?.packages ?? {})) {
+    const exception = packageInfo.dshIndependenceException;
+    for (const dependency of exception?.dependencies ?? []) {
+      entries.push({
+        key: `${packageName}->${dependency}`,
+        fingerprint: JSON.stringify({
+          reason: exception.reason,
+          exitCondition: exception.exitCondition,
+        }),
+      });
+    }
+  }
+  return entries;
+}
+
 function validateArchitectureGovernanceTransition(previousInventory, currentInventory) {
   const failures = [];
   const previousExceptions = previousInventory?.governance?.temporaryDependencyExceptions;
@@ -198,6 +215,26 @@ function validateArchitectureGovernanceTransition(previousInventory, currentInve
     failures.push(
       `Architecture transition grows temporaryDependencyExceptionBudget.ceiling from ${previousBudget.ceiling} to ${currentBudget.ceiling}`,
     );
+  }
+  if (
+    previousInventory.governance.packageNaming?.temporaryDshDependencyExceptionsNonGrowth === true
+  ) {
+    const previousDshExceptions = new Map(
+      dshIndependenceExceptionEntries(previousInventory).map((entry) => [
+        entry.key,
+        entry.fingerprint,
+      ]),
+    );
+    for (const { key, fingerprint } of dshIndependenceExceptionEntries(currentInventory)) {
+      const previousFingerprint = previousDshExceptions.get(key);
+      if (previousFingerprint === undefined) {
+        failures.push(`Architecture transition adds or revives DSH dependency exception ${key}`);
+      } else if (previousFingerprint !== fingerprint) {
+        failures.push(
+          `Architecture transition changes immutable DSH dependency exception metadata for ${key}`,
+        );
+      }
+    }
   }
   return failures;
 }
@@ -477,6 +514,10 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
   const layerPolicy = inventory.governance.layerPolicy;
   const layerNames = Object.keys(layerPolicy.tiers);
 
+  if (inventory.governance.packageNaming?.temporaryDshDependencyExceptionsNonGrowth !== true) {
+    failures.push("DSH dependency exceptions must remain non-growth");
+  }
+
   if (new Set(layerNames).size !== layerNames.length) {
     failures.push("Layer policy contains duplicate layer names");
   }
@@ -495,6 +536,49 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
       failures.push(
         `${packageName} duplicates the root Node engine; private workspaces must inherit it`,
       );
+    }
+
+    for (const section of ALL_DEPENDENCY_SECTIONS) {
+      for (const [dependency, specifier] of Object.entries(manifest[section] ?? {})) {
+        if (dependency.startsWith("@deepseek-ai/dsh-") && specifier !== "catalog:dsh") {
+          failures.push(`${packageName} must resolve ${dependency} through the named DSH catalog`);
+        }
+      }
+    }
+
+    const packageInfo = inventory.packages[packageName];
+    const isDshPackage = packageName.startsWith("@zendev-lab/dsh-");
+    const independenceException = packageInfo?.dshIndependenceException;
+    if (!isDshPackage) {
+      if (independenceException !== undefined) {
+        failures.push(`${packageName} declares a DSH independence exception but is not dsh-*`);
+      }
+      continue;
+    }
+
+    if (manifest.scripts?.["test:real-host"] === undefined) {
+      failures.push(`${packageName} must expose test:real-host`);
+    }
+    if (packageName.startsWith("@zendev-lab/dsh-tool-") && packageInfo.stateWriter !== "none") {
+      failures.push(`${packageName} is a tool consumer and must not own persistent state`);
+    }
+
+    const sparkDependencies = new Set(
+      ALL_DEPENDENCY_SECTIONS.flatMap((section) => Object.keys(manifest[section] ?? {})).filter(
+        (dependency) =>
+          packageNameSet.has(dependency) && dependency.startsWith("@zendev-lab/spark-"),
+      ),
+    );
+    const allowedSparkDependencies = new Set(independenceException?.dependencies ?? []);
+    for (const dependency of sparkDependencies) {
+      if (!allowedSparkDependencies.has(dependency)) {
+        failures.push(`${packageName} must not depend on Spark workspace ${dependency}`);
+      }
+    }
+    for (const dependency of allowedSparkDependencies) {
+      if (!sparkDependencies.has(dependency)) {
+        failures.push(`${packageName} has stale DSH independence exception for ${dependency}`);
+      }
     }
   }
 

@@ -58,7 +58,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertSupportedDshPackage, installManagedCuePresets } from "./cue-presets.ts";
+import { installManagedCuePresets } from "./cue-presets.ts";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -235,7 +235,7 @@ export interface DshToolCueBundleResult {
   rebuilt: boolean;
 }
 
-/** Bundle the host-neutral Cue operations and rc.7 adapter into the DSH profile. */
+/** Bundle the host-neutral Cue operations and supported adapter into the DSH profile. */
 export async function ensureDshToolCueBundle(profileDir: string): Promise<DshToolCueBundleResult> {
   const packagedEntry = join(resolveSparkWebDshPackageDir(), "lib", "dsh-tool-cue.mjs");
   if (existsSync(packagedEntry)) {
@@ -623,7 +623,7 @@ export async function runSparkWebDirect(
  * - `spark-web-dsh` client plugin (package name; the client-modules host
  *   resolves it from the profile's node_modules and serves its bundle);
  * - `agent-presets` defaulting to spark-standard;
- * - the DSH rc.7 cold-preparation cache reduced to one entry;
+ * - the supported DSH cold-preparation cache reduced to one entry;
  * - `hmr` re-enabled (the web-app bundle ships it disabled);
  * - the `webserver` row restated with the requested host when it is not the
  *   DSH default — this is the documented way to bind 0.0.0.0, which the
@@ -734,7 +734,6 @@ export async function prepareSparkWebDispatch(
   }
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
   // Metadata and upstream source verification happen before any managed write.
-  assertSupportedDshPackage(dshPackageDir);
   const skillDir = resolveSparkCueSkillsDir();
   const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
   for (const preset of presets) {

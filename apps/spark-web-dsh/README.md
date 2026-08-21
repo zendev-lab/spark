@@ -17,7 +17,7 @@ Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` writes the host and client
 bundles under `lib/`.
 
-For DSH `0.1.0-rc.7`, Spark rejects cold history artifacts larger than 8 MiB
+For the supported DSH release, Spark rejects cold history artifacts larger than 8 MiB
 before upstream `inspect()` can materialize the complete transcript. Servable
 history pages are sized adaptively from the artifact, then checked against an
 8 MiB response budget before HTTP transport. Oversized pages retry with fewer

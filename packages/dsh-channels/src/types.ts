@@ -1,5 +1,5 @@
-import type { SparkChannelAdapter } from "@zendev-lab/spark-protocol/session-assignment";
 import type { ChannelImage, ChannelImageSource } from "./channel-images.ts";
+import type { ChannelAdapterType } from "./external-key.ts";
 import type { InfoflowAttachment } from "./infoflow-content.ts";
 import type {
   ChannelInteractionCapability,
@@ -17,7 +17,7 @@ import type {
   ChannelReplyCapability,
 } from "./reply.ts";
 
-export type ChannelAdapterType = SparkChannelAdapter;
+export type { ChannelAdapterType };
 
 export type { ChannelMessageReference, ChannelMessageReferenceSource };
 
