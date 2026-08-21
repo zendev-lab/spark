@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { lstat, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
   applyWorkspaceLifecycleMutation,
   attachWorkspace,
@@ -13,7 +16,11 @@ import {
   stopWorkspace,
 } from "../../store/workspaces.js";
 import { SparkDaemonControlError } from "../../control-error.ts";
-import { resolveSessionCwdOwner, SessionCwdResolutionError } from "../../session-cwd.ts";
+import {
+  resolveSessionCwdForWorkspaceId,
+  resolveSessionCwdOwner,
+  SessionCwdResolutionError,
+} from "../../session-cwd.ts";
 import { relocateSparkDaemonHub } from "../../relocation.ts";
 import { scheduledSparkDaemonHubOrigin } from "../../server-profiles.ts";
 import { ensureWorkspaceAdministratorSession } from "../../workspace-administrator-session.ts";
@@ -30,6 +37,7 @@ type WorkspaceRequest = Extract<
   {
     method:
       | "workspace.list"
+      | "workspace.directory.list"
       | "workspace.ensure-local"
       | "workspace.resolve-session-cwd"
       | "workspace.relocate"
@@ -66,6 +74,8 @@ export async function handleWorkspaceRequest(
         }),
         observedAt: new Date().toISOString(),
       });
+    case "workspace.directory.list":
+      return await listWorkspaceDirectory(ctx, request.params);
     case "workspace.ensure-local": {
       // Compatibility method name: resolve/re-attach an explicit registration only.
       const workspace = ensureLocalWorkspace(db, request.params);
@@ -292,6 +302,132 @@ export async function handleWorkspaceRequest(
     default:
       return unreachableWorkspaceRequest(request);
   }
+}
+
+async function listWorkspaceDirectory(
+  ctx: LocalRpcDispatchContext,
+  input: {
+    workspaceId: string;
+    cwdArtifactRef?: string;
+    relativePath: string;
+    includeHidden: boolean;
+    limit: number;
+  },
+) {
+  const relativePath = normalizedRelativeDirectory(input.relativePath);
+  let resolved;
+  try {
+    resolved = await resolveSessionCwdForWorkspaceId(ctx.db, {
+      workspaceId: input.workspaceId,
+      ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+      ...(relativePath ? { cwd: relativePath } : {}),
+    });
+  } catch (error) {
+    if (error instanceof SessionCwdResolutionError) {
+      throw new SparkDaemonControlError("workspace_cwd_invalid", error.message);
+    }
+    throw error;
+  }
+
+  const names = (await readdir(resolved.cwd))
+    .filter((name) => input.includeHidden || !name.startsWith("."))
+    .sort((left, right) => left.localeCompare(right));
+  const selected = names.slice(0, input.limit);
+  const entries = await Promise.all(
+    selected.map(async (name) => {
+      const childRelativePath = relativePath ? `${relativePath}/${name}` : name;
+      const candidate = join(resolved.cwd, name);
+      const info = await lstat(candidate).catch(() => null);
+      if (!info) {
+        return directoryEntry(input, childRelativePath, name, "file", false, "unavailable");
+      }
+      if (info.isDirectory()) {
+        return directoryEntry(input, childRelativePath, name, "directory", true);
+      }
+      if (!info.isSymbolicLink()) {
+        return directoryEntry(input, childRelativePath, name, "file", false, "not_directory");
+      }
+      try {
+        await resolveSessionCwdForWorkspaceId(ctx.db, {
+          workspaceId: input.workspaceId,
+          ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+          cwd: childRelativePath,
+        });
+        return directoryEntry(input, childRelativePath, name, "symlink", true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return directoryEntry(
+          input,
+          childRelativePath,
+          name,
+          "symlink",
+          false,
+          message.includes("escapes") || message.includes("must be inside")
+            ? "symlink_escape"
+            : message.includes("not a directory")
+              ? "not_directory"
+              : "unavailable",
+        );
+      }
+    }),
+  );
+  return {
+    workspaceId: input.workspaceId,
+    rootRef: directoryRootRef(input.workspaceId, input.cwdArtifactRef),
+    ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+    current: {
+      ref: directoryRef(input.workspaceId, input.cwdArtifactRef, relativePath),
+      relativePath,
+    },
+    entries,
+    truncated: names.length > selected.length,
+    observedAt: new Date().toISOString(),
+  };
+}
+
+function normalizedRelativeDirectory(value: string): string {
+  const segments = value.split("/").filter((segment) => segment.length > 0 && segment !== ".");
+  if (segments.some((segment) => segment === "..")) {
+    throw new SparkDaemonControlError(
+      "workspace_cwd_invalid",
+      "Directory traversal outside the selected owner root is not allowed.",
+    );
+  }
+  return segments.join("/");
+}
+
+function directoryEntry(
+  input: { workspaceId: string; cwdArtifactRef?: string },
+  relativePath: string,
+  name: string,
+  kind: "directory" | "file" | "symlink",
+  selectable: boolean,
+  blockedReason?: "not_directory" | "symlink_escape" | "unavailable",
+) {
+  return {
+    ref: directoryRef(input.workspaceId, input.cwdArtifactRef, relativePath),
+    name,
+    relativePath,
+    kind,
+    selectable,
+    ...(blockedReason ? { blockedReason } : {}),
+  };
+}
+
+function directoryRootRef(workspaceId: string, cwdArtifactRef?: string): string {
+  return `directory-root:${opaqueDirectoryIdentity([workspaceId, cwdArtifactRef ?? "workspace"])}`;
+}
+
+function directoryRef(
+  workspaceId: string,
+  cwdArtifactRef: string | undefined,
+  relativePath: string,
+): string {
+  return `directory:${opaqueDirectoryIdentity([workspaceId, cwdArtifactRef ?? "workspace", relativePath])}`;
+}
+
+function opaqueDirectoryIdentity(parts: string[]): string {
+  return createHash("sha256").update(JSON.stringify(parts)).digest("base64url");
 }
 
 function unreachableWorkspaceRequest(request: never): never {

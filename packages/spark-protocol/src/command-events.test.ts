@@ -35,6 +35,7 @@ describe("SparkCommand vocabulary", () => {
   it("maps every observed local RPC method into a transport-neutral command kind", () => {
     expect(Object.keys(localRpcMethodToSparkCommandKind)).toEqual([
       "daemon.status",
+      "daemon.logs",
       "daemon.stop",
       "daemon.restart",
       "turn.status",
@@ -61,6 +62,8 @@ describe("SparkCommand vocabulary", () => {
       "channel.reload",
       "channel.notify",
       "workspace.list",
+      "workspace.directory.list",
+      "search.global",
       "workspace.register",
       "workspace.relocate",
       "uplink.park",
@@ -86,6 +89,8 @@ describe("SparkCommand vocabulary", () => {
       "session.get",
       "session.lookup",
       "session.snapshot",
+      "session.search",
+      "session.export",
       "session.snapshot-page",
       "session.media.read",
       "session.prompt-history",

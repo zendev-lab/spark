@@ -177,6 +177,11 @@ const daemonChannelTurnInvokers = {
       sparkLocalRpcProcedureSchemas["daemon.status"].output,
       client.daemon.status(input, options),
     ),
+  "daemon.logs": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.logs"].output,
+      client.daemon.logs(input, options),
+    ),
   "daemon.stop": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["daemon.stop"].output,
@@ -235,6 +240,7 @@ const daemonChannelTurnInvokers = {
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "daemon.status"
+  | "daemon.logs"
   | "daemon.stop"
   | "daemon.restart"
   | "channel.status"
@@ -343,6 +349,11 @@ const workspaceInvokers = {
       sparkLocalRpcProcedureSchemas["workspace.list"].output,
       client.workspace.list(input, options),
     ),
+  "workspace.directory.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["workspace.directory.list"].output,
+      client.workspace.directory.list(input, options),
+    ),
   "workspace.register": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["workspace.register"].output,
@@ -411,6 +422,7 @@ const workspaceInvokers = {
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "workspace.list"
+  | "workspace.directory.list"
   | "workspace.register"
   | "workspace.relocate"
   | "workspace.ensure-local"
@@ -472,6 +484,16 @@ const sessionInvokers = {
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.snapshot"].output,
       client.session.snapshot(input, options),
+    ),
+  "session.search": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.search"].output,
+      client.session.search(input, options),
+    ),
+  "session.export": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.export"].output,
+      client.session.export(input, options),
     ),
   "session.snapshot-page": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -574,6 +596,8 @@ const sessionInvokers = {
   | "session.get"
   | "session.lookup"
   | "session.snapshot"
+  | "session.search"
+  | "session.export"
   | "session.snapshot-page"
   | "session.media.read"
   | "session.prompt-history"
@@ -742,6 +766,14 @@ const delegationInvokers = {
     ),
 } satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "delegation.execute">;
 
+const searchInvokers = {
+  "search.global": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["search.global"].output,
+      client.search.global(input, options),
+    ),
+} satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "search.global">;
+
 const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
   ...agentCatalogInvokers,
@@ -753,6 +785,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...sideThreadInvokers,
   ...taskClaimInvokers,
   ...delegationInvokers,
+  ...searchInvokers,
   ...modelProviderHumanInvokers,
 } satisfies SparkDaemonOrpcProcedureInvokerMap;
 

@@ -18,6 +18,21 @@
   let modelValue = $state("");
   let thinkingLevel = $state<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">("high");
   let cwdArtifactRef = $state("");
+  let cwdRelativePath = $state("");
+  let directoryOpen = $state(false);
+  let directoryLoading = $state(false);
+  let directoryError = $state("");
+  let directoryView = $state<{
+    current: { relativePath: string };
+    entries: Array<{
+      ref: string;
+      name: string;
+      relativePath: string;
+      kind: "directory" | "file" | "symlink";
+      selectable: boolean;
+      blockedReason?: string;
+    }>;
+  } | null>(null);
   let roleId = $state("");
   let roleDescription = $state("");
   let rolePrompt = $state("");
@@ -50,6 +65,7 @@
         placement: "child",
         roleBinding: { kind: "explicit", roleRef },
         ...(sessionName.trim() ? { name: sessionName.trim() } : {}),
+        ...(cwdRelativePath ? { cwd: cwdRelativePath } : {}),
         ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
       });
       if (modelValue.includes("/")) {
@@ -69,6 +85,31 @@
     } finally {
       creating = false;
     }
+  }
+
+  async function browseDirectory(relativePath = "") {
+    if (directoryLoading) return;
+    directoryLoading = true;
+    directoryError = "";
+    try {
+      directoryView = await webRpc("workspace.directory.list", {
+        workspaceId: data.workspace.id,
+        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+        relativePath,
+        limit: 300,
+      });
+      directoryOpen = true;
+    } catch (caught) {
+      directoryError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      directoryLoading = false;
+    }
+  }
+
+  function parentDirectory(path: string): string {
+    const segments = path.split("/").filter(Boolean);
+    segments.pop();
+    return segments.join("/");
   }
 
   async function createRole() {
@@ -140,10 +181,25 @@
       <label>Mode<select disabled title="Plan and Fleet require the pending DSH rc.8 daemon-root adapter"><option>execute</option></select></label>
       <label>Model<select bind:value={modelValue}><option value="">Inherit default</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>Thinking<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
-      <label>Working directory<select bind:value={cwdArtifactRef}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select></label>
+      <label>Working directory<select bind:value={cwdArtifactRef} onchange={() => (cwdRelativePath = "")}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? "Loading…" : "Browse subdirectory"}</button>{#if cwdRelativePath}<small>Selected: {cwdRelativePath}</small>{/if}</label>
       <button type="submit" disabled={creating}>{creating ? "Creating…" : "Create Session"}</button>
       <p class="hint">Directory choices are daemon-owned Workspace roots or GitChange owning worktrees. Plan/Fleet mode remains disabled until the DSH rc.8 adapter lands.</p>
     </form>
+  {/if}
+  {#if directoryOpen && directoryView}
+    <dialog open class="directory-picker" aria-label="Choose Session working directory">
+      <header><div><h2>Choose directory</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => (directoryOpen = false)}>Close</button></header>
+      <div class="directory-actions">
+        <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>Up</button>
+        <button type="button" onclick={() => { cwdRelativePath = directoryView!.current.relativePath; directoryOpen = false; }}>Use this directory</button>
+      </div>
+      {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
+      <ul>
+        {#each directoryView.entries as entry (entry.ref)}
+          <li><button type="button" class="directory-entry" disabled={!entry.selectable} title={entry.blockedReason} onclick={() => void browseDirectory(entry.relativePath)}><span>{entry.kind === "symlink" ? "↪" : entry.kind === "directory" ? "▸" : "·"}</span><strong>{entry.name}</strong>{#if entry.blockedReason}<small>{entry.blockedReason}</small>{/if}</button></li>
+        {/each}
+      </ul>
+    </dialog>
   {/if}
   {#if createError}
     <p class="error">{createError}</p>
@@ -328,6 +384,42 @@
   .checkbox span {
     display: grid;
     gap: 2px;
+  }
+  .directory-picker {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card-raised);
+    display: grid;
+    gap: 10px;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 16px;
+  }
+  .directory-picker h2 {
+    margin: 0;
+  }
+  .directory-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .directory-picker li {
+    padding: 0;
+  }
+  .directory-entry {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--color-ink);
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto 1fr auto;
+    text-align: start;
+    width: 100%;
+  }
+  .directory-entry:disabled {
+    color: var(--color-ink-muted);
+    cursor: not-allowed;
   }
   .artifacts, .artifact-preview { display: grid; gap: 12px; }
   .artifacts h2, .artifact-preview h2 { margin: 0; }

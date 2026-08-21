@@ -30,6 +30,9 @@ export const handle: Handle = async ({ event, resolve }) => {
     trust: resolveSparkWebRequestTrust(),
   });
   if (trustError) error(403, trustError);
+  if (event.request.method === "GET" && /^\/share\/[A-Za-z0-9_-]{32}$/u.test(event.url.pathname)) {
+    return resolve(event);
+  }
   const provided = tokenFromRequest(credentials);
   if (!tokensMatch(expected, provided)) {
     error(401, "Spark web token required");

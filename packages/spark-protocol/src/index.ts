@@ -14,3 +14,4 @@ export * from "./repro-lane.ts";
 export * from "./a2ui.ts";
 export * from "./role-session.ts";
 export * from "./runtime-v1/diagnostics.ts";
+export * from "./web-workbench-control.ts";

@@ -138,6 +138,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "retryTarget",
     ]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "daemon.logs",
       "artifact.list",
       "artifact.read",
       "role.list",
@@ -145,6 +146,10 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "role.create",
       "skill.list",
       "skill.get",
+      "workspace.directory.list",
+      "search.global",
+      "session.search",
+      "session.export",
       "session.snapshot-page",
       "session.media.read",
       "session.prompt-history",

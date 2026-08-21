@@ -4,6 +4,8 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "session.list",
   "session.get",
   "session.snapshot",
+  "session.search",
+  "session.export",
   "session.snapshot-page",
   "session.media.read",
   "session.create",
@@ -45,6 +47,8 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "workspace.ensure-local",
   "workspace.resolve-session-cwd",
   "workspace.list",
+  "workspace.directory.list",
+  "search.global",
   "workspace.register",
   "workspace.client.attach",
   "workspace.client.heartbeat",
@@ -65,6 +69,7 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "repro.status",
   "repro.stop",
   "daemon.status",
+  "daemon.logs",
   "daemon.restart",
 ] as const satisfies readonly SparkLocalRpcMethod[];
 

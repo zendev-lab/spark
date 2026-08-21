@@ -27,6 +27,7 @@ export const sparkProtocolJsonObjectSchema = z.record(z.string(), sparkProtocolJ
  */
 export const sparkCommandKindOptions = [
   "daemon.status.request",
+  "daemon.logs.request",
   "daemon.stop.request",
   "daemon.restart.request",
   "turn.submit.request",
@@ -56,6 +57,8 @@ export const sparkCommandKindOptions = [
   "channel.qqbot.auth.status.request",
   "channel.qqbot.auth.cancel.request",
   "workspace.list.request",
+  "workspace.directory.list.request",
+  "search.global.request",
   "workspace.register.request",
   "workspace.relocate.request",
   "uplink.park.request",
@@ -86,6 +89,8 @@ export const sparkCommandKindOptions = [
   "session.get.request",
   "session.lookup.request",
   "session.snapshot.request",
+  "session.search.request",
+  "session.export.request",
   "session.media.read.request",
   "session.create.request",
   "session.spawn.request",
@@ -294,6 +299,7 @@ export type SparkEvent = z.infer<typeof sparkEventSchema>;
 
 export const localRpcMethodToSparkCommandKind = {
   "daemon.status": "daemon.status.request",
+  "daemon.logs": "daemon.logs.request",
   "daemon.stop": "daemon.stop.request",
   "daemon.restart": "daemon.restart.request",
   "turn.status": "turn.status.request",
@@ -320,6 +326,8 @@ export const localRpcMethodToSparkCommandKind = {
   "channel.reload": "channel.reload.request",
   "channel.notify": "channel.notify.request",
   "workspace.list": "workspace.list.request",
+  "workspace.directory.list": "workspace.directory.list.request",
+  "search.global": "search.global.request",
   "workspace.register": "workspace.register.request",
   "workspace.relocate": "workspace.relocate.request",
   "uplink.park": "uplink.park.request",
@@ -345,6 +353,8 @@ export const localRpcMethodToSparkCommandKind = {
   "session.get": "session.get.request",
   "session.lookup": "session.lookup.request",
   "session.snapshot": "session.snapshot.request",
+  "session.search": "session.search.request",
+  "session.export": "session.export.request",
   "session.snapshot-page": "session.snapshot.request",
   "session.media.read": "session.media.read.request",
   "session.prompt-history": "session.snapshot.request",

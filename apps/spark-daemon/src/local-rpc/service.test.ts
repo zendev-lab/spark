@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -171,6 +171,145 @@ describe("transport-neutral local RPC service", () => {
     );
     expect(loaded.skill?.content).toContain("# Browser check");
     expect(loaded.skill).not.toHaveProperty("filePath");
+    db.close();
+  });
+
+  it("browses only daemon-authorized workspace directories and blocks symlink escapes", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "directory-workspace");
+    const externalRoot = join(paths.dataDir, "outside-workspace");
+    mkdirSync(join(workspaceRoot, "src"), { recursive: true });
+    mkdirSync(externalRoot, { recursive: true });
+    writeFileSync(join(workspaceRoot, "README.md"), "visible file\n", "utf8");
+    symlinkSync(externalRoot, join(workspaceRoot, "escape"));
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+
+    const listed = await invokeLocalRpcService(
+      "workspace.directory.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(listed.current.relativePath).toBe("");
+    expect(listed).not.toHaveProperty("path");
+    expect(listed.entries).toContainEqual(
+      expect.objectContaining({ name: "src", kind: "directory", selectable: true }),
+    );
+    expect(listed.entries).toContainEqual(
+      expect.objectContaining({
+        name: "escape",
+        kind: "symlink",
+        selectable: false,
+        blockedReason: "symlink_escape",
+      }),
+    );
+    expect(JSON.stringify(listed)).not.toContain(workspaceRoot);
+    await expect(
+      invokeLocalRpcService(
+        "workspace.directory.list",
+        { workspaceId: workspace.id, relativePath: "../outside-workspace" },
+        { paths, db },
+      ),
+    ).rejects.toThrow(/traversal/u);
+    db.close();
+  });
+
+  it("searches cold Session history and exports revision-stable sanitized pages", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "search-export-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "search-export-service-test",
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    const store = new SparkSessionStore({
+      cwd: workspaceRoot,
+      sparkHome: paths.sessionRuntimeDir!,
+    });
+    const transcript = store.createCanonicalSession({ id: "session-search-export" });
+    store.appendMessage(transcript, { role: "user", content: "find the cold-history needle" });
+    store.appendMessage(transcript, {
+      role: "assistant",
+      content: "safe <script>alert('never')</script> answer",
+      stopReason: "stop",
+    });
+    await store.save(transcript);
+    await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-search-export",
+      workspaceId: workspace.id,
+      name: "Searchable conversation",
+      cwd: workspaceRoot,
+      sessionPath: transcript.path,
+    });
+    const service = { paths, db, handlerOptions: { sessionRegistry: registry } };
+
+    const searched = await invokeLocalRpcService(
+      "session.search",
+      { sessionId: "session-search-export", query: "needle" },
+      service,
+    );
+    expect(searched).toMatchObject({ totalMatches: 1, scannedMessages: 2 });
+    expect(searched.matches[0]).toMatchObject({
+      ref: expect.stringMatching(/^message:/u),
+      role: "user",
+    });
+
+    const global = await invokeLocalRpcService(
+      "search.global",
+      { query: "needle", workspaceId: workspace.id },
+      service,
+    );
+    expect(global.results).toContainEqual(
+      expect.objectContaining({ kind: "message", sessionId: "session-search-export" }),
+    );
+
+    const first = await invokeLocalRpcService(
+      "session.export",
+      { sessionId: "session-search-export", format: "json", limit: 1 },
+      service,
+    );
+    const second = await invokeLocalRpcService(
+      "session.export",
+      {
+        sessionId: "session-search-export",
+        format: "json",
+        limit: 1,
+        offset: first.nextOffset,
+        revision: first.revision,
+      },
+      service,
+    );
+    expect(JSON.parse(`${first.chunk}${second.chunk}`)).toMatchObject({
+      sessionId: "session-search-export",
+      messages: [{ role: "user" }, { role: "assistant" }],
+    });
+    const html = await invokeLocalRpcService(
+      "session.export",
+      { sessionId: "session-search-export", format: "html", limit: 10 },
+      service,
+    );
+    expect(html.chunk).toContain("&lt;script&gt;");
+    expect(html.chunk).not.toContain("<script>alert");
+    db.close();
+  });
+
+  it("returns a bounded redacted daemon log tail without source paths", async () => {
+    const { paths, db } = createFixture();
+    mkdirSync(paths.logDir, { recursive: true });
+    writeFileSync(
+      join(paths.logDir, "service.stderr.log"),
+      "first line\nauthorization=Bearer secret-value\ntoken=spark_private_123456789\n",
+      "utf8",
+    );
+
+    const result = await invokeLocalRpcService("daemon.logs", { lines: 2 }, { paths, db });
+    expect(result.totalBytes).toBeLessThanOrEqual(512 * 1024);
+    expect(result.sources.find((source) => source.name === "service_stderr")?.lines).toEqual([
+      "authorization=[redacted]",
+      "token=[redacted]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain(paths.logDir);
     db.close();
   });
 
