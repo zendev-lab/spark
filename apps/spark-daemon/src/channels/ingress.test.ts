@@ -9,7 +9,7 @@ import {
   parseChannelsConfig,
   type ChannelReplyStream,
   type ChannelTransport,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import { defaultSparkSessionRegistryRoot, SparkSessionRegistry } from "@zendev-lab/spark-session";
 import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";

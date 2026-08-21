@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/spark-channels";
+import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/dsh-channels";
 import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type {

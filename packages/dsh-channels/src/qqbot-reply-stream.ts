@@ -100,7 +100,7 @@ export function createQqbotC2CReplyStream(options: QqbotC2CReplyStreamOptions): 
     flushChain = attempt.catch((error) => {
       lastFlushError = error;
       if (!final) {
-        console.error("[spark-channels] qqbot c2c stream flush failed", error);
+        console.error("[dsh-channels] qqbot c2c stream flush failed", error);
       }
     });
     return attempt;

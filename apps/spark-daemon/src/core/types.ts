@@ -26,7 +26,7 @@ import {
   type ChannelImage,
   type ChannelMessageReference,
   type InfoflowAttachment,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,

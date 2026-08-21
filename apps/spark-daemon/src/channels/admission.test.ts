@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/spark-channels";
+import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
 import type { SparkDaemonTask } from "../core/types.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";

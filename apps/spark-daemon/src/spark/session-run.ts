@@ -65,8 +65,8 @@ import {
   resolveInfoflowCustomSystemPrompt,
   type ChannelReplyStream,
   type ChannelReplyTarget,
-} from "@zendev-lab/spark-channels";
-import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
+import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
 import { loadDaemonChannelsConfig, type DaemonChannelIngressRuntime } from "../channels/ingress.ts";
 import type {
   SparkDaemonSessionCompactTask,

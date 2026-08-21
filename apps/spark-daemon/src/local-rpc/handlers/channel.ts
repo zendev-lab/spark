@@ -1,4 +1,4 @@
-import { ChannelRegistryError, type ChannelRegistryErrorCode } from "@zendev-lab/spark-channels";
+import { ChannelRegistryError, type ChannelRegistryErrorCode } from "@zendev-lab/dsh-channels";
 import type { SparkChannelRpcErrorCode } from "@zendev-lab/spark-protocol/daemon-rpc-errors";
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { requireChannelIngress } from "../helpers.ts";

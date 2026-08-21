@@ -88,6 +88,13 @@
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
   "packages": {
+    "@zendev-lab/dsh-channels": {
+      "path": "packages/dsh-channels",
+      "layer": "adapter",
+      "owner": "channels",
+      "stability": "supported",
+      "stateWriter": "none"
+    },
     "@zendev-lab/dsh-tool-cue": {
       "path": "packages/dsh-tool-cue",
       "layer": "adapter",
@@ -116,13 +123,6 @@
       "owner": "interaction",
       "stability": "supported",
       "stateWriter": "workspace"
-    },
-    "@zendev-lab/spark-channels": {
-      "path": "packages/spark-channels",
-      "layer": "adapter",
-      "owner": "channels",
-      "stability": "supported",
-      "stateWriter": "none"
     },
     "@zendev-lab/spark-cli": {
       "path": "apps/spark-cli",

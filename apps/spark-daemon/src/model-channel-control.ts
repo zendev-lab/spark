@@ -4,7 +4,7 @@ import {
   type FeishuAdapterConfig,
   type InfoflowAdapterConfig,
   type QqbotAdapterConfig,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import {
   parseSparkChannelControlSnapshot,
   parseSparkDefaultModelSetRequest,

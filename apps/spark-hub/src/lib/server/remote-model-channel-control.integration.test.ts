@@ -12,7 +12,7 @@ import type { DatabaseSync } from "node:sqlite";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { test } from "vitest";
 
-import { FakeChannelTransport } from "@zendev-lab/spark-channels";
+import { FakeChannelTransport } from "@zendev-lab/dsh-channels";
 import {
   createId,
   runtimeProtocolVersion,
