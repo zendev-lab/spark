@@ -38,6 +38,12 @@ DSH LLM 插件会暴露已配置的 `baidu-oneapi`、`kimi-coding` 和
 `openai-codex` 路由。API Key provider 可以在 DSH onboarding 中配置；OpenAI
 Codex 会复用由 Spark OAuth 登录流程创建的凭据。
 
+托管的 `spark-standard` 与 `spark-code` preset 会通过 DSH 文件系统 provider
+暴露带版本保护的 Spark 文件工具。先读取文件，再把返回的不透明 `version` 作为
+`expectedVersion` 传给 `write` 或 `edit`；只有新建文件时使用 `missing`。DSH
+仍在 provider 边界执行当前会话的沙箱策略，工具 schema 不再暴露无法成功的升权
+参数；图片读取继续由 DSH 的 `read_image` 提供。
+
 ## 从结果开始
 
 创建或打开会话，然后用自然语言描述预期结果。不必先选择工具、Loop 或

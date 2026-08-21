@@ -64,6 +64,18 @@ await build({
 });
 
 await build({
+  entryPoints: ["../../packages/spark-files/src/dsh-plugin.ts"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node22",
+  outfile: "lib/spark-files-dsh-plugin.mjs",
+  external: ["@deepseek-ai/*"],
+  minify: true,
+  logLevel: "info",
+});
+
+await build({
   entryPoints: ["../../packages/spark-llm/src/dsh-plugin.ts"],
   bundle: true,
   format: "esm",

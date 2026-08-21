@@ -4,7 +4,7 @@
  * The profile is booted directly: a plain `node` child imports the installed
  * `@deepseek-ai/dsh` package's `profile-boot-*` module and calls `runProfile`
  * — no `dsh` CLI on the PATH, no dsh-managed wrapper. On top of the stock
- * profile Spark owns seven additions:
+ * profile Spark owns eight additions:
  *
  * 1. **spark-llm plugin, loaded automatically.** The Baidu OneAPI provider
  *    bundle is built from `@zendev-lab/spark-llm` (esbuild, host externals
@@ -14,21 +14,23 @@
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
  *    presets and a verified cue Skill snapshot**, so Cue replaces DSH
  *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
- * 3. **dsh-tool-fusion plugin**, so the DSH-hosted web surface exposes the
+ * 3. **Spark file-tool plugin**, whose versioned read/write/edit operations
+ *    shadow the upstream file mutations inside the managed presets.
+ * 4. **dsh-tool-fusion plugin**, so the DSH-hosted web surface exposes the
  *    same bounded multi-model deliberation tool as daemon-hosted Spark.
- * 4. **spark-session-subagent plugin**, Role-bound spawn/fork providers
+ * 5. **spark-session-subagent plugin**, Role-bound spawn/fork providers
  *    registered onto the official DSH HOST `ctx.subagents`. The overlay
  *    disables stock in-process spawn/fork backends so they do not steal
  *    those names. Daemon mounts the same providers.
- * 5. **spark-web-dsh client plugin**, linked from this application into the
+ * 6. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare
  *    `id: spark-web-dsh` skip a second insert.
- * 6. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
+ * 7. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. This is a deliberate bypass of that guard —
  *    a 0.0.0.0-bound harness exposes agent code execution to the network.
- * 7. **Host plugin HMR disabled by default**, because this compatibility server
+ * 8. **Host plugin HMR disabled by default**, because this compatibility server
  *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
  * Boot independence notes:
@@ -178,6 +180,11 @@ export function resolveDshToolCuePackageDir(): string {
 /** Locate the installed `@zendev-lab/dsh-tool-fusion` package root. */
 export function resolveDshToolFusionPackageDir(): string {
   return resolvePackageDir("@zendev-lab/dsh-tool-fusion");
+}
+
+/** Locate the Spark file owner whose DSH adapter is bundled into the profile. */
+export function resolveSparkFilesPackageDir(): string {
+  return resolvePackageDir("@zendev-lab/spark-files");
 }
 
 function packageRootFrom(start: string, expectedName: string): string | undefined {
@@ -338,6 +345,22 @@ export async function ensureDshToolFusionBundle(
   const sourceEntry = packageDir ? join(packageDir, "src", "extension.ts") : packagedEntry;
   return ensureDshToolBundle(profileDir, {
     pluginName: "dsh-tool-fusion",
+    packagedEntry,
+    sourceEntry,
+    sourcePaths: packageDir
+      ? [sourceEntry, join(packageDir, "package.json"), join(packageDir, "src")]
+      : [packagedEntry],
+    external: ["@deepseek-ai/*"],
+  });
+}
+
+/** Install the Spark-owned, DSH-native versioned file tools into this profile. */
+export async function ensureSparkFilesBundle(profileDir: string): Promise<DshToolCueBundleResult> {
+  const packagedEntry = join(resolveSparkWebDshPackageDir(), "lib", "spark-files-dsh-plugin.mjs");
+  const packageDir = existsSync(packagedEntry) ? undefined : resolveSparkFilesPackageDir();
+  const sourceEntry = packageDir ? join(packageDir, "src", "dsh-plugin.ts") : packagedEntry;
+  return ensureDshToolBundle(profileDir, {
+    pluginName: "spark-files",
     packagedEntry,
     sourceEntry,
     sourcePaths: packageDir
@@ -775,6 +798,13 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
       "      name: ./plugins/spark-session-subagent/index.mjs",
     );
   }
+  if (!userPatch.includes("@deepseek-ai/dsh-tool-fs")) {
+    rows.push(
+      "    # Keep upstream read_image globally; Spark presets shadow read/write/edit.",
+      "    - id: spark-base-tool-fs",
+      "      name: '@deepseek-ai/dsh-tool-fs'",
+    );
+  }
   if (!userPatch.includes("id: spark-web-dsh")) {
     rows.push("    - id: spark-web-dsh", `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`);
   }
@@ -860,7 +890,15 @@ export async function prepareSparkWebDispatch(
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
   // Metadata and upstream source verification happen before any managed write.
   const skillDir = resolveCueSkillsDir();
-  const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
+  const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir, {
+    // Preset-relative imports travel with DSH_HOME while the host-level
+    // upstream tool-fs row retains read_image outside this scoped shadow.
+    toolFsPluginSpecifier: "../../profiles/web/plugins/spark-files/index.mjs",
+  });
+  const files = await ensureSparkFilesBundle(profileDir);
+  if (files.rebuilt) {
+    process.stderr.write(`[spark web] built Spark file plugin bundle -> ${files.bundle}\n`);
+  }
   for (const preset of presets) {
     if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);
   }
