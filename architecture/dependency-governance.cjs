@@ -490,6 +490,14 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
     }
   }
 
+  for (const [packageName, manifest] of Object.entries(manifests ?? {})) {
+    if (manifest.private === true && manifest.engines?.node !== undefined) {
+      failures.push(
+        `${packageName} duplicates the root Node engine; private workspaces must inherit it`,
+      );
+    }
+  }
+
   const exceptionKeys = new Set();
   const graph = manifests ? buildWorkspaceGraph(inventory, manifests) : undefined;
   for (const exception of inventory.governance.temporaryDependencyExceptions) {

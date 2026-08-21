@@ -33,8 +33,5 @@
     "@stryker-mutator/vitest-runner": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }
