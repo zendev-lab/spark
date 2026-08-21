@@ -21,7 +21,6 @@ export type {
   JobOutputResult,
   JobResult,
   JobStatus,
-  JobStateChangedEvent,
   OutputEncoding,
   ResourceNeeds,
   ScriptItemSummary,

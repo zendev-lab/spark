@@ -1,4 +1,9 @@
-import type { CueClient, CueResolvedTransport, ResourceNeeds } from "../client/cue-client.ts";
+import type {
+  CueClient,
+  CueResolvedTransport,
+  ResourceNeeds,
+  SpawnAdapterHandle,
+} from "../client/cue-client.ts";
 import type { SparkCueToolConfig, SparkCueToolContext } from "../tools/host-types.ts";
 import { registerCueOperationDefinitions } from "./definitions.ts";
 
@@ -136,8 +141,8 @@ interface CueCanonicalBase {
 export interface CueExecResult extends CueCanonicalBase {
   tool: "cue_exec";
   kind: "foreground" | "background";
-  jobId?: string;
-  chainId?: string;
+  executionId?: string;
+  stepIds: string[];
   status?: string;
   exitCode?: number | null;
   timedOut: boolean;
@@ -150,7 +155,8 @@ export interface CueExecResult extends CueCanonicalBase {
 
 export interface CueScriptResult extends CueCanonicalBase {
   tool: "cue_run" | "cue_script";
-  scriptId?: string;
+  executionId?: string;
+  stepIds: string[];
   source?: unknown;
   status: string;
   exitCode?: number | null;
@@ -164,8 +170,8 @@ export interface CueLanguageResult extends CueCanonicalBase {
   tool: "script_run" | "script_eval";
   language: CueScriptLanguage;
   kind: "cue-shell-script" | "python-job";
-  scriptId?: string;
-  jobId?: string;
+  executionId?: string;
+  stepIds: string[];
   status: string;
   exitCode?: number | null;
   timedOut: boolean;
@@ -185,9 +191,9 @@ export interface CueActionResult extends CueCanonicalBase {
   count?: number;
   shown?: number;
   records: unknown[];
-  jobId?: string;
-  chainId?: string;
-  cronId?: string;
+  executionId?: string;
+  stepIds?: string[];
+  scheduleId?: string;
   exitCode?: number | null;
   key?: string;
   path?: string;
@@ -227,6 +233,10 @@ export interface CueExecutionContext {
   signal?: AbortSignal;
   operationId?: string;
   onUpdate?: (text: string) => void;
+  /** Ephemeral, host-owned local process launch lease. */
+  spawnAdapter?: SpawnAdapterHandle;
+  /** Resolve the active Cue target once when policy depends on local vs SSH. */
+  resolvedTransport?: CueResolvedTransport;
 }
 
 export interface CueToolRuntimeConfig {
@@ -253,6 +263,12 @@ function textOf(content: Array<{ type: "text"; text: string }>): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function optionalNumber(value: unknown): number | null | undefined {
@@ -327,8 +343,10 @@ function canonicalize<Name extends CueToolName>(
       text,
       ok,
       kind: background ? "background" : "foreground",
-      ...(optionalString(details.jobId) ? { jobId: optionalString(details.jobId) } : {}),
-      ...(optionalString(details.chainId) ? { chainId: optionalString(details.chainId) } : {}),
+      ...(optionalString(details.executionId)
+        ? { executionId: optionalString(details.executionId) }
+        : {}),
+      stepIds: stringArray(details.stepIds),
       ...(optionalString(details.status) ? { status: optionalString(details.status) } : {}),
       ...(optionalNumber(details.exitCode) !== undefined
         ? { exitCode: optionalNumber(details.exitCode) }
@@ -349,7 +367,10 @@ function canonicalize<Name extends CueToolName>(
       tool: name,
       text,
       ok,
-      ...(optionalString(details.scriptId) ? { scriptId: optionalString(details.scriptId) } : {}),
+      ...(optionalString(details.executionId)
+        ? { executionId: optionalString(details.executionId) }
+        : {}),
+      stepIds: stringArray(details.stepIds),
       ...(details.source !== undefined ? { source: details.source } : {}),
       status:
         optionalString(details.status) ?? (cancelled ? "cancelled" : ok ? "finished" : "failed"),
@@ -373,8 +394,10 @@ function canonicalize<Name extends CueToolName>(
       ok,
       language,
       kind: language === "python" ? "python-job" : "cue-shell-script",
-      ...(optionalString(details.scriptId) ? { scriptId: optionalString(details.scriptId) } : {}),
-      ...(optionalString(details.jobId) ? { jobId: optionalString(details.jobId) } : {}),
+      ...(optionalString(details.executionId)
+        ? { executionId: optionalString(details.executionId) }
+        : {}),
+      stepIds: stringArray(details.stepIds),
       status:
         optionalString(details.status) ?? (cancelled ? "cancelled" : ok ? "finished" : "failed"),
       ...(optionalNumber(details.exitCode) !== undefined
@@ -417,9 +440,13 @@ function canonicalize<Name extends CueToolName>(
     ...(typeof details.count === "number" ? { count: details.count } : {}),
     ...(typeof details.shown === "number" ? { shown: details.shown } : {}),
     records: recordsOf(details),
-    ...(optionalString(details.jobId) ? { jobId: optionalString(details.jobId) } : {}),
-    ...(optionalString(details.chainId) ? { chainId: optionalString(details.chainId) } : {}),
-    ...(optionalString(details.cronId) ? { cronId: optionalString(details.cronId) } : {}),
+    ...(optionalString(details.executionId)
+      ? { executionId: optionalString(details.executionId) }
+      : {}),
+    ...(details.stepIds !== undefined ? { stepIds: stringArray(details.stepIds) } : {}),
+    ...(optionalString(details.scheduleId)
+      ? { scheduleId: optionalString(details.scheduleId) }
+      : {}),
     ...(optionalNumber(details.exitCode) !== undefined
       ? { exitCode: optionalNumber(details.exitCode) }
       : {}),
@@ -459,8 +486,9 @@ export function createCueToolRuntime(config: CueToolRuntimeConfig = {}): CueTool
         cueRemoteCwd: config.remoteCwd,
         cueAutoStartLocal: config.autoStartLocal ?? true,
         cueForwardSensitiveEnv: config.forwardSensitiveEnv ?? false,
-        cueResolvedTransport: config.resolvedTransport,
+        cueResolvedTransport: context.resolvedTransport ?? config.resolvedTransport,
         cueClient: config.client,
+        cueSpawnAdapter: context.spawnAdapter,
       };
       sessions.set(context.sessionId, toolContext);
       try {

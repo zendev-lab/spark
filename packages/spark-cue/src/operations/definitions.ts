@@ -12,6 +12,7 @@ import {
   type JobStatus,
   type ResourceNeeds,
   type ScriptResult,
+  type SpawnAdapterHandle,
   isSensitiveCueEnvKey,
 } from "../client/cue-client.ts";
 import {
@@ -403,20 +404,6 @@ function isTerminalJob(status: JobStatus): boolean {
   return status === "Done" || status === "Failed" || status === "Killed" || status === "Cancelled";
 }
 
-function jobsForChain(jobs: JobInfo[], chainId: string): JobInfo[] {
-  return jobs
-    .filter((job) => job.chain_id != null && String(job.chain_id) === chainId)
-    .sort((a, b) => (a.chain_index ?? 0) - (b.chain_index ?? 0));
-}
-
-function chainStatus(jobs: JobInfo[]): JobStatus {
-  const failed = jobs.find((job) => job.status !== "Done" && isTerminalJob(job.status));
-  if (failed) return failed.status;
-  if (jobs.every((job) => job.status === "Done")) return "Done";
-  if (jobs.some((job) => job.status === "Running")) return "Running";
-  return "Pending";
-}
-
 function jobPendingReason(job: JobInfo): string | undefined {
   return typeof job.pending_reason === "string" && job.pending_reason.trim()
     ? job.pending_reason.trim()
@@ -465,59 +452,6 @@ async function appendJobOutput(
 ): Promise<void> {
   const output = await collectJobOutputLines(cued, job, tailBytes);
   lines.push(...output.lines);
-}
-
-interface ChainLeafDisplay {
-  job: JobInfo;
-  lines: string[];
-  clean: boolean;
-}
-
-export async function renderCueChainStatus(
-  cued: CueJobOutputReader,
-  chainId: string,
-  jobs: JobInfo[],
-  tailBytes: number,
-): Promise<string[]> {
-  const status = chainStatus(jobs);
-  const leafDisplays: ChainLeafDisplay[] = [];
-  for (const job of jobs) {
-    const output = await collectJobOutputLines(cued, job, tailBytes);
-    const leafLabel = `Leaf ${(job.chain_index ?? 0) + 1}/${job.chain_total ?? jobs.length}`;
-    const lines = [`${leafLabel}: ${statusLabel(job.status)} — ${job.pipeline}`];
-    if (job.exit_code != null) lines.push(`Exit code: ${job.exit_code}`);
-    appendPendingReason(job, lines);
-    lines.push(...output.lines);
-    leafDisplays.push({
-      job,
-      lines,
-      clean:
-        job.status === "Done" &&
-        (job.exit_code == null || job.exit_code === 0) &&
-        !output.hasOutput,
-    });
-  }
-
-  const lines = [`${statusLabel(status)} — chain ${chainId}`];
-  const important = leafDisplays.filter((leaf) => !leaf.clean && leaf.job.status !== "Done");
-  const doneWithOutput = leafDisplays.filter((leaf) => !leaf.clean && leaf.job.status === "Done");
-  const clean = leafDisplays.filter((leaf) => leaf.clean);
-
-  for (const leaf of [...important, ...doneWithOutput]) {
-    lines.push("", ...leaf.lines);
-  }
-  if (clean.length > 0) lines.push("", renderCleanCueChainLeaves(clean));
-  return lines;
-}
-
-function renderCleanCueChainLeaves(leaves: ChainLeafDisplay[]): string {
-  const sampleLimit = 8;
-  const sample = leaves
-    .slice(0, sampleLimit)
-    .map((leaf) => `leaf ${(leaf.job.chain_index ?? 0) + 1}:${leaf.job.id}`)
-    .join(", ");
-  const more = leaves.length > sampleLimit ? `, +${leaves.length - sampleLimit} more` : "";
-  return `--- ${leaves.length} clean successful leaf(s) done with no output (${sample}${more})`;
 }
 
 function formatValidValues(values: readonly string[]): string {
@@ -621,7 +555,7 @@ export async function resolveCueExecTarget(
     );
     return { cwd, ctx };
   }
-  const transport = await resolveCueTransport();
+  const transport = ctx.cueResolvedTransport ?? (await resolveCueTransport());
   if (transport.transport === "ssh") {
     if (ctx.taskExecutionScope) {
       throw new Error("Task execution scope forbids remote Cue execution");
@@ -956,6 +890,7 @@ async function runPythonScriptJob(
     venv?: string;
     signal?: AbortSignal;
     operation: CueOperationKey;
+    spawnAdapter?: SpawnAdapterHandle;
   },
 ) {
   const inline = options.inlineScript !== undefined;
@@ -970,10 +905,11 @@ async function runPythonScriptJob(
     cwd: options.cwd,
     signal: options.signal,
     operation: options.operation,
+    spawnAdapter: options.spawnAdapter,
   });
   const stdout = normalizeCueTerminalOutput(result.stdout);
   const stderr = normalizeCueStderrForDisplay(result.stderr, stdout);
-  const lines = [`Script job ${result.jobId}: ${result.status}`];
+  const lines = [`Execution ${result.jobId}: ${result.status}`];
   if (result.exitCode !== null) lines[0] += ` (exit ${result.exitCode})`;
   if (result.timedOut) {
     lines[0] += ` — timed out after ${options.timeout}s`;
@@ -997,7 +933,8 @@ async function runPythonScriptJob(
     language: "python",
     path: options.path ?? options.pathLabel ?? "<inline>",
     inline: options.inlineScript !== undefined,
-    jobId: result.jobId,
+    executionId: result.jobId,
+    stepIds: result.stepIds,
     status: result.status,
     exitCode: result.exitCode,
     timedOut: result.timedOut,
@@ -1317,29 +1254,28 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
           cueCtx,
           clientOwner,
           operation,
-          (cued) => cued.startJob(command, { cwd, pty, needs, operation }),
+          (cued) =>
+            cued.startJob(command, {
+              cwd,
+              pty,
+              needs,
+              operation,
+              spawnAdapter: cueCtx.cueSpawnAdapter,
+            }),
           cueToolRetryOptions(signal, onUpdate),
         );
-        const lines: string[] = [];
-        if (result.kind === "chain" && result.chain) {
-          const chain = result.chain;
-          lines.push(`Chain: ${chain.id}  |  ${chain.total_jobs} job(s)`);
-          for (const j of chain.jobs)
-            lines.push(`  ${j.job_id ?? "(pending)"}  [${j.status.toLowerCase()}]  ${j.pipeline}`);
-        } else {
-          lines.push(`Job:   ${result.jobId}  [running]`);
-          lines.push(`Cmd:   ${result.pipeline ?? command}`);
-        }
+        const lines = [
+          `Execution: ${result.jobId}  [running]`,
+          `Steps: ${result.stepIds.join(", ") || "pending"}`,
+          `Cmd: ${result.pipeline ?? command}`,
+        ];
         lines.push(...warningLines(result.warnings));
-        const trackId = result.kind === "chain" && result.chain ? result.chain.id : result.jobId;
-        lines.push("", `Track with cue_jobs action=status/wait using id ${trackId}.`);
+        lines.push("", `Track with cue_jobs action=status/wait using id ${result.jobId}.`);
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],
           details: {
-            jobId: result.jobId,
-            kind: result.kind,
-            chainId: result.chain?.id ?? null,
-            chain: result.chain ?? null,
+            executionId: result.jobId,
+            stepIds: result.stepIds,
             warnings: result.warnings,
           },
         };
@@ -1358,6 +1294,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             needs,
             signal,
             operation,
+            spawnAdapter: cueCtx.cueSpawnAdapter,
           }),
         cueToolRetryOptions(signal, onUpdate, { deadlineMs: effectiveTimeout * 1_000 }),
       );
@@ -1366,7 +1303,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         const stdout = normalizeCueTerminalOutput(result.stdout);
         const stderr = normalizeCueStderrForDisplay(result.stderr, stdout);
         const lines = [
-          `Job ${result.jobId}: Timed out after ${effectiveTimeout}s waiting; job remains ${result.status}.`,
+          `Execution ${result.jobId}: timed out after ${effectiveTimeout}s; execution remains ${result.status}.`,
           `Track with cue_jobs action=status/wait using id ${result.jobId}.`,
           ...warningLines(result.warnings),
         ];
@@ -1387,7 +1324,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],
           details: {
-            jobId: result.jobId,
+            executionId: result.jobId,
+            stepIds: result.stepIds,
             status: result.status,
             timedOut: true,
             switchedToBackground: true,
@@ -1412,7 +1350,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         result.status === "Killed" ||
         result.status === "Cancelled"
       ) {
-        const parts = [`Job ${result.jobId}: ${result.status}`];
+        const parts = [`Execution ${result.jobId}: ${result.status}`];
         if (result.exitCode !== null) parts.push(` (exit ${result.exitCode})`);
         parts.push(warningBlock(result.warnings));
         if (stdout.trim()) {
@@ -1431,7 +1369,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }
         const error = new Error(parts.join(""));
         (error as Error & { details?: Record<string, unknown> }).details = {
-          jobId: result.jobId,
+          executionId: result.jobId,
+          stepIds: result.stepIds,
           status: result.status,
           exitCode: result.exitCode,
           warnings: result.warnings,
@@ -1448,7 +1387,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         throw error;
       }
 
-      const out = [`Job ${result.jobId}: ${result.status}`];
+      const out = [`Execution ${result.jobId}: ${result.status}`];
       if (result.exitCode !== null && result.exitCode !== 0) out.push(` (exit ${result.exitCode})`);
       out.push(warningBlock(result.warnings));
       if (stdout.trim()) {
@@ -1469,7 +1408,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       return {
         content: [{ type: "text" as const, text: out.join("") }],
         details: {
-          jobId: result.jobId,
+          executionId: result.jobId,
+          stepIds: result.stepIds,
           status: result.status,
           exitCode: result.exitCode,
           warnings: result.warnings,
@@ -1532,6 +1472,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
           timeout: (attempt.remainingMs ?? timeout * 1_000) / 1_000,
           signal,
           operation,
+          spawnAdapter: ctx.cueSpawnAdapter,
         }),
       cueToolRetryOptions(signal, onUpdate, {
         replaySafe: true,
@@ -1543,15 +1484,13 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       index: item.index,
       source: item.source,
       kind: item.kind,
-      jobIds: item.jobIds,
-      chainId: item.chainId,
-      cronId: item.cronId,
       status: item.status,
       exitCode: item.exitCode,
     }));
     const output = { content: [{ type: "text" as const, text: lines.join("\n") }] };
     const details = {
-      scriptId: result.scriptId,
+      executionId: result.scriptId,
+      stepIds: result.stepIds,
       source: result.source,
       status: result.status,
       exitCode: result.exitCode,
@@ -1859,6 +1798,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             venv,
             signal,
             operation,
+            spawnAdapter: target.ctx.cueSpawnAdapter,
           }),
         cueToolRetryOptions(signal, onUpdate, { deadlineMs: timeout * 1_000 }),
       );
@@ -1976,6 +1916,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             venv,
             signal,
             operation,
+            spawnAdapter: target.ctx.cueSpawnAdapter,
           }),
         cueToolRetryOptions(signal, onUpdate, { deadlineMs: timeout * 1_000 }),
       );
@@ -2102,25 +2043,6 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       }
 
       if (action === "status") {
-        if (id.startsWith("CH")) {
-          const jobs = jobsForChain(await cued.listJobs(), id);
-          if (jobs.length === 0)
-            return {
-              content: [{ type: "text" as const, text: `${id} not found.` }],
-              details: { found: false },
-            };
-
-          const lines = await renderCueChainStatus(cued, id, jobs, tailBytes);
-          return {
-            content: [{ type: "text" as const, text: lines.join("\n") }],
-            details: {
-              chainId: id,
-              status: chainStatus(jobs),
-              jobs,
-            },
-          };
-        }
-
         if (id.startsWith("C")) {
           const cron = await cued.cronStatus(id);
           if (!cron)
@@ -2136,7 +2058,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
               },
             ],
             details: {
-              cronId: cron.id,
+              scheduleId: cron.id,
               status: cron.status,
               schedule: cron.schedule,
               command: cron.command,
@@ -2151,6 +2073,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             details: { found: false },
           };
 
+        const execution = await cued.getExecution(id);
+        const stepIds = execution?.steps.map((step) => `E${execution.id}/S${step.id.index}`) ?? [];
         const parts = [`${statusLabel(job.status)} — ${job.pipeline}`];
         if (job.exit_code != null) parts.push(`Exit code: ${job.exit_code}`);
         appendPendingReason(job, parts);
@@ -2164,7 +2088,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         return {
           content: [{ type: "text" as const, text: parts.join("\n") }],
           details: {
-            jobId: job.id,
+            executionId: job.id,
+            stepIds,
             status: job.status,
             exitCode: job.exit_code,
             pipeline: job.pipeline,
@@ -2175,54 +2100,6 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
 
       if (action === "wait") {
         const deadline = Date.now() + timeout * 1000;
-
-        if (id.startsWith("CH")) {
-          while (Date.now() < deadline) {
-            const jobs = jobsForChain(await cued.listJobs(), id);
-            if (jobs.length === 0)
-              return {
-                content: [{ type: "text" as const, text: `Chain ${id} not found.` }],
-                details: { found: false },
-              };
-            const expectedCount = Math.max(...jobs.map((job) => job.chain_total ?? jobs.length));
-            const hasTerminalFailure = jobs.some(
-              (job) => job.status !== "Done" && isTerminalJob(job.status),
-            );
-            if (
-              (jobs.length >= expectedCount || hasTerminalFailure) &&
-              jobs.every((job) => isTerminalJob(job.status))
-            ) {
-              const status = chainStatus(jobs);
-              const lines = await renderCueChainStatus(cued, id, jobs, tailBytes);
-              const text = `Chain ${id} completed\n\n${lines.join("\n")}`;
-              if (status === "Failed" || status === "Killed" || status === "Cancelled") {
-                throwCueDomainError(
-                  status === "Failed" ? text : `Chain ${id} was ${status.toLowerCase()}`,
-                  { chainId: id, status, jobs },
-                );
-              }
-              return {
-                content: [{ type: "text" as const, text }],
-                details: {
-                  chainId: id,
-                  status,
-                  jobs,
-                },
-              };
-            }
-            await new Promise((r) => setTimeout(r, 500));
-          }
-
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Timed out after ${timeout}s waiting for ${id}.`,
-              },
-            ],
-            details: { timedOut: true, targetId: id },
-          };
-        }
 
         while (Date.now() < deadline) {
           const job = await cued.jobStatus(id);
@@ -2243,11 +2120,15 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             appendPendingReason(job, lines);
             await appendJobOutput(cued, job, lines, tailBytes);
             const text = `Job ${id} completed\n\n${lines.join("\n")}`;
+            const execution = await cued.getExecution(id);
+            const stepIds =
+              execution?.steps.map((step) => `E${execution.id}/S${step.id.index}`) ?? [];
             if (job.status === "Failed" || job.status === "Killed" || job.status === "Cancelled") {
               throwCueDomainError(
                 job.status === "Failed" ? text : `Job ${id} was ${job.status.toLowerCase()}`,
                 {
-                  jobId: job.id,
+                  executionId: job.id,
+                  stepIds,
                   status: job.status,
                   exitCode: job.exit_code,
                   pendingReason: jobPendingReason(job) ?? null,
@@ -2257,7 +2138,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             return {
               content: [{ type: "text" as const, text }],
               details: {
-                jobId: job.id,
+                executionId: job.id,
+                stepIds,
                 status: job.status,
                 exitCode: job.exit_code,
                 pendingReason: jobPendingReason(job) ?? null,
@@ -2319,13 +2201,13 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         "cue_resources action",
       );
       const cued = await getClient(ctx, clientOwner);
-      const command = action === "providers" ? ":providers" : ":resources";
-      const text = await cued.evalText(command);
+      const providers = await cued.listResources();
+      const text = renderCueResources(action, providers);
       const hint = cueResourceProviderHint(text);
       const rendered = hint ? `${text.trimEnd()}\n\n${hint}` : text;
       return {
         content: [{ type: "text" as const, text: rendered }],
-        details: { action, command, ...(hint ? { hint } : {}) },
+        details: { action, providers, ...(hint ? { hint } : {}) },
       };
     },
   });
@@ -2344,6 +2226,38 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       ].join("\n");
     }
     return undefined;
+  }
+
+  function renderCueResources(
+    action: "providers" | "resources",
+    providers: Awaited<ReturnType<CueClient["listResources"]>>,
+  ): string {
+    if (providers.length === 0) return action === "providers" ? "Providers: 0" : "Resources: 0";
+    if (action === "providers") {
+      return [
+        `Providers: ${providers.length}`,
+        ...providers.map(
+          (provider) =>
+            `${provider.id}: keys=${provider.keys.join(",") || "-"} active=${provider.active_reservations}`,
+        ),
+      ].join("\n");
+    }
+    const lines = [`Resources: ${providers.length} providers`];
+    for (const provider of providers) {
+      if (provider.units.length === 0) {
+        lines.push(`${provider.id}: no units`);
+        continue;
+      }
+      for (const unit of provider.units) {
+        const attrs = Object.entries(unit.attrs)
+          .map(
+            ([key, quantity]) => `${key}=${quantity.value}${quantity.kind === "bytes" ? "B" : ""}`,
+          )
+          .join(" ");
+        lines.push(`${provider.id}/${unit.id}${attrs ? ` ${attrs}` : ""}`);
+      }
+    }
+    return lines.join("\n");
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -2464,7 +2378,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
             },
           ],
           details: {
-            cronId,
+            scheduleId: cronId,
             schedule,
             command,
           },

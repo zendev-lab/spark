@@ -39,10 +39,35 @@ export interface RequestEnvelope {
 }
 
 export type RequestPayload =
-  | { Eval: { input: string; mode: Mode } }
-  | { RunScript: { path: string; input: string } }
+  | { SubmitExecution: { spec: ExecutionSpec } }
+  | { GetExecution: { id: number } }
+  | { ListExecutions: { limit?: number | null } }
+  | { WaitExecution: { id: number } }
+  | {
+      ReadExecutionOutput: {
+        id: number;
+        step_id?: StepId | null;
+        stdout_bytes?: number | null;
+        stderr_bytes?: number | null;
+      };
+    }
+  | { ApplyScopeDelta: { base?: string | null; delta: EnvDelta } }
+  | { CreateSchedule: { schedule: CronSchedule; execution: ExecutionSpec } }
+  | { ListSchedules: { limit?: number | null } }
+  | { ListResources: Record<string, never> }
+  | { PauseSchedule: { id: number } }
+  | { ResumeSchedule: { id: number } }
+  | { RemoveSchedule: { id: number } }
+  | { StepAttach: { id: StepId } }
+  | { StepWatch: { id: StepId } }
+  | { StepClaimControl: Record<string, never> }
+  | { StepReleaseControl: Record<string, never> }
+  | { StepDetach: Record<string, never> }
+  | { StepInput: { data: string } }
+  | { StepResize: { cols: number; rows: number } }
   | {
       Handshake: {
+        protocol_version: number;
         session_id: string;
         cwd: string;
         env: Record<string, string>;
@@ -51,21 +76,8 @@ export type RequestPayload =
     }
   | { Subscribe: { channels: string[] } }
   | { Unsubscribe: { channels: string[] } }
-  | { FgAttach: { id: string } }
-  | { FgDetach: Record<string, never> }
-  | { FgInput: { data: string } }
-  | { FgResize: { cols: number; rows: number } }
-  | { Complete: { input: string; cursor: number } }
-  | { Highlight: { input: string } }
-  | { ListJobs: { limit?: number | null } }
-  | { ListCrons: { limit?: number | null } }
   | { ListScopes: { limit?: number | null } }
-  | { ScriptInfo: { id: string } }
-  | { ShowLog: { id?: string | null; limit?: number | null; tail_bytes?: number | null } }
-  | { JobOutput: { id: string; stdout_bytes?: number | null; stderr_bytes?: number | null } }
-  | { KillJob: { id: string } }
-  | { CancelExecution: { id: string } }
-  | { RemoveCron: { id: string } }
+  | { CancelExecution: { id: number; mode: CancelMode } }
   | { ShowEnv: { tail_bytes?: number | null } }
   | { ShowConfig: { tail_bytes?: number | null } }
   | { Ping: Record<string, never> }
@@ -81,22 +93,18 @@ export type ResponsePayload = { Ok: OkPayload } | { Err: { code: string; message
 
 export type OkPayload =
   | { Ack: Record<string, never> }
-  | { JobCreated: JobCreatedPayload }
-  | { ChainCreated: ChainCreatedPayload }
-  | { ScriptCreated: ScriptCreatedPayload }
-  | { ScriptInfo: ScriptInfoPayload }
-  | { JobInfo: JobInfo }
-  | { JobList: JobInfo[] }
-  | { JobListPage: { jobs: JobInfo[]; page: PageInfo } }
-  | { CronAdded: { cron_id: string } }
-  | { CronList: CronInfo[] }
-  | { CronListPage: { crons: CronInfo[]; page: PageInfo } }
+  | { ExecutionCreated: { execution: ExecutionInfo } }
+  | { ExecutionInfo: ExecutionInfo }
+  | { ExecutionList: ExecutionInfo[] }
+  | { ExecutionOutput: { id: number; steps: StepOutput[] } }
+  | { ScheduleCreated: { schedule: ScheduleInfo } }
+  | { ScheduleList: ScheduleInfo[] }
+  | { ResourceList: ResourceProviderInfo[] }
   | { ScopeInfo: ScopeInfo }
   | { ScopeList: ScopeInfo[] }
   | { ScopeListPage: { scopes: ScopeInfo[]; page: PageInfo } }
   | { ScopeCreated: ScopeCreatedPayload }
   | { Pong: PongPayload }
-  | { EvalText: { text: string } }
   | {
       TextOutput: {
         text: string;
@@ -105,18 +113,6 @@ export type OkPayload =
         base64?: string;
       };
     }
-  | {
-      Output: {
-        id: string;
-        data: string;
-        truncated: boolean;
-        encoding?: OutputEncoding;
-        base64?: string;
-      };
-    }
-  | { JobOutput: JobOutputPayload }
-  | { CompletionList: { items: CompletionItem[] } }
-  | { HighlightResult: { spans: HighlightSpan[] } }
   | { FgAttached: { id: string } };
 
 /**
@@ -150,6 +146,125 @@ export interface CueSessionOptions {
   refresh?: boolean;
   /** Forward keys normally treated as sensitive. Defaults to false. */
   forwardSensitiveEnv?: boolean;
+}
+
+export type PipeOp = "Stdout" | "StdoutStderr" | "StderrOnly";
+
+export interface PipeSegment {
+  env?: Record<string, string>;
+  command: string[];
+  pipe_to_next: PipeOp | null;
+}
+
+export type ExecutionPlan =
+  | { kind: "pipeline"; pipeline: { segments: PipeSegment[] } }
+  | { kind: "on_success"; left: ExecutionPlan; right: ExecutionPlan }
+  | { kind: "on_failure"; left: ExecutionPlan; right: ExecutionPlan }
+  | { kind: "always"; left: ExecutionPlan; right: ExecutionPlan }
+  | { kind: "parallel_all"; branches: ExecutionPlan[] }
+  | { kind: "any_success"; branches: ExecutionPlan[] }
+  | { kind: "context_delta"; delta: EnvDelta };
+
+export interface EnvDelta {
+  set: Record<string, string>;
+  unset: string[];
+  cwd?: string | null;
+}
+
+export interface SpawnAdapterHandle {
+  endpoint: string;
+  token: string;
+}
+
+export interface LaunchContext {
+  pty?: boolean;
+  needs?: Record<string, { kind: "count" | "bytes"; value: number }>;
+  workspace_view?: unknown;
+  wrapper_enabled?: boolean;
+  spawn_adapter?: SpawnAdapterHandle;
+}
+
+export interface ExecutionSpec {
+  plan: ExecutionPlan;
+  start_scope?: string;
+  launch_context: LaunchContext;
+  source?: { name: string; line?: number; column?: number };
+  retry_of?: number;
+}
+
+export type CancelMode = "graceful" | "force";
+export type ExecutionCancelReason = "user" | "forced";
+export type ExecutionState =
+  | { status: "queued" }
+  | { status: "running" }
+  | { status: "succeeded" }
+  | { status: "failed" }
+  | { status: "cancelled"; reason: ExecutionCancelReason };
+export type StepFailure =
+  | { kind: "exit"; code: number }
+  | { kind: "signal"; signal: number }
+  | { kind: "spawn" | "infrastructure"; message: string };
+export type StepCancelReason = "user" | "forced" | "condition_not_met" | "any_success_satisfied";
+export type StepState =
+  | { status: "queued" }
+  | { status: "running" }
+  | { status: "succeeded" }
+  | { status: "failed"; failure: StepFailure }
+  | { status: "cancelled"; reason: StepCancelReason };
+
+export interface StepId {
+  execution: number;
+  index: number;
+}
+
+export interface ExecutionStepInfo {
+  id: StepId;
+  state: StepState;
+  pipeline: string;
+}
+
+export interface ExecutionInfo {
+  id: number;
+  state: ExecutionState;
+  steps: ExecutionStepInfo[];
+  spec: ExecutionSpec;
+}
+
+export interface StepOutput {
+  id: StepId;
+  stdout: StreamText;
+  stderr: StreamText;
+  stderr_pty_merged: boolean;
+}
+
+export type CronSchedule =
+  | { Interval: { secs: number; nanos: number } }
+  | { Delay: { secs: number; nanos: number } }
+  | { Preset: "Hourly" | "Daily" | "Weekly" | "Monthly" }
+  | { TimeOfDay: { time_secs: number; days: unknown } }
+  | { Crontab: unknown };
+
+export interface ScheduleInfo {
+  id: number;
+  schedule: CronSchedule;
+  execution: ExecutionSpec;
+  status: CronStatus;
+  next_trigger_at_ms?: number | null;
+}
+
+export type ResourceQuantity = { kind: "count" | "bytes"; value: number };
+
+export interface ResourceUnitInfo {
+  id: string;
+  attrs: Record<string, ResourceQuantity>;
+}
+
+export interface ResourceProviderInfo {
+  id: string;
+  keys: string[];
+  active_reservations: number;
+  captured_at_ms: number;
+  units: ResourceUnitInfo[];
 }
 
 export interface JobCreatedPayload {
@@ -298,14 +413,22 @@ export interface EventEnvelope {
 }
 
 export type EventPayload =
-  | { JobStateChanged: JobStateChangedEvent }
-  | { JobCreated: JobCreatedEvent }
-  | { ChainProgress: { chain: ChainInfo } }
-  | { ScriptItemCreated: ScriptItemCreatedEvent }
-  | { ScriptFinished: ScriptFinishedEvent }
-  | { JobRemoved: { job_id: string } }
-  | { CronTriggered: { cron_id: string; job_id: string } }
-  | { CronRemoved: { cron_id: string } }
+  | { ExecutionCreated: { execution: ExecutionInfo } }
+  | {
+      ExecutionStateChanged: {
+        id: number;
+        old_state: ExecutionState;
+        new_state: ExecutionState;
+      };
+    }
+  | {
+      StepStateChanged: {
+        id: StepId;
+        old_state: StepState;
+        new_state: StepState;
+      };
+    }
+  | { ExecutionFinished: { execution: ExecutionInfo } }
   | { OutputChunk: OutputChunkEvent }
   | { OutputChunkBinary: OutputChunkBinaryEvent }
   | { OutputEof: { id: string } }
@@ -408,6 +531,8 @@ export interface RunEvalOptions {
   pty?: boolean;
   /** Resource quantities to reserve before spawning, encoded as `need.<key>=<quantity>`. */
   needs?: ResourceNeeds;
+  /** Ephemeral local process-spawn interception lease. */
+  spawnAdapter?: SpawnAdapterHandle;
   /** Stable logical key for the daemon-global side effect. */
   operation?: CueOperationKey;
 }
@@ -432,6 +557,8 @@ export interface RunScriptOptions {
   signal?: AbortSignal;
   /** Stable logical key; submit and cancel use distinct derived child steps. */
   operation?: CueOperationKey;
+  /** Ephemeral local process-spawn interception lease. */
+  spawnAdapter?: SpawnAdapterHandle;
 }
 
 export interface ScriptItemSummary {
@@ -451,6 +578,7 @@ export interface ScriptItemSummary {
 
 export interface ScriptResult {
   scriptId: string;
+  stepIds: string[];
   source: ScriptSource;
   /** Terminal ScriptFinished status, or `running` when a wait budget expired without cancel. */
   status: ScriptInfoStatus;
@@ -475,6 +603,7 @@ export interface JobOutputResult {
 
 export interface JobResult {
   jobId: string;
+  stepIds: string[];
   status: JobStatus;
   cancelReason?: CancelReason;
   stdout: string;
@@ -493,6 +622,7 @@ export interface JobResult {
 /** Result from startJob (background mode). */
 export interface StartJobResult {
   jobId: string;
+  stepIds: string[];
   /** "job" for single commands, "chain" for chain syntax. */
   kind: "job" | "chain";
   /** Pipeline text for single jobs. */

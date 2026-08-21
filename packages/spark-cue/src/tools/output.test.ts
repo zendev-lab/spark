@@ -5,11 +5,9 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import {
-  CueError,
   cueShellCommandIssue,
   cueShellCommandSyntaxIssue,
   defaultSocketPath,
-  type JobInfo,
   type ScriptResult,
   type SparkCueHostApi,
   type SparkCueToolContext,
@@ -20,7 +18,6 @@ import {
   normalizeCueResourceNeeds,
   normalizeCueTailBytes,
   normalizeCueTimeoutSeconds,
-  renderCueChainStatus,
   renderCueScriptResult,
   registerSparkCueTools,
   resolveCueWorkingDirectory,
@@ -32,7 +29,7 @@ test("defaultSocketPath treats an empty XDG_RUNTIME_DIR as unset", () => {
   const previous = process.env.XDG_RUNTIME_DIR;
   process.env.XDG_RUNTIME_DIR = "";
   try {
-    assert.equal(defaultSocketPath(), join(tmpdir(), "cue-shell", "cued.sock"));
+    assert.equal(defaultSocketPath(), join(tmpdir(), "cue", "cued.sock"));
   } finally {
     if (previous === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = previous;
@@ -80,6 +77,7 @@ test("normalizeCueStderrForDisplay removes duplicated PTY merge note", () => {
 test("renderCueScriptResult includes source, timeout, item identity, and status", () => {
   const result = {
     scriptId: "script:one",
+    stepIds: [],
     source: { kind: "inline" },
     status: "running",
     exitCode: null,
@@ -132,6 +130,7 @@ test("renderCueScriptResult includes source, timeout, item identity, and status"
 test("renderCueScriptResult compacts clean successful items", () => {
   const result = {
     scriptId: "script:clean",
+    stepIds: [],
     source: { kind: "file", path: "build.cue" },
     status: "done",
     exitCode: 0,
@@ -195,81 +194,6 @@ test("renderCueScriptResult compacts clean successful items", () => {
   assert.match(rendered, /--- item 2: echo visible \[job J4\] .*done/);
   assert.match(rendered, /visible/);
 });
-
-test("renderCueChainStatus reads each leaf output once and propagates failures", async () => {
-  const outputRequests: Array<{ id: string; tailBytes?: number }> = [];
-  const reader = {
-    async jobOutput(id: string, tailBytes?: number) {
-      outputRequests.push({ id, tailBytes });
-      return {
-        stdout: id === "J3" ? "done output\n" : id === "J4" ? "failed output\n" : "",
-        stderr: id === "J4" ? "failed stderr\n" : "",
-        stdoutEncoding: "utf8" as const,
-        stderrEncoding: "utf8" as const,
-        truncated: false,
-        stderrTruncated: false,
-      };
-    },
-  };
-  const jobs = [
-    chainJob("J1", 0, "setup", "Done", 0),
-    chainJob("J2", 1, "build", "Done", 0),
-    chainJob("J3", 2, "test", "Done", 0),
-    chainJob("J4", 3, "deploy", "Failed", 1),
-  ];
-
-  const rendered = (await renderCueChainStatus(reader, "CH1", jobs, 2048)).join("\n");
-
-  assert.match(rendered, /^❌ failed — chain CH1/);
-  assert.match(
-    rendered,
-    /Leaf 4\/4: ❌ failed — deploy\nExit code: 1\n\nfailed output\n\n\[stderr\]\nfailed stderr/,
-  );
-  assert.match(rendered, /Leaf 3\/4: ✅ done — test\nExit code: 0\n\ndone output/);
-  assert.match(
-    rendered,
-    /--- 2 clean successful leaf\(s\) done with no output \(leaf 1:J1, leaf 2:J2\)/,
-  );
-  assert.equal(rendered.includes("Leaf 1/4: ✅ done — setup"), false);
-  assert.deepEqual(outputRequests, [
-    { id: "J1", tailBytes: 2048 },
-    { id: "J2", tailBytes: 2048 },
-    { id: "J3", tailBytes: 2048 },
-    { id: "J4", tailBytes: 2048 },
-  ]);
-  await assert.rejects(
-    renderCueChainStatus(
-      {
-        async jobOutput() {
-          throw new CueError("INTERNAL", "output store unavailable");
-        },
-      },
-      "CH1",
-      jobs,
-      2048,
-    ),
-    (error) => error instanceof CueError && error.code === "INTERNAL",
-  );
-});
-
-function chainJob(
-  id: string,
-  chainIndex: number,
-  pipeline: string,
-  status: JobInfo["status"],
-  exitCode: number | null,
-): JobInfo {
-  return {
-    id,
-    status,
-    pipeline,
-    exit_code: exitCode,
-    open_hint: "stream",
-    chain_id: "CH1",
-    chain_index: chainIndex,
-    chain_total: 4,
-  };
-}
 
 test("spark-cue numeric and boolean normalizers reject invalid explicit values", () => {
   assert.equal(normalizeCueTailBytes(undefined, 128), 128);
@@ -438,15 +362,14 @@ test("cue_resources explains empty provider state", async () => {
       cwd: "/work",
       cueClient: {
         isClosed: false,
-        async evalText(command: string) {
-          assert.equal(command, ":providers");
-          return "No resource providers registered.\n";
+        async listResources() {
+          return [];
         },
       },
     } as unknown as SparkCueToolContext,
   );
 
-  assert.match(result.content[0].text, /No resource providers registered/);
+  assert.match(result.content[0].text, /Providers: 0/);
   assert.match(result.content[0].text, /Hint: no cue-shell resource provider/);
   assert.match(result.content[0].text, /remove needs=\{\.\.\.\}/);
   assert.match(result.content[0].text, /gpu\/gpu_mem/);
@@ -614,57 +537,6 @@ test("structured preflight carries a verbatim rewrite suggestion", () => {
   assert.equal(cueShellCommandIssue('echo "a|b" | c')?.suggestion, 'echo "a|b" |> c');
 });
 
-test("cue_jobs exposes chain IDs for status and wait", async () => {
-  const jobsTool = registerCueToolsForTest().get("cue_jobs");
-  assert.ok(jobsTool);
-
-  const jobs = [
-    {
-      id: "J1",
-      status: "Done" as const,
-      pipeline: "true",
-      exit_code: 0,
-      open_hint: "stream" as const,
-      chain_id: "CH1",
-      chain_index: 0,
-      chain_total: 2,
-    },
-    {
-      id: "J2",
-      status: "Done" as const,
-      pipeline: "true",
-      exit_code: 0,
-      open_hint: "stream" as const,
-      chain_id: "CH1",
-      chain_index: 1,
-      chain_total: 2,
-    },
-  ];
-  const ctx = {
-    cueClient: {
-      isClosed: false,
-      async listJobs() {
-        return jobs;
-      },
-      async jobOutput() {
-        return { stdout: "", stderr: "", truncated: false, stderrTruncated: false };
-      },
-    },
-  } as unknown as SparkCueToolContext;
-
-  for (const action of ["status", "wait"] as const) {
-    const result = await jobsTool.execute(
-      `call-chain-${action}`,
-      { action, id: "CH1", timeout: 1 },
-      new AbortController().signal,
-      () => undefined,
-      ctx,
-    );
-    assert.match(result.content[0]?.text ?? "", /done — chain CH1/);
-    assert.equal((result.details as { chainId?: string }).chainId, "CH1");
-  }
-});
-
 test("cue_schedule filters the cron statuses emitted by cue-shell", async () => {
   const scheduleTool = registerCueToolsForTest().get("cue_schedule");
   assert.ok(scheduleTool);
@@ -720,6 +592,7 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
       calls.push(options);
       return {
         scriptId: `script:${calls.length}`,
+        stepIds: [],
         source: { kind: "file" as const, path: options.path },
         status: "done" as const,
         exitCode: 0,

@@ -27,16 +27,7 @@ import {
   type PongPayload,
   type ScopeCreatedPayload,
   type CueSessionOptions,
-  type JobCreatedPayload,
-  type ChainCreatedPayload,
-  type ScriptItemInfo,
-  type ScriptCreatedPayload,
   type ScriptInfoPayload,
-  type ScriptFinishedEvent,
-  type ScriptTerminalState,
-  type ScriptItemCreatedEvent,
-  type ChainInfo,
-  type ChainJobInfo,
   type CronInfo,
   type JobStatus,
   type CancelReason,
@@ -44,15 +35,11 @@ import {
   type ScopeInfo,
   type EventEnvelope,
   type EventPayload,
-  type JobStateChangedEvent,
-  type JobCreatedEvent,
   type OutputChunkEvent,
   type OutputChunkBinaryEvent,
   type PageInfo,
   type StreamText,
   type OutputEncoding,
-  type CompletionItem,
-  type HighlightSpan,
   type CueMessage,
   type JobOutputPayload,
   type ResourceNeeds,
@@ -65,6 +52,15 @@ import {
   type JobOutputResult,
   type JobResult,
   type StartJobResult,
+  type ExecutionInfo,
+  type ExecutionSpec,
+  type ExecutionState,
+  type ScheduleInfo,
+  type SpawnAdapterHandle,
+  type StepOutput,
+  type CronSchedule,
+  type ExecutionPlan,
+  type ResourceProviderInfo,
 } from "../wire/types.ts";
 import {
   validateCueErrorPayload,
@@ -72,6 +68,7 @@ import {
   validateCueOkPayload,
 } from "../wire/validators.ts";
 import { DEFAULT_CUE_CONNECT_TIMEOUT_MS, resolveCueTransport } from "./transport.ts";
+import { compileCueFile, compileExecution } from "../language/execution-compiler.ts";
 
 export {
   defaultSocketPath,
@@ -91,10 +88,10 @@ export type {
   JobStatus,
   OutputEncoding,
   ResourceNeeds,
+  SpawnAdapterHandle,
   ScriptItemSummary,
   ScriptResult,
   StartJobResult,
-  JobStateChangedEvent,
 } from "../wire/types.ts";
 
 function quoteModeParamValue(value: string): string {
@@ -151,16 +148,6 @@ function resourceNeedModeParams(needs: ResourceNeeds | undefined): string[] {
 type InboundCueMessage = ResponseEnvelope | EventEnvelope;
 type WireRecord = Record<string, unknown>;
 
-const JOB_STATUS_VARIANTS = new Set<JobStatus>([
-  "Pending",
-  "Running",
-  "Done",
-  "Failed",
-  "Killed",
-  "Cancelled",
-]);
-const CANCEL_REASONS = new Set(["User", "ChainAborted", "Timeout"]);
-
 function invalidIpc(path: string, message: string): Error {
   return new Error(`invalid cue-shell IPC message at ${path}: ${message}`);
 }
@@ -213,167 +200,12 @@ function singleVariant(
   return [variant, record[variant]];
 }
 
-function decodeJobStatusDetail(
-  value: unknown,
-  path: string,
-): { status: JobStatus; cancelReason?: CancelReason } {
-  if (typeof value === "string") {
-    if (JOB_STATUS_VARIANTS.has(value as JobStatus)) return { status: value as JobStatus };
-    throw invalidIpc(path, `unknown job status ${value}`);
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw invalidIpc(path, "unknown job status");
-  }
-  const cancelled = value as WireRecord;
-  const keys = Object.keys(cancelled);
-  if (
-    keys.length === 1 &&
-    keys[0] === "Cancelled" &&
-    typeof cancelled.Cancelled === "string" &&
-    CANCEL_REASONS.has(cancelled.Cancelled)
-  ) {
-    return { status: "Cancelled", cancelReason: cancelled.Cancelled as CancelReason };
-  }
-  throw invalidIpc(path, "unknown job status");
-}
-
-function decodeJobStatus(value: unknown, path: string): JobStatus {
-  return decodeJobStatusDetail(value, path).status;
-}
-
 function validateOkPayload(value: unknown): OkPayload {
-  const payload = validateCueOkPayload(value) as OkPayload;
-  normalizeOkPayloadStatuses(payload);
-  return payload;
+  return validateCueOkPayload(value) as OkPayload;
 }
 
 function validateEventPayload(value: unknown): EventPayload {
-  const payload = validateCueEventPayload(value) as EventPayload;
-  normalizeEventPayloadStatuses(payload);
-  return payload;
-}
-
-function normalizeOkPayloadStatuses(payload: OkPayload): void {
-  if ("JobInfo" in payload) {
-    normalizeJobInfoStatus(payload.JobInfo, "response.payload.Ok.JobInfo");
-  } else if ("JobList" in payload) {
-    payload.JobList.forEach((job, index) =>
-      normalizeJobInfoStatus(job, `response.payload.Ok.JobList[${index}]`),
-    );
-  } else if ("JobListPage" in payload) {
-    payload.JobListPage.jobs.forEach((job, index) =>
-      normalizeJobInfoStatus(job, `response.payload.Ok.JobListPage.jobs[${index}]`),
-    );
-  } else if ("ChainCreated" in payload) {
-    normalizeChainStatuses(payload.ChainCreated.chain, "response.payload.Ok.ChainCreated.chain");
-  } else if ("ScriptCreated" in payload) {
-    payload.ScriptCreated.items.forEach((item, index) =>
-      normalizeScriptItemStatuses(item, `response.payload.Ok.ScriptCreated.items[${index}]`),
-    );
-  } else if ("ScriptInfo" in payload) {
-    payload.ScriptInfo.items.forEach((item, index) =>
-      normalizeScriptItemStatuses(item, `response.payload.Ok.ScriptInfo.items[${index}]`),
-    );
-  }
-}
-
-function normalizeEventPayloadStatuses(payload: EventPayload): void {
-  if ("JobStateChanged" in payload) {
-    const change = payload.JobStateChanged;
-    const oldState = decodeJobStatusDetail(
-      (change as { old_state: unknown }).old_state,
-      "event.payload.JobStateChanged.old_state",
-    );
-    const newState = decodeJobStatusDetail(
-      (change as { new_state: unknown }).new_state,
-      "event.payload.JobStateChanged.new_state",
-    );
-    change.old_state = oldState.status;
-    change.new_state = newState.status;
-    if (newState.cancelReason) change.cancelReason = newState.cancelReason;
-  } else if ("ChainProgress" in payload) {
-    normalizeChainStatuses(payload.ChainProgress.chain, "event.payload.ChainProgress.chain");
-  } else if ("ScriptItemCreated" in payload) {
-    normalizeScriptItemStatuses(
-      payload.ScriptItemCreated.item,
-      "event.payload.ScriptItemCreated.item",
-    );
-  }
-}
-
-function normalizeJobInfoStatus(job: JobInfo, path: string): void {
-  const decoded = decodeJobStatusDetail((job as { status: unknown }).status, `${path}.status`);
-  job.status = decoded.status;
-  if (decoded.cancelReason) job.cancelReason = decoded.cancelReason;
-}
-
-function normalizeChainStatuses(chain: ChainInfo, path: string): void {
-  chain.jobs.forEach((job, index) => {
-    const decoded = decodeJobStatusDetail(
-      (job as { status: unknown }).status,
-      `${path}.jobs[${index}].status`,
-    );
-    job.status = decoded.status;
-    if (decoded.cancelReason) job.cancelReason = decoded.cancelReason;
-  });
-}
-
-function normalizeScriptItemStatuses(item: ScriptItemInfo, path: string): void {
-  if (item.result.kind === "chain") {
-    normalizeChainStatuses(item.result.chain, `${path}.result.chain`);
-  }
-}
-
-function mergeScriptItemInfo(
-  existing: ScriptItemInfo | undefined,
-  incoming: ScriptItemInfo,
-  incomingAuthoritative = false,
-): ScriptItemInfo {
-  if (!existing) return incoming;
-  if (
-    existing.result.kind !== "chain" ||
-    incoming.result.kind !== "chain" ||
-    existing.result.chain_id !== incoming.result.chain_id
-  ) {
-    // Script item identity/result kind is immutable. A typed snapshot is
-    // authoritative; ordinary live-event reconciliation remains monotonic.
-    return incomingAuthoritative ? incoming : existing;
-  }
-
-  const jobsByIndex = new Map<number, ChainJobInfo>();
-  const firstJobs = incomingAuthoritative ? existing.result.chain.jobs : incoming.result.chain.jobs;
-  const secondJobs = incomingAuthoritative
-    ? incoming.result.chain.jobs
-    : existing.result.chain.jobs;
-  for (const job of firstJobs) jobsByIndex.set(job.index, job);
-  for (const job of secondJobs) {
-    const prior = jobsByIndex.get(job.index);
-    jobsByIndex.set(job.index, prior ? { ...prior, ...job } : job);
-  }
-  const jobIds = [...new Set([...existing.result.job_ids, ...incoming.result.job_ids])];
-  const baseChain = incomingAuthoritative ? existing.result.chain : incoming.result.chain;
-  const overlayChain = incomingAuthoritative ? incoming.result.chain : existing.result.chain;
-  const baseResult = incomingAuthoritative ? existing.result : incoming.result;
-  const overlayResult = incomingAuthoritative ? incoming.result : existing.result;
-  return {
-    ...(incomingAuthoritative ? existing : incoming),
-    ...(incomingAuthoritative ? incoming : existing),
-    result: {
-      ...baseResult,
-      ...overlayResult,
-      job_ids: jobIds,
-      chain: {
-        ...baseChain,
-        ...overlayChain,
-        total_jobs: Math.max(
-          incoming.result.chain.total_jobs,
-          existing.result.chain.total_jobs,
-          jobIds.length,
-        ),
-        jobs: [...jobsByIndex.values()].sort((left, right) => left.index - right.index),
-      },
-    },
-  };
+  return validateCueEventPayload(value) as EventPayload;
 }
 
 function decodeInboundCueMessage(value: unknown): InboundCueMessage {
@@ -408,15 +240,159 @@ function decodeInboundCueMessage(value: unknown): InboundCueMessage {
   throw invalidIpc("envelope.type", `unexpected inbound message type ${type}`);
 }
 
-function normalizeJobStatus(status: unknown): JobStatus {
-  return decodeJobStatus(status, "job.status");
+function parseExecutionId(value: number | string): number {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return value;
+  const match = String(value).match(/^E(\d+)$/u);
+  const id = match ? Number(match[1]) : Number.NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new CueError("INVALID_REQUEST", `expected execution ID E<n>, got ${String(value)}`);
+  }
+  return id;
 }
 
-function normalizeJob(job: JobInfo): JobInfo {
+function parseStepId(value: string): { execution: number; index: number } {
+  const match = value.match(/^E(\d+)\/S(\d+)$/u);
+  if (!match) throw new CueError("INVALID_REQUEST", `expected step ID E<n>/S<n>, got ${value}`);
+  return { execution: Number(match[1]), index: Number(match[2]) };
+}
+
+function parseScheduleId(value: string): number {
+  const match = value.match(/^T(\d+)$/u);
+  const id = match ? Number(match[1]) : Number.NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new CueError("INVALID_REQUEST", `expected schedule ID T<n>, got ${value}`);
+  }
+  return id;
+}
+
+function executionIdText(id: number): string {
+  return `E${id}`;
+}
+
+function scheduleIdText(id: number): string {
+  return `T${id}`;
+}
+
+function executionStateTerminal(state: ExecutionState): boolean {
+  return ["succeeded", "failed", "cancelled"].includes(state.status);
+}
+
+function executionExitCode(execution: ExecutionInfo): number | null {
+  for (const step of execution.steps) {
+    if (step.state.status !== "failed") continue;
+    return step.state.failure.kind === "exit" ? step.state.failure.code : 1;
+  }
+  return execution.state.status === "succeeded" ? 0 : null;
+}
+
+function jobInfoFromExecution(execution: ExecutionInfo): JobInfo {
+  const status: JobStatus =
+    execution.state.status === "queued"
+      ? "Pending"
+      : execution.state.status === "running"
+        ? "Running"
+        : execution.state.status === "succeeded"
+          ? "Done"
+          : execution.state.status === "failed"
+            ? "Failed"
+            : "Cancelled";
   return {
-    ...job,
-    status: normalizeJobStatus((job as { status: unknown }).status),
+    id: executionIdText(execution.id),
+    status,
+    pipeline: executionPlanLabel(execution.spec.plan),
+    exit_code: executionExitCode(execution),
+    start_scope: execution.spec.start_scope,
+    open_hint: execution.spec.launch_context.pty === true ? "fg" : "stream",
+    chain_id: null,
+    chain_index: 0,
+    chain_total: execution.steps.length,
+    ...(execution.state.status === "cancelled" ? { cancelReason: "User" as const } : {}),
   };
+}
+
+function jobResultFromExecution(
+  execution: ExecutionInfo,
+  output: StepOutput[],
+  timedOut: boolean,
+): JobResult {
+  const stdout = Buffer.concat(output.map((step) => bytesFromStreamText(step.stdout)));
+  const stderr = Buffer.concat(output.map((step) => bytesFromStreamText(step.stderr)));
+  const job = jobInfoFromExecution(execution);
+  return buildJobResult({
+    jobId: job.id,
+    stepIds: execution.steps.map((step) => `${executionIdText(execution.id)}/S${step.id.index}`),
+    status: job.status,
+    ...(job.cancelReason ? { cancelReason: job.cancelReason } : {}),
+    stdout,
+    stderr,
+    stdoutTruncated: output.some((step) => step.stdout.truncated),
+    stderrTruncated: output.some((step) => step.stderr.truncated),
+    exitCode: job.exit_code ?? null,
+    timedOut,
+    warnings: [],
+  });
+}
+
+function streamTextView(stream: StreamText): string {
+  return bytesFromStreamText(stream).toString("utf8");
+}
+
+function executionPlanLabel(plan: ExecutionPlan): string {
+  switch (plan.kind) {
+    case "pipeline":
+      return plan.pipeline.segments
+        .map((segment) =>
+          [
+            ...Object.entries(segment.env ?? {}).map(([key, value]) => `${key}=${value}`),
+            ...segment.command,
+            ...(segment.pipe_to_next ? [pipeOperatorText(segment.pipe_to_next)] : []),
+          ].join(" "),
+        )
+        .join(" ");
+    case "on_success":
+      return `${executionPlanLabel(plan.left)} -> ${executionPlanLabel(plan.right)}`;
+    case "on_failure":
+      return `${executionPlanLabel(plan.left)} || ${executionPlanLabel(plan.right)}`;
+    case "always":
+      return `${executionPlanLabel(plan.left)} ~> ${executionPlanLabel(plan.right)}`;
+    case "parallel_all":
+      return plan.branches.map(executionPlanLabel).join(" ||| ");
+    case "any_success":
+      return plan.branches.map(executionPlanLabel).join(" |?| ");
+    case "context_delta":
+      return plan.delta.cwd ? `cd ${plan.delta.cwd}` : "env";
+  }
+}
+
+function pipeOperatorText(operator: string): string {
+  return operator === "Stdout" ? "|>" : operator === "StdoutStderr" ? "|&>" : "|!>";
+}
+
+function parseCronSchedule(input: string): CronSchedule {
+  const trimmed = input.trim();
+  const interval = trimmed.match(/^(every|in)\s+(\d+)(ms|s|m|h|d)$/u);
+  if (interval) {
+    const millis =
+      Number(interval[2]) *
+      ({ ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[interval[3]!] ?? 0);
+    const duration = { secs: Math.floor(millis / 1_000), nanos: (millis % 1_000) * 1_000_000 };
+    return interval[1] === "every" ? { Interval: duration } : { Delay: duration };
+  }
+  const preset = (
+    { hourly: "Hourly", daily: "Daily", weekly: "Weekly", monthly: "Monthly" } as const
+  )[trimmed as "hourly" | "daily" | "weekly" | "monthly"];
+  if (preset) return { Preset: preset };
+  throw new CueError(
+    "INVALID_REQUEST",
+    `unsupported schedule ${JSON.stringify(input)}; use every/in durations or hourly/daily/weekly/monthly`,
+  );
+}
+
+function displayCronSchedule(schedule: CronSchedule): string {
+  if ("Interval" in schedule) return `every ${schedule.Interval.secs}s`;
+  if ("Delay" in schedule) return `in ${schedule.Delay.secs}s`;
+  if ("Preset" in schedule) return schedule.Preset.toLowerCase();
+  return JSON.stringify(schedule);
 }
 
 function abortError(signal: AbortSignal): Error {
@@ -479,26 +455,9 @@ function outputView(bytes: Buffer): OutputView {
   };
 }
 
-function bytesFromJobOutput(output: JobOutputResult, stream: "stdout" | "stderr"): Buffer {
-  const encoding = stream === "stdout" ? output.stdoutEncoding : output.stderrEncoding;
-  const base64 = stream === "stdout" ? output.stdoutBase64 : output.stderrBase64;
-  const text = stream === "stdout" ? output.stdout : output.stderr;
-  return encoding === "base64" && base64 ? Buffer.from(base64, "base64") : Buffer.from(text);
-}
-
-function joinOutputParts(parts: Buffer[], separator: string): Buffer {
-  if (parts.length === 0) return Buffer.alloc(0);
-  if (!separator) return Buffer.concat(parts);
-  const joined: Buffer[] = [];
-  for (const [index, part] of parts.entries()) {
-    if (index > 0) joined.push(Buffer.from(separator));
-    joined.push(part);
-  }
-  return Buffer.concat(joined);
-}
-
 function buildJobResult(input: {
   jobId: string;
+  stepIds?: string[];
   status: JobStatus;
   cancelReason?: CancelReason;
   stdout: Buffer;
@@ -524,6 +483,7 @@ function buildJobResult(input: {
   }
   return {
     jobId: input.jobId,
+    stepIds: input.stepIds ?? [],
     status: input.status,
     ...(input.cancelReason ? { cancelReason: input.cancelReason } : {}),
     stdout: stdout.text,
@@ -538,29 +498,6 @@ function buildJobResult(input: {
     timedOut: input.timedOut,
     warnings,
   };
-}
-
-function reconcileCollectedStream(input: {
-  live: Buffer;
-  liveOverflowed: boolean;
-  sawEofForEveryJob: boolean;
-  buffered: Buffer;
-  bufferedTruncated: boolean;
-}): { bytes: Buffer; truncated: boolean } {
-  if (!input.sawEofForEveryJob || input.live.length === 0) {
-    return { bytes: input.buffered, truncated: input.bufferedTruncated };
-  }
-  if (!input.bufferedTruncated) {
-    if (!input.liveOverflowed && input.live.equals(input.buffered)) {
-      return { bytes: input.live, truncated: false };
-    }
-    return { bytes: input.buffered, truncated: false };
-  }
-
-  // The daemon's completed-job snapshot is a 1 MiB tail. A longer live
-  // capture is more useful, but the pre-subscription prefix cannot be proven
-  // complete, so keep truncation explicit instead of silently claiming it.
-  return { bytes: input.live, truncated: true };
 }
 
 function okRecord(response: ResponsePayload): Record<string, unknown> {
@@ -578,9 +515,6 @@ function textOutputFromOk(ok: Record<string, unknown>): string | null {
   if ("TextOutput" in ok) {
     return (ok as { TextOutput: { text: string; truncated: boolean } }).TextOutput.text;
   }
-  if ("EvalText" in ok) {
-    return (ok as { EvalText: { text: string } }).EvalText.text;
-  }
   return null;
 }
 
@@ -596,14 +530,12 @@ function scopeCreatedFromOk(ok: Record<string, unknown>): ScopeCreatedPayload | 
 const MAX_MESSAGE_SIZE = 16 * 1024 * 1024; // 16 MiB
 const MAX_OUTPUT_BUFFER = 4 * 1024 * 1024; // 4 MiB per stream, per job
 const MAX_SSH_STDERR_SNAPSHOT = 64 * 1024; // keep recent gateway diagnostics bounded
-const REQUIRED_IPC_PROTOCOL_VERSION = 2;
+const REQUIRED_IPC_PROTOCOL_VERSION = 3;
 const REQUIRED_IPC_CAPABILITY_SESSION_HANDSHAKE_REQUIRED = "session-handshake-required";
 const REQUIRED_IPC_CAPABILITIES = [
   REQUIRED_IPC_CAPABILITY_SESSION_HANDSHAKE_REQUIRED,
-  "script-item-created",
-  "cancel-execution",
+  "execution-v3",
   "operation-idempotency",
-  "script-info-recovery",
 ] as const;
 const MAX_PENDING_REQUESTS = 1_024;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -921,8 +853,6 @@ export class CueClient {
   #nextId = 1;
   #pending = new Map<number, PendingRequest>();
   #listeners = new Map<string, Set<(event: EventPayload) => void>>();
-  #recentScriptItems: ScriptItemCreatedEvent[] = [];
-  #recentScriptFinished: ScriptFinishedEvent[] = [];
   #buffer = Buffer.alloc(0);
   #closed = false;
   #daemonInstanceId: string | null = null;
@@ -997,21 +927,6 @@ export class CueClient {
 
   // ── Requests ────────────────────────────────────────────────────────
 
-  /** Send an Eval request for literal cue-shell commands (:kill, :jobs, :out). */
-  async #rawEval(input: string, mode: Mode = "Job", operation?: CueOperationKey): Promise<number> {
-    return this.#send({ Eval: { input, mode } }, operation);
-  }
-
-  /** Send a raw Eval request and wait for the response payload. */
-  async #rawEvalAndWait(
-    input: string,
-    mode: Mode = "Job",
-    operation?: CueOperationKey,
-  ): Promise<ResponsePayload> {
-    const requestId = await this.#rawEval(input, mode, operation);
-    return this.#waitForResponse(requestId);
-  }
-
   /**
    * Send a `:run` Eval request.  cue-shell has its own grammar (not bash-compatible) — commands
    * are direct-exec (execvp).  For composition use cue-shell's native
@@ -1033,12 +948,17 @@ export class CueClient {
    *     `|?|`  parallel, any-success race
    */
   async eval(input: string, mode: Mode = "Job", opts: RunEvalOptions = {}): Promise<number> {
-    const modeParams: string[] = [];
-    if (opts.pty !== undefined) modeParams.push(`pty=${opts.pty ? "true" : "false"}`);
-    if (opts.cwd) modeParams.push(`cwd=${quoteModeParamValue(opts.cwd)}`);
-    modeParams.push(...resourceNeedModeParams(opts.needs));
-    const modeParamText = modeParams.length > 0 ? `(${modeParams.join(",")})` : "";
-    return this.#send({ Eval: { input: `:run${modeParamText} ${input}`, mode } }, opts.operation);
+    if (mode !== "Job") {
+      throw new CueError("INVALID_REQUEST", "IPC v3 schedules use CreateSchedule, not Eval mode");
+    }
+    const spec = compileExecution(input, {
+      pty: opts.pty,
+      needs: opts.needs,
+      cwd: opts.cwd,
+      spawnAdapter: opts.spawnAdapter,
+      sourceName: "<spark-cue>",
+    });
+    return this.#send({ SubmitExecution: { spec } }, opts.operation);
   }
 
   /** Subscribe to one or more event channels. */
@@ -1054,68 +974,6 @@ export class CueClient {
     await this.#waitForResponse(id);
   }
 
-  /** Attach this client to a live foreground PTY job. */
-  async fgAttach(jobId: string): Promise<string> {
-    const id = await this.#send({ FgAttach: { id: jobId } });
-    const ok = okRecord(await this.#waitForResponse(id));
-    if ("FgAttached" in ok) {
-      return (ok as { FgAttached: { id: string } }).FgAttached.id;
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected FgAttached response");
-  }
-
-  /** Detach this client from its foreground PTY job. */
-  async fgDetach(): Promise<void> {
-    const id = await this.#send({ FgDetach: {} });
-    const ok = okRecord(await this.#waitForResponse(id));
-    if (!("Ack" in ok)) throw new CueError("UNEXPECTED_RESPONSE", "expected Ack response");
-  }
-
-  /** Send raw bytes to the attached foreground PTY. */
-  async fgInput(data: string | Uint8Array): Promise<void> {
-    const base64 = Buffer.from(data).toString("base64");
-    const id = await this.#send({ FgInput: { data: base64 } });
-    const ok = okRecord(await this.#waitForResponse(id));
-    if (!("Ack" in ok)) throw new CueError("UNEXPECTED_RESPONSE", "expected Ack response");
-  }
-
-  /** Resize the attached foreground PTY. */
-  async fgResize(cols: number, rows: number): Promise<void> {
-    if (
-      !Number.isInteger(cols) ||
-      cols < 0 ||
-      cols > 0xffff ||
-      !Number.isInteger(rows) ||
-      rows < 0 ||
-      rows > 0xffff
-    ) {
-      throw new CueError("INVALID_REQUEST", "foreground PTY size must use unsigned 16-bit values");
-    }
-    const id = await this.#send({ FgResize: { cols, rows } });
-    const ok = okRecord(await this.#waitForResponse(id));
-    if (!("Ack" in ok)) throw new CueError("UNEXPECTED_RESPONSE", "expected Ack response");
-  }
-
-  /** Request parser-aware completions from cue-shell. */
-  async complete(input: string, cursor: number): Promise<CompletionItem[]> {
-    const id = await this.#send({ Complete: { input, cursor } });
-    const ok = okRecord(await this.#waitForResponse(id));
-    if ("CompletionList" in ok) {
-      return (ok as { CompletionList: { items: CompletionItem[] } }).CompletionList.items;
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected CompletionList response");
-  }
-
-  /** Request syntax-highlight spans from cue-shell. */
-  async highlight(input: string): Promise<HighlightSpan[]> {
-    const id = await this.#send({ Highlight: { input } });
-    const ok = okRecord(await this.#waitForResponse(id));
-    if ("HighlightResult" in ok) {
-      return (ok as { HighlightResult: { spans: HighlightSpan[] } }).HighlightResult.spans;
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected HighlightResult response");
-  }
-
   /** Send and acknowledge the cue-shell session handshake. */
   async handshake(options?: CueSessionOptions): Promise<void> {
     const session = normalizeCueSessionOptions(options);
@@ -1123,6 +981,7 @@ export class CueClient {
     try {
       const id = await this.#send({
         Handshake: {
+          protocol_version: REQUIRED_IPC_PROTOCOL_VERSION,
           session_id: session.sessionId,
           cwd: session.cwd,
           env: normalizeSessionEnv(session.env, session.forwardSensitiveEnv),
@@ -1207,6 +1066,35 @@ export class CueClient {
     await this.pingForVersion();
   }
 
+  async submitExecution(spec: ExecutionSpec, operation?: CueOperationKey): Promise<ExecutionInfo> {
+    const requestId = await this.#send({ SubmitExecution: { spec } }, operation);
+    const ok = okRecord(await this.#waitForResponse(requestId));
+    if ("ExecutionCreated" in ok) {
+      return (ok as { ExecutionCreated: { execution: ExecutionInfo } }).ExecutionCreated.execution;
+    }
+    throw new CueError("UNEXPECTED_RESPONSE", "expected ExecutionCreated response");
+  }
+
+  async getExecution(id: number | string): Promise<ExecutionInfo | null> {
+    const executionId = parseExecutionId(id);
+    try {
+      const requestId = await this.#send({ GetExecution: { id: executionId } });
+      const ok = okRecord(await this.#waitForResponse(requestId));
+      if ("ExecutionInfo" in ok) return (ok as { ExecutionInfo: ExecutionInfo }).ExecutionInfo;
+      throw new CueError("UNEXPECTED_RESPONSE", "expected ExecutionInfo response");
+    } catch (error) {
+      if (error instanceof CueError && error.code === "NOT_FOUND") return null;
+      throw error;
+    }
+  }
+
+  async listExecutions(limit?: number): Promise<ExecutionInfo[]> {
+    const requestId = await this.#send({ ListExecutions: { limit: limit ?? null } });
+    const ok = okRecord(await this.#waitForResponse(requestId));
+    if ("ExecutionList" in ok) return (ok as { ExecutionList: ExecutionInfo[] }).ExecutionList;
+    throw new CueError("UNEXPECTED_RESPONSE", "expected ExecutionList response");
+  }
+
   /**
    * Run a command and wait up to `timeout` seconds for it to complete.
    * Wait-budget expiry detaches (job keeps running) and returns `timedOut`.
@@ -1214,85 +1102,33 @@ export class CueClient {
    */
   async runJob(command: string, opts?: RunJobOptions): Promise<JobResult> {
     const timeoutMs = (opts?.timeout ?? 300) * 1000;
-    const cwd = opts?.cwd;
-    const pty = opts?.pty ?? false;
-    const needs = opts?.needs;
     const signal = opts?.signal;
     throwIfAborted(signal);
-
-    // Subscribe to global jobs channel before issuing the command.
-    await this.#ensureSubscribed("jobs");
-
-    // Issue the eval.  The daemon sends job/chain events before the
-    // response for successful runs.
-    const requestId = await this.eval(command, "Job", {
-      cwd,
-      pty,
-      needs,
-      operation: cueOperationStep(opts?.operation, "submit"),
-    });
-    const response = await this.#waitForResponse(requestId);
-
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
-
-    // Extract job ids from the response — may be a single job or a chain.
-    const ok = (response as { Ok: Record<string, unknown> }).Ok;
-    let allJobIds: string[] = [];
-    let firstJobId: string | null = null;
-    let warnings: string[] = [];
-    let chainId: string | undefined;
-    let expectedJobCount: number | undefined;
-
-    if (ok && "ChainCreated" in ok) {
-      const payload = (ok as { ChainCreated: ChainCreatedPayload }).ChainCreated;
-      allJobIds = payload.job_ids;
-      firstJobId = payload.job_ids[0] ?? payload.chain_id;
-      chainId = payload.chain_id;
-      expectedJobCount = payload.chain.total_jobs;
-      warnings = payload.warnings;
-    } else if (ok && "JobCreated" in ok) {
-      const payload = (ok as { JobCreated: JobCreatedPayload }).JobCreated;
-      const id = payload.job_id;
-      const chainJobs = await this.#chainJobsForCreatedJob(payload);
-      if (chainJobs) {
-        allJobIds = chainJobs.map((job) => job.id);
-        firstJobId = allJobIds[0] ?? id;
-        chainId = String(chainJobs[0]?.chain_id ?? payload.chain_id);
-        expectedJobCount = chainJobs.length;
-      } else {
-        allJobIds = [id];
-        firstJobId = id;
-      }
-      warnings = payload.warnings;
-    }
-
-    if (!firstJobId || allJobIds.length === 0) {
-      throw new CueError("UNEXPECTED_RESPONSE", "no job id from response");
-    }
-
-    const cancelTarget = chainId ?? firstJobId;
-    const outputChannels = allJobIds.map((id) => `output:${id}`);
-    try {
+    const created = await this.submitExecution(
+      compileExecution(command, {
+        cwd: opts?.cwd,
+        pty: opts?.pty ?? false,
+        needs: opts?.needs,
+        spawnAdapter: opts?.spawnAdapter,
+        sourceName: "<spark-cue>",
+      }),
+      cueOperationStep(opts?.operation, "submit"),
+    );
+    const deadline = Date.now() + timeoutMs;
+    let execution = created;
+    while (!executionStateTerminal(execution.state) && Date.now() < deadline) {
       if (signal?.aborted) {
-        await this.cancelExecution(cancelTarget, cueOperationStep(opts?.operation, "cancel"));
+        await this.cancelExecution(
+          executionIdText(execution.id),
+          cueOperationStep(opts?.operation, "cancel"),
+        );
         throw abortError(signal);
       }
-      for (const channel of outputChannels) await this.subscribe([channel]);
-      return await this.#collectJobOutput(
-        firstJobId,
-        allJobIds,
-        timeoutMs,
-        warnings,
-        chainId,
-        expectedJobCount,
-        signal,
-        opts?.operation,
-      );
-    } finally {
-      await this.unsubscribe(outputChannels).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      execution = (await this.getExecution(execution.id)) ?? execution;
     }
+    const output = await this.executionOutput(execution.id);
+    return jobResultFromExecution(execution, output, !executionStateTerminal(execution.state));
   }
 
   /**
@@ -1300,55 +1136,23 @@ export class CueClient {
    * Use `jobStatus()` and `jobOutput()` to track progress.
    */
   async startJob(command: string, opts?: StartJobOptions): Promise<StartJobResult> {
-    await this.#ensureSubscribed("jobs");
-
-    const requestId = await this.eval(command, "Job", {
-      cwd: opts?.cwd,
-      pty: opts?.pty ?? false,
-      needs: opts?.needs,
-      operation: cueOperationStep(opts?.operation, "submit"),
-    });
-    const response = await this.#waitForResponse(requestId);
-
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
-
-    const ok = (response as { Ok: Record<string, unknown> }).Ok;
-
-    // Handle ChainCreated (chain syntax like `a -> b`)
-    if (ok && "ChainCreated" in ok) {
-      const payload = (ok as { ChainCreated: ChainCreatedPayload }).ChainCreated;
-      return {
-        jobId: payload.job_ids[0] ?? payload.chain_id,
-        kind: "chain",
-        chain: payload.chain,
-        warnings: payload.warnings,
-      };
-    }
-
-    // Handle JobCreated (single job, or a chain whose leaves are discoverable via :jobs).
-    if (ok && "JobCreated" in ok) {
-      const payload = (ok as { JobCreated: JobCreatedPayload }).JobCreated;
-      const jobs = await this.#chainJobsForCreatedJob(payload);
-      if (jobs) {
-        const chainId = String(jobs[0]?.chain_id ?? payload.chain_id);
-        return {
-          jobId: jobs[0]?.id ?? payload.job_id,
-          kind: "chain",
-          chain: this.#chainInfoFromJobs(chainId, command, jobs.length, jobs),
-          warnings: payload.warnings,
-        };
-      }
-      return {
-        jobId: payload.job_id,
-        kind: "job",
-        pipeline: command,
-        warnings: payload.warnings,
-      };
-    }
-
-    throw new CueError("UNEXPECTED_RESPONSE", "expected JobCreated or ChainCreated response");
+    const execution = await this.submitExecution(
+      compileExecution(command, {
+        cwd: opts?.cwd,
+        pty: opts?.pty ?? false,
+        needs: opts?.needs,
+        spawnAdapter: opts?.spawnAdapter,
+        sourceName: "<spark-cue>",
+      }),
+      cueOperationStep(opts?.operation, "submit"),
+    );
+    return {
+      jobId: executionIdText(execution.id),
+      stepIds: execution.steps.map((step) => `${executionIdText(execution.id)}/S${step.id.index}`),
+      kind: execution.steps.length > 1 ? "chain" : "job",
+      pipeline: command,
+      warnings: [],
+    };
   }
 
   /**
@@ -1360,579 +1164,109 @@ export class CueClient {
    * the script-level terminal status.
    */
   async runScript(opts: RunScriptOptions): Promise<ScriptResult> {
-    const { path, input } = opts;
-    const timeoutMs = (opts.timeout ?? 300) * 1000;
     const signal = opts.signal;
     throwIfAborted(signal);
-
-    await this.#ensureSubscribed("jobs");
-
-    const requestId = await this.#send(
-      { RunScript: { path, input } },
+    const execution = await this.submitExecution(
+      compileCueFile(opts.input, opts.path, { spawnAdapter: opts.spawnAdapter }),
       cueOperationStep(opts.operation, "submit"),
     );
-    const response = await this.#waitForResponse(requestId);
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
-    const ok = (response as { Ok: Record<string, unknown> }).Ok;
-    if (!ok || !("ScriptCreated" in ok)) {
-      throw new CueError("UNEXPECTED_RESPONSE", "expected ScriptCreated response");
-    }
-    const created = (ok as { ScriptCreated: ScriptCreatedPayload }).ScriptCreated;
-
-    if (created.submit_error) {
-      const err = created.submit_error;
-      throw new CueError(
-        err.code,
-        `script ${created.script_id} submission failed at item ${err.index}: ${err.message}`,
-      );
-    }
-
-    if (signal?.aborted) {
-      await this.cancelExecution(created.script_id, cueOperationStep(opts.operation, "cancel"));
-      throw abortError(signal);
-    }
-
-    const scriptItems = new Map<number, ScriptItemInfo>(
-      created.items.map((item) => [item.index, item]),
-    );
-    const itemJobIds = new Map<number, string[]>();
-    const allKnownJobIds = new Set<string>();
-    const stdoutByJob = new Map<string, string[]>();
-    const stderrByJob = new Map<string, string[]>();
-    const stdoutLenByJob = new Map<string, number>();
-    const stderrLenByJob = new Map<string, number>();
-    const binaryNoticeByJob = new Set<string>();
-    const subscribedOutputChannels = new Set<string>();
-    let acceptingOutputSubscriptions = true;
-
-    const ensureJobBuffers = (jobId: string) => {
-      if (!stdoutByJob.has(jobId)) {
-        stdoutByJob.set(jobId, []);
-        stdoutLenByJob.set(jobId, 0);
-      }
-      if (!stderrByJob.has(jobId)) {
-        stderrByJob.set(jobId, []);
-        stderrLenByJob.set(jobId, 0);
-      }
-    };
-
-    const appendCappedOutput = (
-      buffers: Map<string, string[]>,
-      lengths: Map<string, number>,
-      jobId: string,
-      data: string,
-    ) => {
-      ensureJobBuffers(jobId);
-      const list = buffers.get(jobId);
-      if (!list) return;
-      const current = lengths.get(jobId) ?? 0;
-      if (current >= MAX_OUTPUT_BUFFER) return;
-      const remaining = MAX_OUTPUT_BUFFER - current;
-      const chunk = data.length > remaining ? data.slice(0, remaining) : data;
-      if (!chunk) return;
-      list.push(chunk);
-      lengths.set(jobId, current + chunk.length);
-    };
-
-    const trackJob = async (itemIndex: number, jobId: string) => {
-      const list = itemJobIds.get(itemIndex) ?? [];
-      if (!list.includes(jobId)) list.push(jobId);
-      itemJobIds.set(itemIndex, list);
-      if (!allKnownJobIds.has(jobId)) {
-        allKnownJobIds.add(jobId);
-        ensureJobBuffers(jobId);
-        const channel = `output:${jobId}`;
-        if (!acceptingOutputSubscriptions) return;
-        await this.subscribe([channel]);
-        if (acceptingOutputSubscriptions) {
-          subscribedOutputChannels.add(channel);
-        } else {
-          await this.unsubscribe([channel]).catch(() => {});
-        }
-      }
-    };
-
-    for (const item of scriptItems.values()) {
-      if (item.result.kind === "job") {
-        await trackJob(item.index, item.result.job_id);
-      } else if (item.result.kind === "chain") {
-        for (const jid of item.result.job_ids) {
-          await trackJob(item.index, jid);
-        }
-      }
-    }
-
-    if (signal?.aborted) {
-      await this.cancelExecution(created.script_id, cueOperationStep(opts.operation, "cancel"));
-      await this.unsubscribe([...subscribedOutputChannels]).catch(() => {});
-      throw abortError(signal);
-    }
-
-    return new Promise<ScriptResult>((resolve, reject) => {
-      let finished: ScriptTerminalState | null = null;
-      let resolved = false;
-      let snapshotTerminalReconciled = false;
-      let snapshotPoll: ReturnType<typeof setInterval> | undefined;
-      let snapshotQueryInFlight = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      let timerArmed = false;
-      const waitDeadline = Date.now() + timeoutMs;
-      const unsubs: Array<() => void> = [];
-      const pendingItemRegistrations = new Set<Promise<void>>();
-
-      const cleanupListeners = () => {
-        acceptingOutputSubscriptions = false;
-        if (snapshotPoll) clearInterval(snapshotPoll);
-        signal?.removeEventListener("abort", onAbort);
-        for (const off of unsubs) off();
-      };
-
-      const releaseOutputChannels = async () => {
-        await this.unsubscribe([...subscribedOutputChannels]).catch(() => {});
-        subscribedOutputChannels.clear();
-      };
-
-      const failRecovery = async (error: unknown) => {
-        if (resolved) return;
-        resolved = true;
-        if (timer) clearTimeout(timer);
-        cleanupListeners();
-        await releaseOutputChannels();
-        reject(error);
-      };
-
-      const snapshotItems = async (): Promise<ScriptItemSummary[]> => {
-        const itemResults: ScriptItemSummary[] = [];
-        const authoritativeItems = [...scriptItems.values()].sort(
-          (left, right) => left.index - right.index,
+    const deadline = Date.now() + (opts.timeout ?? 300) * 1000;
+    let current = execution;
+    while (!executionStateTerminal(current.state) && Date.now() < deadline) {
+      if (signal?.aborted) {
+        await this.cancelExecution(
+          executionIdText(current.id),
+          cueOperationStep(opts.operation, "cancel"),
         );
-        for (const item of authoritativeItems) {
-          itemResults.push(
-            await this.#summarizeScriptItem(
-              item,
-              itemJobIds.get(item.index) ?? [],
-              stdoutByJob,
-              stderrByJob,
-            ),
-          );
-        }
-        return itemResults;
-      };
-
-      const finalize = async () => {
-        if (resolved) return;
-        if (!finished || !snapshotTerminalReconciled) return;
-        resolved = true;
-        if (timer) clearTimeout(timer);
-        cleanupListeners();
-
-        await new Promise((r) => setTimeout(r, 50));
-        await Promise.all([...pendingItemRegistrations]);
-
-        try {
-          const itemResults = await snapshotItems();
-          await releaseOutputChannels();
-          resolve({
-            scriptId: created.script_id,
-            source: created.source ?? { kind: "inline" },
-            status: finished.status,
-            exitCode: finished.exit_code,
-            failedItemIndex: finished.failed_item_index ?? null,
-            items: itemResults,
-            timedOut: false,
-          });
-        } catch (error) {
-          await releaseOutputChannels();
-          reject(error);
-        }
-      };
-
-      const settleForeground = () => {
-        if (resolved) return false;
-        resolved = true;
-        if (timer) clearTimeout(timer);
-        cleanupListeners();
-        return true;
-      };
-
-      const abortForeground = async (abortSignal: AbortSignal) => {
-        if (!settleForeground()) return;
-        try {
-          await this.cancelExecution(created.script_id, cueOperationStep(opts.operation, "cancel"));
-          await releaseOutputChannels();
-          reject(abortError(abortSignal));
-        } catch (error) {
-          await releaseOutputChannels();
-          reject(error);
-        }
-      };
-
-      const detachForeground = async () => {
-        if (!settleForeground()) return;
-        let items: ScriptItemSummary[] = [];
-        try {
-          items = await snapshotItems();
-        } catch {
-          items = [];
-        }
-        await releaseOutputChannels();
-        resolve({
-          scriptId: created.script_id,
-          source: created.source ?? { kind: "inline" },
-          status: "running",
-          exitCode: null,
-          failedItemIndex: null,
-          items,
-          timedOut: true,
-        });
-      };
-
-      const armTimeout = () => {
-        if (resolved || timerArmed) return;
-        timerArmed = true;
-        timer = setTimeout(() => void detachForeground(), Math.max(0, waitDeadline - Date.now()));
-      };
-      const onAbort = () => {
-        if (signal) void abortForeground(signal);
-      };
-      signal?.addEventListener("abort", onAbort, { once: true });
-
-      const onOutput = (event: EventPayload) => {
-        const chunk = outputChunkFromEvent(event);
-        if (!chunk) return;
-        if (!allKnownJobIds.has(chunk.id)) return;
-        const text = chunk.bytes.toString("utf8");
-        if (chunk.stream === "stdout") {
-          appendCappedOutput(stdoutByJob, stdoutLenByJob, chunk.id, text);
-        } else {
-          appendCappedOutput(stderrByJob, stderrLenByJob, chunk.id, text);
-        }
-        if (chunk.encoding === "base64" && !binaryNoticeByJob.has(chunk.id)) {
-          binaryNoticeByJob.add(chunk.id);
-          appendCappedOutput(
-            stderrByJob,
-            stderrLenByJob,
-            chunk.id,
-            "[non-UTF-8 process output rendered as a lossy UTF-8 view; OutputChunkBinary.base64 preserves the exact bytes]\n",
-          );
-        }
-      };
-
-      const installedForwarders = new Set<string>();
-      const ensureForwarder = (jobId: string) => {
-        if (installedForwarders.has(jobId)) return;
-        installedForwarders.add(jobId);
-        unsubs.push(this.onEvent(`output:${jobId}`, onOutput));
-      };
-      for (const jid of allKnownJobIds) ensureForwarder(jid);
-
-      const registerScriptItem = async (item: ScriptItemInfo, reconcileChain = false) => {
-        const merged = mergeScriptItemInfo(scriptItems.get(item.index), item, reconcileChain);
-        scriptItems.set(merged.index, merged);
-        const jobIds =
-          merged.result.kind === "job"
-            ? [merged.result.job_id]
-            : merged.result.kind === "chain"
-              ? merged.result.job_ids
-              : [];
-        if (reconcileChain && merged.result.kind === "chain") {
-          const chainId = merged.result.chain_id;
-          const durableIds = (await this.listJobs())
-            .filter((job) => job.chain_id != null && String(job.chain_id) === chainId)
-            .map((job) => job.id);
-          for (const jobId of durableIds) {
-            if (!jobIds.includes(jobId)) jobIds.push(jobId);
-          }
-          merged.result.job_ids = jobIds;
-        }
-        for (const jobId of jobIds) {
-          await trackJob(merged.index, jobId);
-          ensureForwarder(jobId);
-        }
-      };
-
-      const scheduleScriptItem = (item: ScriptItemInfo) => {
-        const registration = registerScriptItem(item);
-        pendingItemRegistrations.add(registration);
-        void registration
-          .catch((error) => failRecovery(error))
-          .finally(() => pendingItemRegistrations.delete(registration));
-      };
-      let reconcileSnapshot!: () => Promise<void>;
-
-      const onJobs = (event: EventPayload) => {
-        if ("ScriptItemCreated" in event) {
-          const createdItem = (event as { ScriptItemCreated: ScriptItemCreatedEvent })
-            .ScriptItemCreated;
-          if (createdItem.script_id === created.script_id) {
-            scheduleScriptItem(createdItem.item);
-          }
-          return;
-        }
-        if ("ScriptFinished" in event) {
-          const fin = (event as { ScriptFinished: ScriptFinishedEvent }).ScriptFinished;
-          if (fin.script_id === created.script_id) {
-            finished = {
-              status: fin.status,
-              exit_code: fin.exit_code,
-              failed_item_index: fin.failed_item_index,
-            };
-            void reconcileSnapshot();
-          }
-          return;
-        }
-        if ("ChainProgress" in event) {
-          const progress = (event as { ChainProgress: { chain: ChainInfo } }).ChainProgress;
-          const item = [...scriptItems.values()].find(
-            (it) => it.result.kind === "chain" && it.result.chain_id === progress.chain.id,
-          );
-          if (!item || item.result.kind !== "chain") return;
-          const jobIds = progress.chain.jobs.flatMap((job) => (job.job_id ? [job.job_id] : []));
-          item.result.chain = progress.chain;
-          item.result.job_ids = [...new Set([...item.result.job_ids, ...jobIds])];
-          for (const job of progress.chain.jobs) {
-            const jid = job.job_id;
-            if (!jid) continue;
-            void trackJob(item.index, jid).then(() => ensureForwarder(jid));
-          }
-        }
-      };
-      unsubs.push(this.onEvent("jobs", onJobs));
-
-      for (const cached of this.#recentScriptItems) {
-        if (cached.script_id === created.script_id) scheduleScriptItem(cached.item);
+        throw abortError(signal);
       }
-      const cachedFinished = this.#recentScriptFinished.find(
-        (fin) => fin.script_id === created.script_id,
-      );
-      if (cachedFinished) {
-        finished = {
-          status: cachedFinished.status,
-          exit_code: cachedFinished.exit_code,
-          failed_item_index: cachedFinished.failed_item_index,
-        };
-      }
-
-      reconcileSnapshot = async () => {
-        if (resolved || snapshotQueryInFlight) return;
-        snapshotQueryInFlight = true;
-        try {
-          const snapshot = await this.scriptInfo(created.script_id);
-          if (resolved) return;
-          for (const item of snapshot.items) await registerScriptItem(item, true);
-          if (snapshot.submit_error) {
-            const error = snapshot.submit_error;
-            await failRecovery(
-              new CueError(
-                error.code,
-                `script ${snapshot.script_id} submission failed at item ${error.index}: ${error.message}`,
-              ),
-            );
-            return;
-          }
-          if (snapshot.status !== "running") {
-            snapshotTerminalReconciled = true;
-            finished = {
-              status: snapshot.status,
-              exit_code: snapshot.exit_code,
-              failed_item_index: snapshot.failed_item_index,
-            };
-            await finalize();
-          } else {
-            armTimeout();
-          }
-        } catch (error) {
-          await failRecovery(error);
-        } finally {
-          snapshotQueryInFlight = false;
-        }
-      };
-
-      // Listener-first reconciliation closes all three races: terminal before
-      // reconnect, middle items missed while disconnected, and a still-running
-      // script that finishes after the new connection is established.
-      if (!resolved) {
-        snapshotPoll = setInterval(() => void reconcileSnapshot(), 100);
-        snapshotPoll.unref?.();
-        void reconcileSnapshot();
-        void this.closed.then(() =>
-          failRecovery(
-            new CueTransportError(
-              `connection closed while waiting for script ${created.script_id}`,
-            ),
-          ),
-        );
-      }
-    });
-  }
-
-  async #summarizeScriptItem(
-    item: ScriptItemInfo,
-    jobIds: string[],
-    stdoutByJob: Map<string, string[]>,
-    stderrByJob: Map<string, string[]>,
-  ): Promise<ScriptItemSummary> {
-    const stdoutParts: string[] = [];
-    const stderrParts: string[] = [];
-    let status: JobStatus = "Done";
-    let exitCode: number | null = null;
-    const jobStatuses: JobInfo[] = [];
-
-    for (const jobId of jobIds) {
-      const info = await this.jobStatus(jobId);
-      if (info) {
-        jobStatuses.push(info);
-        if (info.status !== "Done" && status === "Done") status = info.status;
-        if (info.exit_code != null && (exitCode === null || info.exit_code !== 0)) {
-          exitCode = info.exit_code;
-        }
-      }
-
-      try {
-        const output = await this.jobOutput(jobId);
-        stdoutParts.push(output.stdout);
-        stderrParts.push(output.stderr);
-        if (output.stdoutEncoding === "base64" || output.stderrEncoding === "base64") {
-          stderrParts.push(
-            "[non-UTF-8 process output rendered as a lossy UTF-8 view; use typed jobOutput base64 fields for exact bytes]\n",
-          );
-        }
-      } catch (error) {
-        console.debug(
-          `[spark-cue] jobOutput unavailable while summarizing script item ${item.index}; using streamed buffers`,
-          error,
-        );
-        stdoutParts.push((stdoutByJob.get(jobId) ?? []).join(""));
-        stderrParts.push((stderrByJob.get(jobId) ?? []).join(""));
-      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      current = (await this.getExecution(current.id)) ?? current;
     }
-
-    const messageText = item.result.kind === "message" ? item.result.text : undefined;
-
+    const output = await this.executionOutput(current.id);
+    const job = jobInfoFromExecution(current);
+    const stdout = output.map((step) => streamTextView(step.stdout)).join("");
+    const stderr = output.map((step) => streamTextView(step.stderr)).join("");
     return {
-      index: item.index,
-      source: item.source,
-      kind: item.result.kind,
-      jobIds,
-      chainId: item.result.kind === "chain" ? item.result.chain_id : null,
-      cronId: item.result.kind === "cron" ? item.result.cron_id : null,
-      message: messageText,
-      stdout: stdoutParts.join(""),
-      stderr: stderrParts.join(""),
-      status,
-      exitCode,
-      jobs: jobStatuses,
+      scriptId: executionIdText(current.id),
+      stepIds: current.steps.map((step) => `${executionIdText(current.id)}/S${step.id.index}`),
+      source: { kind: "file", path: opts.path },
+      status: executionStateTerminal(current.state)
+        ? current.state.status === "succeeded"
+          ? "done"
+          : "failed"
+        : "running",
+      exitCode: job.exit_code ?? null,
+      failedItemIndex:
+        current.steps.findIndex((step) => step.state.status === "failed") === -1
+          ? null
+          : current.steps.findIndex((step) => step.state.status === "failed"),
+      items: [
+        {
+          index: 0,
+          source: opts.path,
+          kind: "job",
+          jobIds: [executionIdText(current.id)],
+          chainId: null,
+          cronId: null,
+          stdout,
+          stderr,
+          status: job.status,
+          exitCode: job.exit_code ?? null,
+          jobs: [job],
+        },
+      ],
+      timedOut: !executionStateTerminal(current.state),
     };
   }
 
   /** Query the daemon-lifetime authoritative snapshot for a script run. */
   async scriptInfo(scriptId: string): Promise<ScriptInfoPayload> {
-    const requestId = await this.#send({ ScriptInfo: { id: scriptId } });
-    const ok = okRecord(await this.#waitForResponse(requestId));
-    if ("ScriptInfo" in ok) {
-      return (ok as { ScriptInfo: ScriptInfoPayload }).ScriptInfo;
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected ScriptInfo response");
+    const execution = await this.getExecution(scriptId);
+    if (!execution) throw new CueError("NOT_FOUND", `${scriptId} not found`);
+    return {
+      script_id: executionIdText(execution.id),
+      status: executionStateTerminal(execution.state)
+        ? execution.state.status === "succeeded"
+          ? "done"
+          : "failed"
+        : "running",
+      items: [],
+      exit_code: executionExitCode(execution),
+      failed_item_index: null,
+      submit_error: null,
+    };
   }
 
   /** Stop (kill) a running job or remove a cron. */
   async stopJob(targetId: string, operation?: CueOperationKey): Promise<void> {
-    const payload: RequestPayload = /^C\d+$/u.test(targetId)
-      ? { RemoveCron: { id: targetId } }
-      : /^CH\d+$/u.test(targetId)
-        ? { CancelExecution: { id: targetId } }
-        : { KillJob: { id: targetId } };
+    const payload: RequestPayload = /^T\d+$/u.test(targetId)
+      ? { RemoveSchedule: { id: parseScheduleId(targetId) } }
+      : {
+          CancelExecution: { id: parseExecutionId(targetId), mode: "graceful" },
+        };
     const requestId = await this.#send(payload, operation);
     okRecord(await this.#waitForResponse(requestId));
   }
 
   /** Idempotently cancel a job, chain, or script and wait for it to stop. */
   async cancelExecution(targetId: string, operation?: CueOperationKey): Promise<void> {
-    const requestId = await this.#send({ CancelExecution: { id: targetId } }, operation);
+    const requestId = await this.#send(
+      { CancelExecution: { id: parseExecutionId(targetId), mode: "graceful" } },
+      operation,
+    );
     okRecord(await this.#waitForResponse(requestId));
   }
 
   /** List all jobs through the typed IPC query. */
   async listJobs(limit?: number): Promise<JobInfo[]> {
-    const requestId = await this.#send({ ListJobs: { limit: limit ?? null } });
-    const ok = okRecord(await this.#waitForResponse(requestId));
-    if ("JobListPage" in ok) {
-      return (ok as { JobListPage: { jobs: JobInfo[]; page: PageInfo } }).JobListPage.jobs.map(
-        normalizeJob,
-      );
-    }
-    if ("JobList" in ok) {
-      return (ok as { JobList: JobInfo[] }).JobList.map(normalizeJob);
-    }
-    if ("JobInfo" in ok) {
-      const job = (ok as { JobInfo: JobInfo }).JobInfo;
-      return [normalizeJob(job)];
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected JobListPage, JobList, or JobInfo response");
+    return (await this.listExecutions(limit)).map(jobInfoFromExecution);
   }
 
   /** Get job status via `:jobs`. */
   async jobStatus(jobId: string): Promise<JobInfo | null> {
-    const list = await this.listJobs();
-    return list.find((j) => j.id === jobId) ?? null;
-  }
-
-  async #chainJobsForCreatedJob(payload: JobCreatedPayload): Promise<JobInfo[] | null> {
-    let chainId = payload.chain_id;
-    let chainTotal = payload.chain_total;
-
-    if (!chainId || !chainTotal || chainTotal <= 1) {
-      const job = await this.jobStatus(payload.job_id);
-      if (job?.chain_id != null && job.chain_total && job.chain_total > 1) {
-        chainId = String(job.chain_id);
-        chainTotal = job.chain_total;
-      }
-    }
-
-    if (!chainId || !chainTotal || chainTotal <= 1) return null;
-    return this.#waitForChainJobs(chainId, chainTotal);
-  }
-
-  #chainInfoFromJobs(
-    chainId: string,
-    pipeline: string,
-    totalJobs: number,
-    jobs: JobInfo[],
-  ): ChainInfo {
-    return {
-      id: chainId,
-      pipeline,
-      total_jobs: totalJobs,
-      jobs: jobs.map((job, index) => ({
-        index: job.chain_index ?? index,
-        pipeline: job.pipeline,
-        status: job.status,
-        job_id: job.id,
-        start_scope: job.start_scope,
-        end_scope: job.end_scope,
-        open_hint: job.open_hint,
-        ...(job.cancelReason ? { cancelReason: job.cancelReason } : {}),
-      })),
-    };
-  }
-
-  async #waitForChainJobs(chainId: string, totalJobs: number): Promise<JobInfo[]> {
-    const deadline = Date.now() + 1_000;
-    while (true) {
-      const jobs = (await this.listJobs())
-        .filter((job) => job.chain_id != null && String(job.chain_id) === chainId)
-        .sort((a, b) => (a.chain_index ?? 0) - (b.chain_index ?? 0));
-      if (jobs.length >= totalJobs) return jobs.slice(0, totalJobs);
-      if (Date.now() >= deadline) {
-        throw new CueError(
-          "UNEXPECTED_RESPONSE",
-          `chain ${chainId} reported ${totalJobs} jobs but only ${jobs.length} were visible`,
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    const execution = await this.getExecution(jobId);
+    return execution ? jobInfoFromExecution(execution) : null;
   }
 
   /** Get cron status via `:crons`. */
@@ -1943,8 +1277,8 @@ export class CueClient {
 
   /** Get buffered stdout from the daemon. */
   async jobOutput(jobId: string, tailBytes?: number): Promise<JobOutputResult> {
-    const output = await this.#queryJobOutput(jobId, tailBytes ?? null, tailBytes ?? null);
-    if (!output) {
+    const output = await this.executionOutput(jobId, tailBytes);
+    if (output.length === 0) {
       return {
         stdout: "",
         stderr: "",
@@ -1954,8 +1288,10 @@ export class CueClient {
         stderrTruncated: false,
       };
     }
-    const stdout = outputView(bytesFromStreamText(output.stdout));
-    const stderr = outputView(bytesFromStreamText(output.stderr));
+    const stdoutBytes = Buffer.concat(output.map((step) => bytesFromStreamText(step.stdout)));
+    const stderrBytes = Buffer.concat(output.map((step) => bytesFromStreamText(step.stderr)));
+    const stdout = outputView(stdoutBytes);
+    const stderr = outputView(stderrBytes);
     return {
       stdout: stdout.text,
       stderr: stderr.text,
@@ -1963,9 +1299,26 @@ export class CueClient {
       stderrEncoding: stderr.encoding,
       ...(stdout.base64 ? { stdoutBase64: stdout.base64 } : {}),
       ...(stderr.base64 ? { stderrBase64: stderr.base64 } : {}),
-      truncated: output.stdout.truncated,
-      stderrTruncated: output.stderr.truncated,
+      truncated: output.some((step) => step.stdout.truncated),
+      stderrTruncated: output.some((step) => step.stderr.truncated),
     };
+  }
+
+  async executionOutput(id: number | string, tailBytes?: number): Promise<StepOutput[]> {
+    const executionId = parseExecutionId(id);
+    const requestId = await this.#send({
+      ReadExecutionOutput: {
+        id: executionId,
+        step_id: null,
+        stdout_bytes: tailBytes ?? null,
+        stderr_bytes: tailBytes ?? null,
+      },
+    });
+    const ok = okRecord(await this.#waitForResponse(requestId));
+    if ("ExecutionOutput" in ok) {
+      return (ok as { ExecutionOutput: { id: number; steps: StepOutput[] } }).ExecutionOutput.steps;
+    }
+    throw new CueError("UNEXPECTED_RESPONSE", "expected ExecutionOutput response");
   }
 
   /** Get buffered stderr from the daemon. */
@@ -1978,113 +1331,57 @@ export class CueClient {
     base64?: string;
     truncated?: boolean;
   }> {
-    const output = await this.#queryJobOutput(jobId, null, tailBytes ?? null);
-    if (!output) return { stderr: "", encoding: "utf8", truncated: false };
-    const stderr = outputView(bytesFromStreamText(output.stderr));
+    const output = await this.jobOutput(jobId, tailBytes);
     return {
-      stderr: stderr.text,
-      encoding: stderr.encoding,
-      ...(stderr.base64 ? { base64: stderr.base64 } : {}),
-      truncated: output.stderr.truncated,
+      stderr: output.stderr,
+      encoding: output.stderrEncoding,
+      ...(output.stderrBase64 ? { base64: output.stderrBase64 } : {}),
+      truncated: output.stderrTruncated,
     };
-  }
-
-  async #queryJobOutput(
-    jobId: string,
-    stdoutBytes: number | null,
-    stderrBytes: number | null,
-  ): Promise<JobOutputPayload | null> {
-    try {
-      const requestId = await this.#send({
-        JobOutput: { id: jobId, stdout_bytes: stdoutBytes, stderr_bytes: stderrBytes },
-      });
-      const ok = okRecord(await this.#waitForResponse(requestId));
-      if ("JobOutput" in ok) return (ok as { JobOutput: JobOutputPayload }).JobOutput;
-      throw new CueError("UNEXPECTED_RESPONSE", "expected JobOutput response");
-    } catch (error) {
-      if (error instanceof CueError && isNoBufferedOutputError(error)) return null;
-      throw error;
-    }
   }
 
   /** Send stdin to a running job. */
   async sendInput(id: string, data: string, operation?: CueOperationKey): Promise<void> {
-    const response = await this.#rawEvalAndWait(`:send ${id} ${data}`, "Job", operation);
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
+    const attach = await this.#send({ StepAttach: { id: parseStepId(id) } });
+    okRecord(await this.#waitForResponse(attach));
+    const request = await this.#send(
+      { StepInput: { data: Buffer.from(data).toString("base64") } },
+      operation,
+    );
+    okRecord(await this.#waitForResponse(request));
   }
 
   /** Cancel a pending/running job. */
   async cancelJob(id: string, operation?: CueOperationKey): Promise<void> {
-    const response = await this.#rawEvalAndWait(`:cancel ${id}`, "Job", operation);
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
+    await this.cancelExecution(id, operation);
   }
 
   /** Pause a cron. */
   async pauseCron(id: string, operation?: CueOperationKey): Promise<void> {
-    const response = await this.#rawEvalAndWait(`:pause ${id}`, "Job", operation);
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
+    const request = await this.#send({ PauseSchedule: { id: parseScheduleId(id) } }, operation);
+    okRecord(await this.#waitForResponse(request));
   }
 
   /** Resume a cron. */
   async resumeCron(id: string, operation?: CueOperationKey): Promise<void> {
-    const response = await this.#rawEvalAndWait(`:resume ${id}`, "Job", operation);
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
+    const request = await this.#send({ ResumeSchedule: { id: parseScheduleId(id) } }, operation);
+    okRecord(await this.#waitForResponse(request));
   }
 
   /** Retry a terminal job. */
   async retryJob(id: string, operation?: CueOperationKey): Promise<StartJobResult> {
-    const response = await this.#rawEvalAndWait(`:retry ${id}`, "Job", operation);
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
-    }
-
-    const ok = (response as { Ok: Record<string, unknown> }).Ok;
-    if (ok && "ChainCreated" in ok) {
-      const payload = (ok as { ChainCreated: ChainCreatedPayload }).ChainCreated;
-      return {
-        jobId: payload.job_ids[0] ?? payload.chain_id,
-        kind: "chain",
-        chain: payload.chain,
-        warnings: payload.warnings,
-      };
-    }
-    if (ok && "JobCreated" in ok) {
-      const payload = (ok as { JobCreated: JobCreatedPayload }).JobCreated;
-      const jobs = await this.#chainJobsForCreatedJob(payload);
-      if (jobs) {
-        const chainId = String(jobs[0]?.chain_id ?? payload.chain_id);
-        return {
-          jobId: jobs[0]?.id ?? payload.job_id,
-          kind: "chain",
-          chain: this.#chainInfoFromJobs(chainId, `:retry ${id}`, jobs.length, jobs),
-          warnings: payload.warnings,
-        };
-      }
-      return {
-        jobId: payload.job_id,
-        kind: "job",
-        warnings: payload.warnings,
-      };
-    }
-
-    throw new CueError("UNEXPECTED_RESPONSE", "expected JobCreated or ChainCreated response");
-  }
-
-  /** Evaluate a raw daemon command that returns plain text. */
-  async evalText(input: string, mode: Mode = "Job"): Promise<string> {
-    const response = await this.#rawEvalAndWait(input, mode);
-    const ok = okRecord(response);
-    const text = textOutputFromOk(ok);
-    if (text !== null) return text;
-    throw new CueError("UNEXPECTED_RESPONSE", "expected EvalText response");
+    const previous = await this.getExecution(id);
+    if (!previous) throw new CueError("NOT_FOUND", `${id} not found`);
+    const created = await this.submitExecution(
+      { ...previous.spec, retry_of: previous.id },
+      operation,
+    );
+    return {
+      jobId: executionIdText(created.id),
+      stepIds: created.steps.map((step) => `${executionIdText(created.id)}/S${step.id.index}`),
+      kind: created.steps.length > 1 ? "chain" : "job",
+      warnings: [],
+    };
   }
 
   /** Mutate the current session environment with `:env set KEY=VALUE ...`. */
@@ -2092,9 +1389,11 @@ export class CueClient {
     assignments: Record<string, string>,
     operation?: CueOperationKey,
   ): Promise<ScopeCreatedPayload> {
-    const parts = Object.entries(assignments).map(([key, value]) => `${key}=${value}`);
-    const response = await this.#rawEvalAndWait(`:env set ${parts.join(" ")}`, "Job", operation);
-    const ok = okRecord(response);
+    const request = await this.#send(
+      { ApplyScopeDelta: { base: null, delta: { set: assignments, unset: [] } } },
+      operation,
+    );
+    const ok = okRecord(await this.#waitForResponse(request));
     const scope = scopeCreatedFromOk(ok);
     if (scope) return scope;
     throw new CueError("UNEXPECTED_RESPONSE", "expected ScopeCreated response");
@@ -2102,8 +1401,11 @@ export class CueClient {
 
   /** Remove keys from the current session environment with `:env unset KEY ...`. */
   async unsetEnv(keys: string[], operation?: CueOperationKey): Promise<ScopeCreatedPayload> {
-    const response = await this.#rawEvalAndWait(`:env unset ${keys.join(" ")}`, "Job", operation);
-    const ok = okRecord(response);
+    const request = await this.#send(
+      { ApplyScopeDelta: { base: null, delta: { set: {}, unset: keys } } },
+      operation,
+    );
+    const ok = okRecord(await this.#waitForResponse(request));
     const scope = scopeCreatedFromOk(ok);
     if (scope) return scope;
     throw new CueError("UNEXPECTED_RESPONSE", "expected ScopeCreated response");
@@ -2111,8 +1413,11 @@ export class CueClient {
 
   /** Change the current cue session directory. */
   async changeDirectory(path: string, operation?: CueOperationKey): Promise<ScopeCreatedPayload> {
-    const response = await this.#rawEvalAndWait(`:cd ${path}`, "Job", operation);
-    const ok = okRecord(response);
+    const request = await this.#send(
+      { ApplyScopeDelta: { base: null, delta: { set: {}, unset: [], cwd: path } } },
+      operation,
+    );
+    const ok = okRecord(await this.#waitForResponse(request));
     const scope = scopeCreatedFromOk(ok);
     if (scope) return scope;
     throw new CueError("UNEXPECTED_RESPONSE", "expected ScopeCreated response");
@@ -2138,12 +1443,22 @@ export class CueClient {
     );
   }
 
+  /** Inspect resource provider routing and current capacity. */
+  async listResources(): Promise<ResourceProviderInfo[]> {
+    const requestId = await this.#send({ ListResources: {} });
+    const ok = okRecord(await this.#waitForResponse(requestId));
+    if ("ResourceList" in ok) {
+      return (ok as { ResourceList: ResourceProviderInfo[] }).ResourceList;
+    }
+    throw new CueError("UNEXPECTED_RESPONSE", "expected ResourceList response");
+  }
+
   /** Show the current env snapshot through the typed IPC query. */
   async showEnv(): Promise<string> {
     const requestId = await this.#send({ ShowEnv: { tail_bytes: null } });
     const text = textOutputFromOk(okRecord(await this.#waitForResponse(requestId)));
     if (text !== null) return text;
-    throw new CueError("UNEXPECTED_RESPONSE", "expected TextOutput or EvalText response");
+    throw new CueError("UNEXPECTED_RESPONSE", "expected TextOutput response");
   }
 
   /** Show the current config through the typed IPC query. */
@@ -2151,52 +1466,87 @@ export class CueClient {
     const requestId = await this.#send({ ShowConfig: { tail_bytes: null } });
     const text = textOutputFromOk(okRecord(await this.#waitForResponse(requestId)));
     if (text !== null) return text;
-    throw new CueError("UNEXPECTED_RESPONSE", "expected TextOutput or EvalText response");
+    throw new CueError("UNEXPECTED_RESPONSE", "expected TextOutput response");
   }
 
-  /** Show log output. */
+  /** Render typed execution history without asking the daemon to format it. */
   async showLog(id?: string, limit?: number, tailBytes?: number): Promise<string> {
-    const requestId = await this.#send({
-      ShowLog: { id: id ?? null, limit: limit ?? null, tail_bytes: tailBytes ?? null },
-    });
-    const text = textOutputFromOk(okRecord(await this.#waitForResponse(requestId)));
-    if (text !== null) return text;
-    throw new CueError("UNEXPECTED_RESPONSE", "expected TextOutput or EvalText response");
+    if (!id) {
+      const executions = await this.listExecutions(limit);
+      return executions
+        .map(
+          (execution) =>
+            `${executionIdText(execution.id)} ${execution.state.status} ${executionPlanLabel(execution.spec.plan)}`,
+        )
+        .join("\n");
+    }
+    if (/^E\d+$/u.test(id)) {
+      const execution = await this.getExecution(id);
+      if (!execution) throw new CueError("NOT_FOUND", `${id} not found`);
+      const output = await this.executionOutput(id, tailBytes);
+      const lines = [`${id} ${execution.state.status} ${executionPlanLabel(execution.spec.plan)}`];
+      for (const step of output) {
+        const stepId = `${id}/S${step.id.index}`;
+        const stdout = streamTextView(step.stdout);
+        const stderr = streamTextView(step.stderr);
+        if (stdout) lines.push(`${stepId} stdout:\n${stdout}`);
+        if (stderr) lines.push(`${stepId} stderr:\n${stderr}`);
+      }
+      return lines.join("\n");
+    }
+    if (/^C\d+$/u.test(id)) {
+      const schedule = (await this.listSchedules()).find((item) => scheduleIdText(item.id) === id);
+      if (!schedule) throw new CueError("NOT_FOUND", `${id} not found`);
+      return `${id} ${schedule.status} ${displayCronSchedule(schedule.schedule)} ${executionPlanLabel(schedule.execution.plan)}`;
+    }
+    throw new CueError("INVALID_REQUEST", `expected execution E<n> or schedule C<n>, got ${id}`);
   }
 
   /** Schedule a recurring or one-shot cron job.  Returns the cron id. */
   async addCron(schedule: string, command: string, operation?: CueOperationKey): Promise<string> {
-    const input = `:cron ${schedule} ${command}`;
-    const requestId = await this.#rawEval(input, "Job", operation);
-    const response = await this.#waitForResponse(requestId);
-
-    if ("Err" in response) {
-      throw new CueError(response.Err.code, response.Err.message);
+    const requestId = await this.#send(
+      {
+        CreateSchedule: {
+          schedule: parseCronSchedule(schedule),
+          execution: compileExecution(command, { sourceName: "<spark-cue-schedule>" }),
+        },
+      },
+      operation,
+    );
+    const ok = okRecord(await this.#waitForResponse(requestId));
+    if ("ScheduleCreated" in ok) {
+      const created = (ok as { ScheduleCreated: { schedule: ScheduleInfo } }).ScheduleCreated;
+      return scheduleIdText(created.schedule.id);
     }
-
-    const ok = (response as { Ok: Record<string, unknown> }).Ok;
-    if (ok && "CronAdded" in ok) {
-      return (ok as { CronAdded: { cron_id: string } }).CronAdded.cron_id;
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected CronAdded response");
+    throw new CueError("UNEXPECTED_RESPONSE", "expected ScheduleCreated response");
   }
 
   /** List all cron jobs through the typed IPC query. */
   async listCrons(limit?: number): Promise<CronInfo[]> {
-    const requestId = await this.#send({ ListCrons: { limit: limit ?? null } });
+    return (await this.listSchedules(limit)).map((schedule) => ({
+      id: scheduleIdText(schedule.id),
+      schedule: displayCronSchedule(schedule.schedule),
+      command: executionPlanLabel(schedule.execution.plan),
+      status: schedule.status,
+    }));
+  }
+
+  /** List schedules without projecting away the typed execution template. */
+  async listSchedules(limit?: number): Promise<ScheduleInfo[]> {
+    const requestId = await this.#send({ ListSchedules: { limit: limit ?? null } });
     const ok = okRecord(await this.#waitForResponse(requestId));
-    if ("CronListPage" in ok) {
-      return (ok as { CronListPage: { crons: CronInfo[]; page: PageInfo } }).CronListPage.crons;
+    if ("ScheduleList" in ok) {
+      return (ok as { ScheduleList: ScheduleInfo[] }).ScheduleList;
     }
-    if ("CronList" in ok) {
-      return (ok as { CronList: CronInfo[] }).CronList;
-    }
-    throw new CueError("UNEXPECTED_RESPONSE", "expected CronListPage or CronList response");
+    throw new CueError("UNEXPECTED_RESPONSE", "expected ScheduleList response");
   }
 
   /** Remove a cron job. */
   async removeCron(cronId: string, operation?: CueOperationKey): Promise<void> {
-    const requestId = await this.#send({ RemoveCron: { id: cronId } }, operation);
+    const requestId = await this.#send(
+      { RemoveSchedule: { id: parseScheduleId(cronId) } },
+      operation,
+    );
     okRecord(await this.#waitForResponse(requestId));
   }
 
@@ -2230,14 +1580,6 @@ export class CueClient {
   }
 
   // ── Internals ────────────────────────────────────────────────────────
-
-  #subscribedChannels = new Set<string>();
-
-  async #ensureSubscribed(channel: string): Promise<void> {
-    if (this.#subscribedChannels.has(channel)) return;
-    await this.subscribe([channel]);
-    this.#subscribedChannels.add(channel);
-  }
 
   #send(payload: RequestPayload, operation?: CueOperationKey): Promise<number> {
     if (this.#closed) throw new CueTransportError("connection closed");
@@ -2376,46 +1718,34 @@ export class CueClient {
   }
 
   #dispatchEvent(payload: EventPayload): void {
-    // Route to channel-specific listeners
-    let channel: string | null = null;
-
-    if ("JobStateChanged" in payload) {
-      channel = `jobs`;
-    } else if ("JobCreated" in payload) {
-      channel = `jobs`;
-    } else if ("ChainProgress" in payload) {
-      channel = `jobs`;
-    } else if ("ScriptItemCreated" in payload) {
-      const created = (payload as { ScriptItemCreated: ScriptItemCreatedEvent }).ScriptItemCreated;
-      this.#recentScriptItems.push(created);
-      if (this.#recentScriptItems.length > 128) this.#recentScriptItems.shift();
-      channel = `jobs`;
-    } else if ("ScriptFinished" in payload) {
-      const fin = (payload as { ScriptFinished: ScriptFinishedEvent }).ScriptFinished;
-      this.#recentScriptFinished.push(fin);
-      if (this.#recentScriptFinished.length > 32) this.#recentScriptFinished.shift();
-      channel = `jobs`;
-    } else if ("JobRemoved" in payload) {
-      channel = `jobs`;
-    } else if ("CronTriggered" in payload || "CronRemoved" in payload) {
-      channel = `crons`;
-    } else if ("FgOutput" in payload || "FgExited" in payload) {
-      channel = `fg`;
+    const channels = new Set<string>();
+    if ("ExecutionCreated" in payload) {
+      channels.add("executions");
+      channels.add(`execution:${executionIdText(payload.ExecutionCreated.execution.id)}`);
+    } else if ("ExecutionFinished" in payload) {
+      channels.add("executions");
+      channels.add(`execution:${executionIdText(payload.ExecutionFinished.execution.id)}`);
+    } else if ("ExecutionStateChanged" in payload) {
+      channels.add("executions");
+      channels.add(`execution:${executionIdText(payload.ExecutionStateChanged.id)}`);
+    } else if ("StepStateChanged" in payload) {
+      const step = payload.StepStateChanged.id;
+      channels.add("executions");
+      channels.add(`execution:${executionIdText(step.execution)}`);
+      channels.add(`step:${executionIdText(step.execution)}/S${step.index}`);
     } else if ("ShuttingDown" in payload) {
-      channel = `system`;
+      channels.add("system");
     } else {
       const chunk = outputChunkFromEvent(payload);
-      if (!chunk) {
-        if ("OutputEof" in payload) {
-          const jobId = (payload as { OutputEof: { id: string } }).OutputEof.id;
-          channel = `output:${jobId}`;
-        }
-      } else {
-        channel = `output:${chunk.id}`;
+      if (chunk) {
+        channels.add(`step:${chunk.id}`);
+        channels.add("output");
+      } else if ("FgOutput" in payload || "FgExited" in payload) {
+        channels.add("fg");
       }
     }
 
-    if (channel) {
+    for (const channel of channels) {
       const notify = (listeners: Set<(event: EventPayload) => void> | undefined) => {
         if (!listeners) return;
         for (const handler of listeners) {
@@ -2427,7 +1757,6 @@ export class CueClient {
         }
       };
       notify(this.#listeners.get(channel));
-      if (channel.startsWith("output:")) notify(this.#listeners.get("output:"));
     }
   }
 
@@ -2465,362 +1794,5 @@ export class CueClient {
     const len = Buffer.alloc(4);
     len.writeUInt32BE(json.length, 0);
     return Buffer.concat([len, json]);
-  }
-
-  async #readBufferedJobResult(
-    firstJobId: string,
-    chainJobIds: string[],
-    warnings: string[] = [],
-  ): Promise<JobResult> {
-    const stdoutParts: Buffer[] = [];
-    const stderrParts: Buffer[] = [];
-    let finalStatus: JobStatus = "Done";
-    let cancelReason: CancelReason | undefined;
-    let finalExit: number | null = null;
-    let stdoutTruncated = false;
-    let stderrTruncated = false;
-    let stdoutTotal = 0;
-    let stderrTotal = 0;
-
-    for (const jobId of chainJobIds) {
-      const info = await this.jobStatus(jobId);
-      if (info) {
-        if (info.status !== "Done") finalStatus = info.status;
-        if (info.cancelReason) cancelReason = info.cancelReason;
-        if (info.exit_code != null && (finalExit === null || info.exit_code !== 0)) {
-          finalExit = info.exit_code;
-        }
-      }
-
-      const output = await this.jobOutput(jobId, MAX_OUTPUT_BUFFER);
-      const stdout =
-        chainJobIds.length > 1 && output.stdoutEncoding === "utf8"
-          ? Buffer.from(output.stdout.trimEnd())
-          : bytesFromJobOutput(output, "stdout");
-      const stderr =
-        chainJobIds.length > 1 && output.stderrEncoding === "utf8"
-          ? Buffer.from(output.stderr.trimEnd())
-          : bytesFromJobOutput(output, "stderr");
-      const stdoutRemaining = MAX_OUTPUT_BUFFER - stdoutTotal;
-      const stderrRemaining = MAX_OUTPUT_BUFFER - stderrTotal;
-      if (stdout.length > 0 && stdoutRemaining > 0) {
-        const kept = stdout.subarray(0, stdoutRemaining);
-        stdoutParts.push(kept);
-        stdoutTotal += kept.length;
-      }
-      if (stderr.length > 0 && stderrRemaining > 0) {
-        const kept = stderr.subarray(0, stderrRemaining);
-        stderrParts.push(kept);
-        stderrTotal += kept.length;
-      }
-      stdoutTruncated ||= output.truncated || stdout.length > stdoutRemaining;
-      stderrTruncated ||= output.stderrTruncated || stderr.length > stderrRemaining;
-    }
-
-    return buildJobResult({
-      jobId: firstJobId,
-      status: finalStatus,
-      ...(cancelReason ? { cancelReason } : {}),
-      stdout: joinOutputParts(stdoutParts, chainJobIds.length === 1 ? "" : "\n"),
-      stderr: joinOutputParts(stderrParts, chainJobIds.length === 1 ? "" : "\n"),
-      stdoutTruncated,
-      stderrTruncated,
-      exitCode: finalExit,
-      timedOut: false,
-      warnings,
-    });
-  }
-
-  async #collectJobOutput(
-    firstJobId: string,
-    chainJobIds: string[],
-    timeoutMs: number,
-    warnings: string[] = [],
-    chainId?: string,
-    expectedJobCount = chainJobIds.length,
-    signal?: AbortSignal,
-    operation?: CueOperationKey,
-  ): Promise<JobResult> {
-    let expectedJobs = expectedJobCount;
-    const dynamicChain = expectedJobs > chainJobIds.length;
-
-    // For single-job commands, check if already done (fast-command race).
-    if (!dynamicChain && chainJobIds.length === 1) {
-      const jobId = chainJobIds[0];
-      const initial = await this.jobStatus(jobId);
-      if (initial) {
-        if (["Done", "Failed", "Killed", "Cancelled"].includes(initial.status)) {
-          return this.#readBufferedJobResult(jobId, [jobId], warnings);
-        }
-      }
-    } else if (!dynamicChain) {
-      // For chains, check if ALL leaves are already done (very fast chains).
-      let allDone = true;
-      for (const jid of chainJobIds) {
-        const info = await this.jobStatus(jid);
-        if (!info || !["Done", "Failed", "Killed", "Cancelled"].includes(info.status)) {
-          allDone = false;
-          break;
-        }
-      }
-      if (allDone) {
-        return this.#readBufferedJobResult(firstJobId, chainJobIds, warnings);
-      }
-    }
-
-    const isChain = expectedJobs > 1;
-    const cancelTarget = chainId ?? firstJobId;
-
-    if (signal?.aborted) {
-      await this.cancelExecution(cancelTarget, cueOperationStep(operation, "cancel"));
-      throw abortError(signal);
-    }
-
-    return new Promise((resolve, reject) => {
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
-      let stdoutLen = 0;
-      let stderrLen = 0;
-      let stdoutOverflowed = false;
-      let stderrOverflowed = false;
-      let resolved = false;
-      let poll: ReturnType<typeof setInterval> | undefined;
-      const terminal: JobStatus[] = ["Done", "Failed", "Killed", "Cancelled"];
-
-      const settleForeground = () => {
-        if (resolved) return false;
-        resolved = true;
-        clearTimeout(timer);
-        if (poll) clearInterval(poll);
-        cleanup();
-        return true;
-      };
-
-      const abortForeground = async (abortSignal: AbortSignal) => {
-        if (!settleForeground()) return;
-        try {
-          await this.cancelExecution(cancelTarget, cueOperationStep(operation, "cancel"));
-          reject(abortError(abortSignal));
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      const detachForeground = async () => {
-        if (!settleForeground()) return;
-        try {
-          const result = await this.#readBufferedJobResult(firstJobId, chainJobIds, warnings);
-          resolve({ ...result, timedOut: true });
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      const timer = setTimeout(() => void detachForeground(), timeoutMs);
-      const onAbort = () => {
-        if (signal) void abortForeground(signal);
-      };
-      signal?.addEventListener("abort", onAbort, { once: true });
-
-      const unsubs: Array<() => void> = [];
-      const onOutput = (event: EventPayload) => {
-        if ("OutputEof" in event) {
-          const eof = (event as { OutputEof: { id: string } }).OutputEof;
-          if (chainJobIds.includes(eof.id)) outputEof.add(eof.id);
-          return;
-        }
-        const chunk = outputChunkFromEvent(event);
-        if (!chunk) return;
-        if (chunk.stream === "stdout") {
-          const remaining = MAX_OUTPUT_BUFFER - stdoutLen;
-          if (remaining <= 0) {
-            stdoutOverflowed = true;
-            return;
-          }
-          const kept = chunk.bytes.subarray(0, remaining);
-          stdoutChunks.push(kept);
-          stdoutLen += kept.length;
-          stdoutOverflowed ||= kept.length < chunk.bytes.length;
-        } else {
-          const remaining = MAX_OUTPUT_BUFFER - stderrLen;
-          if (remaining <= 0) {
-            stderrOverflowed = true;
-            return;
-          }
-          const kept = chunk.bytes.subarray(0, remaining);
-          stderrChunks.push(kept);
-          stderrLen += kept.length;
-          stderrOverflowed ||= kept.length < chunk.bytes.length;
-        }
-      };
-      for (const jid of chainJobIds) unsubs.push(this.onEvent(`output:${jid}`, onOutput));
-
-      const addChainJob = (jobId: string) => {
-        if (chainJobIds.includes(jobId)) return;
-        chainJobIds.push(jobId);
-        unsubs.push(this.onEvent(`output:${jobId}`, onOutput));
-      };
-
-      // Track terminal state per job. Polling covers the race where the terminal
-      // event arrives before this collector has installed its listener.
-      const terminalSet = new Set<string>();
-      const outputEof = new Set<string>();
-
-      const maybeResolve = async () => {
-        if (resolved) return;
-        const trackedJobIds = chainJobIds.slice(0, expectedJobs);
-        if (trackedJobIds.length < expectedJobs) return;
-        for (const jid of trackedJobIds) {
-          if (!terminalSet.has(jid)) return;
-        }
-        chainJobIds.splice(0, chainJobIds.length, ...trackedJobIds);
-        resolved = true;
-        clearTimeout(timer);
-        if (poll) clearInterval(poll);
-        await new Promise((r) => setTimeout(r, 50));
-        cleanup();
-        try {
-          const buffered = await this.#readBufferedJobResult(firstJobId, chainJobIds, warnings);
-          const stdout = reconcileCollectedStream({
-            live: Buffer.concat(stdoutChunks),
-            liveOverflowed: stdoutOverflowed,
-            sawEofForEveryJob: trackedJobIds.every((id) => outputEof.has(id)),
-            buffered: bytesFromJobOutput(
-              {
-                stdout: buffered.stdout,
-                stderr: buffered.stderr,
-                stdoutEncoding: buffered.stdoutEncoding,
-                stderrEncoding: buffered.stderrEncoding,
-                ...(buffered.stdoutBase64 ? { stdoutBase64: buffered.stdoutBase64 } : {}),
-                ...(buffered.stderrBase64 ? { stderrBase64: buffered.stderrBase64 } : {}),
-                truncated: buffered.stdoutTruncated,
-                stderrTruncated: buffered.stderrTruncated,
-              },
-              "stdout",
-            ),
-            bufferedTruncated: buffered.stdoutTruncated,
-          });
-          const stderr = reconcileCollectedStream({
-            live: Buffer.concat(stderrChunks),
-            liveOverflowed: stderrOverflowed,
-            sawEofForEveryJob: trackedJobIds.every((id) => outputEof.has(id)),
-            buffered: bytesFromJobOutput(
-              {
-                stdout: buffered.stdout,
-                stderr: buffered.stderr,
-                stdoutEncoding: buffered.stdoutEncoding,
-                stderrEncoding: buffered.stderrEncoding,
-                ...(buffered.stdoutBase64 ? { stdoutBase64: buffered.stdoutBase64 } : {}),
-                ...(buffered.stderrBase64 ? { stderrBase64: buffered.stderrBase64 } : {}),
-                truncated: buffered.stdoutTruncated,
-                stderrTruncated: buffered.stderrTruncated,
-              },
-              "stderr",
-            ),
-            bufferedTruncated: buffered.stderrTruncated,
-          });
-          resolve(
-            buildJobResult({
-              jobId: buffered.jobId,
-              status: buffered.status,
-              ...(buffered.cancelReason ? { cancelReason: buffered.cancelReason } : {}),
-              stdout: stdout.bytes,
-              stderr: stderr.bytes,
-              stdoutTruncated: stdout.truncated,
-              stderrTruncated: stderr.truncated,
-              exitCode: buffered.exitCode,
-              timedOut: false,
-              warnings: buffered.warnings,
-            }),
-          );
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      const unsubJob = this.onEvent(`jobs`, (event) => {
-        if ("JobCreated" in event && chainId) {
-          const created = (event as { JobCreated: JobCreatedEvent }).JobCreated;
-          if (created.chain_id === chainId) addChainJob(created.job_id);
-        }
-        if ("ChainProgress" in event && chainId) {
-          const progress = (event as { ChainProgress: { chain: ChainInfo } }).ChainProgress;
-          if (progress.chain.id === chainId) {
-            for (const job of progress.chain.jobs) {
-              if (job.job_id) addChainJob(job.job_id);
-            }
-            const terminalJobs = progress.chain.jobs.filter((job) =>
-              terminal.includes(normalizeJobStatus(job.status)),
-            );
-            if (terminalJobs.some((job) => normalizeJobStatus(job.status) !== "Done")) {
-              expectedJobs = terminalJobs.filter((job) => job.job_id).length;
-              void maybeResolve();
-            } else if (terminalJobs.length === progress.chain.jobs.length) {
-              expectedJobs = progress.chain.jobs.filter((job) => job.job_id).length;
-              void maybeResolve();
-            }
-          }
-        }
-        if ("JobStateChanged" in event) {
-          const change = (event as { JobStateChanged: JobStateChangedEvent }).JobStateChanged;
-
-          // For single jobs, only care about our job.
-          // For chains, track state changes for any known leaf, or any leaf with our chain id.
-          if (!isChain && change.job_id !== firstJobId) return;
-          if (isChain && change.chain_id !== chainId && !chainJobIds.includes(change.job_id)) {
-            return;
-          }
-          if (isChain && change.chain_id === chainId) addChainJob(change.job_id);
-
-          const newState = normalizeJobStatus((change as { new_state: unknown }).new_state);
-          if (terminal.includes(newState)) {
-            terminalSet.add(change.job_id);
-            void maybeResolve();
-          }
-        }
-      });
-
-      poll = setInterval(() => {
-        if (resolved) return;
-        void (async () => {
-          try {
-            const observedJobs = isChain && chainId ? await this.listJobs() : [];
-            if (isChain && chainId) {
-              for (const job of observedJobs) {
-                if (job.chain_id != null && String(job.chain_id) === chainId) addChainJob(job.id);
-              }
-            }
-            for (const jid of chainJobIds) {
-              const info =
-                observedJobs.find((job) => job.id === jid) ?? (await this.jobStatus(jid));
-              if (info && terminal.includes(info.status)) {
-                terminalSet.add(jid);
-                if (isChain && info.status !== "Done") {
-                  const index = typeof info.chain_index === "number" ? info.chain_index : undefined;
-                  expectedJobs = Math.min(
-                    expectedJobs,
-                    index === undefined ? chainJobIds.indexOf(jid) + 1 : index + 1,
-                  );
-                }
-              }
-            }
-            await maybeResolve();
-          } catch (error) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timer);
-            if (poll) clearInterval(poll);
-            cleanup();
-            reject(error);
-          }
-        })();
-      }, 100);
-
-      function cleanup() {
-        signal?.removeEventListener("abort", onAbort);
-        unsubJob();
-        for (const u of unsubs) u();
-      }
-    });
   }
 }

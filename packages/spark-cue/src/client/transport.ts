@@ -11,7 +11,7 @@ import { CueError, type CueResolvedTransport } from "../wire/types.ts";
 export type { CueResolvedTransport };
 // ── Default socket path ────────────────────────────────────────────────────
 
-const APP_DIR = "cue-shell";
+const APP_DIR = "cue";
 const SOCK_NAME = "cued.sock";
 
 /** Resolve the default cue-shell daemon socket path. */
