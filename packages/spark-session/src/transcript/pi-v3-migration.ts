@@ -1,5 +1,5 @@
 /**
- * Explicit transcript v3 reader and v3 -> v4 hard-cut migrator.
+ * Spark Session's explicit transcript v3 reader and v3 -> v4 hard-cut migrator.
  *
  * This is the only production reader for the retired `spark/entry` envelope.
  * Runtime writers emit native DSH v4 events only.

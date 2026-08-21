@@ -62,7 +62,7 @@ import {
 } from "./prompt-templates.ts";
 import { SparkProviderRegistry, type SparkActiveSelection } from "./provider-registry.ts";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   SparkSkillResolver,
   formatSelectedSparkSkillsForPrompt,

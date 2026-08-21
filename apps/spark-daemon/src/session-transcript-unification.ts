@@ -7,7 +7,7 @@ import {
   SparkSessionStore,
   type SparkSessionEntry,
   type SparkSessionRecord,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 

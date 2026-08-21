@@ -1,3 +1,4 @@
+/** Native DSH transcript codec behavior owned by spark-session. */
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

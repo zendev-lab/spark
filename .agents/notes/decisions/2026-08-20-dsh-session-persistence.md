@@ -17,8 +17,10 @@ That gate is now closed by this Stage 4 change.
 - `ctx.sessionPersistence` is a Spark `SessionPersistence` that **only**
   implements `PersistenceBackend`. Write coordination, crash repair, and the
   on-disk event envelope belong to `dsh-session-persistence`.
-- Spark host transcripts stay in `packages/spark-host/src/session-store`. The
-  public `SparkSessionStore` API still exposes Spark entries (`message`,
+- Spark transcripts live in
+  `packages/spark-session/src/transcript` and are exported from the Session
+  owner as `@zendev-lab/spark-session/transcript`. The `SparkSessionStore` API
+  still exposes Spark entries (`message`,
   `compaction`, …) as a stack-internal compatibility projection. Transcript v4
   writes user, assistant, tool, turn, and step records to the native DSH surface
   without duplicating model-visible messages in `spark/record`.

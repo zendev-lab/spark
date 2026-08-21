@@ -1,4 +1,4 @@
-/** DSH session JSONL transcript storage shared by Spark host implementations. */
+/** DSH session JSONL transcript storage owned by Spark Session. */
 
 export {
   CURRENT_SPARK_SESSION_VERSION,

@@ -1,9 +1,8 @@
 /**
  * Pi JSONL session record types shared by Spark hosts, persisted as DSH session
  * JSONL (`SESSION_FORMAT_VERSION` 0) with Spark entries stored as ignorable
- * events. This is deliberately separate from @zendev-lab/spark-session: that
- * package owns daemon registry/mailbox/session({action}), while this format is
- * an append-only local host transcript.
+ * events. The transcript subpath is deliberately separate from the package
+ * root registry/mailbox surface while remaining under the same Session owner.
  */
 
 export const CURRENT_SPARK_SESSION_VERSION = 4;

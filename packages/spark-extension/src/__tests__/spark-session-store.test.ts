@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
-import { SparkSessionStore as CanonicalSparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore as CanonicalSparkSessionStore } from "@zendev-lab/spark-session/transcript";
 
 import {
   SparkSessionStore,

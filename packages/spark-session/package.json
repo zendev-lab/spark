@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-session",
   "version": "0.5.0",
   "private": true,
-  "description": "Daemon-owned Session ownership/lifecycle registry, channel bindings, and durable local mailbox mechanism.",
+  "description": "Daemon-owned Session registry, transcript persistence, channel bindings, and durable local mailbox.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -14,7 +14,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./dsh-message-projection": "./src/dsh-message-projection.ts",
-    "./extension": "./src/extension.ts"
+    "./extension": "./src/extension.ts",
+    "./transcript": "./src/transcript/index.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -22,6 +23,9 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-attachment-local": "catalog:dsh",
+    "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-session": "catalog:dsh",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
