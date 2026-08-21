@@ -1,7 +1,7 @@
 /**
- * cue-shell IPC client for Node.js
+ * Cue IPC client for Node.js
  *
- * Speaks the cue-shell length-prefixed JSON framing protocol over either a
+ * Speaks the Cue length-prefixed JSON framing protocol over either a
  * Unix domain socket or an SSH gateway stdio stream.
  */
 
@@ -18,7 +18,6 @@ import {
   unsupportedProtocolError,
   type CueResolvedTransport,
   type CueOperationKey,
-  type Mode,
   type RequestEnvelope,
   type RequestPayload,
   type ResponseEnvelope,
@@ -27,11 +26,8 @@ import {
   type PongPayload,
   type ScopeCreatedPayload,
   type CueSessionOptions,
-  type ScriptInfoPayload,
-  type CronInfo,
-  type JobStatus,
-  type CancelReason,
-  type JobInfo,
+  type ScheduleSummary,
+  type ExecutionSummary,
   type ScopeInfo,
   type EventEnvelope,
   type EventPayload,
@@ -40,20 +36,18 @@ import {
   type StreamText,
   type OutputEncoding,
   type CueMessage,
-  type JobOutputPayload,
   type ResourceNeeds,
-  type RunEvalOptions,
-  type RunJobOptions,
-  type StartJobOptions,
+  type RunExecutionOptions,
+  type StartExecutionOptions,
   type RunScriptOptions,
-  type ScriptItemSummary,
   type ScriptResult,
-  type JobOutputResult,
-  type JobResult,
-  type StartJobResult,
+  type ExecutionTextOutput,
+  type ExecutionResult,
+  type StartExecutionResult,
   type ExecutionInfo,
   type ExecutionSpec,
   type ExecutionState,
+  type ExecutionCancelReason,
   type ScheduleInfo,
   type SpawnAdapterHandle,
   type StepOutput,
@@ -79,18 +73,15 @@ export { CueError, CueTransportError, isRetryableCueTransportError } from "../wi
 export type {
   CueResolvedTransport,
   CueOperationKey,
-  CancelReason,
   CueSessionOptions,
-  JobInfo,
-  JobOutputResult,
-  JobResult,
-  JobStatus,
+  ExecutionSummary,
+  ExecutionTextOutput,
+  ExecutionResult,
   OutputEncoding,
   ResourceNeeds,
   SpawnAdapterHandle,
-  ScriptItemSummary,
   ScriptResult,
-  StartJobResult,
+  StartExecutionResult,
 } from "../wire/types.ts";
 
 function quoteModeParamValue(value: string): string {
@@ -148,7 +139,7 @@ type InboundCueMessage = ResponseEnvelope | EventEnvelope;
 type WireRecord = Record<string, unknown>;
 
 function invalidIpc(path: string, message: string): Error {
-  return new Error(`invalid cue-shell IPC message at ${path}: ${message}`);
+  return new Error(`invalid Cue IPC message at ${path}: ${message}`);
 }
 
 function wireRecord(value: unknown, path: string): WireRecord {
@@ -249,12 +240,6 @@ function parseExecutionId(value: number | string): number {
   return id;
 }
 
-function parseStepId(value: string): { execution: number; index: number } {
-  const match = value.match(/^E(\d+)\/S(\d+)$/u);
-  if (!match) throw new CueError("INVALID_REQUEST", `expected step ID E<n>/S<n>, got ${value}`);
-  return { execution: Number(match[1]), index: Number(match[2]) };
-}
-
 function parseScheduleId(value: string): number {
   const match = value.match(/^T(\d+)$/u);
   const id = match ? Number(match[1]) : Number.NaN;
@@ -284,54 +269,36 @@ function executionExitCode(execution: ExecutionInfo): number | null {
   return execution.state.status === "succeeded" ? 0 : null;
 }
 
-function jobInfoFromExecution(execution: ExecutionInfo): JobInfo {
-  const status: JobStatus =
-    execution.state.status === "queued"
-      ? "Pending"
-      : execution.state.status === "running"
-        ? "Running"
-        : execution.state.status === "succeeded"
-          ? "Done"
-          : execution.state.status === "failed"
-            ? "Failed"
-            : "Cancelled";
+function executionSummaryFromInfo(execution: ExecutionInfo): ExecutionSummary {
   return {
     id: executionIdText(execution.id),
-    status,
+    stepIds: execution.steps.map((step) => `${executionIdText(execution.id)}/S${step.id.index}`),
+    status: execution.state.status,
     pipeline: executionPlanLabel(execution.spec.plan),
-    exit_code: executionExitCode(execution),
-    start_scope: execution.spec.start_scope,
-    open_hint: execution.spec.launch_context.pty === true ? "fg" : "stream",
-    chain_id: null,
-    chain_index: 0,
-    chain_total: execution.steps.length,
-    ...(execution.state.status === "cancelled"
-      ? {
-          cancelReason:
-            execution.state.reason === "forced" ? ("Forced" as const) : ("User" as const),
-        }
-      : {}),
+    exitCode: executionExitCode(execution),
+    pty: execution.spec.launch_context.pty === true,
+    ...(execution.state.status === "cancelled" ? { cancelReason: execution.state.reason } : {}),
   };
 }
 
-function jobResultFromExecution(
+function executionResultFromInfo(
   execution: ExecutionInfo,
   output: StepOutput[],
   timedOut: boolean,
-): JobResult {
+): ExecutionResult {
   const stdout = Buffer.concat(output.map((step) => bytesFromStreamText(step.stdout)));
   const stderr = Buffer.concat(output.map((step) => bytesFromStreamText(step.stderr)));
-  const job = jobInfoFromExecution(execution);
-  return buildJobResult({
-    jobId: job.id,
+  const summary = executionSummaryFromInfo(execution);
+  return buildExecutionResult({
+    executionId: summary.id,
     stepIds: execution.steps.map((step) => `${executionIdText(execution.id)}/S${step.id.index}`),
-    status: job.status,
-    ...(job.cancelReason ? { cancelReason: job.cancelReason } : {}),
+    status: summary.status,
+    ...(summary.cancelReason ? { cancelReason: summary.cancelReason } : {}),
     stdout,
     stderr,
     stdoutTruncated: output.some((step) => step.stdout.truncated),
     stderrTruncated: output.some((step) => step.stderr.truncated),
-    exitCode: job.exit_code ?? null,
+    exitCode: summary.exitCode,
     timedOut,
     warnings: [],
   });
@@ -372,7 +339,7 @@ function pipeOperatorText(operator: string): string {
   return operator === "Stdout" ? "|>" : operator === "StdoutStderr" ? "|&>" : "|!>";
 }
 
-function parseCronSchedule(input: string): CronSchedule {
+function parseScheduleExpression(input: string): CronSchedule {
   const trimmed = input.trim();
   const interval = trimmed.match(/^(every|in)\s+(\d+)(ms|s|m|h|d)$/u);
   if (interval) {
@@ -392,7 +359,7 @@ function parseCronSchedule(input: string): CronSchedule {
   );
 }
 
-function displayCronSchedule(schedule: CronSchedule): string {
+function displaySchedule(schedule: CronSchedule): string {
   if ("Interval" in schedule) return `every ${schedule.Interval.secs}s`;
   if ("Delay" in schedule) return `in ${schedule.Delay.secs}s`;
   if ("Preset" in schedule) return schedule.Preset.toLowerCase();
@@ -455,11 +422,11 @@ function outputView(bytes: Buffer): OutputView {
   };
 }
 
-function buildJobResult(input: {
-  jobId: string;
+function buildExecutionResult(input: {
+  executionId: string;
   stepIds?: string[];
-  status: JobStatus;
-  cancelReason?: CancelReason;
+  status: ExecutionState["status"];
+  cancelReason?: ExecutionCancelReason;
   stdout: Buffer;
   stderr: Buffer;
   stdoutTruncated: boolean;
@@ -467,7 +434,7 @@ function buildJobResult(input: {
   exitCode: number | null;
   timedOut: boolean;
   warnings: string[];
-}): JobResult {
+}): ExecutionResult {
   const stdout = outputView(input.stdout);
   const stderr = outputView(input.stderr);
   const warnings = [...input.warnings];
@@ -482,7 +449,7 @@ function buildJobResult(input: {
     );
   }
   return {
-    jobId: input.jobId,
+    executionId: input.executionId,
     stepIds: input.stepIds ?? [],
     status: input.status,
     ...(input.cancelReason ? { cancelReason: input.cancelReason } : {}),
@@ -528,7 +495,7 @@ function scopeCreatedFromOk(ok: Record<string, unknown>): ScopeCreatedPayload | 
 // ── Framing constants ──────────────────────────────────────────────────────
 
 const MAX_MESSAGE_SIZE = 16 * 1024 * 1024; // 16 MiB
-const MAX_OUTPUT_BUFFER = 4 * 1024 * 1024; // 4 MiB per stream, per job
+const MAX_OUTPUT_BUFFER = 4 * 1024 * 1024; // 4 MiB per stream, per process step
 const MAX_SSH_STDERR_SNAPSHOT = 64 * 1024; // keep recent gateway diagnostics bounded
 const REQUIRED_IPC_PROTOCOL_VERSION = 3;
 const REQUIRED_IPC_CAPABILITY_SESSION_HANDSHAKE_REQUIRED = "session-handshake-required";
@@ -571,7 +538,7 @@ function requireOperationPart(value: string, label: string): string {
 
 /**
  * Derive the wire operation id without randomness. The digest keeps arbitrary
- * session/tool ids safely below cue-shell's 128-byte envelope limit.
+ * session/tool ids safely below Cue's 128-byte envelope limit.
  */
 export function cueOperationId(operation: CueOperationKey): string {
   const canonical = JSON.stringify([
@@ -604,9 +571,9 @@ function stableHash(value: string): string {
 }
 
 export function isSensitiveCueEnvKey(key: string): boolean {
-  // Keep this classifier in lockstep with cue-shell's daemon-side scope
+  // Keep this classifier in lockstep with Cue's daemon-side scope
   // persistence policy. Spark must use at least the same superset because the
-  // handshake and cue_scope output cross the model boundary before cue-shell's
+  // handshake and cue_scope output cross the model boundary before Cue's
   // persistence guard can protect them.
   const words = key
     .split(/[^a-z0-9]+/iu)
@@ -706,7 +673,7 @@ async function openUnixSocket(path: string): Promise<Socket> {
   } catch (error) {
     throw new CueError(
       "DAEMON_UNREACHABLE",
-      `failed to connect to cue-shell daemon socket ${path}: ${describeError(error)}`,
+      `failed to connect to Cue daemon socket ${path}: ${describeError(error)}`,
     );
   }
 }
@@ -753,7 +720,7 @@ async function initializeConnectedClient(
     client.close();
     if (error instanceof CueError || error instanceof CueDaemonStartingError) throw error;
     throw unsupportedProtocolError(
-      "cue-shell daemon accepted the connection but IPC initialization failed; upgrade/restart cued",
+      "Cue daemon accepted the connection but IPC initialization failed; upgrade/restart cued",
       error,
     );
   }
@@ -859,7 +826,7 @@ export class CueClient {
   #closePromise: Promise<void>;
   #resolveClose!: () => void;
 
-  /** Create a client from an already-connected cue-shell IPC stream. */
+  /** Create a client from an already-connected Cue IPC stream. */
   constructor(socket: CueClientStream) {
     this.#socket = socket;
     this.#closePromise = new Promise((resolve) => {
@@ -901,7 +868,7 @@ export class CueClient {
     return CueClient.connectResolved(await resolveCueTransport(), session);
   }
 
-  /** Connect to an already-resolved cue-shell client transport profile. */
+  /** Connect to an already-resolved Cue client transport profile. */
   static async connectResolved(
     transport: CueResolvedTransport,
     session?: CueSessionOptions,
@@ -927,40 +894,6 @@ export class CueClient {
 
   // ── Requests ────────────────────────────────────────────────────────
 
-  /**
-   * Send a `:run` Eval request.  cue-shell has its own grammar (not bash-compatible) — commands
-   * are direct-exec (execvp).  For composition use cue-shell's native
-   * operators:
-   *
-   *   Pipeline (job-internal, connect process stdin/stdout):
-   *     `|>`   stdout pipe
-   *     `|&>`  stdout+stderr pipe
-   *     `|!>`  stderr-only pipe
-   *
-   *   Job logical (inside one job):
-   *     `&&`   logical AND
-   *     `||`   logical OR
-   *
-   *   Chain (between jobs, scheduler-managed):
-   *     `->`   serial, success-continue
-   *     `~>`   serial, ignore-failure
-   *     `|||`  parallel, all
-   *     `|?|`  parallel, any-success race
-   */
-  async eval(input: string, mode: Mode = "Job", opts: RunEvalOptions = {}): Promise<number> {
-    if (mode !== "Job") {
-      throw new CueError("INVALID_REQUEST", "IPC v3 schedules use CreateSchedule, not Eval mode");
-    }
-    const spec = compileExecution(input, {
-      pty: opts.pty,
-      needs: opts.needs,
-      cwd: opts.cwd,
-      spawnAdapter: opts.spawnAdapter,
-      sourceName: "<spark-cue>",
-    });
-    return this.#send({ SubmitExecution: { spec } }, opts.operation);
-  }
-
   /** Subscribe to one or more event channels. */
   async subscribe(channels: string[]): Promise<void> {
     const id = await this.#send({ Subscribe: { channels } });
@@ -974,7 +907,7 @@ export class CueClient {
     await this.#waitForResponse(id);
   }
 
-  /** Send and acknowledge the cue-shell session handshake. */
+  /** Send and acknowledge the Cue session handshake. */
   async handshake(options?: CueSessionOptions): Promise<void> {
     const session = normalizeCueSessionOptions(options);
     let response: ResponsePayload;
@@ -991,20 +924,20 @@ export class CueClient {
       response = await this.#waitForResponse(id);
     } catch (error) {
       throw unsupportedProtocolError(
-        "cue-shell daemon did not complete the required session Handshake; upgrade/restart cued",
+        "Cue daemon did not complete the required session Handshake; upgrade/restart cued",
         error,
       );
     }
 
     if ("Err" in response) {
       throw unsupportedProtocolError(
-        `cue-shell daemon rejected the required session Handshake: ${response.Err.code}: ${response.Err.message}; upgrade/restart cued`,
+        `Cue daemon rejected the required session Handshake: ${response.Err.code}: ${response.Err.message}; upgrade/restart cued`,
       );
     }
     const ok = (response as { Ok: Record<string, unknown> }).Ok;
     if (!ok || !("Ack" in ok)) {
       throw unsupportedProtocolError(
-        "cue-shell daemon returned an unexpected response to the required session Handshake; upgrade/restart cued",
+        "Cue daemon returned an unexpected response to the required session Handshake; upgrade/restart cued",
       );
     }
   }
@@ -1018,36 +951,34 @@ export class CueClient {
     }
     const ok = (response as { Ok: Record<string, unknown> }).Ok;
     if (!ok || !("Pong" in ok)) {
-      throw unsupportedProtocolError("cue-shell daemon did not return Pong to Ping");
+      throw unsupportedProtocolError("Cue daemon did not return Pong to Ping");
     }
     const pong = (ok as { Pong: PongPayload }).Pong;
     const version = pong?.version;
     if (typeof version !== "string" || version.length === 0) {
-      throw unsupportedProtocolError(
-        "cue-shell daemon Pong is missing version; upgrade/restart cued",
-      );
+      throw unsupportedProtocolError("Cue daemon Pong is missing version; upgrade/restart cued");
     }
     const protocolVersion = pong.protocol_version;
     if (typeof protocolVersion !== "number" || protocolVersion < REQUIRED_IPC_PROTOCOL_VERSION) {
       throw unsupportedProtocolError(
-        `cue-shell daemon IPC protocol version ${String(protocolVersion)} is older than required ${REQUIRED_IPC_PROTOCOL_VERSION}; upgrade/restart cued`,
+        `Cue daemon IPC protocol version ${String(protocolVersion)} is older than required ${REQUIRED_IPC_PROTOCOL_VERSION}; upgrade/restart cued`,
       );
     }
     const capabilities = Array.isArray(pong.capabilities) ? pong.capabilities : [];
     for (const capability of REQUIRED_IPC_CAPABILITIES) {
       if (!capabilities.includes(capability)) {
         throw unsupportedProtocolError(
-          `cue-shell daemon is missing required IPC capability ${capability}; upgrade/restart cued`,
+          `Cue daemon is missing required IPC capability ${capability}; upgrade/restart cued`,
         );
       }
     }
     if (pong.ready === false) {
-      throw new CueDaemonStartingError("cue-shell daemon is still starting; retry the connection");
+      throw new CueDaemonStartingError("Cue daemon is still starting; retry the connection");
     }
     const instanceId = pong.instance_id;
     if (instanceId !== undefined && (typeof instanceId !== "string" || instanceId.length === 0)) {
       throw unsupportedProtocolError(
-        "cue-shell daemon Pong has an invalid instance_id; upgrade/restart cued",
+        "Cue daemon Pong has an invalid instance_id; upgrade/restart cued",
       );
     }
     if (
@@ -1055,7 +986,7 @@ export class CueClient {
       this.#daemonInstanceId !== null &&
       this.#daemonInstanceId !== instanceId
     ) {
-      throw unsupportedProtocolError("cue-shell daemon changed instance_id on one connection");
+      throw unsupportedProtocolError("Cue daemon changed instance_id on one connection");
     }
     this.#daemonInstanceId = instanceId ?? null;
     return version;
@@ -1097,10 +1028,10 @@ export class CueClient {
 
   /**
    * Run a command and wait up to `timeout` seconds for it to complete.
-   * Wait-budget expiry detaches (job keeps running) and returns `timedOut`.
+   * Wait-budget expiry detaches (execution keeps running) and returns `timedOut`.
    * AbortSignal still cancels the daemon execution.
    */
-  async runJob(command: string, opts?: RunJobOptions): Promise<JobResult> {
+  async runExecution(command: string, opts?: RunExecutionOptions): Promise<ExecutionResult> {
     const timeoutMs = (opts?.timeout ?? 300) * 1000;
     const signal = opts?.signal;
     throwIfAborted(signal);
@@ -1128,14 +1059,17 @@ export class CueClient {
       execution = (await this.getExecution(execution.id)) ?? execution;
     }
     const output = await this.executionOutput(execution.id);
-    return jobResultFromExecution(execution, output, !executionStateTerminal(execution.state));
+    return executionResultFromInfo(execution, output, !executionStateTerminal(execution.state));
   }
 
   /**
-   * Start a job in background mode — returns immediately with metadata.
-   * Use `jobStatus()` and `jobOutput()` to track progress.
+   * Start an execution in background mode — returns immediately with metadata.
+   * Use `executionSummary()` and `executionTextOutput()` to track progress.
    */
-  async startJob(command: string, opts?: StartJobOptions): Promise<StartJobResult> {
+  async startExecution(
+    command: string,
+    opts?: StartExecutionOptions,
+  ): Promise<StartExecutionResult> {
     const execution = await this.submitExecution(
       compileExecution(command, {
         cwd: opts?.cwd,
@@ -1147,17 +1081,16 @@ export class CueClient {
       cueOperationStep(opts?.operation, "submit"),
     );
     return {
-      jobId: executionIdText(execution.id),
+      executionId: executionIdText(execution.id),
       stepIds: execution.steps.map((step) => `${executionIdText(execution.id)}/S${step.id.index}`),
-      kind: execution.steps.length > 1 ? "chain" : "job",
       pipeline: command,
       warnings: [],
     };
   }
 
   /**
-   * Compile direct-execution `.cue` commands into one fail-fast execution and
-   * wait for its terminal state or the foreground wait budget.
+   * Compile direct-execution `.cue` commands into one typed fail-fast execution
+   * and wait for its terminal state or the foreground wait budget.
    */
   async runScript(opts: RunScriptOptions): Promise<ScriptResult> {
     const signal = opts.signal;
@@ -1180,11 +1113,11 @@ export class CueClient {
       current = (await this.getExecution(current.id)) ?? current;
     }
     const output = await this.executionOutput(current.id);
-    const job = jobInfoFromExecution(current);
     const stdout = output.map((step) => streamTextView(step.stdout)).join("");
     const stderr = output.map((step) => streamTextView(step.stderr)).join("");
+    const failedStepIndex = current.steps.findIndex((step) => step.state.status === "failed");
     return {
-      scriptId: executionIdText(current.id),
+      executionId: executionIdText(current.id),
       stepIds: current.steps.map((step) => `${executionIdText(current.id)}/S${step.id.index}`),
       source: { kind: "file", path: opts.path },
       status:
@@ -1194,52 +1127,18 @@ export class CueClient {
             ? current.state.status
             : "running",
       ...(current.state.status === "cancelled" ? { cancelReason: current.state.reason } : {}),
-      exitCode: job.exit_code ?? null,
-      failedItemIndex:
-        current.steps.findIndex((step) => step.state.status === "failed") === -1
-          ? null
-          : current.steps.findIndex((step) => step.state.status === "failed"),
-      items: [
-        {
-          index: 0,
-          source: opts.path,
-          kind: "job",
-          jobIds: [executionIdText(current.id)],
-          chainId: null,
-          cronId: null,
-          stdout,
-          stderr,
-          status: job.status,
-          exitCode: job.exit_code ?? null,
-          jobs: [job],
-        },
-      ],
+      exitCode: executionExitCode(current),
+      failedStepIndex: failedStepIndex === -1 ? null : failedStepIndex,
+      stdout,
+      stderr,
+      stdoutTruncated: output.some((step) => step.stdout.truncated),
+      stderrTruncated: output.some((step) => step.stderr.truncated),
       timedOut: !executionStateTerminal(current.state),
     };
   }
 
-  /** Query the daemon-lifetime authoritative snapshot for a script run. */
-  async scriptInfo(scriptId: string): Promise<ScriptInfoPayload> {
-    const execution = await this.getExecution(scriptId);
-    if (!execution) throw new CueError("NOT_FOUND", `${scriptId} not found`);
-    return {
-      script_id: executionIdText(execution.id),
-      status:
-        execution.state.status === "succeeded"
-          ? "done"
-          : execution.state.status === "failed" || execution.state.status === "cancelled"
-            ? execution.state.status
-            : "running",
-      items: [],
-      exit_code: executionExitCode(execution),
-      failed_item_index: null,
-      submit_error: null,
-      ...(execution.state.status === "cancelled" ? { cancelReason: execution.state.reason } : {}),
-    };
-  }
-
-  /** Stop (kill) a running job or remove a cron. */
-  async stopJob(targetId: string, operation?: CueOperationKey): Promise<void> {
+  /** Cancel a running execution or remove a schedule. */
+  async stopExecutionOrSchedule(targetId: string, operation?: CueOperationKey): Promise<void> {
     const payload: RequestPayload = /^T\d+$/u.test(targetId)
       ? { RemoveSchedule: { id: parseScheduleId(targetId) } }
       : {
@@ -1249,7 +1148,7 @@ export class CueClient {
     okRecord(await this.#waitForResponse(requestId));
   }
 
-  /** Idempotently cancel a job, chain, or script and wait for it to stop. */
+  /** Idempotently cancel an execution. */
   async cancelExecution(targetId: string, operation?: CueOperationKey): Promise<void> {
     const requestId = await this.#send(
       { CancelExecution: { id: parseExecutionId(targetId), mode: "graceful" } },
@@ -1258,26 +1157,26 @@ export class CueClient {
     okRecord(await this.#waitForResponse(requestId));
   }
 
-  /** List all jobs through the typed IPC query. */
-  async listJobs(limit?: number): Promise<JobInfo[]> {
-    return (await this.listExecutions(limit)).map(jobInfoFromExecution);
+  /** List execution summaries through the typed IPC query. */
+  async listExecutionSummaries(limit?: number): Promise<ExecutionSummary[]> {
+    return (await this.listExecutions(limit)).map(executionSummaryFromInfo);
   }
 
-  /** Get job status via `:jobs`. */
-  async jobStatus(jobId: string): Promise<JobInfo | null> {
-    const execution = await this.getExecution(jobId);
-    return execution ? jobInfoFromExecution(execution) : null;
+  /** Get one execution summary. */
+  async executionSummary(executionId: string): Promise<ExecutionSummary | null> {
+    const execution = await this.getExecution(executionId);
+    return execution ? executionSummaryFromInfo(execution) : null;
   }
 
-  /** Get cron status via `:crons`. */
-  async cronStatus(cronId: string): Promise<CronInfo | null> {
-    const list = await this.listCrons();
-    return list.find((c) => c.id === cronId) ?? null;
+  /** Get a schedule by its typed identifier. */
+  async scheduleStatus(scheduleId: string): Promise<ScheduleSummary | null> {
+    const list = await this.listScheduleSummaries();
+    return list.find((schedule) => schedule.id === scheduleId) ?? null;
   }
 
   /** Get buffered stdout from the daemon. */
-  async jobOutput(jobId: string, tailBytes?: number): Promise<JobOutputResult> {
-    const output = await this.executionOutput(jobId, tailBytes);
+  async executionTextOutput(executionId: string, tailBytes?: number): Promise<ExecutionTextOutput> {
+    const output = await this.executionOutput(executionId, tailBytes);
     if (output.length === 0) {
       return {
         stdout: "",
@@ -1321,67 +1220,16 @@ export class CueClient {
     throw new CueError("UNEXPECTED_RESPONSE", "expected ExecutionOutput response");
   }
 
-  /** Get buffered stderr from the daemon. */
-  async jobError(
-    jobId: string,
-    tailBytes?: number,
-  ): Promise<{
-    stderr: string;
-    encoding: OutputEncoding;
-    base64?: string;
-    truncated?: boolean;
-  }> {
-    const output = await this.jobOutput(jobId, tailBytes);
-    return {
-      stderr: output.stderr,
-      encoding: output.stderrEncoding,
-      ...(output.stderrBase64 ? { base64: output.stderrBase64 } : {}),
-      truncated: output.stderrTruncated,
-    };
-  }
-
-  /** Send stdin to a running job. */
-  async sendInput(id: string, data: string, operation?: CueOperationKey): Promise<void> {
-    const attach = await this.#send({ StepAttach: { id: parseStepId(id) } });
-    okRecord(await this.#waitForResponse(attach));
-    const request = await this.#send(
-      { StepInput: { data: Buffer.from(data).toString("base64") } },
-      operation,
-    );
-    okRecord(await this.#waitForResponse(request));
-  }
-
-  /** Cancel a pending/running job. */
-  async cancelJob(id: string, operation?: CueOperationKey): Promise<void> {
-    await this.cancelExecution(id, operation);
-  }
-
-  /** Pause a cron. */
-  async pauseCron(id: string, operation?: CueOperationKey): Promise<void> {
+  /** Pause a schedule. */
+  async pauseSchedule(id: string, operation?: CueOperationKey): Promise<void> {
     const request = await this.#send({ PauseSchedule: { id: parseScheduleId(id) } }, operation);
     okRecord(await this.#waitForResponse(request));
   }
 
-  /** Resume a cron. */
-  async resumeCron(id: string, operation?: CueOperationKey): Promise<void> {
+  /** Resume a schedule. */
+  async resumeSchedule(id: string, operation?: CueOperationKey): Promise<void> {
     const request = await this.#send({ ResumeSchedule: { id: parseScheduleId(id) } }, operation);
     okRecord(await this.#waitForResponse(request));
-  }
-
-  /** Retry a terminal job. */
-  async retryJob(id: string, operation?: CueOperationKey): Promise<StartJobResult> {
-    const previous = await this.getExecution(id);
-    if (!previous) throw new CueError("NOT_FOUND", `${id} not found`);
-    const created = await this.submitExecution(
-      { ...previous.spec, retry_of: previous.id },
-      operation,
-    );
-    return {
-      jobId: executionIdText(created.id),
-      stepIds: created.steps.map((step) => `${executionIdText(created.id)}/S${step.id.index}`),
-      kind: created.steps.length > 1 ? "chain" : "job",
-      warnings: [],
-    };
   }
 
   /** Mutate the current session environment with `:env set KEY=VALUE ...`. */
@@ -1494,20 +1342,19 @@ export class CueClient {
       }
       return lines.join("\n");
     }
-    if (/^C\d+$/u.test(id)) {
-      const schedule = (await this.listSchedules()).find((item) => scheduleIdText(item.id) === id);
-      if (!schedule) throw new CueError("NOT_FOUND", `${id} not found`);
-      return `${id} ${schedule.status} ${displayCronSchedule(schedule.schedule)} ${executionPlanLabel(schedule.execution.plan)}`;
-    }
-    throw new CueError("INVALID_REQUEST", `expected execution E<n> or schedule C<n>, got ${id}`);
+    throw new CueError("INVALID_REQUEST", `expected execution E<n>, got ${id}`);
   }
 
-  /** Schedule a recurring or one-shot cron job.  Returns the cron id. */
-  async addCron(schedule: string, command: string, operation?: CueOperationKey): Promise<string> {
+  /** Create a recurring or one-shot execution schedule. */
+  async addSchedule(
+    schedule: string,
+    command: string,
+    operation?: CueOperationKey,
+  ): Promise<string> {
     const requestId = await this.#send(
       {
         CreateSchedule: {
-          schedule: parseCronSchedule(schedule),
+          schedule: parseScheduleExpression(schedule),
           execution: compileExecution(command, { sourceName: "<spark-cue-schedule>" }),
         },
       },
@@ -1521,11 +1368,11 @@ export class CueClient {
     throw new CueError("UNEXPECTED_RESPONSE", "expected ScheduleCreated response");
   }
 
-  /** List all cron jobs through the typed IPC query. */
-  async listCrons(limit?: number): Promise<CronInfo[]> {
+  /** List all execution schedules through the typed IPC query. */
+  async listScheduleSummaries(limit?: number): Promise<ScheduleSummary[]> {
     return (await this.listSchedules(limit)).map((schedule) => ({
       id: scheduleIdText(schedule.id),
-      schedule: displayCronSchedule(schedule.schedule),
+      schedule: displaySchedule(schedule.schedule),
       command: executionPlanLabel(schedule.execution.plan),
       status: schedule.status,
     }));
@@ -1541,10 +1388,10 @@ export class CueClient {
     throw new CueError("UNEXPECTED_RESPONSE", "expected ScheduleList response");
   }
 
-  /** Remove a cron job. */
-  async removeCron(cronId: string, operation?: CueOperationKey): Promise<void> {
+  /** Remove an execution schedule. */
+  async removeSchedule(scheduleId: string, operation?: CueOperationKey): Promise<void> {
     const requestId = await this.#send(
-      { RemoveSchedule: { id: parseScheduleId(cronId) } },
+      { RemoveSchedule: { id: parseScheduleId(scheduleId) } },
       operation,
     );
     okRecord(await this.#waitForResponse(requestId));
@@ -1558,7 +1405,7 @@ export class CueClient {
 
   // ── Event listeners ─────────────────────────────────────────────────
 
-  /** Listen for events on a channel prefix.  E.g. "output:J1" or "jobs". */
+  /** Listen for events on a typed event channel. */
   onEvent(channelPrefix: string, handler: (event: EventPayload) => void): () => void {
     let listeners = this.#listeners.get(channelPrefix);
     if (!listeners) {
@@ -1586,7 +1433,7 @@ export class CueClient {
     if (this.#pending.size >= MAX_PENDING_REQUESTS) {
       throw new CueError(
         "CLIENT_REQUEST_LIMIT",
-        `refusing to exceed ${MAX_PENDING_REQUESTS} pending cue-shell requests`,
+        `refusing to exceed ${MAX_PENDING_REQUESTS} pending Cue requests`,
       );
     }
 
@@ -1597,9 +1444,8 @@ export class CueClient {
       resolveResponse = resolve;
       rejectResponse = reject;
     });
-    // A caller may intentionally use eval() as fire-and-forget. Keep that from
-    // becoming an unhandled rejection while preserving the original promise
-    // for callers that do claim the response.
+    // The response may arrive between send and the caller claiming it. Prevent
+    // that short handoff window from becoming an unhandled rejection.
     void promise.catch(() => {});
     const pending: PendingRequest = {
       promise,
@@ -1650,7 +1496,7 @@ export class CueClient {
       this.#nextId = nextRequestId(id);
       if (!this.#pending.has(id)) return id;
     }
-    throw new CueError("CLIENT_REQUEST_LIMIT", "no free cue-shell request id is available");
+    throw new CueError("CLIENT_REQUEST_LIMIT", "no free Cue request id is available");
   }
 
   #retainUnclaimedResponse(id: number, pending: PendingRequest): void {

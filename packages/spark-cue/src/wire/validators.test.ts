@@ -8,6 +8,7 @@ import {
 } from "./validators.ts";
 
 const stepId = { execution: 7, index: 0 };
+const scopeHash = Array.from({ length: 32 }, (_, index) => index);
 const spec = {
   plan: {
     kind: "pipeline",
@@ -21,6 +22,7 @@ const spec = {
       ],
     },
   },
+  start_scope: scopeHash,
   launch_context: {
     pty: false,
     needs: { cpu: { kind: "count", value: 1 } },
@@ -195,6 +197,13 @@ test("rejects unknown fields at every typed boundary", () => {
 });
 
 test("rejects invalid execution states and adapter handles", () => {
+  assert.throws(
+    () =>
+      validateCueOkPayload({
+        ExecutionInfo: { ...execution, spec: { ...spec, start_scope: [0, 1] } },
+      }),
+    /expected a 32-byte scope hash/,
+  );
   assert.throws(
     () => validateCueOkPayload({ ExecutionInfo: { ...execution, state: { status: "killed" } } }),
     /unknown execution status killed/,

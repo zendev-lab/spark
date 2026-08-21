@@ -617,7 +617,7 @@ async function createJourneyFixture(
     mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
-    mkdir(resolve(temporary, "xdg/run/cue-shell"), { recursive: true, mode: 0o700 }),
+    mkdir(resolve(temporary, "xdg/run/cue"), { recursive: true, mode: 0o700 }),
   ]);
   await cp(fixtureRoot, workspaceRoot, { recursive: true });
   for (const [index, repository] of repositories.entries()) {

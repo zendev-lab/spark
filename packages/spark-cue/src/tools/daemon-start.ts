@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as nodePath from "node:path";
 
 import { requireCueCommandContract, type CueCommandContract } from "../command-contract.ts";
-import { cueShellProcessEnvironment } from "../executable-environment.ts";
+import { cueProcessEnvironment } from "../executable-environment.ts";
 
 export const DEFAULT_CUED_AUTOSTART_TIMEOUT_MS = 10_000;
 const CUED_START_OUTPUT_LIMIT = 32 * 1024;
@@ -23,7 +23,7 @@ export async function startDaemonWithContract(
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       detached: true,
-      env: cueShellProcessEnvironment(),
+      env: cueProcessEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const timeoutMs = timeoutMsFromEnv(

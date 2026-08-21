@@ -2,20 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import type { CueClient } from "../client/cue-client.ts";
 import { createCueToolRuntime } from "./index.ts";
 
-function runtimeWithRunJob(result: Record<string, unknown>) {
-  const runJob = vi.fn(async () => result);
+function runtimeWithRunExecution(result: Record<string, unknown>) {
+  const runExecution = vi.fn(async () => result);
   const runtime = createCueToolRuntime({
-    client: { isClosed: false, runJob } as unknown as CueClient,
+    client: { isClosed: false, runExecution } as unknown as CueClient,
   });
-  return { runtime, runJob };
+  return { runtime, runExecution };
 }
 
 describe("host-neutral Cue operation runtime", () => {
   it("returns structured foreground streams and domain failure without the Spark envelope", async () => {
-    const success = runtimeWithRunJob({
-      jobId: "E1",
+    const success = runtimeWithRunExecution({
+      executionId: "E1",
       stepIds: ["E1/S1"],
-      status: "Done",
+      status: "succeeded",
       stdout: "hello\n",
       stderr: "",
       exitCode: 0,
@@ -37,7 +37,7 @@ describe("host-neutral Cue operation runtime", () => {
       ok: true,
       executionId: "E1",
       stepIds: ["E1/S1"],
-      status: "Done",
+      status: "succeeded",
       exitCode: 0,
       stdout: { text: "hello\n", encoding: "utf8", truncated: false },
       stderr: { text: "", encoding: "utf8", truncated: false },
@@ -46,10 +46,10 @@ describe("host-neutral Cue operation runtime", () => {
     expect(result).not.toHaveProperty("details");
     success.runtime.dispose();
 
-    const failed = runtimeWithRunJob({
-      jobId: "E2",
+    const failed = runtimeWithRunExecution({
+      executionId: "E2",
       stepIds: ["E2/S1"],
-      status: "Failed",
+      status: "failed",
       stdout: "partial\n",
       stderr: "bad\n",
       exitCode: 3,
@@ -69,7 +69,7 @@ describe("host-neutral Cue operation runtime", () => {
     ).resolves.toMatchObject({
       tool: "cue_exec",
       ok: false,
-      status: "Failed",
+      status: "failed",
       exitCode: 3,
       stdout: { text: "partial\n" },
       stderr: { text: "bad\n" },
@@ -78,10 +78,10 @@ describe("host-neutral Cue operation runtime", () => {
   });
 
   it("treats foreground timeout as a detached domain result", async () => {
-    const { runtime } = runtimeWithRunJob({
-      jobId: "E3",
+    const { runtime } = runtimeWithRunExecution({
+      executionId: "E3",
       stepIds: ["E3/S1"],
-      status: "Running",
+      status: "running",
       stdout: "so far",
       stderr: "",
       exitCode: null,
@@ -98,7 +98,7 @@ describe("host-neutral Cue operation runtime", () => {
         { command: "sleep 60", timeout: 1 },
         { sessionId: "dsh:s3", cwd: "/work" },
       ),
-    ).resolves.toMatchObject({ timedOut: true, detached: true, status: "Running" });
+    ).resolves.toMatchObject({ timedOut: true, detached: true, status: "running" });
     runtime.dispose();
   });
 
@@ -169,11 +169,11 @@ describe("host-neutral Cue operation runtime", () => {
   });
 
   it("validates action-dependent arguments before touching cued and reports cancellation", async () => {
-    const { runtime, runJob } = runtimeWithRunJob({});
+    const { runtime, runExecution } = runtimeWithRunExecution({});
     await expect(
       runtime.execute("cue_jobs", { action: "wait" }, { sessionId: "dsh:s4", cwd: "/work" }),
     ).rejects.toThrow("cue_jobs wait id is required");
-    expect(runJob).not.toHaveBeenCalled();
+    expect(runExecution).not.toHaveBeenCalled();
 
     const controller = new AbortController();
     controller.abort();

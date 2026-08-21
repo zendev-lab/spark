@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import {
-  cueShellCommandIssue,
-  cueShellCommandSyntaxIssue,
+  cueCommandIssue,
+  cueCommandSyntaxIssue,
   defaultSocketPath,
   type ScriptResult,
   type SparkCueHostApi,
@@ -76,42 +76,17 @@ test("normalizeCueStderrForDisplay removes duplicated PTY merge note", () => {
 
 test("renderCueScriptResult includes source, timeout, item identity, and status", () => {
   const result = {
-    scriptId: "script:one",
-    stepIds: [],
+    executionId: "E1",
+    stepIds: ["E1/S1"],
     source: { kind: "inline" },
     status: "running",
     exitCode: null,
-    failedItemIndex: null,
+    failedStepIndex: null,
+    stdout: "ok\n",
+    stderr: "bad\n",
+    stdoutTruncated: false,
+    stderrTruncated: false,
     timedOut: true,
-    items: [
-      {
-        index: 0,
-        source: "echo first",
-        kind: "message",
-        jobIds: [],
-        chainId: null,
-        cronId: null,
-        message: "preflight message\n",
-        stdout: "",
-        stderr: "",
-        status: "Done",
-        exitCode: null,
-        jobs: [],
-      },
-      {
-        index: 1,
-        source: "run test",
-        kind: "job",
-        jobIds: ["J1"],
-        chainId: null,
-        cronId: null,
-        stdout: "ok\n",
-        stderr: "bad\n",
-        status: "Running",
-        exitCode: null,
-        jobs: [],
-      },
-    ],
   } satisfies ScriptResult;
 
   const rendered = renderCueScriptResult(result, {
@@ -120,63 +95,25 @@ test("renderCueScriptResult includes source, timeout, item identity, and status"
     tailBytes: 1024,
   }).join("\n");
 
-  assert.match(rendered, /Script script:one: .*running.*source=<inline>/);
+  assert.match(rendered, /Execution E1: .*running.*source=<inline>/);
   assert.match(rendered, /timed_out=true/);
-  assert.match(rendered, /--- item 0: echo first \[message\] .*message/);
-  assert.match(rendered, /--- item 1: run test \[job J1\]/);
+  assert.match(rendered, /ok/);
   assert.match(rendered, /\[stderr\]\nbad/);
 });
 
-test("renderCueScriptResult compacts clean successful items", () => {
+test("renderCueScriptResult summarizes a successful execution with no output", () => {
   const result = {
-    scriptId: "script:clean",
-    stepIds: [],
+    executionId: "E2",
+    stepIds: ["E2/S1", "E2/S2"],
     source: { kind: "file", path: "build.cue" },
     status: "done",
     exitCode: 0,
-    failedItemIndex: null,
+    failedStepIndex: null,
+    stdout: "",
+    stderr: "",
+    stdoutTruncated: false,
+    stderrTruncated: false,
     timedOut: false,
-    items: [
-      {
-        index: 0,
-        source: "true",
-        kind: "job",
-        jobIds: ["J1"],
-        chainId: null,
-        cronId: null,
-        stdout: "",
-        stderr: "",
-        status: "Done",
-        exitCode: 0,
-        jobs: [],
-      },
-      {
-        index: 1,
-        source: "echo hidden-clean",
-        kind: "chain",
-        jobIds: ["J2", "J3"],
-        chainId: "CH1",
-        cronId: null,
-        stdout: "\r",
-        stderr: "",
-        status: "Done",
-        exitCode: null,
-        jobs: [],
-      },
-      {
-        index: 2,
-        source: "echo visible",
-        kind: "job",
-        jobIds: ["J4"],
-        chainId: null,
-        cronId: null,
-        stdout: "visible\n",
-        stderr: "",
-        status: "Done",
-        exitCode: 0,
-        jobs: [],
-      },
-    ],
   } satisfies ScriptResult;
 
   const rendered = renderCueScriptResult(result, {
@@ -185,14 +122,8 @@ test("renderCueScriptResult compacts clean successful items", () => {
     tailBytes: 1024,
   }).join("\n");
 
-  assert.match(
-    rendered,
-    /--- 2 clean item\(s\) done with no output \(0:job J1, 1:chain CH1 \(J2,J3\)\)/,
-  );
-  assert.doesNotMatch(rendered, /--- item 0:/);
-  assert.doesNotMatch(rendered, /--- item 1:/);
-  assert.match(rendered, /--- item 2: echo visible \[job J4\] .*done/);
-  assert.match(rendered, /visible/);
+  assert.match(rendered, /Execution E2: .*done.*source=build\.cue/);
+  assert.match(rendered, /Execution E2 completed with no output/);
 });
 
 test("spark-cue numeric and boolean normalizers reject invalid explicit values", () => {
@@ -370,7 +301,7 @@ test("cue_resources explains empty provider state", async () => {
   );
 
   assert.match(result.content[0].text, /Providers: 0/);
-  assert.match(result.content[0].text, /Hint: no cue-shell resource provider/);
+  assert.match(result.content[0].text, /Hint: no Cue resource provider/);
   assert.match(result.content[0].text, /remove needs=\{\.\.\.\}/);
   assert.match(result.content[0].text, /gpu\/gpu_mem/);
   assert.match(String((result.details as { hint?: unknown }).hint), /resource provider/);
@@ -407,16 +338,21 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
   const commands: string[] = [];
   const fakeClient = {
     isClosed: false,
-    async runJob(command: string) {
+    async runExecution(command: string) {
       commands.push(command);
       return {
-        jobId: `J${commands.length}`,
-        status: "Done" as const,
+        executionId: `E${commands.length}`,
+        stepIds: [`E${commands.length}/S1`],
+        status: "succeeded" as const,
         stdout: "ok\n",
         stderr: "",
         exitCode: 0,
         timedOut: false,
         warnings: [],
+        stdoutEncoding: "utf8" as const,
+        stderrEncoding: "utf8" as const,
+        stdoutTruncated: false,
+        stderrTruncated: false,
       };
     },
   };
@@ -480,7 +416,7 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
     () =>
       runTool.execute(
         "call-bad-venv-run",
-        { language: "cue-shell", path: "script.cue", venv: ".venv" },
+        { language: "cue", path: "script.cue", venv: ".venv" },
         new AbortController().signal,
         () => undefined,
         ctx,
@@ -491,7 +427,7 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
     () =>
       evalTool.execute(
         "call-bad-venv-eval",
-        { language: "cue-shell", script: "msg", venv: ".venv" },
+        { language: "cue", script: "msg", venv: ".venv" },
         new AbortController().signal,
         () => undefined,
         ctx,
@@ -500,54 +436,54 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
   );
 });
 
-test("cue-shell command preflight explains bash syntax before dispatch", () => {
-  assert.equal(cueShellCommandSyntaxIssue("cargo build |> grep error"), undefined);
-  assert.equal(cueShellCommandSyntaxIssue("cargo build |&> grep error"), undefined);
-  assert.equal(cueShellCommandSyntaxIssue("cargo build -> cargo test"), undefined);
-  assert.equal(cueShellCommandSyntaxIssue("cargo build ~> cargo test"), undefined);
-  assert.match(cueShellCommandSyntaxIssue("git status | head") ?? "", /bare bash pipe/u);
-  assert.match(cueShellCommandSyntaxIssue("git status; git diff") ?? "", /bash ';' syntax/u);
-  assert.match(cueShellCommandSyntaxIssue("git status 2>/dev/null") ?? "", /redirection/u);
-  assert.equal(cueShellCommandSyntaxIssue("echo 'a | b'"), undefined);
+test("Cue command preflight explains bash syntax before dispatch", () => {
+  assert.equal(cueCommandSyntaxIssue("cargo build |> grep error"), undefined);
+  assert.equal(cueCommandSyntaxIssue("cargo build |&> grep error"), undefined);
+  assert.equal(cueCommandSyntaxIssue("cargo build -> cargo test"), undefined);
+  assert.equal(cueCommandSyntaxIssue("cargo build ~> cargo test"), undefined);
+  assert.match(cueCommandSyntaxIssue("git status | head") ?? "", /bare bash pipe/u);
+  assert.match(cueCommandSyntaxIssue("git status; git diff") ?? "", /bash ';' syntax/u);
+  assert.match(cueCommandSyntaxIssue("git status 2>/dev/null") ?? "", /redirection/u);
+  assert.equal(cueCommandSyntaxIssue("echo 'a | b'"), undefined);
 });
 
 test("structured preflight carries a verbatim rewrite suggestion", () => {
-  assert.equal(cueShellCommandIssue("cargo build |> grep error"), undefined);
-  assert.equal(cueShellCommandIssue("echo 'a | b'"), undefined);
-  assert.equal(cueShellCommandIssue("(a ||| b) -> c"), undefined);
+  assert.equal(cueCommandIssue("cargo build |> grep error"), undefined);
+  assert.equal(cueCommandIssue("echo 'a | b'"), undefined);
+  assert.equal(cueCommandIssue("(a ||| b) -> c"), undefined);
 
-  const pipe = cueShellCommandIssue("git status | head");
+  const pipe = cueCommandIssue("git status | head");
   assert.ok(pipe);
   assert.match(pipe!.reason, /bare bash pipe/u);
   assert.equal(pipe!.suggestion, "git status |> head");
 
-  const semi = cueShellCommandIssue("git status; git diff");
+  const semi = cueCommandIssue("git status; git diff");
   assert.ok(semi);
   assert.match(semi!.reason, /bash ';' syntax/u);
   assert.equal(semi!.suggestion, "git status ~> git diff");
 
-  const redirect = cueShellCommandIssue("git status 2>/dev/null");
+  const redirect = cueCommandIssue("git status 2>/dev/null");
   assert.ok(redirect);
   assert.match(redirect!.reason, /redirection/u);
   assert.equal(redirect!.suggestion, undefined);
 
   // Multi-bare-pipe chains rewrite only the first flagged pipe (the model
   // can re-issue and get the next one); quotes and legal operators survive.
-  assert.equal(cueShellCommandIssue("ls | head | wc")?.suggestion, "ls |> head | wc");
-  assert.equal(cueShellCommandIssue('echo "a|b" | c')?.suggestion, 'echo "a|b" |> c');
+  assert.equal(cueCommandIssue("ls | head | wc")?.suggestion, "ls |> head | wc");
+  assert.equal(cueCommandIssue('echo "a|b" | c')?.suggestion, 'echo "a|b" |> c');
 });
 
-test("cue_schedule filters the cron statuses emitted by cue-shell", async () => {
+test("cue_schedule filters the cron statuses emitted by Cue", async () => {
   const scheduleTool = registerCueToolsForTest().get("cue_schedule");
   assert.ok(scheduleTool);
 
   const ctx = {
     cueClient: {
       isClosed: false,
-      async listCrons() {
+      async listScheduleSummaries() {
         return [
-          { id: "C1", schedule: "in 1h", command: "true", status: "scheduled" as const },
-          { id: "C2", schedule: "in 1m", command: "false", status: "failed" as const },
+          { id: "T1", schedule: "in 1h", command: "true", status: "scheduled" as const },
+          { id: "T2", schedule: "in 1m", command: "false", status: "failed" as const },
         ];
       },
     },
@@ -560,8 +496,8 @@ test("cue_schedule filters the cron statuses emitted by cue-shell", async () => 
     () => undefined,
     ctx,
   );
-  assert.match(failed.content[0]?.text ?? "", /C2  \[failed\]/);
-  assert.doesNotMatch(failed.content[0]?.text ?? "", /C1/);
+  assert.match(failed.content[0]?.text ?? "", /T2  \[failed\]/);
+  assert.doesNotMatch(failed.content[0]?.text ?? "", /T1/);
 
   await assert.rejects(
     () =>
@@ -591,14 +527,17 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
     async runScript(options: { path: string; input: string; scope?: string }) {
       calls.push(options);
       return {
-        scriptId: `script:${calls.length}`,
+        executionId: `E${calls.length}`,
         stepIds: [],
         source: { kind: "file" as const, path: options.path },
         status: "done" as const,
         exitCode: 0,
-        failedItemIndex: null,
+        failedStepIndex: null,
+        stdout: "",
+        stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
         timedOut: false,
-        items: [],
       } satisfies ScriptResult;
     },
   };
@@ -606,7 +545,7 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
 
   const fileResult = await runTool.execute(
     "call-scope-run",
-    { language: "cue-shell", path: "build.cue", scope: "abc123" },
+    { language: "cue", path: "build.cue", scope: "abc123" },
     new AbortController().signal,
     () => undefined,
     ctx,
@@ -618,7 +557,7 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
 
   await evalTool.execute(
     "call-scope-eval",
-    { language: "cue-shell", script: "msg", scope: "def456" },
+    { language: "cue", script: "msg", scope: "def456" },
     new AbortController().signal,
     () => undefined,
     ctx,
