@@ -113,7 +113,26 @@ export type OkPayload =
         base64?: string;
       };
     }
-  | { FgAttached: { id: string } };
+  | { FgAttached: ForegroundAttachmentInfo }
+  | {
+      FgRoleChanged: {
+        id: StepId;
+        attachment_id: number;
+        role: ForegroundRole;
+        control_available: boolean;
+      };
+    };
+
+export type ForegroundRole = "controller" | "observer";
+
+export interface ForegroundAttachmentInfo {
+  id: StepId;
+  attachment_id: number;
+  role: ForegroundRole;
+  control_available: boolean;
+  snapshot: string;
+  snapshot_truncated: boolean;
+}
 
 /**
  * Daemon Pong payload.
@@ -431,10 +450,9 @@ export type EventPayload =
     }
   | { ExecutionFinished: { execution: ExecutionInfo } }
   | { OutputChunk: OutputChunkEvent }
-  | { OutputChunkBinary: OutputChunkBinaryEvent }
-  | { OutputEof: { id: string } }
-  | { FgOutput: { data: string } }
-  | { FgExited: { id: string; reason: string } }
+  | { FgOutput: { id: StepId; attachment_id: number; data: string } }
+  | { FgControlChanged: { id: StepId; attachment_id: number; control_available: boolean } }
+  | { FgExited: { id: StepId; attachment_id: number; reason: string } }
   | { ShuttingDown: { reason: string } };
 
 export interface JobStateChangedEvent {
@@ -459,15 +477,10 @@ export interface JobCreatedEvent {
 }
 
 export interface OutputChunkEvent {
-  id: string;
+  id: StepId;
   stream: "stdout" | "stderr";
+  /** Canonical base64-encoded process bytes. */
   data: string;
-}
-
-export interface OutputChunkBinaryEvent {
-  id: string;
-  stream: "stdout" | "stderr";
-  base64: string;
 }
 
 export interface PageInfo {

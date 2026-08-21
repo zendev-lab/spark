@@ -36,7 +36,6 @@ import {
   type EventEnvelope,
   type EventPayload,
   type OutputChunkEvent,
-  type OutputChunkBinaryEvent,
   type PageInfo,
   type StreamText,
   type OutputEncoding,
@@ -424,14 +423,10 @@ interface DecodedOutputChunk {
 function outputChunkFromEvent(event: EventPayload): DecodedOutputChunk | null {
   if ("OutputChunk" in event) {
     const chunk = (event as { OutputChunk: OutputChunkEvent }).OutputChunk;
-    return { id: chunk.id, stream: chunk.stream, bytes: Buffer.from(chunk.data), encoding: "utf8" };
-  }
-  if ("OutputChunkBinary" in event) {
-    const chunk = (event as { OutputChunkBinary: OutputChunkBinaryEvent }).OutputChunkBinary;
     return {
-      id: chunk.id,
+      id: `${executionIdText(chunk.id.execution)}/S${chunk.id.index}`,
       stream: chunk.stream,
-      bytes: Buffer.from(chunk.base64, "base64"),
+      bytes: Buffer.from(chunk.data, "base64"),
       encoding: "base64",
     };
   }
@@ -1745,7 +1740,7 @@ export class CueClient {
       if (chunk) {
         channels.add(`step:${chunk.id}`);
         channels.add("output");
-      } else if ("FgOutput" in payload || "FgExited" in payload) {
+      } else if ("FgOutput" in payload || "FgControlChanged" in payload || "FgExited" in payload) {
         channels.add("fg");
       }
     }

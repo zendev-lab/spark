@@ -79,7 +79,24 @@ const okPayloads: unknown[] = [
     },
   },
   { TextOutput: { text: "ok", truncated: false, encoding: "utf8" } },
-  { FgAttached: { id: "E7/S0" } },
+  {
+    FgAttached: {
+      id: stepId,
+      attachment_id: 1,
+      role: "observer",
+      control_available: true,
+      snapshot: "",
+      snapshot_truncated: false,
+    },
+  },
+  {
+    FgRoleChanged: {
+      id: stepId,
+      attachment_id: 1,
+      role: "controller",
+      control_available: false,
+    },
+  },
   {
     Pong: {
       version: "0.2.0",
@@ -109,11 +126,10 @@ const eventPayloads: unknown[] = [
     },
   },
   { ExecutionFinished: { execution: { ...execution, state: { status: "failed" } } } },
-  { OutputChunk: { id: "E7/S0", stream: "stdout", data: "ok" } },
-  { OutputChunkBinary: { id: "E7/S0", stream: "stderr", base64: "/w==" } },
-  { OutputEof: { id: "E7/S0" } },
-  { FgOutput: { data: "b2s=" } },
-  { FgExited: { id: "E7/S0", reason: "done" } },
+  { OutputChunk: { id: stepId, stream: "stdout", data: "b2s=" } },
+  { FgOutput: { id: stepId, attachment_id: 1, data: "b2s=" } },
+  { FgControlChanged: { id: stepId, attachment_id: 1, control_available: true } },
+  { FgExited: { id: stepId, attachment_id: 1, reason: "done" } },
   { ShuttingDown: { reason: "restart" } },
 ];
 
@@ -168,7 +184,7 @@ test("rejects unknown fields at every typed boundary", () => {
   assert.throws(
     () =>
       validateCueEventPayload({
-        OutputChunk: { id: "E7/S0", stream: "stdout", data: "", seq: 1 },
+        OutputChunk: { id: stepId, stream: "stdout", data: "", seq: 1 },
       }),
     /unknown field seq/,
   );
@@ -198,11 +214,11 @@ test("rejects invalid execution states and adapter handles", () => {
   );
 });
 
-test("rejects malformed base64 without altering text output validation", () => {
+test("rejects malformed base64 process output", () => {
   assert.throws(
     () =>
       validateCueEventPayload({
-        OutputChunkBinary: { id: "E7/S0", stream: "stdout", base64: "x" },
+        OutputChunk: { id: stepId, stream: "stdout", data: "x" },
       }),
     /canonical base64/,
   );
