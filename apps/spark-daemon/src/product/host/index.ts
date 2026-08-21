@@ -1,0 +1,342 @@
+/**
+ * Public barrel for the SparkHostRuntime native SparkHostAPI host.
+ *
+ * Extensions speak to `spark-core`'s `SparkHostAPI` shape; this
+ * package's job is to provide a runtime that satisfies that contract for the
+ * composition-coupled headless host. The barrel keeps the import surface stable
+ * across follow-up tasks (`agent-turn-loop`, `model-selector-ui`,
+ * `session-format-and-store`, `tool-and-thinking-rendering`, …) which will
+ * extend the runtime in place.
+ */
+
+export { SparkHostRuntime, createSparkHostRuntime } from "@zendev-lab/spark-host";
+export type { SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
+export { SparkAgentLoop } from "./agent-loop.ts";
+export {
+  SparkAuthStore,
+  SparkProviderAuthResolver,
+  defaultSparkAuthPath,
+  listOAuthProviderSummaries,
+  registerSparkOAuthProvider,
+  resetSparkOAuthProviders,
+} from "./auth.ts";
+export type {
+  SparkAuthFile,
+  SparkAuthStoreOptions,
+  SparkProviderAuthResolverOptions,
+  SparkOAuthProviderInterface,
+  SparkProviderAuthStatus,
+  SparkStoredCredential,
+} from "./auth.ts";
+export type {
+  SparkAgentLoopEvent,
+  SparkAgentLoopOptions,
+  SparkAgentLoopState,
+  SparkAgentStreamFunction,
+  SparkPromptAuthority,
+  SparkPromptItem,
+  SparkPromptManifest,
+  SparkPromptManifestOptions,
+  SparkPromptPersistence,
+  SparkPromptTrust,
+  SparkPromptVisibility,
+  SparkRunOutcome,
+} from "./agent-loop.ts";
+export {
+  SparkAgentSession,
+  agentMessageToSessionMessage,
+  sessionEntriesToAgentMessages,
+  sessionEntriesToPromptItems,
+  sessionMessageToAgentMessage,
+  sessionRecordToAgentMessages,
+  sessionRecordToPromptItems,
+} from "./agent-session.ts";
+export type {
+  SparkAgentSessionCompactOptions,
+  SparkAgentSessionCompactResult,
+  SparkAgentSessionRunOptions,
+  SparkAgentSessionRunResult,
+} from "./agent-session.ts";
+export {
+  SparkKeybindings,
+  defaultKeybindingsPath,
+  defaultSparkKeybindings,
+} from "@zendev-lab/spark-host/keybindings";
+export type {
+  SparkKeybindingContext,
+  SparkKeybindingDefinition,
+  SparkKeybindingId,
+  SparkKeybindingsOptions,
+  SparkKeybindingsSnapshot,
+} from "@zendev-lab/spark-host/keybindings";
+export { SparkProviderRegistry } from "./provider-registry.ts";
+export type {
+  ProviderConfig,
+  ProviderModelDefinition,
+  ProviderRegistrationAPI,
+  SparkActiveSelection,
+} from "./provider-registry.ts";
+export { SparkHostModelRegistry } from "./model-registry.ts";
+export type {
+  SparkHostModelAuthResolver,
+  SparkHostModelRegistryLike,
+  SparkHostModelRegistryOptions,
+  SparkHostRegistryModel,
+} from "./model-registry.ts";
+export {
+  SPARK_MODEL_CYCLE_NEXT_BINDING_ID,
+  SPARK_MODEL_CYCLE_PREV_BINDING_ID,
+  SPARK_MODEL_PICKER_BINDING_ID,
+  SparkModelSelector,
+  formatSelection as formatSparkModelSelection,
+  registerSparkModelSelectorKeybindings,
+  resolveSparkModelSelectionById,
+  sparkModelSelectionFromValue,
+  sparkModelSelectionValue,
+} from "./model-selector.ts";
+export type {
+  SparkConfigLoader,
+  SparkConfigSaver,
+  SparkModelCycleDirection,
+  SparkModelPicker,
+  SparkModelPickerState,
+  SparkModelProviderGroup,
+  SparkEnabledModelCatalogState,
+  SparkEnabledModelEditorItem,
+  SparkModelSelectorItem,
+  SparkModelSelectorKeybindingOptions,
+  SparkModelSelectorOptions,
+} from "./model-selector.ts";
+export {
+  assistantMessageToText,
+  createProviderRegistryStreamFunction,
+  createProviderRegistryWorkflowModelRunner,
+  createSparkCliHostServices,
+  defaultSparkCliKeybindingsPath,
+  selectInitialModel,
+} from "./bootstrap.ts";
+export {
+  DEFAULT_SPARK_CONFIG,
+  defaultSparkConfigPath,
+  loadSparkConfig,
+  mergeWithDefault as mergeSparkConfigWithDefault,
+  saveSparkConfig,
+  sparkUserInitiatedEnabledModelsIntent,
+  type SparkConfigSaveOptions,
+  type SparkEnabledModelsWriteIntent,
+} from "./config.ts";
+export {
+  CURRENT_SPARK_COMPACTION_SUMMARY_VERSION,
+  DEFAULT_SPARK_COMPACTION_SETTINGS,
+  appendSparkBranchSummary,
+  collectSparkBranchEntriesToSummarize,
+  compactSparkSessionRecord,
+  compactSparkVisibleTranscript,
+  deterministicSparkCompactionSummary,
+  entriesToMessages,
+  estimateSparkContextTokens,
+  estimateSparkTokens,
+  findSparkCompactionCutPoint,
+  findSparkTurnStartIndex,
+  meterSparkContextTokens,
+  microCompactSparkMessages,
+  navigateSparkSessionBranchWithSummary,
+  normalizeSparkCompactionOutcomeMetadata,
+  parseSparkSmartCompactionSummary,
+  prepareSparkCompaction,
+  renderSparkSmartCompactionPrompt,
+  renderSparkSmartCompactionSummary,
+  scheduleSparkCompaction,
+  shouldSparkCompact,
+  shouldSparkMicroCompact,
+  smartSparkCompactionSummary,
+  smartSparkCompactionSummaryWithFallback,
+} from "./compaction.ts";
+export {
+  loadSparkProductAgentPlugins,
+  loadSparkProductCapabilities,
+  loadSparkProductDshToolSurfaces,
+  registerSparkProductCapabilities,
+} from "./product-composition.ts";
+export {
+  BUILTIN_SPARK_THEMES,
+  DEFAULT_SPARK_THEME_ID,
+  createSparkHostRenderTheme,
+  createSparkMarkdownTheme,
+  loadSparkThemeCatalog,
+  styleSparkDiffLine,
+  styleSparkRoleLine,
+} from "./theme.ts";
+export type {
+  SparkTheme,
+  SparkThemeCatalog,
+  SparkThemeColors,
+  SparkThemeDiagnostic,
+  SparkThemeLoadOptions,
+  SparkMarkdownTheme,
+} from "./theme.ts";
+export {
+  defaultSparkHtmlExportDir,
+  defaultSparkShareDir,
+  renderSparkTranscriptHtml,
+  sparkSessionRecordToHtmlMessages,
+  writeSparkTranscriptHtml,
+} from "./html-export.ts";
+export {
+  SparkPromptTemplateResolver,
+  defaultSparkPromptTemplatesDir,
+  defaultSparkPromptTemplatesRoot,
+  expandSparkPromptTemplate,
+  loadPromptTemplateFromFile,
+  loadPromptTemplatesFromDir,
+  loadPromptTemplatesFromPath,
+  parseSparkPromptTemplateArgs,
+  substituteSparkPromptTemplateArgs,
+} from "./prompt-templates.ts";
+export {
+  SparkSkillResolver,
+  defaultBuiltinSkillsDir,
+  defaultProjectAgentsSkillsDirs,
+  defaultSparkSkillsRoot,
+  defaultUserAgentsSkillsDir,
+  defaultUserSkillsDir,
+  formatSparkSkillsForPrompt,
+  formatSelectedSparkSkillsForPrompt,
+  loadMatchingSparkSkillsForPrompt,
+  loadSkillsFromDir,
+  parseSkillFrontmatter,
+} from "@zendev-lab/spark-roles/skill-resolver";
+export type {
+  SparkCliHostDiagnostic,
+  SparkCliHostServices,
+  SparkCliHostServicesOptions,
+  SparkWorkflowModelRunRequest,
+  SparkWorkflowModelRunResponse,
+} from "./bootstrap.ts";
+export type { SparkConfig } from "./config.ts";
+export type {
+  SparkCompactionFallbackReason,
+  SparkCompactionPreparation,
+  SparkCompactionSettings,
+  SparkCompactionSummarizer,
+  SparkCompactionPassType,
+  SparkCompactionScheduleResult,
+  SparkCompactionTokenSource,
+  SparkSmartCompactionAttempt,
+  SparkSmartCompactionModelRequest,
+  SparkSmartCompactionModelRunner,
+  SparkSmartCompactionSummary,
+  SparkMicroCompactionResult,
+  SparkBranchNavigationSummaryResult,
+  SparkCompactionSummaryResult,
+  SparkContextUsageEstimate,
+  SparkCutPointResult,
+  SparkTokenMeterInput,
+  SparkTranscriptMessageForCompaction,
+  SparkVisibleTranscriptCompactionResult,
+} from "./compaction.ts";
+export type {
+  SparkProductCapability,
+  SparkProductCapabilityFactory,
+  SparkProductCapabilityName,
+  SparkProductDshToolSurface,
+  SparkProductRegistration,
+  SparkProductRegistrationOutcome,
+} from "./product-composition.ts";
+export type {
+  SparkHtmlExportInput,
+  SparkHtmlTranscriptMessage,
+  SparkHtmlWriteOptions,
+  SparkHtmlWriteResult,
+} from "./html-export.ts";
+export type {
+  SparkPromptTemplate,
+  SparkPromptTemplateDiagnostic,
+  SparkPromptTemplateExpansion,
+  SparkPromptTemplateLayer,
+  SparkPromptTemplateResolveResult,
+  SparkPromptTemplateResolverOptions,
+} from "./prompt-templates.ts";
+export type {
+  SparkSkill,
+  SparkSkillDiagnostic,
+  SparkSkillFrontmatter,
+  SparkSkillLayer,
+  SparkSkillPromptMatch,
+  SparkSkillResolveResult,
+  SparkSkillResolverOptions,
+} from "@zendev-lab/spark-roles/skill-resolver";
+export {
+  CURRENT_SPARK_SESSION_VERSION,
+  SparkSessionStore,
+  defaultSparkHome,
+  defaultSparkSessionsRoot,
+  parseSparkSessionEntries,
+  workspaceSessionHash,
+  writeJsonLinesAtomically,
+} from "@zendev-lab/spark-session/transcript";
+export {
+  buildSparkSessionTree,
+  exportSparkSessionRecord,
+  flattenSparkSessionTree,
+  formatBranchRows,
+  formatSessionList,
+  formatSessionReplay,
+  getSparkSessionBranch,
+  getSparkSessionLeafId,
+  readSparkSessionExportFormat,
+  registerSparkSessionsCommand,
+  runSparkSessionsCommand,
+  switchSparkSessionLeaf,
+} from "./session-navigation.ts";
+export type {
+  NewSparkSessionOptions,
+  SparkBranchSummaryEntry,
+  SparkCompactionEntry,
+  SparkCompactionOutcomeMetadata,
+  SparkCustomEntry,
+  SparkCustomMessageEntry,
+  SparkLabelEntry,
+  SparkModelChangeEntry,
+  SparkSessionEntry,
+  SparkSessionEntryBase,
+  SparkSessionFileEntry,
+  SparkSessionHeader,
+  SparkSessionInfo,
+  SparkSessionInfoEntry,
+  SparkSessionMessage,
+  SparkSessionMessageEntry,
+  SparkSessionRecord,
+  SparkSessionAtomicWriteOptions,
+  SparkSessionStoreOptions,
+  SparkThinkingLevelChangeEntry,
+} from "@zendev-lab/spark-session/transcript";
+export type {
+  SparkSessionExportFormat,
+  SparkSessionNavigationState,
+  SparkSessionsCommandHost,
+  SparkSessionsCommandOptions,
+  SparkSessionTreeNode,
+  SparkSessionTreeRow,
+} from "./session-navigation.ts";
+export { loadProviderPlugins } from "./provider-plugin-loader.ts";
+export type {
+  LoadProviderPluginsOptions,
+  ProviderPluginLoadOutcome,
+  ProviderPluginLoadResult,
+} from "./provider-plugin-loader.ts";
+export type {
+  RegisteredTool,
+  RegisteredCommand,
+  EventListener,
+  EventName,
+  OutboxEnvelope,
+  SparkHostCustomMessage,
+  SparkHostMessageRenderer,
+  SparkHostMessageRenderOptions,
+  SparkHostRenderComponent,
+  SparkHostRenderTheme,
+  SparkHostSessionManagerStub,
+  SparkHostUiTransport,
+  ToolRegistrationListener,
+} from "@zendev-lab/spark-host/types";

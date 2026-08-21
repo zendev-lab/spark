@@ -250,7 +250,7 @@ export default function registerCapacityProvider(api: ProviderRegistrationAPI): 
         reasoning: false,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 8_192,
+        contextWindow: 32_768,
         maxTokens: 4_096,
       },
     ],

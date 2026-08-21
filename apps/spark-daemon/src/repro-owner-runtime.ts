@@ -1,4 +1,4 @@
-import { registerSparkReproRoles } from "@zendev-lab/spark-extension/repro-roles";
+import { registerSparkReproRoles } from "./product/policy/spark-repro-roles.ts";
 import {
   sparkTurnSubmitResultSchema,
   type SparkEvidenceAnswerEvent,

@@ -34,7 +34,7 @@ describe("architecture inventory governance", () => {
     expect(governance.validateArchitectureGovernance(inventory, manifests, rootManifest)).toEqual(
       [],
     );
-    expect(Object.keys(inventory.packages)).toHaveLength(42);
+    expect(Object.keys(inventory.packages)).toHaveLength(41);
     for (const packageInfo of Object.values(inventory.packages)) {
       expect(packageInfo).toHaveProperty("stateWriter");
       expect(packageInfo).not.toHaveProperty("stateAuthority");
@@ -201,7 +201,7 @@ describe("architecture inventory governance", () => {
       dependencyCruiserConfig.forbidden.map(({ name }: NamedRule) => name),
     );
 
-    expect(generatedRules).toHaveLength(42);
+    expect(generatedRules).toHaveLength(41);
     for (const rule of generatedRules) expect(configuredRuleNames.has(rule.name)).toBe(true);
     expect(
       governance.classifyWorkspaceDependency(
@@ -227,7 +227,6 @@ describe("architecture inventory governance", () => {
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("apps/spark-daemon/");
     expect(rule.from.pathNot).toContain("packages/spark-turn/");
-    expect(rule.from.pathNot).toContain("packages/spark-extension/");
     expect(rule.from.pathNot).toContain("packages/spark-llm/");
   });
 
@@ -238,7 +237,6 @@ describe("architecture inventory governance", () => {
     );
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("packages/spark-turn/");
-    expect(rule.from.pathNot).toContain("packages/spark-extension/");
     expect(rule.from.pathNot).toContain("packages/spark-llm/");
   });
 
@@ -407,13 +405,13 @@ describe("architecture inventory governance", () => {
     });
 
     const splitManifests = structuredClone(manifests);
-    splitManifests["@zendev-lab/spark-extension"].pi = {
+    splitManifests["@zendev-lab/spark-daemon"].pi = {
       extensions: ["./src/extension.ts"],
     };
     expect(
       governance.validatePiOwnership(inventory, splitManifests, rootManifest).violations,
     ).toContainEqual({
-      package: "@zendev-lab/spark-extension",
+      package: "@zendev-lab/spark-daemon",
       kind: "product-manifest-owner",
       dependency: "package.json#pi",
       expectedOwner: null,
@@ -432,7 +430,7 @@ describe("architecture inventory governance", () => {
     const compactMarkdown = governance.formatArchitectureHealthMarkdown(report);
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
-    expect(report.inventory.workspaceCount).toBe(42);
+    expect(report.inventory.workspaceCount).toBe(41);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
@@ -444,8 +442,9 @@ describe("architecture inventory governance", () => {
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
-    expect(Object.keys(report.workspaces)).toHaveLength(42);
+    expect(Object.keys(report.workspaces)).toHaveLength(41);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
+    expect(report.workspaces["@zendev-lab/spark-daemon"].layer).toBe("composition");
     expect(report.workspaces["@zendev-lab/spark-web"].layer).toBe("application");
     expect(report.workspaces["@zendev-lab/spark-web-dsh"].layer).toBe("application");
     expect(report.workspaces["@zendev-lab/spark-tool-web"].layer).toBe("capability");

@@ -5,7 +5,11 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { SparkExtensionLoader, SparkHostRuntime } from "@zendev-lab/spark-extension/host";
+import {
+  SparkHostRuntime,
+  loadSparkProductDshToolSurfaces,
+  registerSparkProductCapabilities,
+} from "../apps/spark-daemon/src/product/host/index.ts";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const contractPath = resolve(repositoryRoot, "architecture/tool-surface-contract.json");
@@ -151,22 +155,28 @@ async function main(): Promise<void> {
     packageNames,
   );
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-tool-surface-check" });
-  const loaded = await new SparkExtensionLoader({ api: host }).load();
-  const failedExtensions = loaded.outcomes.filter((outcome) => !outcome.ok);
-  if (failedExtensions.length > 0) {
+  const registered = await registerSparkProductCapabilities(host);
+  const failedCapabilities = registered.outcomes.filter((outcome) => !outcome.ok);
+  if (failedCapabilities.length > 0) {
     throw new Error(
-      `default extension profile failed to load: ${failedExtensions
-        .map((outcome) => `${outcome.specifier}: ${outcome.error ?? "unknown error"}`)
+      `static product composition failed: ${failedCapabilities
+        .map((outcome) => `${outcome.name}: ${outcome.error ?? "unknown error"}`)
         .join("; ")}`,
     );
   }
-  const measurements = host
+  const hostMeasurements = host
     .listTools()
     .filter((tool) => tool.active)
     .map((tool) =>
       measureToolSurface(tool.config as ToolSurfaceConfig, tool.policy.effect ?? "unknown"),
     )
     .sort((left, right) => left.name.localeCompare(right.name));
+  const dshMeasurements = (await loadSparkProductDshToolSurfaces()).map((tool) =>
+    measureToolSurface(tool.config as ToolSurfaceConfig, tool.policy.effect ?? "unknown"),
+  );
+  const measurements = [...hostMeasurements, ...dshMeasurements].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
   const violations = toolSurfaceContractViolations(contract, measurements);
   if (violations.length > 0) {
     console.error(

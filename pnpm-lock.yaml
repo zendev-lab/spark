@@ -168,9 +168,6 @@ importers:
       '@zendev-lab/spark-cue':
         specifier: workspace:^
         version: link:packages/spark-cue
-      '@zendev-lab/spark-extension':
-        specifier: workspace:^
-        version: link:packages/spark-extension
       '@zendev-lab/spark-files':
         specifier: workspace:^
         version: link:packages/spark-files
@@ -244,6 +241,9 @@ importers:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.18
+      '@zendev-lab/spark-daemon':
+        specifier: workspace:*
+        version: link:apps/spark-daemon
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:packages/spark-daemon-client
@@ -335,15 +335,24 @@ importers:
       '@deepseek-ai/dsh-attachment-local':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-home-paths@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@types/node@24.13.3)
+      '@deepseek-ai/dsh-brand':
+        specifier: catalog:dsh
+        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
       '@deepseek-ai/dsh-fs':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(07a431a4c3b6ecd98fb6b14961367b0f)
       '@deepseek-ai/dsh-home-paths':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/dsh-invariants':
+        specifier: catalog:dsh
+        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)
       '@deepseek-ai/dsh-llm':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: catalog:dsh
+        version: 0.1.1-rc.1(4acab5f24ab416e29cf79ed4b2c5192d)
       '@deepseek-ai/dsh-scope':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
@@ -353,6 +362,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-session@0.1.1-rc.1(2af3b8d092589cfcef13e1246672be1e))(@deepseek-ai/dsh-timeout@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))
+      '@deepseek-ai/dsh-shell-env':
+        specifier: catalog:dsh
+        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-home-paths@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-session-persistence@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-session@0.1.1-rc.1(2af3b8d092589cfcef13e1246672be1e))(@deepseek-ai/dsh-timeout@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))))(@deepseek-ai/dsh-shell@0.1.1-rc.2(26ca59030ae12f5de985ae9b090d59df))(@deepseek-ai/dsh-tools@0.1.1-rc.1(bed527f6d5a55a0d04f422f9457320ad))
       '@deepseek-ai/dsh-skill':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-llm@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))))(@deepseek-ai/dsh-scope@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))
@@ -365,6 +377,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-llm@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))))(@deepseek-ai/dsh-scope@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))
+      '@deepseek-ai/dsh-timeout':
+        specifier: catalog:dsh
+        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
       '@deepseek-ai/dsh-tool-skill':
         specifier: catalog:dsh
         version: 0.1.1-rc.1(bdde4cb3574d580d83551b431b00c03b)
@@ -380,6 +395,12 @@ importers:
       '@zendev-lab/dsh-channels':
         specifier: workspace:^
         version: link:../../packages/dsh-channels
+      '@zendev-lab/dsh-tool-cue':
+        specifier: workspace:^
+        version: link:../../packages/dsh-tool-cue
+      '@zendev-lab/dsh-tool-fusion':
+        specifier: workspace:^
+        version: link:../../packages/dsh-tool-fusion
       '@zendev-lab/spark-artifacts':
         specifier: workspace:^
         version: link:../../packages/spark-artifacts
@@ -389,12 +410,12 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../../packages/spark-core
+      '@zendev-lab/spark-cue':
+        specifier: workspace:^
+        version: link:../../packages/spark-cue
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../../packages/spark-daemon-client
-      '@zendev-lab/spark-extension':
-        specifier: workspace:^
-        version: link:../../packages/spark-extension
       '@zendev-lab/spark-files':
         specifier: workspace:^
         version: link:../../packages/spark-files
@@ -413,6 +434,9 @@ importers:
       '@zendev-lab/spark-loop':
         specifier: workspace:^
         version: link:../../packages/spark-loop
+      '@zendev-lab/spark-memory':
+        specifier: workspace:^
+        version: link:../../packages/spark-memory
       '@zendev-lab/spark-modes':
         specifier: workspace:^
         version: link:../../packages/spark-modes
@@ -440,6 +464,12 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../../packages/spark-tasks
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../../packages/spark-text
+      '@zendev-lab/spark-tool-web':
+        specifier: workspace:^
+        version: link:../../packages/spark-tool-web
       '@zendev-lab/spark-turn':
         specifier: workspace:^
         version: link:../../packages/spark-turn
@@ -449,16 +479,31 @@ importers:
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:../../packages/spark-workflows
+      es-toolkit:
+        specifier: 'catalog:'
+        version: 1.50.0
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.13.3)
+      typebox:
+        specifier: 'catalog:'
+        version: 1.3.14
       ws:
         specifier: 'catalog:'
         version: 8.21.3
     devDependencies:
+      '@stryker-mutator/core':
+        specifier: 'catalog:'
+        version: 10.0.0(@types/node@24.13.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: 'catalog:'
+        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.10)
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
+      '@zendev-lab/spark-graft':
+        specifier: workspace:*
+        version: link:../../packages/spark-graft
       '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
         version: link:../../packages/spark-hub-coordination
@@ -654,6 +699,9 @@ importers:
       '@zendev-lab/dsh-tool-cue':
         specifier: workspace:^
         version: link:../../packages/dsh-tool-cue
+      '@zendev-lab/dsh-tool-fusion':
+        specifier: workspace:^
+        version: link:../../packages/dsh-tool-fusion
       '@zendev-lab/spark-llm':
         specifier: workspace:^
         version: link:../../packages/spark-llm
@@ -922,124 +970,6 @@ importers:
         specifier: workspace:^
         version: link:../spark-system
     devDependencies:
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
-
-  packages/spark-extension:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: 4.0.1
-        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-attachment':
-        specifier: catalog:dsh
-        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-brand':
-        specifier: catalog:dsh
-        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-invariants':
-        specifier: catalog:dsh
-        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)
-      '@deepseek-ai/dsh-llm':
-        specifier: catalog:dsh
-        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)))
-      '@deepseek-ai/dsh-timeout':
-        specifier: catalog:dsh
-        version: 0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-tools':
-        specifier: catalog:dsh
-        version: 0.1.1-rc.1(bed527f6d5a55a0d04f422f9457320ad)
-      '@zendev-lab/dsh-tool-fusion':
-        specifier: workspace:^
-        version: link:../dsh-tool-fusion
-      '@zendev-lab/spark-artifacts':
-        specifier: workspace:^
-        version: link:../spark-artifacts
-      '@zendev-lab/spark-ask':
-        specifier: workspace:^
-        version: link:../spark-ask
-      '@zendev-lab/spark-core':
-        specifier: workspace:^
-        version: link:../spark-core
-      '@zendev-lab/spark-cue':
-        specifier: workspace:^
-        version: link:../spark-cue
-      '@zendev-lab/spark-daemon-client':
-        specifier: workspace:^
-        version: link:../spark-daemon-client
-      '@zendev-lab/spark-files':
-        specifier: workspace:^
-        version: link:../spark-files
-      '@zendev-lab/spark-graft':
-        specifier: workspace:^
-        version: link:../spark-graft
-      '@zendev-lab/spark-host':
-        specifier: workspace:^
-        version: link:../spark-host
-      '@zendev-lab/spark-i18n':
-        specifier: workspace:^
-        version: link:../spark-i18n
-      '@zendev-lab/spark-llm':
-        specifier: workspace:^
-        version: link:../spark-llm
-      '@zendev-lab/spark-loop':
-        specifier: workspace:^
-        version: link:../spark-loop
-      '@zendev-lab/spark-memory':
-        specifier: workspace:^
-        version: link:../spark-memory
-      '@zendev-lab/spark-modes':
-        specifier: workspace:^
-        version: link:../spark-modes
-      '@zendev-lab/spark-protocol':
-        specifier: workspace:^
-        version: link:../spark-protocol
-      '@zendev-lab/spark-repro':
-        specifier: workspace:^
-        version: link:../spark-repro
-      '@zendev-lab/spark-roles':
-        specifier: workspace:^
-        version: link:../spark-roles
-      '@zendev-lab/spark-runtime':
-        specifier: workspace:^
-        version: link:../spark-runtime
-      '@zendev-lab/spark-session':
-        specifier: workspace:^
-        version: link:../spark-session
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
-      '@zendev-lab/spark-tasks':
-        specifier: workspace:^
-        version: link:../spark-tasks
-      '@zendev-lab/spark-text':
-        specifier: workspace:^
-        version: link:../spark-text
-      '@zendev-lab/spark-tool-web':
-        specifier: workspace:^
-        version: link:../spark-tool-web
-      '@zendev-lab/spark-turn':
-        specifier: workspace:^
-        version: link:../spark-turn
-      '@zendev-lab/spark-workflows':
-        specifier: workspace:^
-        version: link:../spark-workflows
-      es-toolkit:
-        specifier: 'catalog:'
-        version: 1.50.0
-      typebox:
-        specifier: 'catalog:'
-        version: 1.3.14
-    devDependencies:
-      '@stryker-mutator/core':
-        specifier: 'catalog:'
-        version: 10.0.0(@types/node@24.13.3)
-      '@stryker-mutator/vitest-runner':
-        specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.10)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

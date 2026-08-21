@@ -65,7 +65,7 @@ and keep transports and presentation layers thin.
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
 | Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
-| Product extension composition and host runtime | `packages/spark-extension` |
+| Product composition and host runtime | `apps/spark-daemon/src/product` |
 | Local daemon workbench | `apps/spark-web` via daemon-client |
 | Multi-daemon proxy and management | `apps/spark-hub` |
 

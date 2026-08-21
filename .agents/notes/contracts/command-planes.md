@@ -104,7 +104,7 @@ session id and only connection-local active-invocation routing is retained.
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
 | cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-db` | `spark-hub`; target daemon retains execution truth |
 | local browser presentation and interaction | `apps/spark-web` behind `spark-web` / `spark-ui` boundaries | no durable business-state ownership |
-| extension composition | `spark-extension` | compatible loaders may call the same host-neutral contract; no second facade owns behavior |
+| product composition | `apps/spark-daemon/src/product` | daemon statically assembles host-neutral capabilities and supported DSH/Cordis plugins; no second facade owns behavior |
 
 Local web, Hub, ACP, and Channel adapters create or select daemon Sessions through
 the same protocol. They do not author lifecycle or activity: the daemon derives

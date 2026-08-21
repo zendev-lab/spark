@@ -281,9 +281,11 @@ a checker.
 - The transport-neutral local control service stays private to
   `apps/spark-daemon`; oRPC and legacy socket adapters share that service and
   cannot own policy, durable state, or alternative handler implementations.
-- `spark-extension` owns product extension composition and policy for native
-  and structurally compatible hosts. Legacy `pi-extension` specifiers are
-  rewritten while reading configuration; there is no facade workspace.
+- `apps/spark-daemon/src/product` owns product composition and policy. The
+  daemon workspace is the composition root; there is no `spark-base`,
+  `spark-extension`, or other facade workspace. Historical `pi-extension` and
+  `spark-extension` config values are compatibility input only and receive no
+  new behavior.
 - `spark-hub-*` packages are Hub-private. Shared code must move to a
   capability or foundation package before daemon/native reuse.
 - Hub's en/zh-CN product catalog lives at the owner-restricted

@@ -38,7 +38,7 @@ module.exports = {
       severity: "error",
       from: {
         pathNot:
-          "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/|packages/spark-session/|apps/spark-daemon/)",
+          "^(packages/spark-llm/|packages/spark-turn/|packages/spark-session/|apps/spark-daemon/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
@@ -50,8 +50,7 @@ module.exports = {
         "dsh-llm is limited to the daemon composition root, the provider adapter family, and the transitional turn-loop driver.",
       severity: "error",
       from: {
-        pathNot:
-          "^(apps/spark-daemon/|packages/spark-extension/|packages/spark-llm/|packages/spark-turn/)",
+        pathNot: "^(apps/spark-daemon/|packages/spark-llm/|packages/spark-turn/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-llm(?:/|$)|/node_modules/@deepseek-ai/dsh-llm(?:/|$)|^@deepseek-ai/dsh-llm(?:/|$)",
@@ -187,21 +186,7 @@ module.exports = {
       },
     },
 
-    // --- Spark product extension composition root ---
-
     // --- spark foundation packages (exclude Hub-private spark-hub-* packages) ---
-    {
-      name: "spark-foundation-no-spark-extension",
-      comment:
-        "Spark foundation packages must not import the spark-extension product composition root.",
-      severity: "error",
-      from: {
-        path: "^packages/spark-(?!hub-|extension(?:/|$))",
-      },
-      to: {
-        path: "node_modules/.*/@zendev-lab/spark-extension|/node_modules/@zendev-lab/spark-extension|^packages/spark-extension/",
-      },
-    },
     {
       name: "spark-fusion-foundation-only",
       comment:
@@ -234,13 +219,13 @@ module.exports = {
         path: [
           "^apps/",
           "^packages/pi-",
-          "^packages/spark-(?:extension|fusion|host|llm|runtime|turn|workflows)(?:/|$)",
+          "^packages/spark-(?:fusion|host|llm|runtime|turn|workflows)(?:/|$)",
           "node_modules/.*/@zendev-lab/pi-",
           "/node_modules/@zendev-lab/pi-",
           "^@zendev-lab/pi-",
-          "node_modules/.*/@zendev-lab/spark-(?:cli|hub|daemon|extension|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
-          "/node_modules/@zendev-lab/spark-(?:cli|hub|daemon|extension|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
-          "^@zendev-lab/spark-(?:cli|hub|daemon|extension|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
+          "node_modules/.*/@zendev-lab/spark-(?:cli|hub|daemon|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
+          "/node_modules/@zendev-lab/spark-(?:cli|hub|daemon|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
+          "^@zendev-lab/spark-(?:cli|hub|daemon|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
           "node_modules/.*/@earendil-works/pi-",
           "/node_modules/@earendil-works/pi-",
           "^@earendil-works/pi-",
@@ -256,28 +241,6 @@ module.exports = {
       },
       to: {
         circular: true,
-      },
-    },
-    {
-      name: "spark-extension-no-product-adapters",
-      comment: "spark-extension must not depend on product coordination or app adapter packages.",
-      severity: "error",
-      from: {
-        path: "^packages/spark-extension/",
-      },
-      to: {
-        path: productAdapterResolvedPathPattern(),
-      },
-    },
-    {
-      name: "spark-extension-no-app-internals",
-      comment: "spark-extension must not import Spark app host internals.",
-      severity: "error",
-      from: {
-        path: "^packages/spark-extension/",
-      },
-      to: {
-        path: sparkAppInternalResolvedPathPattern(),
       },
     },
     {
@@ -345,7 +308,7 @@ module.exports = {
         path: "^(apps/spark-hub/|packages/spark-hub-)",
       },
       to: {
-        path: sparkAppInternalResolvedPathPattern(),
+        path: sparkClientAppInternalResolvedPathPattern(),
       },
     },
   ],
@@ -424,6 +387,20 @@ function sparkOutsidePiFoundationResolvedPathPattern() {
 }
 
 function sparkAppInternalResolvedPathPattern() {
+  return [
+    "node_modules/.*/@zendev-lab/spark-daemon(?:/|$)",
+    "/node_modules/@zendev-lab/spark-daemon(?:/|$)",
+    "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
+    "/node_modules/@zendev-lab/spark-cli(?:/|$)",
+    "node_modules/.*/@zendev-lab/spark-web(?:/|$)",
+    "/node_modules/@zendev-lab/spark-web(?:/|$)",
+    "^apps/spark-daemon/",
+    "^apps/spark-web/",
+    "^apps/spark-cli/",
+  ].join("|");
+}
+
+function sparkClientAppInternalResolvedPathPattern() {
   return [
     "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
     "/node_modules/@zendev-lab/spark-cli(?:/|$)",
