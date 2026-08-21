@@ -112,6 +112,7 @@
         "./packages/spark-hub-coordination/src/routing.ts"
       ],
       "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
+      "@zendev-lab/spark-session/subagent": ["./packages/spark-session/src/subagent.ts"],
       "@zendev-lab/spark-update": ["./packages/spark-update/src/index.ts"],
       "@zendev-lab/spark-extension/extension": [
         "./packages/spark-extension/src/extension/index.ts"

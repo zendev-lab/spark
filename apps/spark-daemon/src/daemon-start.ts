@@ -110,6 +110,7 @@ import {
   openSparkDaemonCordisContext,
   type SparkDaemonCordisRoot,
 } from "./cordis-root.ts";
+import { createSparkDaemonSubagentHost } from "./spark-subagent-plugin.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
   createGitHubMergedPrsLoopEvaluator,
@@ -451,6 +452,14 @@ async function createPreparedDaemonRuntime(
   };
   const executionAttemptStore = new ExecutionAttemptStore(options.db);
   const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
+  const subagentHost =
+    options.sessionRegistry && options.paths.sessionRuntimeDir
+      ? createSparkDaemonSubagentHost({
+          db: options.db,
+          registry: options.sessionRegistry,
+          sparkHome: options.paths.sessionRuntimeDir,
+        })
+      : undefined;
   const cordisRoot = await createSparkDaemonCordisRoot(
     {
       sparkInvocations: invocationStore,
@@ -463,7 +472,11 @@ async function createPreparedDaemonRuntime(
       sparkSessionCompletions: sessionCompletionDeliveryStore,
       sparkInvocationRegistry: invocationRegistry,
     },
-    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome), ctx: cordisContext },
+    {
+      sessionsRoot: defaultSparkSessionsRoot(options.sparkHome),
+      ctx: cordisContext,
+      ...(subagentHost ? { subagentHost } : {}),
+    },
   );
   dshContext = cordisRoot.ctx;
   const scheduler = createDaemonScheduler({

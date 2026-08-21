@@ -16,6 +16,14 @@ transcript atomically, and registers the child only after the seed is durable.
 The `@zendev-lab/spark-session/transcript` subpath owns the DSH JSONL codec,
 v3-to-v4 migration, filesystem layout, and atomic replacement.
 
+`@zendev-lab/spark-session/subagent` exports Role-bound spawn/fork providers
+for the official DSH HOST (`ctx.subagents`). A child with an explicit Role
+bind is a subagent; the human operator is not a Role. Daemon always passes a
+durable `createChild` host so spawn stays `createManagedChildSession`.
+spark-web-dsh mounts the same plugin onto stock `dsh-subagent` and disables
+in-process spawn/fork backends. See
+[`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
+
 All mailbox reads and writes cross the daemon-owned `session.inbox`, `session.mail.read`, `session.mail.ack`, and `session.send` RPC boundary; extension hosts never open the mailbox store directly.
 
 `send` defaults to an asynchronous `notification` that only persists; `kind=request` asks the daemon to persist the exact body and admit one idempotent invocation through the same RPC. The mail record keeps a pending/accepted admission receipt, so replaying `session.send` with the same idempotency key repairs a crash between mailbox persistence and invocation admission without creating a second message or invocation. `send` is one-way. Optional `wake=true` (request only; default `false`) queues a completion-summary turn on the sender. Use `session({ action: "wait", invocationId, timeoutMs? })` to poll the durable invocation for a bounded terminal response without cancelling execution on timeout. To continue a timed-out wait, call `wait` again with the same `invocationId`. `session({ action: "lookup", sessionId })` returns a bounded peer projection and does not wait.

@@ -12,8 +12,11 @@ lower layer.
 
 - Keep model-facing instructions in one language and one semantic source.
 - Separate how a Session works from what causes it to continue.
-- Keep Role binding optional and explicit; default Sessions add no Role prompt
-  or Role capability ceiling.
+- Keep Role as a static catalog and Session as the runtime bind. The
+  Workspace Administrator root always binds builtin `administrator`.
+  `session spawn|fork` children always bind an exact RoleRef (a subagent).
+  Unbound Sessions add no Role prompt or Role capability ceiling. The human
+  operator is not a Role.
 - Compose predefined single-responsibility Roles from ordered preloaded Skills.
 - Compile one or more Skills into one dedicated autonomous Agent invocation
   only when no predefined Role owns the responsibility.
@@ -30,7 +33,9 @@ lower layer.
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
-| **Role** | One reusable responsibility, authority overlay, and optional ordered preloaded Skills | Administrator, Architecture Guardian, Executor |
+| **Role** | One reusable static responsibility, authority overlay, and optional ordered preloaded Skills. Bound onto a Session at runtime through `roleBinding`; never a wire role or the human operator | Administrator, Architecture Guardian, Executor |
+| **Subsession** | Presentation language for any Session whose lineage is child | Side Thread, Task worker, Role-bound child |
+| **Subagent** | Presentation language for a child Session with an explicit Role bind | `session spawn` / `fork` with `roleRef` |
 | **Agent form** | The execution identity and authority envelope of one model invocation | scoped Session, Role Invocation, Skill Agent, Workflow child, leaf |
 | **WorkflowRun** | A bounded orchestration program execution | saved or generated Workflow |
 
