@@ -125,10 +125,10 @@ spark-hub
 spark-web
 spark-acp
 spark-mcp
-spark-update
 ```
 
-The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
+The top-level native `spark` executable owns root parsing, diagnostics, and
+deployment/update transitions. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
 application. A companion can come from its independently installed app package or from the
@@ -156,7 +156,7 @@ public package.
   complete-installation meta package; thin spark forwarding launcher only
 
 @zendev-lab/spark-cli
-  real spark dispatcher + spark-acp + spark-mcp + spark-update + app companion shims
+  native spark parser/router/updater + spark-acp + spark-mcp + app companion shims
 
 @zendev-lab/spark-daemon
   spark-daemon + daemon migrations + headless executor
@@ -166,20 +166,25 @@ public package.
 
 @zendev-lab/spark-hub
   spark-hub + embedded Web build + Hub migrations
+
+@zendev-lab/spark-web-dsh
+  optional spark-web-dsh compatibility app
 ```
 
 The root package is the complete-installation meta package and managed-update
-identity; it contains no dispatcher implementation. `spark-cli` owns the real
-`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, Hub, and local web
-are also independently installable deployment closures. All public packages share a
+identity; it contains no parser implementation. `spark-cli` owns the native
+`spark` parser, diagnostics, updater, router, ACP/MCP adapters, and four exact
+macOS/Linux optional payload aliases. Daemon, Hub, local web, and DSH web are
+also independently installable deployment closures. All product packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
 lockstep dependencies instead of repackaging those assets.
 
 Do not create publishable source manifests inside `apps/*` or `packages/*`.
-Source workspaces retain `private: true`; the release builder generates all five
-manifests under `dist/npm-products/`, computes runtime dependency closures
-independently, and publishes exact tarballs from one release tag. The root
+Source workspaces retain `private: true`; the release builder generates six
+product manifests and four platform payload manifests under
+`dist/npm-products/`, computes runtime dependency closures independently, and
+publishes exact tarballs from one release tag. The root
 manifest owns the `@zendev-lab/spark` name and lockstep version, while source
 ownership, process ownership, and distribution placement remain separate axes.
 

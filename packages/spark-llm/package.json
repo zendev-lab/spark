@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-llm",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Spark LLM provider owner: model routing, auth/catalog, and bundled LlmAdapter implementations for pi-ai, Baidu OneAPI, and OpenAI Codex.",
   "license": "MIT",

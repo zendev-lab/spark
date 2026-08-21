@@ -35,7 +35,7 @@ supported packages.
 
 | Path | Responsibility |
 | --- | --- |
-| `apps/spark-cli` | Thin public `spark` command dispatcher |
+| `apps/spark-cli` | Native root parser, diagnostics, and companion process router |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
 | `apps/spark-web` | Local daemon browser workbench: every workspace bound to this daemon |
 | `apps/spark-web-dsh` | Optional DeepSeek Harness compatibility workbench |

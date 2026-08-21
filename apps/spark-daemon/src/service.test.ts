@@ -223,7 +223,9 @@ setInterval(() => {}, 1000);
         },
         "2026-08-08T00:01:00.000Z",
         {
-          helperReadyTimeoutMs: 30_000,
+          // The source launcher may perform an incremental Cargo build before
+          // it can forward the restart helper IPC handshake.
+          helperReadyTimeoutMs: 60_000,
           helperCommand: [stableLauncher, "daemon"],
           helperEnv: {
             SPARK_DAEMON_COMMAND: target,
@@ -241,7 +243,7 @@ setInterval(() => {}, 1000);
       cancelSparkDaemonRestartSuccessor(bridgePaths);
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, 70_000);
 
   it("revokes a newly published fence when the helper exits before final armed ack", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-service-helper-exit-"));
@@ -1299,6 +1301,39 @@ setInterval(() => {}, 1000);
       expect(plist).not.toContain("<key>KeepAlive</key>\n  <true/>");
       expect(plist).toContain("<string>__service-start</string>");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves packaged companion paths in the launchd environment", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-service-launchd-package-env-"));
+    const launchdPaths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: { runtimeDir: join(root, "run"), stateDir: join(root, "state") },
+    });
+    const keys = [
+      "SPARK_BUILD_INFO_PATH",
+      "SPARK_DAEMON_ENTRYPOINT",
+      "SPARK_HEADLESS_EXECUTOR_MODULE",
+      "SPARK_PRODUCT_DIST",
+    ] as const;
+    const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+    try {
+      for (const key of keys) process.env[key] = join(root, key.toLowerCase());
+      const plist = readFileSync(
+        writeSparkDaemonLaunchdPlist(launchdPaths, { home: root }),
+        "utf8",
+      );
+      for (const key of keys) {
+        expect(plist).toContain(`<key>${key}</key>`);
+        expect(plist).toContain(`<string>${process.env[key]}</string>`);
+      }
+    } finally {
+      for (const key of keys) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
       rmSync(root, { recursive: true, force: true });
     }
   });

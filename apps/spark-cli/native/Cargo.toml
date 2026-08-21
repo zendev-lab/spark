@@ -1,0 +1,17 @@
+[package]
+name = "spark-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Native root CLI and process router for Spark"
+license.workspace = true
+
+[[bin]]
+name = "spark"
+path = "src/main.rs"
+
+[dependencies]
+bpaf.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+spark-update = { path = "../../../packages/spark-update/native" }

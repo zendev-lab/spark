@@ -1,4 +1,5 @@
 import type { SparkLanguage } from "./index.ts";
+import diagnosticCatalogJson from "./cli-diagnostics.json" with { type: "json" };
 
 export interface SparkCliErrorDescriptor {
   /** Stable diagnostic identity for support and automation. */
@@ -15,6 +16,23 @@ export interface SparkCliErrorDescriptor {
   exitCode?: number;
 }
 
+export interface SparkCliDiagnosticCatalog {
+  schemaVersion: 1;
+  diagnostics: Readonly<Record<string, SparkCliErrorDescriptor>>;
+}
+
+export const sparkCliDiagnosticCatalog = diagnosticCatalogJson as SparkCliDiagnosticCatalog;
+
+export function sparkCliDiagnostic(
+  code: keyof typeof sparkCliDiagnosticCatalog.diagnostics,
+  overrides: Partial<Omit<SparkCliErrorDescriptor, "code">> = {},
+): SparkCliErrorDescriptor {
+  const descriptor = sparkCliDiagnosticCatalog.diagnostics[code];
+  if (!descriptor) {
+    throw new Error(`Unknown Spark CLI diagnostic code: ${String(code)}`);
+  }
+  return { ...descriptor, ...overrides, code: descriptor.code };
+}
 export class SparkCliError extends Error {
   readonly code: string;
   readonly title: string;

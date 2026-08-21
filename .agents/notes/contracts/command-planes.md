@@ -6,14 +6,15 @@ Canonical executable grammar:
 spark-<plane> <resource> <verb> [args...]
 ```
 
-The top-level `spark` executable is a convenience dispatcher. The equivalent
+The top-level `spark` executable is the native parser, diagnostic surface,
+deployment owner, and convenience dispatcher. The equivalent
 alias grammar remains accepted for canonical planes:
 
 ```text
 spark <plane> <resource> <verb> [args...]
 ```
 
-The dispatcher resolves the plane and executes the matching `spark-*`
+The native CLI resolves each companion plane and executes the matching `spark-*`
 companion. It does not import a second implementation of that plane. The
 complete `@zendev-lab/spark` installation supplies exact-version app packages;
 a companion may also be installed directly for a single-process deployment.
@@ -27,12 +28,12 @@ second CLI catalog.
 
 | Executable | Dispatcher alias | Role | Owns | Does not own |
 | --- | --- | --- | --- | --- |
+| `spark` | n/a | native root CLI | root parsing, diagnostic rendering, companion routing, build-info, install/update policy, and deployment transitions | daemon execution, Hub coordination, Web, DSH, ACP/MCP semantics, or plugin composition |
 | `spark-daemon` | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous Loop timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
 | `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`fetch_content` |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
-| `spark-update` | `spark update` | installation and update surface | build-info inspection, install/update policy, release transition | daemon or Hub state |
 | slash `system` | n/a | interactive kernel command source | `/help`, `/exit`, `/quit`, `/clear` | project/task/goal/session/workflow commands |
 | slash `extension` | n/a | extension command source | extension-owned resource commands | surface process lifecycle |
 
@@ -176,32 +177,34 @@ A **source app**, an **executable**, and a **distribution** are different axes:
 - an npm distribution is the minimal independently installable runtime closure
   for one deployment and trust domain.
 
-Spark publishes five public npm distributions from the same monorepo and release
-tag:
+Spark publishes six lockstep product distributions plus four native CLI payload
+versions from the same monorepo and release tag:
 
 | Distribution | Package | Executables | Deployment boundary |
 | --- | --- | --- | --- |
 | Complete Spark | `@zendev-lab/spark` | thin `spark` forwarding launcher | full-installation meta package and managed-update identity; pins the matching CLI and app packages but contains no dispatcher implementation |
-| Spark CLI | `@zendev-lab/spark-cli` | `spark`, `spark-acp`, `spark-mcp`, `spark-update`, plus app companion shims | owns the real dispatcher and local command adapters |
+| Spark CLI | `@zendev-lab/spark-cli` | native `spark`, `spark-acp`, `spark-mcp`, plus app companion shims | owns root parsing, diagnostics, deployment/update state, and local command adapters; exact optional aliases select one native payload |
 | Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
 | Spark Web | `@zendev-lab/spark-web` | `spark-web` | local daemon browser workbench; depends on the matching daemon package |
 | Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
+| Spark DSH Web | `@zendev-lab/spark-web-dsh` | `spark-web-dsh` | optional DSH compatibility workbench |
 
 The split does **not** move implementation ownership out of the private source
 workspaces or create another repository. Reusable behavior remains in private
 packages and is bundled into the executable app that owns the process.
 
-All five distributions use the same semantic version and protocol compatibility
+All six product distributions use the same semantic version and protocol compatibility
 contract in v0.x. `@zendev-lab/spark` keeps the full installation experience as
 a dependency-only meta package with a thin `spark` forwarder.
-`@zendev-lab/spark-cli` contains the real dispatcher, ACP, MCP and updater
-entrypoints;
+`@zendev-lab/spark-cli` contains the native parser/router/updater, ACP/MCP
+adapters, and four exact platform payload aliases;
 it depends on exact-version app packages rather than embedding their assets. Each
 executable app package rejects the other apps' implementation assets and can be
 installed directly.
 
-`release-manifest.json` remains the root updater contract. The other packages
-receive bounded release manifests, while the container image remains Hub-only
+npm package metadata is the updater's channel and payload authority.
+`release-manifest.json` and the bounded companion manifests remain build and
+publication verification contracts, while the container image remains Hub-only
 and N-1 daemon migration checks install the root package with its candidate app
 closure. Direct app package updates belong to npm or the deployment orchestrator.
 
@@ -213,10 +216,10 @@ published artifacts.
 
 The distribution stage of `pnpm run check:static` validates the generated
 manifest inventory, app names, lockstep versions, exact dependency edges, and
-cross-distribution assets. `pnpm run smoke` installs all five candidate tarballs,
+cross-distribution assets. `pnpm run smoke` installs all ten candidate tarballs,
 checks the real CLI and complete meta installation, then exercises independent
-daemon, web, and Hub installations. `pnpm run release:pack` creates five
-immutable tarballs, bounded release manifests, and one checksum file. Only
+daemon, web, DSH, and Hub installations. `pnpm run release:pack` creates ten
+immutable npm tarballs, bounded release manifests, and one checksum file. Only
 `.github/workflows/cd-publish.yml`, triggered by a version-matching tag, may
 publish those exact artifacts to npm and GitHub Releases; `main` and source
 checkouts are never update sources.

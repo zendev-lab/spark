@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-workflows",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Generic saved workflow discovery, script runtime, and workflow/DAG run-store capability for Spark capability hosts.",
   "license": "MIT",
