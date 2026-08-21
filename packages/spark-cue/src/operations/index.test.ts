@@ -102,6 +102,72 @@ describe("host-neutral Cue operation runtime", () => {
     runtime.dispose();
   });
 
+  it("projects cancelled scripts as cancellation instead of success", async () => {
+    const runtime = createCueToolRuntime({
+      client: {
+        isClosed: false,
+        runScript: vi.fn(async () => ({
+          scriptId: "E4",
+          stepIds: ["E4/S1"],
+          source: { kind: "file", path: "<inline>" },
+          status: "cancelled",
+          cancelReason: "forced",
+          exitCode: null,
+          failedItemIndex: null,
+          items: [],
+          timedOut: false,
+        })),
+      } as unknown as CueClient,
+    });
+
+    await expect(
+      runtime.execute(
+        "cue_script",
+        { script: "true" },
+        { sessionId: "dsh:s-cancel", cwd: "/work" },
+      ),
+    ).resolves.toMatchObject({
+      tool: "cue_script",
+      ok: false,
+      status: "cancelled",
+      cancelled: true,
+      cancelReason: "forced",
+    });
+    runtime.dispose();
+  });
+
+  it("projects cancelled Python jobs with their forced reason", async () => {
+    const { runtime } = runtimeWithRunJob({
+      jobId: "E5",
+      stepIds: ["E5/S1"],
+      status: "Cancelled",
+      cancelReason: "Forced",
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      timedOut: false,
+      warnings: [],
+      stdoutEncoding: "utf8",
+      stderrEncoding: "utf8",
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    });
+    await expect(
+      runtime.execute(
+        "script_eval",
+        { language: "python", script: "print('never')" },
+        { sessionId: "dsh:s-python-cancel", cwd: "/work" },
+      ),
+    ).resolves.toMatchObject({
+      tool: "script_eval",
+      ok: false,
+      status: "Cancelled",
+      cancelled: true,
+      cancelReason: "forced",
+    });
+    runtime.dispose();
+  });
+
   it("validates action-dependent arguments before touching cued and reports cancellation", async () => {
     const { runtime, runJob } = runtimeWithRunJob({});
     await expect(

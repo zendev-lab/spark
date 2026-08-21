@@ -5,6 +5,7 @@ import type {
   SpawnAdapterHandle,
 } from "../client/cue-client.ts";
 import type { SparkCueToolConfig, SparkCueToolContext } from "../tools/host-types.ts";
+import type { ExecutionCancelReason } from "../wire/types.ts";
 import { registerCueOperationDefinitions } from "./definitions.ts";
 
 export {
@@ -163,6 +164,7 @@ export interface CueScriptResult extends CueCanonicalBase {
   failedItemIndex?: number | null;
   timedOut: boolean;
   cancelled: boolean;
+  cancelReason?: ExecutionCancelReason;
   items: unknown[];
 }
 
@@ -176,6 +178,7 @@ export interface CueLanguageResult extends CueCanonicalBase {
   exitCode?: number | null;
   timedOut: boolean;
   cancelled: boolean;
+  cancelReason?: ExecutionCancelReason;
   items: unknown[];
   stdout: CueTextStream;
   stderr: CueTextStream;
@@ -363,17 +366,19 @@ function canonicalize<Name extends CueToolName>(
   }
 
   if (name === "cue_run" || name === "cue_script") {
+    const status =
+      optionalString(details.status) ?? (cancelled ? "cancelled" : ok ? "finished" : "failed");
+    const wasCancelled = cancelled || status.toLowerCase() === "cancelled";
     return {
       tool: name,
       text,
-      ok,
+      ok: ok && !wasCancelled,
       ...(optionalString(details.executionId)
         ? { executionId: optionalString(details.executionId) }
         : {}),
       stepIds: stringArray(details.stepIds),
       ...(details.source !== undefined ? { source: details.source } : {}),
-      status:
-        optionalString(details.status) ?? (cancelled ? "cancelled" : ok ? "finished" : "failed"),
+      status,
       ...(optionalNumber(details.exitCode) !== undefined
         ? { exitCode: optionalNumber(details.exitCode) }
         : {}),
@@ -381,30 +386,38 @@ function canonicalize<Name extends CueToolName>(
         ? { failedItemIndex: optionalNumber(details.failedItemIndex) }
         : {}),
       timedOut: details.timedOut === true,
-      cancelled,
+      cancelled: wasCancelled,
+      ...(details.cancelReason === "user" || details.cancelReason === "forced"
+        ? { cancelReason: details.cancelReason }
+        : {}),
       items: Array.isArray(details.items) ? details.items : [],
     } as CueToolResultMap[Name];
   }
 
   if (name === "script_run" || name === "script_eval") {
     const language = (args as ScriptRunArgs | ScriptEvalArgs).language;
+    const status =
+      optionalString(details.status) ?? (cancelled ? "cancelled" : ok ? "finished" : "failed");
+    const wasCancelled = cancelled || status.toLowerCase() === "cancelled";
     return {
       tool: name,
       text,
-      ok,
+      ok: ok && !wasCancelled,
       language,
       kind: language === "python" ? "python-job" : "cue-shell-script",
       ...(optionalString(details.executionId)
         ? { executionId: optionalString(details.executionId) }
         : {}),
       stepIds: stringArray(details.stepIds),
-      status:
-        optionalString(details.status) ?? (cancelled ? "cancelled" : ok ? "finished" : "failed"),
+      status,
       ...(optionalNumber(details.exitCode) !== undefined
         ? { exitCode: optionalNumber(details.exitCode) }
         : {}),
       timedOut: details.timedOut === true,
-      cancelled,
+      cancelled: wasCancelled,
+      ...(details.cancelReason === "user" || details.cancelReason === "forced"
+        ? { cancelReason: details.cancelReason }
+        : {}),
       items: Array.isArray(details.items) ? details.items : [],
       stdout: stream(details, "stdout"),
       stderr: stream(details, "stderr"),

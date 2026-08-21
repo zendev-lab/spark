@@ -209,7 +209,7 @@ export function renderCueScriptResult(
 ): string[] {
   const sourceLabel = result.source.kind === "file" ? result.source.path : options.pathLabel;
   const headerParts = [
-    `Script ${result.scriptId}: ${result.status === "done" ? "✅ done" : result.status === "running" ? "⏳ running" : "❌ failed"}`,
+    `Script ${result.scriptId}: ${result.status === "done" ? "✅ done" : result.status === "running" ? "⏳ running" : result.status === "cancelled" ? "🚫 cancelled" : "❌ failed"}`,
   ];
   if (result.exitCode !== null) headerParts.push(`exit=${result.exitCode}`);
   if (result.failedItemIndex !== null) headerParts.push(`failed_item=${result.failedItemIndex}`);
@@ -936,6 +936,11 @@ async function runPythonScriptJob(
     executionId: result.jobId,
     stepIds: result.stepIds,
     status: result.status,
+    ...(result.cancelReason === "Forced"
+      ? { cancelReason: "forced" as const }
+      : result.cancelReason === "User"
+        ? { cancelReason: "user" as const }
+        : {}),
     exitCode: result.exitCode,
     timedOut: result.timedOut,
     warnings: result.warnings,
@@ -952,7 +957,7 @@ async function runPythonScriptJob(
     ...(runner.python ? { pythonInterpreter: runner.python } : {}),
     ...(options.venv ? { venv: options.venv } : {}),
   };
-  if (result.status === "Failed" && !result.timedOut) {
+  if ((result.status === "Failed" || result.status === "Cancelled") && !result.timedOut) {
     const err = new Error(lines.join("\n"));
     (err as unknown as { details?: unknown }).details = details;
     throw err;
@@ -1496,9 +1501,10 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       exitCode: result.exitCode,
       failedItemIndex: result.failedItemIndex,
       timedOut: result.timedOut,
+      ...(result.cancelReason ? { cancelReason: result.cancelReason } : {}),
       items: summary,
     };
-    if (result.status === "failed" && !result.timedOut) {
+    if ((result.status === "failed" || result.status === "cancelled") && !result.timedOut) {
       const err = new Error(lines.join("\n"));
       (err as unknown as { details?: unknown }).details = details;
       throw err;
@@ -1511,11 +1517,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     label: "Run Cue File",
     policy: CUE_EXECUTION_TOOL_POLICY,
     description:
-      "Run a .cue file in cue-shell, mirroring `cue run <file.cue>`. " +
+      "Run the direct-execution subset of a .cue file in cue-shell. " +
       "Top-level items execute sequentially with fail-fast semantics inside a fresh isolated scope forked from HEAD. " +
       "Each item may use cue-shell composition operators (`|>`, `&&`, `||`, `->`, `~>`, `|||`, `|?|`) but must not use bash-shell syntax (`;`, redirection). " +
+      "Cue directives such as `:cd`, `:env`, and `:run(...)` are rejected rather than guessed. " +
       "For inline bodies (no file on disk) use cue_script instead. " +
-      "Foreground only: blocks until ScriptFinished or `timeout` seconds elapse; timeout detaches and leaves the script running.",
+      "Foreground only: blocks until the execution is terminal or `timeout` seconds elapse; timeout detaches and leaves the script running.",
     parameters: Type.Object({
       path: Type.String({
         description:
@@ -1599,9 +1606,10 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       "Run an inline .cue script body in cue-shell. " +
       "Top-level items execute sequentially with fail-fast semantics inside a fresh isolated scope forked from HEAD. " +
       "Each item may use cue-shell composition operators (`|>`, `&&`, `||`, `->`, `~>`, `|||`, `|?|`) but must not use bash-shell syntax (`;`, redirection). " +
+      "Cue directives such as `:cd`, `:env`, and `:run(...)` are rejected rather than guessed. " +
       "If you have a real .cue file on disk, prefer cue_run. " +
       "Optionally provide `pathLabel` to label the inline script in TUI history. " +
-      "Foreground only: blocks until ScriptFinished or `timeout` seconds elapse; timeout detaches and leaves the script running.",
+      "Foreground only: blocks until the execution is terminal or `timeout` seconds elapse; timeout detaches and leaves the script running.",
     parameters: Type.Object({
       script: Type.String({
         description:

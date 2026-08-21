@@ -34,14 +34,14 @@ Session handshakes omit credential-like environment variables by default, includ
 Resource-oriented tools:
 
 - `cue_exec` — execute commands and create cue-shell jobs through the active transport profile. Local tool/API runs use the immutable Spark session cwd by default; relative overrides resolve from it. SSH runs require an absolute remote cwd or `SPARK_CUE_REMOTE_CWD`. Runs use pipe mode (`pty: false`) by default; set `pty: true` only when a command genuinely needs terminal semantics. Foreground aborts cancel the daemon execution and wait for it to stop. Foreground wait-budget expiry detaches and leaves the job running; only an explicit abort/`cue_jobs action=stop` terminates it. Foreground output is tailed to 16 KiB per stream by default; `tail_bytes` must be positive. Typed results expose per-stream `encoding` and `truncated` metadata; non-UTF-8 output keeps exact base64 alongside an explicitly lossy text view. Pass resource requirements with `needs` (for example `{ gpu: 1, gpu_mem: "24GiB" }`) instead of embedding `:run(need...)` in the command string.
-- `cue_run` — run a `.cue` file via cue-shell script mode, mirroring `cue run <file.cue>`. Top-level items execute sequentially and fail fast; successful no-output items are summarized instead of expanded one-by-one.
-- `cue_script` — run an inline `.cue` script body. Use this when the script content is generated in the Pi session; prefer `cue_run` when a real `.cue` file exists on disk.
+- `cue_run` — run the direct-execution subset of a `.cue` file. Top-level command expressions execute sequentially and fail fast; successful no-output items are summarized instead of expanded one-by-one. Cue directives such as `:cd`, `:env`, and `:run(...)` are rejected explicitly.
+- `cue_script` — run an inline direct-execution `.cue` script body. Use this when the script content is generated in the Pi session; prefer `cue_run` when a real `.cue` file exists on disk.
 - `script_run` — run a script file with an explicit `language`. First batch supports `cue-shell` and `python`; `cue-shell` delegates to RunScript, while `python` runs through `uv run --script <path>` (or `uv run --python <venv>/bin/python --script <path>` when `venv` is supplied) in the selected cue-shell transport environment.
 - `script_eval` — run an inline script body with an explicit `language`. Inline Python is piped to `uv run --script -` so it runs as a uv script in the selected cue-shell transport environment; `venv` selects `<venv>/bin/python` via `uv run --python <venv>/bin/python --script -` and is valid only for `language: "python"`. Tool-call rendering shows a fixed, bounded preview of the leading inline code.
 - `cue_jobs` — list, inspect, wait for, and stop jobs via `action`. List output is limited to 20 rows by default and includes `pending_reason` when a job is waiting for resources; chain status/wait output prioritizes failed/running/non-clean leaves and summarizes clean successful leaves.
 
 Cancelled job, chain-leaf, and state-change records keep the structured
-`cancelReason` (`User`, `ChainAborted`, or `Timeout`) while the compatibility
+`cancelReason` (`User`, `Forced`, `ChainAborted`, or `Timeout`) while the compatibility
 status remains `Cancelled`.
 - `cue_resources` — inspect resource providers and snapshots via `action: "providers"` or `action: "resources"`.
 - `cue_schedule` — add/list/pause/resume/remove scheduled or one-shot jobs. List output is limited to 20 rows by default.

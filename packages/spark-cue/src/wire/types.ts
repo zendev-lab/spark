@@ -322,7 +322,7 @@ export interface ScriptCreatedPayload {
   submit_error: ScriptSubmitError | null;
 }
 
-export type ScriptRunStatus = "done" | "failed";
+export type ScriptRunStatus = "done" | "failed" | "cancelled";
 
 export type ScriptInfoStatus = "running" | ScriptRunStatus;
 
@@ -333,6 +333,7 @@ export interface ScriptInfoPayload {
   exit_code: number | null;
   failed_item_index: number | null;
   submit_error: ScriptSubmitError | null;
+  cancelReason?: ExecutionCancelReason;
 }
 
 export interface ScriptFinishedEvent {
@@ -382,7 +383,7 @@ export interface CronInfo {
 }
 
 export type JobStatus = "Pending" | "Running" | "Done" | "Failed" | "Killed" | "Cancelled";
-export type CancelReason = "User" | "ChainAborted" | "Timeout";
+export type CancelReason = "User" | "Forced" | "ChainAborted" | "Timeout";
 
 export interface JobInfo {
   id: string;
@@ -580,9 +581,10 @@ export interface ScriptResult {
   scriptId: string;
   stepIds: string[];
   source: ScriptSource;
-  /** Terminal ScriptFinished status, or `running` when a wait budget expired without cancel. */
+  /** Terminal execution status, or `running` when the wait budget expired. */
   status: ScriptInfoStatus;
-  /** Aggregated exit code reported by ScriptFinished. */
+  cancelReason?: ExecutionCancelReason;
+  /** Aggregated exit code derived from the execution's failed steps. */
   exitCode: number | null;
   failedItemIndex: number | null;
   items: ScriptItemSummary[];

@@ -74,4 +74,91 @@ describe("Cue execution compiler", () => {
     );
     expect(() => compileExecution("echo 'hi")).toThrow("unterminated Cue word");
   });
+
+  it("matches Cue word quoting and double-quote escapes", () => {
+    const command = (
+      compileExecution(String.raw`printf "" "line\nnext" "tab\tstop" "keep\$pair" a'b'c`).plan as {
+        pipeline: { segments: Array<{ command: string[] }> };
+      }
+    ).pipeline.segments[0]!.command;
+    expect(command).toEqual([
+      "printf",
+      "",
+      "line\nnext",
+      "tab\tstop",
+      String.raw`keep\$pair`,
+      "abc",
+    ]);
+  });
+
+  it("preserves backslashes outside double quotes", () => {
+    expect(compileExecution(String.raw`printf C:\tmp`).plan).toMatchObject({
+      pipeline: { segments: [{ command: ["printf", String.raw`C:\tmp`] }] },
+    });
+  });
+
+  it.each(["a-> b", "a ->b", "a~> b", "a |||b", "a|?| b"])(
+    "requires whitespace around Cue chain operators in %s",
+    (input) => {
+      expect(() => compileExecution(input)).toThrow("must be surrounded by whitespace");
+    },
+  );
+
+  it("keeps Cue pipe operators valid without surrounding whitespace", () => {
+    expect(compileExecution("printf ok|>cat").plan).toMatchObject({
+      pipeline: {
+        segments: [
+          { command: ["printf", "ok"], pipe_to_next: "Stdout" },
+          { command: ["cat"], pipe_to_next: null },
+        ],
+      },
+    });
+  });
+
+  it("rejects Cue directives instead of compiling them as executables", () => {
+    expect(() => compileCueFile(":cd /tmp\nprintf ok", "build.cue")).toThrow(
+      'Cue directive ":cd" is not supported by the direct execution compiler',
+    );
+  });
+
+  it.each(["printf a ->\n:cd /tmp", "printf a\n||| :env set A=B"])(
+    "rejects a Cue directive after an operator continuation in %s",
+    (input) => {
+      expect(() => compileCueFile(input, "build.cue")).toThrow(
+        "is not supported by the direct execution compiler",
+      );
+    },
+  );
+
+  it("keeps a quoted colon executable as an ordinary word", () => {
+    expect(compileExecution('\":echo\" ok').plan).toMatchObject({
+      pipeline: { segments: [{ command: [":echo", "ok"] }] },
+    });
+  });
+
+  it("matches Cue file comments, shebangs, and operator continuations", () => {
+    const result = compileCueFile(
+      '#!/usr/bin/env cue\nprintf "#" # note\nprintf a ->\n  printf b\nprintf c\n||| printf d',
+      "build.cue",
+    );
+    expect(result.plan).toMatchObject({
+      kind: "on_success",
+      left: {
+        kind: "on_success",
+        left: { pipeline: { segments: [{ command: ["printf", "#"] }] } },
+        right: {
+          kind: "on_success",
+          left: { pipeline: { segments: [{ command: ["printf", "a"] }] } },
+          right: { pipeline: { segments: [{ command: ["printf", "b"] }] } },
+        },
+      },
+      right: {
+        kind: "parallel_all",
+        branches: [
+          { pipeline: { segments: [{ command: ["printf", "c"] }] } },
+          { pipeline: { segments: [{ command: ["printf", "d"] }] } },
+        ],
+      },
+    });
+  });
 });

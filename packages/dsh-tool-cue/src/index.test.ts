@@ -122,6 +122,20 @@ describe("dsh-tool-cue plugin", () => {
         ),
       ).not.toEqual([]);
     }
+    const cueScript = tools.find((tool) => tool.name === "cue_script");
+    expect(
+      validateJsonSchemaValue(
+        cueScript!.output!.schema,
+        {
+          ...validOutput("cue_script"),
+          ok: false,
+          status: "cancelled",
+          cancelled: true,
+          cancelReason: "forced",
+        },
+        "",
+      ),
+    ).toEqual([]);
     for (const cleanup of dispose) cleanup();
   });
 

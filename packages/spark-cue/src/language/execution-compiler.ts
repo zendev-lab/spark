@@ -24,6 +24,9 @@ export function compileExecution(
     retryOf?: number;
   } = {},
 ): ExecutionSpec {
+  if (startsWithCueDirective(input)) {
+    throw unsupportedCueDirective(input.trimStart().split(/[\s(]/u, 1)[0]!);
+  }
   const tokens = tokenize(input);
   if (tokens.length === 0) throw new Error("Cue execution is empty");
   const parser = new Parser(tokens);
@@ -55,12 +58,12 @@ export function compileCueFile(
   sourceName: string,
   options: Omit<Parameters<typeof compileExecution>[1], "sourceName"> = {},
 ): ExecutionSpec {
-  const lines = input
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"));
-  if (lines.length === 0) throw new Error("a .cue file is empty");
-  const plans = lines.map((line) => compileExecution(line).plan);
+  const normalized = normalizeCueFile(input);
+  const directive = findCueFileDirective(normalized);
+  if (directive) throw unsupportedCueDirective(directive);
+  const statements = splitCueFileStatements(normalized);
+  if (statements.length === 0) throw new Error("a .cue file is empty");
+  const plans = statements.map((statement) => compileExecution(statement).plan);
   const plan = plans
     .slice(1)
     .reduce<ExecutionPlan>((left, right) => ({ kind: "on_success", left, right }), plans[0]!);
@@ -246,49 +249,222 @@ function splitEnvironmentAssignment(word: string): [string, string] | undefined 
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
   let word = "";
+  let wordStarted = false;
   let quote: "'" | '"' | undefined;
-  let escaped = false;
   const flush = () => {
-    if (word.length > 0) tokens.push({ kind: "word", value: word });
+    if (wordStarted) tokens.push({ kind: "word", value: word });
     word = "";
+    wordStarted = false;
   };
   for (let index = 0; index < input.length; index += 1) {
     const char = input[index]!;
-    if (escaped) {
-      word += char;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\" && quote !== "'") {
-      escaped = true;
-      continue;
-    }
     if (quote) {
-      if (char === quote) quote = undefined;
-      else word += char;
+      if (char === quote) {
+        quote = undefined;
+      } else if (quote === '"' && char === "\\") {
+        const escaped = input[index + 1];
+        if (escaped === undefined) throw new Error("unterminated Cue word");
+        index += 1;
+        word +=
+          escaped === "n"
+            ? "\n"
+            : escaped === "t"
+              ? "\t"
+              : escaped === '"' || escaped === "\\"
+                ? escaped
+                : `\\${escaped}`;
+      } else {
+        word += char;
+      }
       continue;
     }
     if (char === "'" || char === '"') {
       quote = char;
+      wordStarted = true;
       continue;
     }
-    if (/\s/u.test(char)) {
+    if (isCueWhitespace(char)) {
       flush();
       continue;
     }
     const operator = OPERATORS.find((candidate) => input.startsWith(candidate, index));
     if (operator) {
+      if (
+        CHAIN_OPERATORS.has(operator) &&
+        !hasChainOperatorBoundary(input, index, operator.length)
+      ) {
+        throw new Error(
+          `Cue chain operator ${JSON.stringify(operator)} must be surrounded by whitespace`,
+        );
+      }
       flush();
       tokens.push({ kind: "operator", value: operator });
       index += operator.length - 1;
       continue;
     }
+    if (char === "|") {
+      throw new Error("bare `|` is not a Cue pipe operator; use `|>` or quote it as an argument");
+    }
     if (";<>`".includes(char) || input.startsWith("$(", index)) {
       throw new Error(`shell syntax ${JSON.stringify(char)} is not supported by Cue`);
     }
+    wordStarted = true;
     word += char;
   }
-  if (escaped || quote) throw new Error("unterminated Cue word");
+  if (quote) throw new Error("unterminated Cue word");
   flush();
   return tokens;
+}
+
+const CHAIN_OPERATORS = new Set(["->", "~>", "|||", "|?|"]);
+
+function hasChainOperatorBoundary(input: string, start: number, length: number): boolean {
+  const before = input[start - 1];
+  const after = input[start + length];
+  return (
+    (before === undefined || isCueWhitespace(before)) &&
+    (after === undefined || isCueWhitespace(after))
+  );
+}
+
+function isCueWhitespace(value: string): boolean {
+  return value === " " || value === "\t" || value === "\r" || value === "\n";
+}
+
+function startsWithCueDirective(input: string): boolean {
+  return input.trimStart().startsWith(":");
+}
+
+function unsupportedCueDirective(directive: string): Error {
+  return new Error(
+    `Cue directive ${JSON.stringify(directive)} is not supported by the direct execution compiler`,
+  );
+}
+
+function findCueFileDirective(input: string): string | undefined {
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  let lineStart = true;
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]!;
+    if (quote === '"') {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quote = undefined;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === "'") quote = undefined;
+      continue;
+    }
+    if (char === "\n") {
+      lineStart = true;
+      continue;
+    }
+    if (!lineStart) continue;
+    if (char === " " || char === "\t" || char === "\r") continue;
+    if (char === ":") return input.slice(index).split(/[\s(]/u, 1)[0];
+    const operator = CONTINUATION_OPERATORS.find(
+      (candidate) =>
+        input.startsWith(candidate, index) &&
+        isCueWhitespace(input[index + candidate.length] ?? ""),
+    );
+    if (operator) {
+      index += operator.length - 1;
+      continue;
+    }
+    lineStart = false;
+    if (char === '"' || char === "'") quote = char;
+  }
+  return undefined;
+}
+
+function normalizeCueFile(input: string): string {
+  return input
+    .split(/\n/u)
+    .map((line, index) => {
+      const body = line.endsWith("\r") ? line.slice(0, -1) : line;
+      if (index === 0 && body.startsWith("#!")) return "";
+      return stripCueFileComment(body);
+    })
+    .join("\n");
+}
+
+function stripCueFileComment(line: string): string {
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  let commentBoundary = true;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (quote === '"') {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quote = undefined;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === "'") quote = undefined;
+      continue;
+    }
+    if (char === "#" && commentBoundary) return line.slice(0, index).trimEnd();
+    if (char === '"' || char === "'") {
+      quote = char;
+      commentBoundary = false;
+    } else {
+      commentBoundary = char === " " || char === "\t";
+    }
+  }
+  return line;
+}
+
+const CONTINUATION_OPERATORS = ["|&>", "|!>", "|||", "|?|", "->", "~>", "|>", "&&", "||"];
+
+function splitCueFileStatements(input: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  let groupDepth = 0;
+  const flush = () => {
+    const statement = current.trim();
+    if (statement) statements.push(statement);
+    current = "";
+  };
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]!;
+    if (quote === '"') {
+      current += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quote = undefined;
+      continue;
+    }
+    if (quote === "'") {
+      current += char;
+      if (char === "'") quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "(") groupDepth += 1;
+    else if (char === ")") groupDepth = Math.max(0, groupDepth - 1);
+    if (char !== "\n") {
+      current += char;
+      continue;
+    }
+
+    const previousContinues = CONTINUATION_OPERATORS.some((operator) =>
+      current.trimEnd().endsWith(operator),
+    );
+    const next = input.slice(index + 1).trimStart();
+    const nextContinues = CONTINUATION_OPERATORS.some((operator) => next.startsWith(operator));
+    if (groupDepth > 0 || previousContinues || nextContinues) current += " ";
+    else flush();
+  }
+  flush();
+  return statements;
 }

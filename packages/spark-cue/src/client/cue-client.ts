@@ -306,7 +306,12 @@ function jobInfoFromExecution(execution: ExecutionInfo): JobInfo {
     chain_id: null,
     chain_index: 0,
     chain_total: execution.steps.length,
-    ...(execution.state.status === "cancelled" ? { cancelReason: "User" as const } : {}),
+    ...(execution.state.status === "cancelled"
+      ? {
+          cancelReason:
+            execution.state.reason === "forced" ? ("Forced" as const) : ("User" as const),
+        }
+      : {}),
   };
 }
 
@@ -1156,12 +1161,8 @@ export class CueClient {
   }
 
   /**
-   * Run a `.cue` file-script and wait for it to complete.
-   *
-   * Mirrors the foreground semantics of cue-shell’s `cue run <file.cue>` CLI:
-   * top-level items execute sequentially, fail-fast, inside a fresh isolated
-   * scope forked from HEAD. Returns the aggregated transcript per item plus
-   * the script-level terminal status.
+   * Compile direct-execution `.cue` commands into one fail-fast execution and
+   * wait for its terminal state or the foreground wait budget.
    */
   async runScript(opts: RunScriptOptions): Promise<ScriptResult> {
     const signal = opts.signal;
@@ -1191,11 +1192,13 @@ export class CueClient {
       scriptId: executionIdText(current.id),
       stepIds: current.steps.map((step) => `${executionIdText(current.id)}/S${step.id.index}`),
       source: { kind: "file", path: opts.path },
-      status: executionStateTerminal(current.state)
-        ? current.state.status === "succeeded"
+      status:
+        current.state.status === "succeeded"
           ? "done"
-          : "failed"
-        : "running",
+          : current.state.status === "failed" || current.state.status === "cancelled"
+            ? current.state.status
+            : "running",
+      ...(current.state.status === "cancelled" ? { cancelReason: current.state.reason } : {}),
       exitCode: job.exit_code ?? null,
       failedItemIndex:
         current.steps.findIndex((step) => step.state.status === "failed") === -1
@@ -1226,15 +1229,17 @@ export class CueClient {
     if (!execution) throw new CueError("NOT_FOUND", `${scriptId} not found`);
     return {
       script_id: executionIdText(execution.id),
-      status: executionStateTerminal(execution.state)
-        ? execution.state.status === "succeeded"
+      status:
+        execution.state.status === "succeeded"
           ? "done"
-          : "failed"
-        : "running",
+          : execution.state.status === "failed" || execution.state.status === "cancelled"
+            ? execution.state.status
+            : "running",
       items: [],
       exit_code: executionExitCode(execution),
       failed_item_index: null,
       submit_error: null,
+      ...(execution.state.status === "cancelled" ? { cancelReason: execution.state.reason } : {}),
     };
   }
 

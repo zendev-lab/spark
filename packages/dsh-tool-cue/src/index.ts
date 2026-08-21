@@ -97,6 +97,7 @@ function scriptOutput<const Name extends "cue_run" | "cue_script">(tool: Name) {
       failedItemIndex: { oneOf: [{ type: "integer" }, { type: "null" }] },
       timedOut: { type: "boolean", required: true },
       cancelled: { type: "boolean", required: true },
+      cancelReason: { type: "string", enum: ["user", "forced"] },
       items: { type: "array", items: { type: "json" }, required: true },
     },
   } as const;
@@ -116,6 +117,7 @@ function languageOutput<const Name extends "script_run" | "script_eval">(tool: N
       exitCode: { oneOf: [{ type: "integer" }, { type: "null" }] },
       timedOut: { type: "boolean", required: true },
       cancelled: { type: "boolean", required: true },
+      cancelReason: { type: "string", enum: ["user", "forced"] },
       items: { type: "array", items: { type: "json" }, required: true },
       stdout: { ...streamSchema, required: true },
       stderr: { ...streamSchema, required: true },
