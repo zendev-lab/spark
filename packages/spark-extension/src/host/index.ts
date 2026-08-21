@@ -211,7 +211,7 @@ export {
   loadMatchingSparkSkillsForPrompt,
   loadSkillsFromDir,
   parseSkillFrontmatter,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "@zendev-lab/spark-roles/skill-resolver";
 export type {
   SparkCliHostDiagnostic,
   SparkCliHostServices,
@@ -272,7 +272,7 @@ export type {
   SparkSkillPromptMatch,
   SparkSkillResolveResult,
   SparkSkillResolverOptions,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "@zendev-lab/spark-roles/skill-resolver";
 export {
   CURRENT_SPARK_SESSION_VERSION,
   SparkSessionStore,
