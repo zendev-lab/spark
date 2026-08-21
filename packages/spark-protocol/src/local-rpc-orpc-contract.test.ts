@@ -137,6 +137,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session",
       "retryTarget",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.mode.set"]).toEqual(["session", "mode", "set"]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
       "daemon.logs",
       "artifact.list",
@@ -158,6 +159,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session.media.read",
       "session.prompt-history",
       "session.retry-target",
+      "session.mode.set",
     ]);
   });
 

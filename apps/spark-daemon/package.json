@@ -32,6 +32,7 @@
     "@deepseek-ai/dsh-attachment-local": "catalog:dsh",
     "@deepseek-ai/dsh-home-paths": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-schedule": "catalog:dsh",
     "@deepseek-ai/dsh-scope": "catalog:dsh",
     "@deepseek-ai/dsh-session": "catalog:dsh",
     "@deepseek-ai/dsh-session-persistence": "catalog:dsh",

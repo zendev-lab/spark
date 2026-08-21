@@ -17,6 +17,7 @@
   let createError = $state("");
   let sessionName = $state("");
   let roleRef = $state("role:builtin-executor");
+  let sessionMode = $state<"plan" | "execute" | "fleet">("execute");
   let modelValue = $state("");
   let thinkingLevel = $state<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">("high");
   let cwdArtifactRef = $state("");
@@ -78,6 +79,7 @@
         ...(cwdRelativePath ? { cwd: cwdRelativePath } : {}),
         ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
       });
+      await webRpc("session.mode.set", { sessionId: created.sessionId, mode: sessionMode });
       if (modelValue.includes("/")) {
         const separator = modelValue.indexOf("/");
         await webRpc("session.model.set", {
@@ -276,7 +278,7 @@
       <h2>{copy.context}</h2>
       <label>{copy.name}<input type="text" bind:value={sessionName} placeholder={data.messages.web.home.optional} /></label>
       <label>{copy.role}<select bind:value={roleRef}>{#each data.roleCatalog.roles as role (role.ref)}<option value={role.ref}>{role.id} · {role.source}</option>{/each}</select></label>
-      <label>{copy.mode}<select disabled title={copy.modeBlocked}><option>{copy.execute}</option></select></label>
+      <label>{copy.mode}<select bind:value={sessionMode}><option value="plan">{copy.plan}</option><option value="execute">{copy.execute}</option><option value="fleet">{copy.fleet}</option></select></label>
       <label>{copy.model}<select bind:value={modelValue}><option value="">{copy.inheritDefault}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>{copy.thinking}<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
       <label>{copy.workingDirectory}<select bind:value={cwdArtifactRef} onchange={() => (cwdRelativePath = "")}><option value="">{copy.workspaceDefault}</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · {copy.owningWorktree}</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</button>{#if cwdRelativePath}<small>{copy.selected}: {cwdRelativePath}</small>{/if}</label>

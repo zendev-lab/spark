@@ -15,6 +15,7 @@ import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
+import * as ScheduleRuntime from "@deepseek-ai/dsh-schedule";
 import { SessionStore } from "@deepseek-ai/dsh-session";
 import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
@@ -176,6 +177,11 @@ async function mountSparkDshRuntime(
     agents: [],
     maxParallelToolCalls: DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS,
   });
+  // Schedule must observe future root Agent creation after Session persistence,
+  // tools, the registry, and the concrete loop factory are all available. Its
+  // timer state remains a disposable projection of native `schedule/change`
+  // events; Spark does not mirror reminders in SQLite.
+  if (options.sessionsRoot) await ctx.plugin(ScheduleRuntime);
 }
 
 export function sparkDaemonStoresFromContext(ctx: Context): SparkDaemonStoreServices {

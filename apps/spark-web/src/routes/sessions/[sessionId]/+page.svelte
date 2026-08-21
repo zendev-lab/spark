@@ -435,7 +435,19 @@
         feedback("Composer: Cmd/Ctrl+Enter sends. Escape closes open dialogs. Tab moves through controls.");
         return;
       case "mode.select":
-        throw new Error("Plan/execute/fleet mode switching requires the pending DSH rc.8 daemon-root adapter.");
+        if (
+          action.payload.mode !== "plan" &&
+          action.payload.mode !== "execute" &&
+          action.payload.mode !== "fleet"
+        ) {
+          throw new Error(copy.modeUnsupported);
+        }
+        await webRpc("session.mode.set", {
+          sessionId: snapshot.sessionId,
+          mode: action.payload.mode,
+        });
+        feedback(`${copy.modeSet} ${action.payload.mode}.`);
+        return;
       case "goal.start":
       case "goal.restart":
       case "goal.stop":
