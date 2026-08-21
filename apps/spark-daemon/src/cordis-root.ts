@@ -52,6 +52,8 @@ export interface SparkDaemonCordisRoot {
 
 export interface SparkDaemonCordisRootOptions {
   sessionsRoot: string;
+  /** Reuse the process root opened before daemon adapters are constructed. */
+  ctx?: Context;
 }
 
 const STORE_NAMES = [
@@ -93,7 +95,7 @@ export async function createSparkDaemonCordisRoot(
   stores: SparkDaemonStoreServices,
   options: SparkDaemonCordisRootOptions,
 ): Promise<SparkDaemonCordisRoot> {
-  const ctx = openSparkDaemonCordisContext();
+  const ctx = options.ctx ?? openSparkDaemonCordisContext();
   const dispose = createSparkDaemonCordisDispose(ctx);
   try {
     await mountSparkDaemonStorePlugin(ctx, stores);

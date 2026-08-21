@@ -102,4 +102,41 @@ describe("dsh-channels Cordis plugin", () => {
     expect(ctx.channels.listAdapters().map((adapter) => adapter.id)).toEqual(["next"]);
     await ctx.fiber.dispose();
   });
+
+  it("keeps the old generation live when persistence before commit fails", async () => {
+    const ctx = new Context();
+    const oldTransport = new FakeChannelTransport();
+    const replacementTransport = new FakeChannelTransport();
+    let boundService = false;
+    await ctx.plugin(
+      createChannelsPlugin({
+        createTransport: (id) => (id === "old" ? oldTransport : replacementTransport),
+        onService: () => {
+          boundService = true;
+        },
+      }),
+      {
+        adapters: { old: { type: "feishu", app_id: "cli_old", app_secret: "old" } },
+        routes: {},
+      },
+    );
+
+    expect(boundService).toBe(true);
+    await expect(
+      ctx.channels.reload(
+        {
+          adapters: { next: { type: "feishu", app_id: "cli_next", app_secret: "next" } },
+          routes: {},
+        },
+        () => {
+          throw new Error("config fsync failed");
+        },
+      ),
+    ).rejects.toThrow("config fsync failed");
+
+    expect(ctx.channels.listAdapters().map(({ id }) => id)).toEqual(["old"]);
+    expect(oldTransport.isRunning).toBe(true);
+    expect(replacementTransport.isRunning).toBe(false);
+    await ctx.fiber.dispose();
+  });
 });

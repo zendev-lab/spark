@@ -39,6 +39,8 @@ export interface DshChannelsPluginOptions {
   createTransport?: ChannelRegistryOptions["createTransport"];
   onMessage?: (message: IncomingMessage) => void;
   onInteraction?: ChannelRegistryOptions["onInteraction"];
+  /** Bind ingress adapters before transports can emit their first event. */
+  onService?: (service: ChannelsService) => void;
 }
 
 interface ChannelGeneration {
@@ -163,9 +165,15 @@ export class ChannelsService {
    * Start and validate the replacement while the old generation is live.
    * Only a fully connected generation becomes visible through the service.
    */
-  async reload(value: unknown): Promise<void> {
+  async reload(value: unknown, beforeCommit?: () => void | Promise<void>): Promise<void> {
     const config = parseChannelsConfig(value);
     const replacement = await this.stage(config);
+    try {
+      await beforeCommit?.();
+    } catch (error) {
+      await disposeGeneration(replacement);
+      throw error;
+    }
     const previous = this.generation;
     this.generation = replacement;
     if (previous) await disposeGeneration(previous);
@@ -231,6 +239,7 @@ export function createChannelsPlugin(
     Config,
     async apply(ctx, config) {
       const service = new ChannelsService(ctx, options);
+      options.onService?.(service);
       await service.start(config);
       ctx.provide("channels", service);
       return async () => await service.dispose();

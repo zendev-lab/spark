@@ -105,7 +105,11 @@ import { migrateLegacyReproV9Snapshots } from "./repro-v9-migration.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
-import { createSparkDaemonCordisRoot, type SparkDaemonCordisRoot } from "./cordis-root.ts";
+import {
+  createSparkDaemonCordisRoot,
+  openSparkDaemonCordisContext,
+  type SparkDaemonCordisRoot,
+} from "./cordis-root.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
   createGitHubMergedPrsLoopEvaluator,
@@ -270,9 +274,11 @@ async function createPreparedDaemonRuntime(
   const humanWaits = options.humanWaits ?? new SparkDaemonHumanWaitRegistry(options.db);
   const channelDeliveryStore = new SparkChannelDeliveryStore(options.db);
   const channelDeliveryOutbox = createDaemonChannelDeliveryOutbox(channelDeliveryStore);
+  const cordisContext = openSparkDaemonCordisContext();
   const channelIngress: DaemonChannelIngressRuntime | null = prepareChannelIngress(
     options,
     channelDeliveryOutbox,
+    cordisContext,
   );
   const shutdownChannelIngress = createChannelIngressShutdown(channelIngress, options);
   const admission = { open: false };
@@ -482,7 +488,10 @@ async function createPreparedDaemonRuntime(
   ).toISOString();
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
-  const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
+  const stopChannelIngress = () => {
+    channelIngress?.beginDrain?.();
+    if (!channelIngress?.beginDrain) void shutdownChannelIngress("runtime-abort");
+  };
   const cordisRoot = await createSparkDaemonCordisRoot(
     {
       sparkInvocations: invocationStore,
@@ -495,7 +504,7 @@ async function createPreparedDaemonRuntime(
       sparkSessionCompletions: sessionCompletionDeliveryStore,
       sparkInvocationRegistry: invocationRegistry,
     },
-    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome) },
+    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome), ctx: cordisContext },
   );
   runtimeSignal.addEventListener("abort", stopScheduler, { once: true });
   runtimeSignal.addEventListener("abort", stopDirectInvocations, { once: true });
@@ -1058,7 +1067,17 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   runtimeSignal.removeEventListener("abort", runtime.stopScheduler);
   runtimeSignal.removeEventListener("abort", runtime.stopDirectInvocations);
   runtimeSignal.removeEventListener("abort", runtime.stopChannelIngress);
-  await runtime.shutdownChannelIngress("daemon-finally");
+  const splitChannelShutdown = Boolean(
+    runtime.channelIngress?.beginDrain !== undefined &&
+    runtime.channelIngress.drain !== undefined &&
+    runtime.channelIngress.close !== undefined,
+  );
+  if (splitChannelShutdown) {
+    runtime.channelIngress?.beginDrain?.();
+    await runtime.channelIngress?.drain?.();
+  } else {
+    await runtime.shutdownChannelIngress("daemon-finally");
+  }
   runtime.scheduler?.stop();
   await runtime.scheduler?.wait();
   await runtime.restartDrain.wait();
@@ -1069,6 +1088,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.channelReply;
   await runtime.loops.taskClaims;
   await runtime.loops.sessionRetention;
+  if (splitChannelShutdown) await runtime.channelIngress?.close?.();
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }
@@ -1687,6 +1707,7 @@ async function runNotificationReconcileLoop(
 function prepareChannelIngress(
   options: StartSparkDaemonOptions,
   channelDeliveryOutbox: DaemonChannelDeliveryOutbox,
+  ctx: ReturnType<typeof openSparkDaemonCordisContext>,
 ): DaemonChannelIngressRuntime | null {
   if (options.once || options.runScheduler === false) return null;
   const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
@@ -1695,6 +1716,7 @@ function prepareChannelIngress(
     options.channelIngress ??
     createDaemonChannelIngressRuntime({
       sparkHome: userPaths.dataRoot,
+      ctx,
       createDaemonTransport: createDaemonChannelTransportFactory(options.db),
       ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
       hooks: {

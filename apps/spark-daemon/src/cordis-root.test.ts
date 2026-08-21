@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
+import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
 import {
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SparkSessionStore,
@@ -16,6 +17,7 @@ import {
   sparkDaemonStoresFromContext,
   type SparkDaemonStoreServices,
 } from "./cordis-root.ts";
+import { createDaemonChannelIngressRuntime } from "./channels/global-ingress-runtime.ts";
 
 const roots: string[] = [];
 
@@ -68,6 +70,40 @@ describe("spark daemon Cordis root", () => {
     expect(() => sparkDaemonStoresFromContext(root.ctx)).toThrow(
       /missing service sparkInvocations/,
     );
+  });
+
+  it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
+    const ctx = openSparkDaemonCordisContext();
+    const root = await createSparkDaemonCordisRoot(fakeStores(), {
+      sessionsRoot: await sessionsRoot(),
+      ctx,
+    });
+    const transport = new FakeChannelTransport();
+    const runtime = createDaemonChannelIngressRuntime({
+      sparkHome: await sessionsRoot(),
+      ctx,
+      hooks: { onAssignment: async () => undefined },
+      sessionRegistry: {
+        resolveChannelSession: async () => {
+          throw new Error("test does not admit inbound");
+        },
+      },
+      createTransport: () => transport,
+    });
+    await runtime.configure(
+      parseChannelsConfig({
+        adapters: { info: { type: "infoflow", app_key: "app" } },
+        routes: {},
+        ingress: { enabled: true, on_unbound: "create" },
+      }),
+    );
+
+    expect(root.ctx).toBe(ctx);
+    expect(ctx.channels.listAdapters()).toHaveLength(1);
+    expect(transport.isRunning).toBe(true);
+    await root.dispose();
+    expect(transport.isRunning).toBe(false);
+    expect(ctx.get("channels")).toBeUndefined();
   });
 
   it("disposes the fiber when store mounting fails", async () => {
