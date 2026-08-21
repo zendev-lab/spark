@@ -2975,7 +2975,7 @@ describe("Spark daemon local RPC", () => {
         `${[
           {
             type: "session",
-            version: 3,
+            version: 4,
             id: "sess_view",
             timestamp: "2026-07-10T08:00:00.000Z",
             cwd: "/workspace/view",
@@ -3117,7 +3117,7 @@ describe("Spark daemon local RPC", () => {
         preferredPath,
         `${JSON.stringify({
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_view",
           timestamp: "2026-07-10T09:00:00.000Z",
           cwd: "/workspace/view",

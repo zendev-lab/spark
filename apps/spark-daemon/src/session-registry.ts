@@ -24,6 +24,7 @@ import {
   type ResetSparkSideThreadInput,
   type RecordSparkSessionRunInput,
   type ResolveBindingInput,
+  type ResolveChannelSessionInput,
   type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
 } from "@zendev-lab/spark-session";
@@ -130,6 +131,10 @@ export interface DaemonSessionRegistry {
   resetSideThread(input: ResetSparkSideThreadInput): Promise<SparkSessionState>;
   configureSideThread(input: ConfigureSparkSideThreadInput): Promise<SparkSessionState>;
   resolveBinding(input: ResolveBindingInput): Promise<SparkSessionState>;
+  /** Daemon-internal ingress primitive; callers cannot select scope or cwd. */
+  resolveChannelSession(
+    input: Omit<ResolveChannelSessionInput, "daemonId" | "createCwd">,
+  ): Promise<SparkSessionState>;
 }
 
 export interface CommitDaemonSessionTranscriptReplacementInput extends RecordSparkSessionRunInput {
@@ -166,6 +171,8 @@ export interface CreateDaemonSessionRegistryOptions {
     cwd?: string;
     cwdArtifactRef?: string;
   }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
+  /** Derive, create, and validate a private daemon Channel cwd from a Session id. */
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }
 
 export interface SerializeDaemonSessionRegistryOptions {
@@ -242,6 +249,7 @@ export function createSerializedDaemonSessionRegistry(
     resetSideThread: (input) => mutate(() => registry.resetSideThread(input)),
     configureSideThread: (input) => mutate(() => registry.configureSideThread(input)),
     resolveBinding: (input) => mutate(() => registry.resolveBinding(input)),
+    resolveChannelSession: (input) => mutate(() => registry.resolveChannelSession(input)),
   };
 }
 
@@ -251,6 +259,10 @@ export function createDaemonSessionRegistry(
 ): DaemonSessionRegistry {
   const registry = new SparkSessionRegistry({
     rootDir: defaultSparkSessionRegistryRoot(sparkHome),
+    ...(options.daemonId ? { daemonId: options.daemonId } : {}),
+    ...(options.resolveChannelSessionCwd
+      ? { resolveChannelSessionCwd: options.resolveChannelSessionCwd }
+      : {}),
   });
   const ownedRegistry: DaemonSessionRegistry = {
     create: async (input) =>
@@ -343,6 +355,26 @@ export function createDaemonSessionRegistry(
       return await registry.resolveBinding({
         ...input,
         ...(create ? { create } : {}),
+      });
+    },
+    resolveChannelSession: async (input) => {
+      const daemonId = options.daemonId?.trim();
+      if (!daemonId) {
+        throw new SparkSessionRegistryError(
+          "daemon_identity_unavailable",
+          "Channel Session resolution requires the daemon installation identity",
+        );
+      }
+      if (!options.resolveChannelSessionCwd) {
+        throw new SparkSessionRegistryError(
+          "workspace_cwd_unavailable",
+          "Channel Session private cwd resolution is unavailable",
+        );
+      }
+      return await registry.resolveChannelSession({
+        ...input,
+        daemonId,
+        createCwd: options.resolveChannelSessionCwd,
       });
     },
   };

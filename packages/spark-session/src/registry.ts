@@ -31,8 +31,8 @@ import type { SparkRoleModelType } from "@zendev-lab/spark-protocol/role-session
 import type { SparkSessionRegistryErrorCode } from "@zendev-lab/spark-protocol/session-errors";
 import type { SparkModelRef, SparkThinkingLevel } from "@zendev-lab/spark-protocol/model-control";
 
-const SUPPORTED_MIGRATION_SOURCE_VERSION = 6 as const;
-export const SPARK_SESSION_REGISTRY_VERSION = 7 as const;
+const SUPPORTED_MIGRATION_SOURCE_VERSIONS = [6, 7] as const;
+export const SPARK_SESSION_REGISTRY_VERSION = 8 as const;
 
 export type SparkSessionUnboundPolicy = "reject" | "create";
 
@@ -46,6 +46,8 @@ export interface SparkSessionRegistryFile {
 export interface SparkSessionRegistryOptions {
   /** Directory that will contain `registry.json`. */
   rootDir: string;
+  daemonId?: string;
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }
 
 export interface CreateSparkSessionInput {
@@ -176,6 +178,16 @@ export interface ResolveBindingInput {
   now?: Date;
 }
 
+export interface ResolveChannelSessionInput {
+  daemonId: string;
+  externalKey: string;
+  adapterId?: string;
+  adapterAccountIdentity: string;
+  name?: string;
+  createCwd: (sessionId: string) => Promise<string>;
+  now?: Date;
+}
+
 export class SparkSessionRegistryError extends Error {
   readonly code: SparkSessionRegistryErrorCode;
 
@@ -200,16 +212,20 @@ export class SparkSessionRegistry {
   readonly filePath: string;
   #migration: Promise<SparkSessionRegistryFile> | undefined;
   #cache: RegistryFileCache | undefined;
+  readonly #daemonId: string | undefined;
+  readonly #resolveChannelSessionCwd: ((sessionId: string) => Promise<string>) | undefined;
 
   constructor(options: SparkSessionRegistryOptions) {
     this.rootDir = options.rootDir;
     this.filePath = join(options.rootDir, "registry.json");
+    this.#daemonId = options.daemonId?.trim() || undefined;
+    this.#resolveChannelSessionCwd = options.resolveChannelSessionCwd;
   }
 
   async create(input: CreateSparkSessionInput): Promise<SparkSessionState> {
     const file = await this.loadFile();
     const now = (input.now ?? new Date()).toISOString();
-    const sessionId = input.sessionId?.trim() || createSessionId();
+    const sessionId = input.sessionId?.trim() || createSparkSessionId();
     if (sessionIdExists(file, sessionId)) {
       throw new SparkSessionRegistryError("session_exists", `session already exists: ${sessionId}`);
     }
@@ -277,7 +293,7 @@ export class SparkSessionRegistry {
       )
       .sort((left, right) => sideThreadGeneration(right) - sideThreadGeneration(left))[0];
     if (existing) return requireChild(existing);
-    const sessionId = input.sessionId?.trim() || createSessionId();
+    const sessionId = input.sessionId?.trim() || createSparkSessionId();
     if (sessionIdExists(file, sessionId))
       throw new SparkSessionRegistryError("session_exists", `session already exists: ${sessionId}`);
     const path = input.sessionPath?.trim();
@@ -391,8 +407,7 @@ export class SparkSessionRegistry {
       (session) =>
         session.scope.kind === "workspace" &&
         session.scope.workspaceId === workspaceId &&
-        session.lineage.kind === "root" &&
-        session.lineage.workspaceId === workspaceId,
+        session.lineage.kind === "root",
     );
     if (matching.length > 1) {
       throw new SparkSessionRegistryError(
@@ -403,7 +418,7 @@ export class SparkSessionRegistry {
     if (matching[0]) return matching[0];
 
     const now = (input.now ?? new Date()).toISOString();
-    const sessionId = createSessionId();
+    const sessionId = createSparkSessionId();
     const record: SparkSessionState = {
       sessionId,
       scope: { kind: "workspace", workspaceId },
@@ -411,7 +426,7 @@ export class SparkSessionRegistry {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
-      lineage: { kind: "root", workspaceId },
+      lineage: { kind: "root" },
       incarnation: 1,
       visibility: "public",
       retention: "audit",
@@ -1289,6 +1304,98 @@ export class SparkSessionRegistry {
     });
   }
 
+  /** Resolve, claim, or create one daemon-global Channel Session in one registry revision. */
+  async resolveChannelSession(input: ResolveChannelSessionInput): Promise<SparkSessionState> {
+    const daemonId = input.daemonId.trim();
+    const adapterAccountIdentity = input.adapterAccountIdentity.trim();
+    if (!daemonId || !adapterAccountIdentity) {
+      throw new SparkSessionRegistryError(
+        "invalid_scope",
+        "Channel Session resolution requires daemon and adapter account identities",
+      );
+    }
+    const externalKey = normalizeChannelExternalKey(input.externalKey);
+    const adapterId = input.adapterId?.trim() || undefined;
+    const scope = { kind: "daemon", daemonId } as const;
+    const file = await this.loadFile();
+    const existingMatch = selectChannelBinding(file.sessions, {
+      externalKey,
+      adapterId,
+      adapterAccountIdentity,
+      scope,
+      allowLegacyAccountClaim: false,
+    });
+    if (existingMatch) {
+      const current = existingMatch.session;
+      assertSessionInvocable(current, "route to");
+      if (current.lineage.kind !== "root" || current.purpose !== "channel") {
+        throw new SparkSessionRegistryError(
+          "binding_conflict",
+          `channel binding is owned by a non-Channel Session: ${current.sessionId}`,
+        );
+      }
+      const nextBinding: SparkSessionChannelBinding = {
+        ...existingMatch.binding,
+        ...(adapterId ? { adapterId } : {}),
+        adapterAccountIdentity,
+      };
+      if (
+        nextBinding.adapterId === existingMatch.binding.adapterId &&
+        nextBinding.adapterAccountIdentity === existingMatch.binding.adapterAccountIdentity
+      ) {
+        return current;
+      }
+      const sessionIndex = file.sessions.indexOf(current);
+      const bindingIndex = current.bindings.indexOf(existingMatch.binding);
+      const bindings = [...current.bindings];
+      bindings[bindingIndex] = nextBinding;
+      const updated = parseSparkSessionState({
+        ...current,
+        bindings,
+        updatedAt: (input.now ?? new Date()).toISOString(),
+      });
+      file.sessions[sessionIndex] = updated;
+      await this.saveFile(file);
+      return updated;
+    }
+
+    const sessionId = createSparkSessionId();
+    const now = (input.now ?? new Date()).toISOString();
+    const cwd = await input.createCwd(sessionId);
+    const record = parseSparkSessionState({
+      sessionId,
+      scope,
+      ...(normalizeSessionName(input.name) ? { name: normalizeSessionName(input.name) } : {}),
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      lineage: { kind: "root" },
+      incarnation: 1,
+      visibility: "public",
+      retention: "retain",
+      purpose: "channel",
+      cwd,
+      bindings: [
+        {
+          kind: "channel",
+          adapter: channelAdapterFromExternalKey(externalKey),
+          ...(adapterId ? { adapterId } : {}),
+          adapterAccountIdentity,
+          externalKey,
+          boundAt: now,
+        },
+      ],
+      tags: [],
+      archiveHistory: [],
+      closeReceipts: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    file.sessions.push(record);
+    await this.saveFile(file);
+    return record;
+  }
+
   private async loadFile(): Promise<SparkSessionRegistryFile> {
     const fingerprint = await this.readFingerprint();
     if (!fingerprint) {
@@ -1321,6 +1428,10 @@ export class SparkSessionRegistry {
           filePath: this.filePath,
           source,
           raw,
+          ...(this.#daemonId ? { daemonId: this.#daemonId } : {}),
+          ...(this.#resolveChannelSessionCwd
+            ? { resolveChannelSessionCwd: this.#resolveChannelSessionCwd }
+            : {}),
         }).finally(() => {
           this.#migration = undefined;
         });
@@ -1456,7 +1567,7 @@ function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
   ) {
     throw new SparkSessionRegistryError(
       "invalid_registry",
-      "registry v7 revision must be a non-negative integer",
+      "registry v8 revision must be a non-negative integer",
     );
   }
   const storedRecords = record.sessions.map(parseSparkSessionStoredRecord);
@@ -1488,14 +1599,17 @@ async function migrateLegacyRegistryFile(input: {
   filePath: string;
   source: string;
   raw: unknown;
+  daemonId?: string;
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }): Promise<SparkSessionRegistryFile> {
   const version = registryVersion(input.raw);
-  if (version !== SUPPORTED_MIGRATION_SOURCE_VERSION) {
+  if (!SUPPORTED_MIGRATION_SOURCE_VERSIONS.includes(version as 6 | 7)) {
     throw new SparkSessionRegistryError(
       "invalid_registry",
-      `session registry migration source ${input.source} received version ${String(version)}; only v6 can migrate to v7. Upgrade to Spark 0.4.0 first, restart once to produce registry v6, then upgrade and retry`,
+      `session registry migration source ${input.source} received version ${String(version)}; only v6 or v7 can migrate to v8. Upgrade to Spark 0.4.0 first, restart once to produce registry v6, then upgrade and retry`,
     );
   }
+  const sourceVersion = version as 6 | 7;
   if (!input.raw || typeof input.raw !== "object" || Array.isArray(input.raw)) {
     throw new SparkSessionRegistryError("invalid_registry", "registry root must be an object");
   }
@@ -1506,13 +1620,13 @@ async function migrateLegacyRegistryFile(input: {
   if (!Number.isInteger(sourceRecord.revision) || Number(sourceRecord.revision) < 0) {
     throw new SparkSessionRegistryError(
       "invalid_registry",
-      "registry v6 revision must be a non-negative integer",
+      `registry v${String(version)} revision must be a non-negative integer`,
     );
   }
 
   const migratedAt = new Date().toISOString();
   const suffix = migratedAt.replaceAll(/[:.]/gu, "-");
-  const migrationDir = join(input.rootDir, `migration-v6-to-v7-${suffix}`);
+  const migrationDir = join(input.rootDir, `migration-v${String(version)}-to-v8-${suffix}`);
   const backupPath = join(migrationDir, "registry.json.backup");
   const stagedPath = join(migrationDir, "registry.json.staged");
   const journalPath = join(migrationDir, "journal.json");
@@ -1520,6 +1634,7 @@ async function migrateLegacyRegistryFile(input: {
   await writeFile(backupPath, input.source, "utf8");
   await writeMigrationJournal(journalPath, {
     state: "staging",
+    sourceVersion,
     sourcePath: input.filePath,
     backupPath,
     stagedPath,
@@ -1527,7 +1642,10 @@ async function migrateLegacyRegistryFile(input: {
   });
 
   try {
-    const storedRecords = sourceRecord.sessions.map(migrateV6StoredRecord);
+    const normalizedRecords = sourceRecord.sessions.map((record) =>
+      version === 6 ? migrateV6StoredRecord(record) : migrateV7StoredRecord(record),
+    );
+    const storedRecords = await migrateLegacyChannelSessions(normalizedRecords, input);
     const migrated: SparkSessionRegistryFile = {
       version: SPARK_SESSION_REGISTRY_VERSION,
       revision: Number(sourceRecord.revision),
@@ -1550,6 +1668,7 @@ async function migrateLegacyRegistryFile(input: {
     await rename(stagedPath, input.filePath);
     await writeMigrationJournal(journalPath, {
       state: "complete",
+      sourceVersion,
       sourcePath: input.filePath,
       backupPath,
       migratedAt,
@@ -1559,6 +1678,7 @@ async function migrateLegacyRegistryFile(input: {
     const recoveryCommand = `cp -- ${JSON.stringify(backupPath)} ${JSON.stringify(input.filePath)}`;
     await writeMigrationJournal(journalPath, {
       state: "failed",
+      sourceVersion,
       sourcePath: input.filePath,
       backupPath,
       migratedAt,
@@ -1566,7 +1686,7 @@ async function migrateLegacyRegistryFile(input: {
     });
     throw new SparkSessionRegistryError(
       "invalid_registry",
-      `session registry v6 to v7 migration failed; daemon service is disabled. Restore with: ${recoveryCommand}. ${error instanceof Error ? error.message : String(error)}`,
+      `session registry v${String(version)} to v8 migration failed; daemon service is disabled. Restore with: ${recoveryCommand}. ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -1575,6 +1695,7 @@ async function writeMigrationJournal(
   journalPath: string,
   input: {
     state: "staging" | "complete" | "failed";
+    sourceVersion: 6 | 7;
     sourcePath: string;
     backupPath: string;
     stagedPath?: string;
@@ -1589,7 +1710,7 @@ async function writeMigrationJournal(
       {
         version: 1,
         state: input.state,
-        sourceVersion: SUPPORTED_MIGRATION_SOURCE_VERSION,
+        sourceVersion: input.sourceVersion,
         targetVersion: SPARK_SESSION_REGISTRY_VERSION,
         sourcePath: input.sourcePath,
         backupPath: input.backupPath,
@@ -1622,8 +1743,7 @@ function migrateV6Lineage(value: unknown): SparkSessionLineage {
   }
   const owner = structuredClone(value) as Record<string, unknown>;
   if (owner.kind === "workspace") {
-    const { kind: _kind, ...payload } = owner;
-    return { kind: "root", ...(payload as { workspaceId: string }) };
+    return { kind: "root" };
   }
 
   const parentField = owner.kind === "side_thread" ? "parentSessionId" : "supervisorSessionId";
@@ -1637,6 +1757,89 @@ function migrateV6Lineage(value: unknown): SparkSessionLineage {
     parentSessionId,
     origin: owner as SparkSessionLineageOrigin,
   };
+}
+
+function migrateV7StoredRecord(value: unknown): SparkSessionState | SparkEphemeralSessionTombstone {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("registry v7 Session record must be an object");
+  }
+  const record = structuredClone(value) as Record<string, unknown>;
+  if (record.lineage && typeof record.lineage === "object" && !Array.isArray(record.lineage)) {
+    const lineage = record.lineage as Record<string, unknown>;
+    if (lineage.kind === "root") delete lineage.workspaceId;
+  }
+  return parseSparkSessionStoredRecord(record);
+}
+
+async function migrateLegacyChannelSessions(
+  records: Array<SparkSessionState | SparkEphemeralSessionTombstone>,
+  options: {
+    daemonId?: string;
+    resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
+  },
+): Promise<Array<SparkSessionState | SparkEphemeralSessionTombstone>> {
+  const sessions = records.filter(
+    (record): record is SparkSessionState => !("recordKind" in record),
+  );
+  const childCounts = new Map<string, number>();
+  for (const session of sessions) {
+    const parentId = sparkSessionParentId(session.lineage);
+    if (parentId) childCounts.set(parentId, (childCounts.get(parentId) ?? 0) + 1);
+  }
+  return await Promise.all(
+    records.map(async (record) => {
+      if ("recordKind" in record || record.bindings.length === 0 || record.purpose !== "channel") {
+        return record;
+      }
+      const conflict = legacyChannelMigrationConflict(record, childCounts);
+      if (conflict || !options.daemonId || !options.resolveChannelSessionCwd) {
+        return parseSparkSessionState({
+          ...record,
+          tags: mergeSessionTags(record.tags ?? [], [
+            `channel-migration-conflict:${conflict ?? "daemon-context-unavailable"}`,
+          ]),
+        });
+      }
+      let cwd: string;
+      try {
+        cwd = await options.resolveChannelSessionCwd(record.sessionId);
+      } catch {
+        return parseSparkSessionState({
+          ...record,
+          tags: mergeSessionTags(record.tags ?? [], ["channel-migration-conflict:cwd-unavailable"]),
+        });
+      }
+      const migrated = { ...record };
+      delete migrated.cwdArtifactRef;
+      return parseSparkSessionState({
+        ...migrated,
+        scope: { kind: "daemon", daemonId: options.daemonId },
+        lineage: { kind: "root" },
+        lifecycle: "open",
+        placement: "active",
+        roleBinding: { kind: "none" },
+        visibility: "public",
+        retention: "retain",
+        purpose: "channel",
+        cwd,
+        tags: (record.tags ?? []).filter((tag) => !tag.startsWith("channel-migration-conflict:")),
+      });
+    }),
+  );
+}
+
+function legacyChannelMigrationConflict(
+  session: SparkSessionState,
+  childCounts: Map<string, number>,
+): string | undefined {
+  if (session.roleBinding.kind !== "none") return "role-binding";
+  if (session.lineage.kind !== "child" || session.lineage.origin.kind !== "session") {
+    return "owned-lineage";
+  }
+  if ((childCounts.get(session.sessionId) ?? 0) > 0) return "descendants";
+  if (session.fleetWorker || session.sideThreadMode) return "managed-session";
+  if (session.cwdArtifactRef) return "git-change-cwd";
+  return undefined;
 }
 
 function validateRegistryLineage(sessions: SparkSessionState[]): void {
@@ -1689,7 +1892,7 @@ function validateRegistryLineage(sessions: SparkSessionState[]): void {
     }
   }
 }
-function createSessionId(): string {
+export function createSparkSessionId(): string {
   return `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -2080,6 +2283,7 @@ interface ChannelBindingSelector {
   adapterId?: string;
   adapterAccountIdentity?: string;
   allowLegacyAccountClaim?: boolean;
+  scope?: SparkSessionScope;
 }
 
 interface SelectedChannelBinding {
@@ -2100,9 +2304,11 @@ function selectChannelBinding(
   selector: ChannelBindingSelector,
 ): SelectedChannelBinding | undefined {
   const matches = sessions.flatMap((session) =>
-    session.bindings
-      .filter((binding) => binding.externalKey === selector.externalKey)
-      .map((binding) => ({ session, binding })),
+    selector.scope && !sameSessionScope(session.scope, selector.scope)
+      ? []
+      : session.bindings
+          .filter((binding) => binding.externalKey === selector.externalKey)
+          .map((binding) => ({ session, binding })),
   );
   if (selector.adapterAccountIdentity) {
     const exact = matches.filter(

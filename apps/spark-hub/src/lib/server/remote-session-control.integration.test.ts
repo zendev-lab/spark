@@ -627,7 +627,7 @@ async function writeTranscript(
 ): Promise<void> {
   await mkdir(join(path, ".."), { recursive: true });
   const entries = [
-    { type: "session", version: 3, id: sessionId, timestamp: now, cwd },
+    { type: "session", version: 4, id: sessionId, timestamp: now, cwd },
     {
       type: "message",
       id: `${sessionId}-user`,

@@ -100,6 +100,44 @@ function loopContext(
 }
 
 describe("daemon native session execution", () => {
+  it("revalidates daemon Channel cwd before execution", async () => {
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_channel_cwd",
+      prompt: "hello",
+    };
+    const channel = {
+      sessionId: task.sessionId,
+      scope: { kind: "daemon" as const, daemonId: "installation-demo" },
+      lifecycle: "open" as const,
+      placement: "active" as const,
+      roleBinding: { kind: "none" as const },
+      lineage: { kind: "root" as const },
+      incarnation: 1,
+      visibility: "public" as const,
+      retention: "retain" as const,
+      purpose: "channel",
+      cwd: "/caller/selected/cwd",
+      bindings: [],
+      createdAt: "2026-08-21T00:00:00.000Z",
+      updatedAt: "2026-08-21T00:00:00.000Z",
+    };
+    const sessionRegistry = {
+      get: vi.fn(async () => channel),
+      recordRun: vi.fn(async () => channel),
+      recordTurnQueued: vi.fn(async () => channel),
+      recordTurnSettled: vi.fn(async () => channel),
+    };
+
+    await expect(
+      executeSparkDaemonSessionRunTask(task, context(task), {
+        paths,
+        sessionRegistry,
+        executeSession: vi.fn(async () => ({ assistantText: "must not run" })),
+      }),
+    ).rejects.toThrow(/does not match its daemon-private directory/u);
+  });
+
   it("serializes terminal projection bundles across Sessions with a macrotask fence", async () => {
     const yieldGates: Array<() => void> = [];
     const projected: string[] = [];

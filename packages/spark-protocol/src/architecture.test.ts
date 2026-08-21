@@ -24,15 +24,15 @@ import {
 describe("spark protocol version", () => {
   it("exposes aligned view-model and runtime versions", () => {
     expect(currentSparkProtocolVersions()).toEqual({
-      viewModelVersion: 3,
+      viewModelVersion: 4,
       runtimeVersion: "spark.runtime.v1alpha1",
     });
-    expect(SPARK_PROTOCOL_VERSION).toBe(3);
+    expect(SPARK_PROTOCOL_VERSION).toBe(4);
     expect(SPARK_RUNTIME_PROTOCOL_VERSION).toBe("spark.runtime.v1alpha1");
   });
 
   it("asserts supported protocol versions", () => {
-    expect(() => assertSparkProtocolVersion(3)).not.toThrow();
+    expect(() => assertSparkProtocolVersion(4)).not.toThrow();
     expect(() => assertSparkProtocolVersion(2)).toThrow(/unsupported Spark protocol version/u);
     expect(() => assertSparkRuntimeProtocolVersion("spark.runtime.v1alpha1")).not.toThrow();
     expect(isSparkRuntimeProtocolVersion("spark.runtime.v1alpha1")).toBe(true);

@@ -112,7 +112,7 @@ describe("local-rpc direct oRPC service", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: sessionId,
           timestamp: "2026-08-12T00:00:00.000Z",
           cwd: dir,

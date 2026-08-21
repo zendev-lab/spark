@@ -68,7 +68,7 @@ describe("daemon Side Thread control", () => {
         expect.arrayContaining([
           expect.objectContaining({ sessionId: fixture.parentSessionId }),
           expect.objectContaining({
-            lineage: { kind: "root", workspaceId: "workspace-side-thread" },
+            lineage: { kind: "root" },
           }),
         ]),
       );
@@ -86,7 +86,7 @@ describe("daemon Side Thread control", () => {
         expect.arrayContaining([
           expect.objectContaining({ sessionId: fixture.parentSessionId }),
           expect.objectContaining({
-            lineage: { kind: "root", workspaceId: "workspace-side-thread" },
+            lineage: { kind: "root" },
           }),
         ]),
       );

@@ -1003,8 +1003,6 @@ function projectSessionForRequest(
     if (requestWorkspaceAliases(db, request).has(session.scope.workspaceId)) {
       return parseSparkSessionState({
         ...session,
-        lineage:
-          session.lineage.kind === "root" ? { ...session.lineage, workspaceId } : session.lineage,
         scope: { kind: "workspace", workspaceId },
       });
     }
