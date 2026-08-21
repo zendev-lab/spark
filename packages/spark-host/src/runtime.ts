@@ -62,7 +62,7 @@ import {
   type SparkViewModelEvent,
 } from "@zendev-lab/spark-protocol";
 
-import type { SparkMemoryDirectIntentTurnAuthority } from "./memory-direct-intent.js";
+import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import {
   createDriverAuthorityAskRequest,
   driverAuthorityFromAskResponse,

@@ -11,7 +11,7 @@ import {
   type SparkProviderAttemptObservation,
 } from "@zendev-lab/spark-llm";
 import { createSparkLlmComposition } from "../llm-runtime.ts";
-import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
