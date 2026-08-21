@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test, vi } from "vitest";
+import { SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
 import { runSparkHubAppCli } from "../cli.ts";
 import { runSparkHubCli } from "./hub.ts";
@@ -26,7 +27,12 @@ test("spark-hub dispatches coordination and web parser behavior in process", asy
     assert.match(stdout.join(""), /spark hub web - manage the background Hub Web service/u);
     await assert.rejects(
       runSparkHubAppCli(["web", "logs", "--lines", "not-a-number"]),
-      /Invalid --lines value\. Pass a non-negative integer\./u,
+      (error: unknown) => {
+        if (!(error instanceof SparkCliError)) return false;
+        assert.equal(error.code, "INVALID_ARGUMENT");
+        assert.match(error.detail ?? "", /Invalid --lines value\. Pass a non-negative integer\./u);
+        return true;
+      },
     );
   } finally {
     stdoutWrite.mockRestore();

@@ -664,6 +664,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../spark-daemon-client
+      '@zendev-lab/spark-i18n':
+        specifier: workspace:^
+        version: link:../spark-i18n
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
@@ -1195,6 +1198,9 @@ importers:
       '@optique/core':
         specifier: 'catalog:'
         version: 1.2.0
+      '@zendev-lab/spark-i18n':
+        specifier: workspace:^
+        version: link:../spark-i18n
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../spark-memory
@@ -1597,6 +1603,9 @@ importers:
       '@optique/core':
         specifier: 'catalog:'
         version: 1.2.0
+      '@zendev-lab/spark-i18n':
+        specifier: workspace:^
+        version: link:../spark-i18n
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol

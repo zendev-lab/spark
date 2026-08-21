@@ -19,8 +19,12 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
   });
   assert.deepEqual(parseSparkDispatcherArgs(["tui", "build", "this"]), {
     kind: "error",
-    message:
-      'The Spark TUI was removed. Use "spark web" for the local browser workbench or "spark run <prompt>" for headless turns.',
+    message: "The Spark TUI was removed",
+    code: "COMMAND_REMOVED",
+    hints: [
+      'Use "spark web" for the local browser workbench.',
+      'Use "spark run <prompt>" for a headless turn.',
+    ],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["daemon", "status", "--json"]), {
     kind: "dispatch",
@@ -29,7 +33,7 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
   });
   const removedServer = parseSparkDispatcherArgs(["server", "status"]);
   assert.equal(removedServer.kind, "error");
-  assert.match(removedServer.kind === "error" ? removedServer.message : "", /spark hub/u);
+  assert.match(removedServer.kind === "error" ? removedServer.hints.join("\n") : "", /spark hub/u);
   assert.equal(parseSparkDispatcherArgs(["cockpit", "web", "status"]).kind, "error");
   assert.deepEqual(parseSparkDispatcherArgs(["hub", "web", "status"]), {
     kind: "dispatch",
@@ -131,8 +135,8 @@ test("parseSparkDispatcherArgs keeps help local and forwards version to spark-up
   const command = parseSparkDispatcherArgs(["build", "this"]);
   assert.equal(command.kind, "error");
   assert.match(command.kind === "error" ? command.message : "", /Unknown spark subcommand: build/u);
-  assert.match(command.kind === "error" ? command.message : "", /spark web/u);
-  assert.match(command.kind === "error" ? command.message : "", /spark run <prompt>/u);
+  assert.match(command.kind === "error" ? command.hints.join("\n") : "", /spark web/u);
+  assert.match(command.kind === "error" ? command.hints.join("\n") : "", /spark run <prompt>/u);
 });
 
 test("spark paths reports canonical Hub paths", async () => {
@@ -440,5 +444,6 @@ test("runSparkDispatcher renders help and unknown-command diagnostics without di
     ),
     2,
   );
-  assert.match(stderr.join(""), /Unknown spark subcommand: unknown/u);
+  assert.match(stderr.join(""), /error \[UNKNOWN_COMMAND\]: Unknown spark subcommand: unknown/u);
+  assert.match(stderr.join(""), /^hint: /mu);
 });

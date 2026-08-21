@@ -982,16 +982,9 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
   for (const [name, type] of additions) {
     if (!columns.has(name)) db.exec(`ALTER TABLE invocations ADD COLUMN ${name} ${type}`);
   }
-  db.exec(`
-    UPDATE invocations
-    SET serialization_key = COALESCE(
-      NULLIF(json_extract(task_json, '$.ownerSessionId'), ''),
-      NULLIF(session_id, ''),
-      id
-    )
-    WHERE serialization_key IS NULL OR serialization_key = ''
-  `);
-  if (!columns.has("event_cursor")) {
+  addInvocationSerializationKey(db);
+  const currentColumns = workspaceColumns(db, "invocations");
+  if (!currentColumns.has("event_cursor")) {
     db.exec(`ALTER TABLE invocations ADD COLUMN event_cursor INTEGER NOT NULL DEFAULT 0`);
     // One-time backfill so listSummaryPage can avoid scanning invocation_events.
     db.exec(`
@@ -1013,8 +1006,6 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
       PRIMARY KEY (invocation_id, sequence)
     );
     CREATE INDEX IF NOT EXISTS invocations_session_status_idx ON invocations(session_id, status);
-    CREATE INDEX IF NOT EXISTS invocations_serialization_status_fifo_idx
-      ON invocations(serialization_key, status, created_at);
     CREATE INDEX IF NOT EXISTS invocations_claim_class_status_idx
       ON invocations(claim_class, status, created_at);
     CREATE INDEX IF NOT EXISTS invocations_session_updated_idx
@@ -1074,6 +1065,29 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
       ON invocation_events(invocation_id, sequence);
     CREATE INDEX IF NOT EXISTS invocation_events_kind_created_idx
       ON invocation_events(kind, created_at, invocation_id, sequence);
+  `);
+}
+
+/**
+ * The serialization key was initially added to an older once-only migration.
+ * Keep this focused migration independently idempotent so databases that had
+ * already recorded that migration still receive the column and FIFO index.
+ */
+export function addInvocationSerializationKey(db: DatabaseSync): void {
+  const columns = workspaceColumns(db, "invocations");
+  if (!columns.has("serialization_key")) {
+    db.exec("ALTER TABLE invocations ADD COLUMN serialization_key TEXT");
+  }
+  db.exec(`
+    UPDATE invocations
+    SET serialization_key = COALESCE(
+      NULLIF(json_extract(task_json, '$.ownerSessionId'), ''),
+      NULLIF(session_id, ''),
+      id
+    )
+    WHERE serialization_key IS NULL OR serialization_key = '';
+    CREATE INDEX IF NOT EXISTS invocations_serialization_status_fifo_idx
+      ON invocations(serialization_key, status, created_at);
   `);
 }
 

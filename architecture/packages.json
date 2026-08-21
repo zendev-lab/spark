@@ -368,7 +368,11 @@
       "owner": "deployment",
       "stability": "supported",
       "stateWriter": "external",
-      "allowedWorkspaceDependencies": ["@zendev-lab/spark-protocol", "@zendev-lab/spark-system"]
+      "allowedWorkspaceDependencies": [
+        "@zendev-lab/spark-i18n",
+        "@zendev-lab/spark-protocol",
+        "@zendev-lab/spark-system"
+      ]
     },
     "@zendev-lab/spark-web": {
       "path": "apps/spark-web",

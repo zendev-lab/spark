@@ -24,6 +24,21 @@ spark daemon logs --lines 200
 
 如果已经有 invocation identifier，应检查它的状态与事件流，不要再次提交相同工作。
 
+## `spark web` 提示 daemon 启动失败
+
+不要把 socket 缺失直接当作根因，先看错误中的 `details`。Web launcher 会等待
+真实的 daemon RPC 响应；如果 service 在 ready 前退出，它会报告本次启动新写入的
+最后一条 daemon 诊断。
+
+```bash
+spark doctor
+spark daemon logs --lines 100
+```
+
+不要把删除或替换 daemon 状态当作第一步修复。如果 detail 是 schema 或 migration
+错误，请保留数据库，并在问题报告中附上诊断代码、detail、Spark 版本与
+`spark paths --json` 输出。
+
 ## 无法 attach 会话
 
 会话与 workspace 绑定。切换到创建会话时使用的同一个 canonical workspace 后重试：

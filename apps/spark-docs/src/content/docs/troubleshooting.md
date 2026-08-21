@@ -26,6 +26,21 @@ spark daemon logs --lines 200
 If you have an invocation identifier, inspect its status and event stream rather
 than submitting the same work again.
 
+## `spark web` says the daemon failed to start
+
+Read the `details` line before treating a missing socket as the root cause. The
+Web launcher waits for a real daemon RPC response and reports the last new
+daemon startup diagnostic when the service exits before readiness.
+
+```bash
+spark doctor
+spark daemon logs --lines 100
+```
+
+Do not delete or replace daemon state as a first repair step. If the detail is
+a schema or migration error, preserve the database and report the diagnostic
+code, detail, Spark version, and output of `spark paths --json`.
+
 ## A session cannot be attached
 
 Sessions are workspace-bound. Change into the same canonical workspace used to

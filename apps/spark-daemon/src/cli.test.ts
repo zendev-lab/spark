@@ -241,8 +241,9 @@ describe("Spark daemon CLI", () => {
 
     await expect(main(["not-a-daemon-command"], capture.io)).resolves.toBe(2);
 
-    expect(capture.stderr().length).toBeGreaterThan(0);
-    expect(capture.stdout()).toContain("Usage: spark daemon <command>");
+    expect(capture.stderr()).toContain("error [UNKNOWN_COMMAND]");
+    expect(capture.stderr()).toContain("spark daemon --help");
+    expect(capture.stdout()).toBe("");
   });
 
   it("lists pending daemon human interactions through the public CLI", async () => {

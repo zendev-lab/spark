@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { object, or } from "@optique/core/constructs";
 import { parse } from "@optique/core/parser";
 import { command, constant, passThrough } from "@optique/core/primitives";
+import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
 import {
   runSparkManagedInstallCommand,
@@ -30,7 +31,16 @@ export async function runSparkUpdateCli(
       return await runSparkVersionCommand(classified.argv, io);
     case "install":
       if (!classified.argv.includes("--managed")) {
-        (io.stderr ?? process.stderr).write('spark install requires "--managed"\n');
+        (io.stderr ?? process.stderr).write(
+          formatSparkCliError(
+            new SparkCliError({
+              code: "INVALID_ARGUMENT",
+              title: 'spark install requires "--managed"',
+              hints: ['Run "spark install --managed --help" for usage.'],
+              exitCode: 2,
+            }),
+          ),
+        );
         return 2;
       }
       return await runSparkManagedInstallCommand(classified.argv, io);
@@ -38,7 +48,14 @@ export async function runSparkUpdateCli(
       return await runSparkUpdateCommand(classified.argv, io);
     case "unknown":
       (io.stderr ?? process.stderr).write(
-        `Unknown spark-update command: ${classified.command}\nUsage: spark-update version|install|update [args...]\n`,
+        formatSparkCliError(
+          new SparkCliError({
+            code: "UNKNOWN_COMMAND",
+            title: `Unknown spark-update command: ${classified.command}`,
+            hints: ["Usage: spark-update version|install|update [args...]"],
+            exitCode: 2,
+          }),
+        ),
       );
       return 2;
     default: {

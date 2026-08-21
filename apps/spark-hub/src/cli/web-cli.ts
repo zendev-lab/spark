@@ -4,6 +4,7 @@ import { map, optional, withDefault } from "@optique/core/modifiers";
 import { parse } from "@optique/core/parser";
 import { command, constant, flag, option, passThrough } from "@optique/core/primitives";
 import type { ValueParser } from "@optique/core/valueparser";
+import { SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
 import {
   formatHubWebStatus,
@@ -106,7 +107,12 @@ export async function runHubWebCli(argv: string[]): Promise<number> {
       return 0;
     }
     case "unknown":
-      throw new Error(`Unknown spark hub web command: ${classified.command}`);
+      throw new SparkCliError({
+        code: "UNKNOWN_COMMAND",
+        title: `Unknown spark hub web command: ${classified.command}`,
+        hints: ['Run "spark hub web --help" to see the supported commands.'],
+        exitCode: 2,
+      });
     default: {
       const exhaustive: never = classified;
       return exhaustive;
@@ -121,7 +127,13 @@ function classifySparkHubWebCommand(argv: string[]) {
   if (!["help", "--help", "-h", "run", "start", "status", "stop", "logs"].includes(commandName)) {
     return { kind: "unknown" as const, command: commandName };
   }
-  throw new Error(formatMessage(result.error));
+  throw new SparkCliError({
+    code: "INVALID_ARGUMENT",
+    title: "Invalid spark hub web options",
+    hints: ['Run "spark hub web --help" to see the supported options.'],
+    detail: formatMessage(result.error),
+    exitCode: 2,
+  });
 }
 
 function hubWebHelpText(): string {
