@@ -16,8 +16,9 @@ spark daemon --help
 spark hub --help
 ```
 
-嵌套命令同样接受 `--help`。运行时 `--help` 由 Optique 解析器生成。Help 必须是
-只读的：它只描述所选命令，不能启动 daemon、Hub 或 workflow。
+嵌套命令同样接受 `--help`。根级 help、version、diagnostic、install 与 update
+由 Rust CLI 解析；companion help 仍由路由到的 Node app 拥有。Help 必须只读，
+不能启动 daemon、Hub 或 workflow。
 
 ## 命令命名空间
 
@@ -30,7 +31,7 @@ spark hub --help
 | `spark hub` | 运行和管理 Hub 协调与 Web 表面 | `spark hub --help` |
 | ACP 与 MCP adapter | 通过配置好的 Spark adapter 连接兼容客户端 | 阅读[协作与客户端](/zh/guides/collaboration/) |
 
-daemon 拥有持久执行状态。顶层 dispatcher 与 Hub 命令只把用户意图翻译给对应
+daemon 拥有持久执行状态。native 根路由与 Hub 命令只把用户意图翻译给对应
 runtime，不维护并行的 Session 或执行状态。
 
 ## 常用入口
@@ -38,7 +39,7 @@ runtime，不维护并行的 Session 或执行状态。
 以下是有代表性的起点，不是穷举目录：
 
 ```bash
-# 打印分发器帮助。交互式工作请使用 spark web。
+# 打印 native 根帮助。交互式工作请使用 spark web。
 spark
 
 # 前台运行，或排入持久后台任务。
@@ -49,6 +50,10 @@ spark bg --json "Run the repository validation."
 spark version --json
 spark paths --json
 spark doctor
+
+# 安装或检查 native managed deployment owner。
+spark install --managed --version <exact-version>
+spark update status --json
 
 # 操作前先检查 daemon 与 Hub 命令组。
 spark daemon --help
@@ -111,7 +116,8 @@ Channel control 属于 daemon scope，不接受 `--workspace`。configure 会在
 - 结果未知时，重试前先检查 owner 状态。浏览器外观、transcript 文本和经过时间
   都不是执行事实。
 
-dispatcher、daemon、Web、Hub、ACP、MCP 与 updater 的人类可读错误使用同一版式：
+native router、daemon、Web、Hub、ACP、MCP 与 updater 的人类可读错误由同一份
+机器可读 catalog 驱动：
 
 ```text
 error [DAEMON_START_FAILED]: Spark daemon failed to start

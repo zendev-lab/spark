@@ -301,9 +301,11 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             dist/release/*.tgz
+            dist/release/*.tar.gz
             dist/release/*-release-manifest.json
             dist/release/release-manifest.json
             dist/release/SHA256SUMS
+            dist/release/install.sh
 
       - name: Publish native macOS arm64 package
         if: steps.release.outputs['npm_native-darwin-arm64_published'] != 'true'
@@ -395,11 +397,17 @@ jobs:
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
 
-      - name: Attest npm release artifacts
+      - name: Attest release artifacts
         if: steps.release.outputs.github_published != 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/release/*.tgz
+          subject-path: |
+            dist/release/*.tgz
+            dist/release/*.tar.gz
+            dist/release/*-release-manifest.json
+            dist/release/release-manifest.json
+            dist/release/SHA256SUMS
+            dist/release/install.sh
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

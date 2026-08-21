@@ -15,13 +15,21 @@ browser supervision.
 
 ## Quick start
 
-Spark requires Node.js `>=24`. The managed installation is recommended
-because it supports atomic upgrades and rollback:
+Spark requires Node.js `>=24` and npm. The verified curl bootstrap is the
+recommended direct native entry; it installs the exact managed npm payload and
+keeps atomic upgrades and rollback:
 
 ```bash
-pnpm dlx @zendev-lab/spark install --managed
+curl -fsSL https://github.com/zendev-lab/spark/releases/latest/download/install.sh | sh
 spark doctor
 spark
+```
+
+Global npm installation remains supported when the package manager should own
+the command:
+
+```bash
+npm install --global @zendev-lab/spark
 ```
 
 Run a foreground task without opening the TUI:
@@ -37,7 +45,7 @@ npm install --global @zendev-lab/spark-hub
 spark-hub
 ```
 
-The complete `@zendev-lab/spark` package installs matching daemon, TUI, and Hub
+The complete `@zendev-lab/spark` package installs matching daemon, Hub, and web
 companions, so its dispatcher can also use:
 
 ```bash
@@ -163,6 +171,11 @@ remain unpublished source boundaries. The six product tarballs share one
 release version and protocol compatibility contract. npm resolves exactly one
 of the four macOS/Linux native CLI payloads for the current platform, while the
 app packages can be installed and deployed independently.
+
+GitHub Releases also publish four verified native bootstrap archives,
+`native-release-manifest.json`, `SHA256SUMS`, provenance, and an exact-version
+`install.sh`. The bootstrap contains no Node runtime: it verifies Node 24 and
+npm, then delegates the product payload transaction to the native updater.
 
 Spark is under active development. Managed root installations provide explicit
 update and rollback behavior; source checkouts are never self-modified. Direct

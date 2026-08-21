@@ -17,9 +17,10 @@ spark daemon --help
 spark hub --help
 ```
 
-Nested commands accept `--help` as well. Runtime `--help` is generated from
-Optique parsers. Help is read-only: it must describe the selected command
-without starting a daemon, Hub, or workflow.
+Nested commands accept `--help` as well. The root help, version, diagnostics,
+install, and update surface is parsed by the Rust CLI; companion help remains
+owned by the routed Node app. Help is read-only and does not start a daemon,
+Hub, or workflow.
 
 ## Command namespaces
 
@@ -32,7 +33,7 @@ without starting a daemon, Hub, or workflow.
 | `spark hub` | Run and administer Hub coordination and Web surfaces | `spark hub --help` |
 | ACP and MCP adapters | Connect compatible clients through their configured Spark adapter | See [collaboration and clients](/guides/collaboration/) |
 
-The daemon owns persistent execution state. The top-level dispatcher and Hub
+The daemon owns persistent execution state. The native root router and Hub
 commands translate user intent into their owning runtime; they do not maintain
 parallel session or execution state.
 
@@ -41,7 +42,7 @@ parallel session or execution state.
 These examples are representative starting points, not an exhaustive catalog:
 
 ```bash
-# Print dispatcher help. Interactive work uses spark web.
+# Print native root help. Interactive work uses spark web.
 spark
 
 # Run foreground work or queue durable background work.
@@ -52,6 +53,10 @@ spark bg --json "Run the repository validation."
 spark version --json
 spark paths --json
 spark doctor
+
+# Install or inspect the native managed deployment owner.
+spark install --managed --version <exact-version>
+spark update status --json
 
 # Inspect daemon and Hub command groups before operating them.
 spark daemon --help
@@ -93,7 +98,8 @@ copying, migrating, or repairing state.
   Browser appearance, transcript text, and elapsed time are not execution
   truth.
 
-Human-readable failures use the same shape across the dispatcher, daemon, Web,
+Human-readable failures use the same machine-readable catalog across the native
+router, daemon, Web,
 Hub, ACP, MCP, and updater commands:
 
 ```text
@@ -200,7 +206,7 @@ NDJSON; startup recovery details go to stderr.
 ## MCP clients
 
 Configure an MCP client to launch `spark-mcp`, or invoke the equivalent
-`spark mcp` dispatcher command. The client should start it with the intended
+`spark mcp` router command. The client should start it with the intended
 workspace as `cwd`; `SPARK_MCP_MEMORY_FILE` can explicitly select the canonical
 workspace memory file when that is not possible.
 

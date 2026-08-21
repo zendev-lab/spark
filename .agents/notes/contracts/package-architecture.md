@@ -188,6 +188,14 @@ publishes exact tarballs from one release tag. The root
 manifest owns the `@zendev-lab/spark` name and lockstep version, while source
 ownership, process ownership, and distribution placement remain separate axes.
 
+GitHub Releases carry only the four native bootstrap archives, their native
+release manifest, `SHA256SUMS`, provenance, and an installer with an embedded
+exact version. The curl installer is a stateless bootstrap: it verifies the
+selected archive, then delegates to
+`spark install --managed --version <exact-version>`. npm remains the
+authoritative source for the Node product payload and update channels; GitHub
+assets do not bundle Node or define a second deployment state owner.
+
 ### Agent tool packages
 
 Do not add `tools` to every package that happens to expose an agent-callable
