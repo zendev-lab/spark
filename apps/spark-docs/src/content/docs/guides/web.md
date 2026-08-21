@@ -50,8 +50,12 @@ spark bg --json "Run the repository validation."
 
 ## Settings and model control
 
-Open Settings in the workbench to inspect the bound workspace and daemon
-identity. Provider authentication and model selection remain daemon-owned:
+Open Settings in the workbench to inspect daemon providers. API-key providers
+(Baidu OneAPI, Kimi For Coding) can be saved on that page. OAuth providers such
+as OpenAI Codex use `/settings/oauth/<provider>` and keep secrets in the daemon
+auth store. Spark web never echoes a stored secret.
+
+CLI remains available for the same daemon-owned store:
 
 ```bash
 spark daemon auth --help

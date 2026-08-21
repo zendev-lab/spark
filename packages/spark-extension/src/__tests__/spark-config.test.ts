@@ -13,10 +13,11 @@ import {
 } from "../host/config.ts";
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "../host/extension-specs.ts";
 
-test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapters", () => {
+test("default Spark providers include shared Baidu OneAPI, OpenAI Codex, and Kimi adapters", () => {
   assert.deepEqual(DEFAULT_SPARK_CONFIG.providers, [
     "@zendev-lab/spark-llm/baidu-oneapi-provider",
     "@zendev-lab/spark-llm/openai-codex-provider",
+    "@zendev-lab/spark-llm/kimi-coding-provider",
   ]);
   assert.equal(
     DEFAULT_SPARK_CONFIG.extensions.includes("@zendev-lab/spark-graft/extension"),
@@ -35,6 +36,7 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
     "baidu-oneapi/deepseek-v4-flash",
     "baidu-oneapi/gpt-5.6-*",
     "baidu-oneapi/grok-4.6",
+    "kimi-coding/*",
   ]);
 });
 
@@ -60,6 +62,18 @@ test("bundled legacy model defaults migrate without re-enabling compatibility mo
         "baidu-oneapi/deepseek-v4-flash",
         "baidu-oneapi/gpt-5.6-*",
         "baidu-oneapi/grok-4.5",
+      ],
+    }).enabledModels,
+    DEFAULT_SPARK_CONFIG.enabledModels,
+  );
+  assert.deepEqual(
+    mergeSparkConfigWithDefault({
+      enabledModels: [
+        "openai-codex/gpt-5.6-*",
+        "baidu-oneapi/claude-opus-5",
+        "baidu-oneapi/deepseek-v4-flash",
+        "baidu-oneapi/gpt-5.6-*",
+        "baidu-oneapi/grok-4.6",
       ],
     }).enabledModels,
     DEFAULT_SPARK_CONFIG.enabledModels,
@@ -414,6 +428,7 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
     assert.deepEqual(config.providers, [
       "@zendev-lab/spark-llm/baidu-oneapi-provider",
       "@zendev-lab/spark-llm/openai-codex-provider",
+      "@zendev-lab/spark-llm/kimi-coding-provider",
       "my-provider",
     ]);
     assert.equal(config.activeModelId, "baidu-oneapi/claude-opus-5");
@@ -448,6 +463,7 @@ test("mergeSparkConfigWithDefault restores bundled providers to legacy provider 
   assert.deepEqual(merged.providers, [
     "@zendev-lab/spark-llm/baidu-oneapi-provider",
     "@zendev-lab/spark-llm/openai-codex-provider",
+    "@zendev-lab/spark-llm/kimi-coding-provider",
     "my-provider",
   ]);
 });

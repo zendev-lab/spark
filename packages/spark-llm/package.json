@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-llm",
   "version": "0.5.0",
   "private": true,
-  "description": "Spark LLM provider owner: model routing, auth/catalog, and bundled LlmAdapter implementations for pi-ai, Baidu OneAPI, and OpenAI Codex.",
+  "description": "Spark LLM provider owner: model routing, auth/catalog, and bundled LlmAdapter implementations for pi-ai, Baidu OneAPI, OpenAI Codex, and Kimi For Coding.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -16,6 +16,7 @@
     "./control": "./src/control/index.ts",
     "./baidu-oneapi-provider": "./src/baidu-oneapi-provider.ts",
     "./openai-codex-provider": "./src/openai-codex-provider.ts",
+    "./kimi-coding-provider": "./src/kimi-coding-provider.ts",
     "./models-extension": "./src/models-extension.ts",
     "./pi-ai-stream": "./src/pi-ai-stream.ts",
     "./package.json": "./package.json"

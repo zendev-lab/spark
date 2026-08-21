@@ -106,15 +106,17 @@ test("loadPlugins resolves bundled providers without installed workspace package
     providers: [
       "@zendev-lab/spark-llm/baidu-oneapi-provider",
       "@zendev-lab/spark-llm/openai-codex-provider",
+      "@zendev-lab/spark-llm/kimi-coding-provider",
     ],
   });
 
   assert.deepEqual(
     result.outcomes.map((outcome) => outcome.ok),
-    [true, true],
+    [true, true, true],
   );
   assert.equal(registry.hasProvider("baidu-oneapi"), true);
   assert.equal(registry.hasProvider("openai-codex"), true);
+  assert.equal(registry.hasProvider("kimi-coding"), true);
 });
 
 test("loadPlugins isolates failures: one bad plugin does not stop the rest", async () => {

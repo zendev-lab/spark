@@ -14,7 +14,12 @@ export async function webRpc<M extends SparkLocalRpcMethod>(
     body: JSON.stringify({ method, input }),
   });
   if (!response.ok) {
-    throw new Error(`spark web RPC ${method} failed: ${response.status}`);
+    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    const message =
+      typeof body?.message === "string" && body.message.trim().length > 0
+        ? body.message
+        : `spark web RPC ${method} failed: ${response.status}`;
+    throw new Error(message);
   }
   const body = (await response.json()) as { output: SparkLocalRpcOutput<M> };
   return body.output;

@@ -149,7 +149,19 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
     const control = createSparkProviderControl({ sparkHome, env: {} });
 
     const snapshot = await control.snapshot();
+    const kimi = snapshot.providers.find((provider) => provider.id === "kimi-coding");
     const codex = snapshot.providers.find((provider) => provider.id === "openai-codex");
+    assert.equal(kimi?.name, "Kimi For Coding");
+    assert.equal(kimi?.auth.kind, "env");
+    assert.equal(kimi?.auth.apiKeySupported, true);
+    assert.equal(kimi?.auth.ref, "KIMI_API_KEY");
+    assert.equal(kimi?.modelCount && kimi.modelCount > 0, true);
+    assert.equal(
+      snapshot.loadOutcomes.find(
+        (outcome) => outcome.specifier === "@zendev-lab/spark-llm/kimi-coding-provider",
+      )?.ok,
+      true,
+    );
     assert.equal(codex?.name, "OpenAI Codex");
     assert.equal(codex?.modelCount, 7);
     assert.equal(codex?.auth.kind, "oauth");

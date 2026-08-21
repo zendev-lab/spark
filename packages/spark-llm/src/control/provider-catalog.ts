@@ -6,11 +6,13 @@ import { minimatch } from "minimatch";
 import { SparkProviderRegistry, type ProviderRegistrationAPI } from "../provider-registry.ts";
 import registerBaiduOneApiProvider from "../baidu-oneapi-provider.ts";
 import registerOpenAiCodexProvider from "../openai-codex-provider.ts";
+import registerKimiCodingProvider from "../kimi-coding-provider.ts";
 import { withPathMutation } from "./path-mutation.ts";
 
 export const DEFAULT_SPARK_PROVIDER_SPECS = [
   "@zendev-lab/spark-llm/baidu-oneapi-provider",
   "@zendev-lab/spark-llm/openai-codex-provider",
+  "@zendev-lab/spark-llm/kimi-coding-provider",
 ] as const;
 
 /** Initial enabled-model policy for daemon-selectable models. */
@@ -20,6 +22,7 @@ export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
   "baidu-oneapi/deepseek-v4-flash",
   "baidu-oneapi/gpt-5.6-*",
   "baidu-oneapi/grok-4.6",
+  "kimi-coding/*",
 ] as const;
 
 const LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS = [
@@ -38,6 +41,13 @@ const LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS = [
     "baidu-oneapi/deepseek-v4-flash",
     "baidu-oneapi/gpt-5.6-*",
     "baidu-oneapi/grok-4.5",
+  ],
+  [
+    "openai-codex/gpt-5.6-*",
+    "baidu-oneapi/claude-opus-5",
+    "baidu-oneapi/deepseek-v4-flash",
+    "baidu-oneapi/gpt-5.6-*",
+    "baidu-oneapi/grok-4.6",
   ],
 ] as const;
 
@@ -295,6 +305,9 @@ export function createSparkProviderImporter(
     }
     if (specifier === "@zendev-lab/spark-llm/openai-codex-provider") {
       return Promise.resolve({ default: registerOpenAiCodexProvider });
+    }
+    if (specifier === "@zendev-lab/spark-llm/kimi-coding-provider") {
+      return Promise.resolve({ default: registerKimiCodingProvider });
     }
     return fallbackImporter(specifier);
   };

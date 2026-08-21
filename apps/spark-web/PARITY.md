@@ -12,7 +12,7 @@ documented until a later surface pass; they are not treated as done.
 | Ask / approval parts | render | yes | yes |
 | Model / thinking / mode | model+thinking; mode is read-only (claimed command) | yes | yes |
 | Slash catalog | prefix menu | full | full |
-| Provider API keys | settings page | TUI + daemon | dsh Models page |
+| Provider API keys / OAuth | settings + `/settings/oauth/:provider` | TUI + daemon | dsh Models page |
 | Workflows panel | no | yes | yes |
 | Reviews / graft panels | no | yes | mixed |
 | `/compact` | no | yes | yes |

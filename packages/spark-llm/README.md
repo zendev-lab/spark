@@ -1,7 +1,7 @@
 # @zendev-lab/spark-llm
 
 Spark's LLM **provider** owner: bundled transports (pi-ai, Baidu OneAPI, OpenAI
-Codex), model routing, auth/catalog, and the `models` tool.
+Codex, Kimi For Coding), model routing, auth/catalog, and the `models` tool.
 
 This package is not the LLM abstraction owner. That role belongs to
 `@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm` implements
@@ -23,8 +23,8 @@ reading configured env keys, and it never imports Spark app hosts.
   terminal `finish`).
 - `adaptersFromProviderRegistry` builds one adapter per loaded provider for
   `createSparkLlmComposition({ adapters })`.
-- Bundled Baidu OneAPI and OpenAI Codex transports stay in this package and
-  are selected through `GenerateOptions.provider`.
+- Bundled Baidu OneAPI, OpenAI Codex, and Kimi For Coding transports stay in this
+  package and are selected through `GenerateOptions.provider`.
 
 ## Model routing contracts
 
@@ -125,6 +125,14 @@ spark-llm does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-on
 `@zendev-lab/spark-llm/openai-codex-provider` is the thin Spark adapter over
 pi-ai's maintained OpenAI Codex catalog and transport. The daemon and local
 web load it as a bundled provider, while Spark's shared provider control owns
-model selection and its own OAuth credential store. Configure it from Hub
-or the native login flow; Spark does not read Pi or Codex CLI auth files at
-runtime.
+model selection and its own OAuth credential store. Configure it from Hub or
+`spark web` Settings (OAuth login); Spark does not read Pi or Codex CLI auth
+files at runtime.
+
+## Kimi For Coding provider
+
+`@zendev-lab/spark-llm/kimi-coding-provider` is the thin Spark adapter over
+pi-ai's maintained Kimi For Coding catalog. It uses the Anthropic-compatible
+`https://api.kimi.com/coding` endpoint. Authentication is an API key stored
+through Spark's credential store or `KIMI_API_KEY`. Default `enabledModels`
+includes `kimi-coding/*`.
