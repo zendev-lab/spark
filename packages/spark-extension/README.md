@@ -5,8 +5,10 @@ structurally compatible extension hosts.
 
 The composition-coupled headless role executor and host bootstrap live here
 (`./headless-role-executor`, `./host`) because they statically import this
-package's LLM island and extension factories. `spark-host` remains the
-host-neutral runtime and must not import composition.
+package's extension factories. The daemon injects the single shared DSH Cordis
+root; this package only registers Invocation-scoped provider routes and does not
+create a second LLM runtime. `spark-host` remains the host-neutral runtime and
+must not import composition.
 
 The package registers commands, tools, Roles, renderers, and host adapters. It
 does not own persistent Session, Invocation, Task, Evidence, or Repro state.

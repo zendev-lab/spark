@@ -21,6 +21,7 @@ import {
   type ToolConfig,
   type ToolEffect,
 } from "@zendev-lab/spark-core";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
 
 import type {
   SparkCliHostDiagnostic,
@@ -110,6 +111,7 @@ export interface SparkHeadlessSessionRunResult {
 export interface SparkHeadlessRoleExecutorOptions {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
   createServices: SparkCliHostServicesFactory;
   tokenUsage?: SparkHeadlessTokenUsageContext;
 }
@@ -142,6 +144,7 @@ export async function runSparkHeadlessSessionCompaction(
     workspaceId: input.workspaceId,
     sparkStateRoot: input.sparkStateRoot,
     sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.dshContext ? { dshContext: options.dshContext } : {}),
     ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     ...controlPlaneServicePaths(options.controlSparkHome),
     sessionSurface: "local",
@@ -239,6 +242,7 @@ export async function runSparkHeadlessSession(
     workspaceId: input.workspaceId,
     sparkStateRoot: input.sparkStateRoot,
     sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.dshContext ? { dshContext: options.dshContext } : {}),
     ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     ...controlPlaneServicePaths(options.controlSparkHome),
     // Workspace business state stays under sparkStateRoot even when cwd points
@@ -419,6 +423,7 @@ export async function runSparkHeadlessRoleInstruction(
     services = await createServices({
       cwd: input.cwd,
       sparkHome: options.sparkHome,
+      ...(options.dshContext ? { dshContext: options.dshContext } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
       ...controlPlaneServicePaths(options.controlSparkHome),
       hasUI: false,

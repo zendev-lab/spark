@@ -279,7 +279,12 @@ export async function createSparkCliHostServices(
     skillsCatalogPrompt,
     selectedSkillsPrompt,
   );
+  if (!options.dshContext) {
+    throw new Error("Spark host services require the daemon shared DSH context");
+  }
   const llmComposition = await createSparkLlmComposition({
+    ctx: options.dshContext,
+    routeNamespace: options.invocationId ?? globalThis.crypto.randomUUID(),
     adapters: adaptersFromProviderRegistry(providerRegistry, { resolveApiKey }),
   });
   runtime.on("session_shutdown", () => {
@@ -288,6 +293,7 @@ export async function createSparkCliHostServices(
   const agentLoop = new SparkAgentLoop({
     host: runtime,
     llm: llmComposition.llm,
+    dshContext: options.dshContext,
     getModel: () => {
       const model = providerRegistry.buildActiveModel();
       if (!model) throw new Error("No active Spark model selected");

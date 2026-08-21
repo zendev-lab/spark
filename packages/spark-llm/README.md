@@ -5,10 +5,9 @@ Codex), model routing, auth/catalog, and the `models` tool.
 
 This package is not the LLM abstraction owner. That role belongs to
 `@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm` implements
-those adapters and registers them on the process-local Cordis LLM island owned
-by `spark-extension`. `spark-turn` consumes `LlmRuntime` through
-`dsh-agent-loop`; it also mounts its own short-lived Cordis root for the
-driver. See
+those adapters. `spark-extension` registers Invocation-scoped provider routes
+on the single daemon Cordis root, and `spark-turn` consumes the injected
+`LlmRuntime` through `dsh-agent-loop`. See
 [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../../.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md).
 `SparkProviderRegistry` remains the catalog/auth loader used to
 construct adapters; it is not the turn-loop injection point.

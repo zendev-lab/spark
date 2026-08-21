@@ -18,6 +18,7 @@ import type { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import type { SparkSkillResolver } from "@zendev-lab/spark-host/skill-resolver";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
 import type { SparkAuthStore, SparkProviderAuthResolver } from "./auth.ts";
 export interface SparkCliHostDiagnostic {
   type: "warning" | "error";
@@ -70,6 +71,8 @@ export interface SparkCliHostServicesOptions {
   /** Control-plane Spark root retained across nested daemon-native role runs. */
   controlSparkHome?: string;
   sparkStateRoot?: string;
+  /** Daemon-owned shared DSH composition root; hosts never construct their own root. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   sessionLease?: SparkSessionLeaseIdentity;

@@ -17,6 +17,7 @@ import { SessionStore } from "@deepseek-ai/dsh-session";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
+import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "@zendev-lab/spark-turn";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
 import { SparkDaemonInvocationRegistry } from "./core/index.ts";
@@ -65,6 +66,12 @@ export interface SparkDaemonCordisRootOptions {
   ctx?: Context;
 }
 
+export interface SparkDaemonHeadlessCordisRootOptions {
+  dshHome: string;
+  /** Test-only reuse seam. Production workers open their own process root. */
+  ctx?: Context;
+}
+
 const STORE_NAMES = [
   "sparkInvocations",
   "sparkLoops",
@@ -108,19 +115,56 @@ export async function createSparkDaemonCordisRoot(
   const dispose = createSparkDaemonCordisDispose(ctx);
   try {
     await mountSparkDaemonStorePlugin(ctx, stores);
-    await ctx.plugin(SessionStore);
-    await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
-    await ctx.plugin(LocalAttachmentStore, { dshHome: dirname(options.sessionsRoot) });
-    await ctx.plugin(LlmRuntime);
-    await ctx.plugin(SystemPrompt);
-    await ctx.plugin(ToolRuntime);
-    await ctx.plugin(AgentRegistry);
-    await ctx.plugin(AgentLoop, { agents: [] });
+    await mountSparkDshRuntime(ctx, {
+      dshHome: dirname(options.sessionsRoot),
+      sessionsRoot: options.sessionsRoot,
+    });
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;
   }
   return { ctx, dispose };
+}
+
+/**
+ * Process root for the isolated daemon-native compatibility worker.
+ *
+ * A worker cannot borrow the daemon Context across the worker-thread boundary,
+ * so the daemon composition owner mounts the same execution services without a
+ * second durable Session writer. The worker is one request and always disposes
+ * this root before it exits.
+ */
+export async function createSparkDaemonHeadlessCordisRoot(
+  options: SparkDaemonHeadlessCordisRootOptions,
+): Promise<SparkDaemonCordisRoot> {
+  const ctx = options.ctx ?? openSparkDaemonCordisContext();
+  const dispose = createSparkDaemonCordisDispose(ctx);
+  try {
+    await mountSparkDshRuntime(ctx, { dshHome: options.dshHome });
+  } catch (error) {
+    await dispose().catch(() => undefined);
+    throw error;
+  }
+  return { ctx, dispose };
+}
+
+async function mountSparkDshRuntime(
+  ctx: Context,
+  options: { dshHome: string; sessionsRoot?: string },
+): Promise<void> {
+  await ctx.plugin(SessionStore);
+  if (options.sessionsRoot) {
+    await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
+  }
+  await ctx.plugin(LocalAttachmentStore, { dshHome: options.dshHome });
+  await ctx.plugin(LlmRuntime);
+  await ctx.plugin(SystemPrompt);
+  await ctx.plugin(ToolRuntime);
+  await ctx.plugin(AgentRegistry);
+  await ctx.plugin(AgentLoop, {
+    agents: [],
+    maxParallelToolCalls: DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS,
+  });
 }
 
 export function sparkDaemonStoresFromContext(ctx: Context): SparkDaemonStoreServices {

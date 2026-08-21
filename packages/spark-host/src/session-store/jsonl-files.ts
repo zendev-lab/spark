@@ -114,14 +114,16 @@ export class SparkJsonlSessionFiles {
       ? (this.paths.get(meta.id) ?? (await this.findPath(meta.id)) ?? this.canonicalPath(meta))
       : this.canonicalPath(meta);
     if (!isMaterialized) {
-      await writeJsonLinesAtomically(path, [meta, ...events]);
+      await writeJsonLinesAtomically(path, [meta, ...events.map(persistedSparkEvent)]);
       this.paths.set(meta.id, path);
       return;
     }
     if (events.length === 0) return;
     const handle = await open(path, "a");
     try {
-      await handle.write(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+      await handle.write(
+        `${events.map((event) => JSON.stringify(persistedSparkEvent(event))).join("\n")}\n`,
+      );
       await handle.sync();
     } finally {
       await handle.close();
@@ -212,6 +214,10 @@ export class SparkJsonlSessionFiles {
     const stats = await stat(path);
     return `${path}:${stats.size}:${stats.mtimeMs}`;
   }
+}
+
+function persistedSparkEvent(event: SparkDshSessionEvent): SparkDshSessionEvent {
+  return event.type.startsWith("spark/") ? { ...event, ignorable: true } : event;
 }
 
 export async function readDshOrPiSessionHeader(

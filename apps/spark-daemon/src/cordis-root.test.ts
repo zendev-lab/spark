@@ -4,13 +4,18 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
+  CURRENT_SPARK_SESSION_VERSION,
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SparkSessionStore,
 } from "@zendev-lab/spark-host/session-store";
+import type { Model } from "@zendev-lab/spark-llm";
+import { SparkAgentLoop, type SparkTurnLlm } from "@zendev-lab/spark-turn";
 
 import {
   createSparkDaemonCordisDispose,
+  createSparkDaemonHeadlessCordisRoot,
   createSparkDaemonCordisRoot,
   mountSparkDaemonStorePlugin,
   openSparkDaemonCordisContext,
@@ -81,6 +86,22 @@ describe("spark daemon Cordis root", () => {
     expect(() => sparkDaemonStoresFromContext(root.ctx)).toThrow(
       /missing service sparkInvocations/,
     );
+  });
+
+  it("mounts an ephemeral DSH runtime for an isolated headless worker", async () => {
+    const root = await createSparkDaemonHeadlessCordisRoot({ dshHome: await sessionsRoot() });
+    expect(root.ctx.sessions).toBeDefined();
+    expect(root.ctx.attachments).toBeDefined();
+    expect(root.ctx.llm).toBeDefined();
+    expect(root.ctx.systemPrompt).toBeDefined();
+    expect(root.ctx.tools).toBeDefined();
+    expect(root.ctx.agents).toBeDefined();
+    expect(root.ctx.agentLoop).toBeDefined();
+    expect(root.ctx.get("sessionPersistence")).toBeUndefined();
+    expect(root.ctx.get("sparkInvocations")).toBeUndefined();
+
+    await root.dispose();
+    expect(root.ctx.get("agentLoop")).toBeUndefined();
   });
 
   it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
@@ -156,7 +177,72 @@ describe("spark daemon Cordis root", () => {
       expect(loaded.meta.id).toBe("sess_persist");
       expect(loaded.meta.cwd).toBe(store.cwd);
       expect(loaded.events.some((event) => event.type === "user/message")).toBe(true);
-      expect(loaded.events.some((event) => event.type === "spark/message-meta")).toBe(true);
+      expect(loaded.events.some((event) => String(event.type) === "spark/message-meta")).toBe(true);
+    } finally {
+      await root.dispose();
+    }
+  });
+
+  it("resumes invocation-owned Agents on the shared root and projects native events", async () => {
+    const home = await sessionsRoot();
+    const cwd = join(home, "workspace");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(home, "spark-home") });
+    const seed = store.createCanonicalSession({
+      id: "sess_shared_agent",
+      timestamp: "2026-08-20T00:00:00.000Z",
+    });
+    const root = await createSparkDaemonCordisRoot(fakeStores(), {
+      sessionsRoot: store.sessionsRoot,
+    });
+    let calls = 0;
+    const llm: SparkTurnLlm = {
+      async *stream() {
+        calls += 1;
+        const text = `native reply ${calls}`;
+        yield { type: "block-start", index: 0, blockType: "text" };
+        yield { type: "text-delta", index: 0, text };
+        yield { type: "block-end", index: 0, block: { type: "text", text } };
+        yield { type: "usage", usage: { inputTokens: 2, outputTokens: 3 } };
+        yield { type: "finish", reason: { kind: "stop" } };
+      },
+    };
+    const model: Model<string> = {
+      id: "shared-agent-model",
+      name: "Shared Agent Model",
+      api: "openai-completions",
+      provider: "shared-agent",
+      baseUrl: "https://example.invalid",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 8_000,
+      maxTokens: 1_000,
+    };
+    const host = new SparkHostRuntime({ cwd });
+    const loop = new SparkAgentLoop({
+      host,
+      llm,
+      dshContext: root.ctx,
+      getModel: () => model,
+      streamIdleTimeoutMs: 0,
+    });
+    loop.setViewSessionId(seed.header.id);
+    loop.setDshSessionMetadata({
+      timestamp: seed.header.timestamp,
+      sparkVersion: seed.header.version ?? CURRENT_SPARK_SESSION_VERSION,
+    });
+
+    try {
+      await loop.submit("first prompt");
+      expect(root.ctx.agents.list()).toEqual([]);
+      const first = await store.load(seed.path);
+      expect(first.entries.filter((entry) => entry.type === "message")).toHaveLength(2);
+
+      await loop.submit("second prompt");
+      expect(root.ctx.agents.list()).toEqual([]);
+      const second = await store.load(seed.path);
+      expect(second.entries.filter((entry) => entry.type === "message")).toHaveLength(4);
+      expect(JSON.stringify(second.entries)).toContain("native reply 2");
     } finally {
       await root.dispose();
     }

@@ -1,5 +1,6 @@
 import type { SparkCliHostServicesFactory } from "./host/contracts.ts";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionCompactResult,
@@ -35,6 +36,7 @@ export { assistantTextFromHeadlessResult, SparkHeadlessTimeoutError };
 export interface SparkHeadlessRoleExecutorOptions {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
   createServices?: SparkCliHostServicesFactory;
   tokenUsage?: SparkHeadlessTokenUsageContext;
 }

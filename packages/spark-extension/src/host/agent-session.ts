@@ -42,16 +42,16 @@ import {
   type SparkCompactionPreparation,
 } from "./compaction.ts";
 import { getSparkSessionBranch } from "./session-navigation.ts";
-import type {
-  SparkBranchSummaryEntry,
-  SparkCompactionEntry,
-  SparkCustomMessageEntry,
-  SparkSessionEntry,
-  SparkSessionMessage,
-  SparkSessionMessageEntry,
-  SparkSessionRecord,
+import {
+  CURRENT_SPARK_SESSION_VERSION,
+  type SparkBranchSummaryEntry,
+  type SparkCompactionEntry,
+  type SparkCustomMessageEntry,
+  type SparkSessionEntry,
+  type SparkSessionMessage,
+  type SparkSessionMessageEntry,
+  type SparkSessionRecord,
 } from "@zendev-lab/spark-host/session-store";
-
 export interface SparkAgentSessionRunOptions {
   sessionId: string;
   lifetime?: "persistent";
@@ -211,6 +211,13 @@ export class SparkAgentSession {
     const record = await this.loadOrCreateRecord(options, Boolean(options.restartCheckpoint));
     this.services.runtime.setSessionId(record.header.id);
     this.services.agentLoop.setViewSessionId(record.header.id);
+    this.services.agentLoop.setDshSessionMetadata({
+      timestamp: record.header.timestamp,
+      sparkVersion: record.header.version ?? CURRENT_SPARK_SESSION_VERSION,
+      ...(record.header.visibility ? { visibility: record.header.visibility } : {}),
+      ...(record.header.purpose ? { purpose: record.header.purpose } : {}),
+      ...(record.header.parentSession ? { parentSessionPath: record.header.parentSession } : {}),
+    });
     const promptText = typeof options.prompt === "string" ? options.prompt : undefined;
     // Daemon Channel Sessions have no Workspace/repository Memory authority.
     const directIntentAuthority =

@@ -364,6 +364,7 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
     agentLoop: {
       onEvent: () => () => unsubscribed.push("agentLoop"),
       setViewSessionId: () => undefined,
+      setDshSessionMetadata: () => undefined,
       replacePromptItems: () => undefined,
       getPromptItems: () => [],
       submitWithOutcome: async () => await new Promise<never>(() => undefined),
@@ -1127,6 +1128,7 @@ function headlessRoleServices(
     agentLoop: {
       onEvent: () => () => undefined,
       setViewSessionId: () => undefined,
+      setDshSessionMetadata: () => undefined,
       replacePromptItems: () => undefined,
       getPromptItems: () => [],
       submitWithOutcome: async () => await submitWithOutcome(tools),
@@ -1351,6 +1353,7 @@ function headlessServices(submitWithOutcome: () => Promise<SparkRunOutcome>) {
     agentLoop: {
       onEvent: () => () => undefined,
       setViewSessionId: () => undefined,
+      setDshSessionMetadata: () => undefined,
       replacePromptItems: () => undefined,
       getPromptItems: () => [],
       submitWithOutcome,

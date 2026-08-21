@@ -12,7 +12,7 @@ import type {
   SparkSessionLeaseIdentity,
   ToolEffect,
 } from "@zendev-lab/spark-core";
-import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import type { SparkDshTurnRuntime, SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import type {
   SparkReproUsageScope,
   SparkUsageExecutionKind,
@@ -175,6 +175,8 @@ export type CreateSparkHeadlessSessionExecutorFn = (options?: {
   sparkHome?: string;
   /** Provider config and auth root, independent from daemon session storage. */
   controlSparkHome?: string;
+  /** Daemon-owned shared DSH composition root. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
 }) => SparkHeadlessSessionExecutor;
 
 export type SparkHeadlessSessionCompactor = (
@@ -184,11 +186,13 @@ export type SparkHeadlessSessionCompactor = (
 export type CreateSparkHeadlessSessionCompactorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
 }) => SparkHeadlessSessionCompactor;
 
 export type CreateSparkHeadlessRoleExecutorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
   tokenUsage?: SparkHeadlessTokenUsageContext;
 }) => ExtensionRoleRunner;
 

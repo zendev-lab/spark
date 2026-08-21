@@ -4,10 +4,11 @@
  * SparkAgentLoop remains the host-facing facade (prompt items, outbox, views).
  * This module is the low-level driver: Cordis plugins + AgentLoop.followup/whenIdle.
  */
-import { Context } from "@deepseek-ai/cordis";
-import AgentRegistry, { type AgentHandle } from "@deepseek-ai/dsh-agent";
-import AgentLoop from "@deepseek-ai/dsh-agent-loop";
-import LlmRuntime, {
+import { randomUUID } from "node:crypto";
+
+import type { Context } from "@deepseek-ai/cordis";
+import { type AgentHandle } from "@deepseek-ai/dsh-agent";
+import {
   CallId,
   LlmAdapter,
   LlmError,
@@ -15,10 +16,9 @@ import LlmRuntime, {
   type GenerateOptions,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
-import SessionStore, { SessionId } from "@deepseek-ai/dsh-session";
-import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
+import { SessionId } from "@deepseek-ai/dsh-session";
 import { idleWatchdog } from "@deepseek-ai/dsh-timeout";
-import ToolRuntime, { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
+import { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
 import type {
   AssistantMessage,
   AssistantMessageEvent,
@@ -81,15 +81,25 @@ export interface SparkTurnDriverHooks {
 }
 
 export interface RunSparkDshTurnInput {
+  /** Shared daemon Cordis root. The Agent handle owns the invocation-local scope. */
+  ctx: Context;
   llm: SparkTurnLlm;
   sessionId: string;
+  sessionMetadata?: SparkDshSessionMetadata;
   cwd?: string;
   followupText: string;
   tools: readonly SparkTurnDriverTool[];
-  maxParallelToolCalls: number;
   streamIdleTimeoutMs: number;
   signal: AbortSignal;
   hooks: SparkTurnDriverHooks;
+}
+
+export interface SparkDshSessionMetadata {
+  timestamp: string;
+  sparkVersion: number;
+  visibility?: "internal";
+  purpose?: "side_thread" | "loop_tick";
+  parentSessionPath?: string;
 }
 
 interface SparkTurnConcurrencyGate {
@@ -102,59 +112,72 @@ interface SparkTurnDriverCapture {
 }
 
 export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void> {
-  const ctx = new Context();
+  const ctx = input.ctx;
   let handle: AgentHandle | undefined;
   const captured: SparkTurnDriverCapture = {};
   const cancelAgent = (): void => {
     handle?.agent.cancel({ kind: "user" });
   };
   try {
-    await ctx.plugin(SessionStore);
-    await ctx.plugin(LlmRuntime);
-    await ctx.plugin(SystemPrompt);
-    await ctx.plugin(ToolRuntime);
-    await ctx.plugin(AgentRegistry);
-    await ctx.plugin(AgentLoop, {
-      agents: [],
-      maxParallelToolCalls: input.maxParallelToolCalls,
-    });
-    installSparkHangTimeoutPlugin(ctx, input.streamIdleTimeoutMs);
-    installSparkConsentPlugin(ctx, input.hooks);
-    installSparkHostGuardPlugin(ctx, (signal) => {
-      if (signal.aborted) {
-        throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
-      }
-    });
-    ctx.on("agent/error", (payload) => {
-      captured.driverError ??= payload.error;
-    });
     const registeredNames = new Set(input.tools.map((tool) => tool.name));
     const parallelSafeNames = new Set(
       input.tools.filter((tool) => tool.parallelSafe).map((tool) => tool.name),
     );
     const concurrency: SparkTurnConcurrencyGate = { sequential: false };
-    ctx.llm.registerAdapter(
-      [SPARK_TURN_PROVIDER],
-      new SparkTurnLlmAdapter(
-        input.llm,
-        input.hooks,
-        input.signal,
-        ctx,
-        registeredNames,
-        parallelSafeNames,
-        concurrency,
-        captured,
-      ),
-    );
-    for (const tool of input.tools) {
-      ctx.tools.register(sparkHostToolDefinition(tool, input.hooks, concurrency));
-    }
-    handle = await ctx.agents.create({
-      sessionId: SessionId(input.sessionId),
-      agentOptions: { provider: SPARK_TURN_PROVIDER, model: SPARK_TURN_PROVIDER },
-      ...(isAbsolutePath(input.cwd) ? { meta: { cwd: input.cwd } } : {}),
-      signal: input.signal,
-    });
+    const driverProvider = `${SPARK_TURN_PROVIDER}/${randomUUID()}`;
+    const setup = (agentCtx: Context): void => {
+      if (!persisted && input.sessionMetadata) {
+        const agent = agentCtx.agent;
+        if (!agent) throw new Error("DSH Agent setup is missing its scoped Agent");
+        appendSparkSessionMetadata(agent.session, input.sessionMetadata);
+      }
+      installSparkHangTimeoutPlugin(agentCtx, input.streamIdleTimeoutMs);
+      installSparkConsentPlugin(agentCtx, input.hooks);
+      installSparkHostGuardPlugin(agentCtx, (signal) => {
+        if (signal.aborted) {
+          throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+        }
+      });
+      agentCtx.on("agent/error", (payload) => {
+        captured.driverError ??= payload.error;
+      });
+      agentCtx.llm.registerAdapter(
+        [driverProvider],
+        new SparkTurnLlmAdapter(
+          input.llm,
+          input.hooks,
+          input.signal,
+          agentCtx,
+          registeredNames,
+          parallelSafeNames,
+          concurrency,
+          captured,
+        ),
+      );
+      for (const tool of input.tools) {
+        agentCtx.tools.register(sparkHostToolDefinition(tool, input.hooks, concurrency));
+      }
+    };
+    const sessionId = SessionId(input.sessionId);
+    const persistence = ctx.get("sessionPersistence");
+    const persisted =
+      persistence?.supportsRawArtifacts === true
+        ? await persistence.readRaw(sessionId, input.signal)
+        : undefined;
+    handle = persisted
+      ? await ctx.agents.resume({
+          resumeSessionId: sessionId,
+          agentOptions: { provider: driverProvider, model: driverProvider },
+          signal: input.signal,
+          setup,
+        })
+      : await ctx.agents.create({
+          sessionId,
+          agentOptions: { provider: driverProvider, model: driverProvider },
+          ...(isAbsolutePath(input.cwd) ? { meta: { cwd: input.cwd } } : {}),
+          signal: input.signal,
+          setup,
+        });
     if (input.signal.aborted) {
       cancelAgent();
     } else {
@@ -167,6 +190,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       }),
     );
     await handle.agent.whenIdle();
+    await handle.agent.ctx.sessions.flush(handle.agent.session);
     if (input.signal.aborted) {
       throw input.signal.reason instanceof Error
         ? input.signal.reason
@@ -177,8 +201,17 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
   } finally {
     input.signal.removeEventListener("abort", cancelAgent);
     await handle?.dispose().catch(() => undefined);
-    await ctx.fiber.dispose();
   }
+}
+
+function appendSparkSessionMetadata(
+  session: AgentHandle["agent"]["session"],
+  metadata: SparkDshSessionMetadata,
+): void {
+  (session as unknown as { append(type: string, data: unknown): unknown }).append(
+    "spark/meta",
+    metadata,
+  );
 }
 
 export function installSparkConsentPlugin(ctx: Context, hooks: SparkTurnDriverHooks): void {
@@ -286,7 +319,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
         await hooks.onAssistant?.(event.message);
         const toolCalls = hooks.collectToolCalls?.(event.message) ?? [];
         if (toolCalls.length === 0) {
-          yield* piEventToLlmChunks(event);
+          yield* dshChunksFromAssistant(event.message);
           return;
         }
         hooks.onTooling?.();
@@ -399,7 +432,13 @@ function* dshChunksFromAssistant(message: AssistantMessage): Iterable<StreamChun
     }
     index += 1;
   }
-  yield { type: "finish", reason: { kind: "tool-calls" } };
+  const hasToolCalls = message.content.some((part) => part.type === "toolCall");
+  const kind = hasToolCalls
+    ? "tool-calls"
+    : message.stopReason === "length"
+      ? "max-tokens"
+      : "stop";
+  yield { type: "finish", reason: { kind } };
 }
 
 function readPromptCacheKey(context: PiContext): string | undefined {
