@@ -1,0 +1,132 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "vitest";
+
+import { Context } from "@deepseek-ai/cordis";
+import LlmRuntime from "@deepseek-ai/dsh-llm";
+
+import plugin, {
+  BAIDU_ONEAPI_PROVIDER,
+  sparkAuthApiKey,
+  sparkAuthApiKeyFromFiles,
+} from "./dsh-plugin.ts";
+
+async function mount(config: Parameters<typeof plugin.apply>[1]) {
+  const ctx = new Context();
+  await ctx.plugin(LlmRuntime);
+  await ctx.plugin(plugin, config);
+  return ctx;
+}
+
+test("dsh-plugin default export carries the Cordis plugin identity", () => {
+  assert.equal(plugin.name, "spark-llm");
+  assert.deepEqual(plugin.inject, ["llm"]);
+  assert.equal(typeof plugin.apply, "function");
+});
+
+test("dsh-plugin registers the configured routes with representative catalog metadata", async () => {
+  const ctx = await mount({ providers: {} });
+  const providers = ctx.llm.listProviders();
+  assert.deepEqual(
+    new Set(providers.map((entry) => entry.id)),
+    new Set([BAIDU_ONEAPI_PROVIDER, "kimi-coding", "openai-codex"]),
+  );
+  assert.equal(providers[0]?.name, "Baidu OneAPI");
+
+  const models = await ctx.llm.listModels(BAIDU_ONEAPI_PROVIDER);
+  const modelIds = models.map((model) => model.id);
+  assert.equal(modelIds.includes("deepseek-v4-flash"), true);
+  assert.equal(modelIds.includes("grok-4.6"), true);
+  assert.equal(new Set(modelIds).size, modelIds.length);
+
+  const deepseek = await ctx.llm.resolveModelInfo(BAIDU_ONEAPI_PROVIDER, "deepseek-v4-flash");
+  assert.equal(deepseek.context?.contextWindow, 768_000);
+  assert.equal(deepseek.defaultMaxTokens, 32_768);
+  assert.ok(deepseek.reasoning, "deepseek-v4-flash advertises reasoning");
+
+  const grok = await ctx.llm.resolveModelInfo(BAIDU_ONEAPI_PROVIDER, "grok-4.6");
+  assert.equal(grok.context?.contextWindow, 500_000);
+});
+
+test("dsh-plugin exposes non-empty Kimi and Codex catalogs", async () => {
+  const ctx = await mount({ providers: {} });
+  assert.equal((await ctx.llm.listModels("kimi-coding")).length > 0, true);
+  assert.equal((await ctx.llm.listModels("openai-codex")).length > 0, true);
+});
+
+test("dsh-plugin honors the configured display name in the settings directory", async () => {
+  const ctx = await mount({
+    providers: { [BAIDU_ONEAPI_PROVIDER]: { displayName: "My Gateway" } },
+  });
+  // The provider route itself keeps the product name from the registry; the
+  // configured display name is the settings-directory label.
+  assert.equal(ctx.llm.listProviders()[0]?.name, "Baidu OneAPI");
+
+  const directory = ctx.llm.listConfigurableProviders();
+  const entry = directory.find((item) => item.provider === BAIDU_ONEAPI_PROVIDER);
+  assert.ok(entry, "directory declares the baidu-oneapi route");
+  assert.equal(entry.displayName, "My Gateway");
+  assert.equal(entry.settingsNs, "spark-llm");
+  assert.deepEqual(entry.settingsPath, ["providers", BAIDU_ONEAPI_PROVIDER]);
+  assert.equal(entry.declared, false, "the route ships with the plugin, not from configuration");
+});
+
+const SPARK_AUTH = {
+  version: 1,
+  credentials: {
+    "baidu-oneapi": {
+      type: "api_key",
+      provider: "baidu-oneapi",
+      apiKey: "sk-spark-key",
+      updatedAt: "2026-01-01",
+    },
+    cursor: { type: "api_key", apiKey: "crsr-other" },
+  },
+};
+
+test("sparkAuthApiKey reads an api_key by provider id, then by reference name", () => {
+  assert.equal(
+    sparkAuthApiKey(SPARK_AUTH, ["baidu-oneapi", "BAIDU_ONEAPI_API_KEY"]),
+    "sk-spark-key",
+  );
+  const byRef = {
+    version: 1,
+    credentials: { BAIDU_ONEAPI_API_KEY: { type: "api_key", apiKey: "sk-ref" } },
+  };
+  assert.equal(sparkAuthApiKey(byRef, ["baidu-oneapi", "BAIDU_ONEAPI_API_KEY"]), "sk-ref");
+});
+
+test("sparkAuthApiKey rejects wrong version, non-api-key types, and missing keys", () => {
+  assert.equal(
+    sparkAuthApiKey({ version: 2, credentials: SPARK_AUTH.credentials }, ["baidu-oneapi"]),
+    undefined,
+  );
+  assert.equal(
+    sparkAuthApiKey({ version: 1, credentials: { "baidu-oneapi": { type: "oauth" } } }, [
+      "baidu-oneapi",
+    ]),
+    undefined,
+  );
+  assert.equal(sparkAuthApiKey({ version: 1, credentials: {} }, ["baidu-oneapi"]), undefined);
+  assert.equal(sparkAuthApiKey("not an object", ["baidu-oneapi"]), undefined);
+});
+
+test("sparkAuthApiKeyFromFiles tolerates missing and malformed files, first hit wins", () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-auth-test-"));
+  try {
+    const missing = join(dir, "missing.json");
+    const malformed = join(dir, "malformed.json");
+    const good = join(dir, "auth.json");
+    writeFileSync(malformed, "{not json");
+    writeFileSync(good, JSON.stringify(SPARK_AUTH));
+    assert.equal(
+      sparkAuthApiKeyFromFiles([missing, malformed, good], ["baidu-oneapi"]),
+      "sk-spark-key",
+    );
+    assert.equal(sparkAuthApiKeyFromFiles([missing, malformed], ["baidu-oneapi"]), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

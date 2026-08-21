@@ -6,6 +6,10 @@ DeepSeek Harness web profile with Cue, LLM, Role-bound subagent providers, and
 provider-onboarding plugins.
 Search/fetch tools live in `@zendev-lab/spark-tool-web`.
 
+The LLM plugin exposes Spark's configured `baidu-oneapi`, `kimi-coding`, and
+`openai-codex` routes. API-key providers can be configured from DSH onboarding;
+OpenAI Codex reuses credentials created by Spark's OAuth login flow.
+
 ```sh
 spark web-dsh
 spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080

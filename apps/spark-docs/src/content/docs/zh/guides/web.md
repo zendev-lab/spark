@@ -32,6 +32,10 @@ onboarding，并在 DSH 将完整 transcript 载入内存前拒绝过大的冷�
 可以安全读取的历史，它会预估并缩小初始页、限制响应字节数、压缩重复的 token
 chunk；即使单条最终消息仍很大，也会返回带截断标记的预览，而不是等待请求超时。
 
+DSH LLM 插件会暴露已配置的 `baidu-oneapi`、`kimi-coding` 和
+`openai-codex` 路由。API Key provider 可以在 DSH onboarding 中配置；OpenAI
+Codex 会复用由 Spark OAuth 登录流程创建的凭据。
+
 ## 从结果开始
 
 创建或打开会话，然后用自然语言描述预期结果。不必先选择工具、Loop 或
