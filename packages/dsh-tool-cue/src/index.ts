@@ -8,6 +8,15 @@ import {
 } from "@deepseek-ai/dsh-tools";
 import z from "@deepseek-ai/schemastery";
 import {
+  ESCALATION_TARGETS,
+  approveEscalation,
+  escalationHintMarker,
+  sandboxDenialMarker,
+  validateEscalationArgs,
+  type SandboxMode,
+  type SandboxPolicy,
+} from "@deepseek-ai/dsh-sandbox";
+import {
   CUE_TOOL_NAMES,
   createCueToolRuntime,
   type CueToolRuntime,
@@ -15,13 +24,22 @@ import {
   type CueToolName,
   type CueToolResultMap,
 } from "@zendev-lab/spark-cue/operations";
+import { resolveCueTransport } from "@zendev-lab/spark-cue";
+import type { CueResolvedTransport } from "@zendev-lab/spark-cue";
+import {
+  startSpawnAdapterBroker,
+  type SandboxSpawnFact,
+  type SpawnAdapterBroker,
+} from "./spawn-adapter-broker.ts";
 import type {} from "@deepseek-ai/dsh-agent";
+import type {} from "@deepseek-ai/dsh-sandbox";
 import type {} from "@deepseek-ai/dsh-sandbox-policy";
 import type {} from "@deepseek-ai/dsh-shell-env";
 import type {} from "@deepseek-ai/dsh-system-prompt";
+import type {} from "@deepseek-ai/dsh-user-approval";
 
 export const name = "dsh-tool-cue";
-export const inject = ["tools", "systemPrompt", "sandboxPolicy", "shellEnv"];
+export const inject = ["tools", "systemPrompt", "sandboxPolicy", "sandbox", "approval", "shellEnv"];
 
 export interface Config {
   autoStartLocal?: boolean;
@@ -62,8 +80,21 @@ function baseProperties<const Name extends CueToolName>(tool: Name) {
     tool: { type: "string", const: tool, required: true },
     text: { type: "string", required: true },
     ok: { type: "boolean", required: true },
+    sandbox: { type: "json" },
   } as const;
 }
+
+const escalationProperties = {
+  sandbox_permissions: {
+    type: "string",
+    enum: [...ESCALATION_TARGETS],
+    description: "Request a one-call wider DSH sandbox mode; requires justification.",
+  },
+  justification: {
+    type: "string",
+    description: "One sentence explaining why this call needs wider sandbox access.",
+  },
+} as const;
 
 const execOutput = {
   type: "object",
@@ -71,8 +102,8 @@ const execOutput = {
   properties: {
     ...baseProperties("cue_exec"),
     kind: { type: "string", enum: ["foreground", "background"], required: true },
-    jobId: { type: "string" },
-    chainId: { type: "string" },
+    executionId: { type: "string" },
+    stepIds: { type: "array", items: { type: "string" }, required: true },
     status: { type: "string" },
     exitCode: { oneOf: [{ type: "integer" }, { type: "null" }] },
     timedOut: { type: "boolean", required: true },
@@ -90,7 +121,8 @@ function scriptOutput<const Name extends "cue_run" | "cue_script">(tool: Name) {
     additionalProperties: false,
     properties: {
       ...baseProperties(tool),
-      scriptId: { type: "string" },
+      executionId: { type: "string" },
+      stepIds: { type: "array", items: { type: "string" }, required: true },
       source: { type: "json" },
       status: { type: "string", required: true },
       exitCode: { oneOf: [{ type: "integer" }, { type: "null" }] },
@@ -111,8 +143,8 @@ function languageOutput<const Name extends "script_run" | "script_eval">(tool: N
       ...baseProperties(tool),
       language: { type: "string", enum: ["cue-shell", "python"], required: true },
       kind: { type: "string", enum: ["cue-shell-script", "python-job"], required: true },
-      scriptId: { type: "string" },
-      jobId: { type: "string" },
+      executionId: { type: "string" },
+      stepIds: { type: "array", items: { type: "string" }, required: true },
       status: { type: "string", required: true },
       exitCode: { oneOf: [{ type: "integer" }, { type: "null" }] },
       timedOut: { type: "boolean", required: true },
@@ -142,9 +174,9 @@ function actionBranch<
       count: { type: "integer" },
       shown: { type: "integer" },
       records: { type: "array", items: { type: "json" }, required: true },
-      jobId: { type: "string" },
-      chainId: { type: "string" },
-      cronId: { type: "string" },
+      executionId: { type: "string" },
+      stepIds: { type: "array", items: { type: "string" } },
+      scheduleId: { type: "string" },
       exitCode: { oneOf: [{ type: "integer" }, { type: "null" }] },
       key: { type: "string" },
       path: { type: "string" },
@@ -217,6 +249,7 @@ const definitions = {
       pty: { type: "boolean" },
       tail_bytes: { type: "number" },
       needs: { type: "object", additionalProperties: true },
+      ...escalationProperties,
     },
     output: execOutput,
   },
@@ -226,6 +259,7 @@ const definitions = {
       path: { type: "string", required: true },
       timeout: { type: "number" },
       tail_bytes: { type: "number" },
+      ...escalationProperties,
     },
     output: scriptOutput("cue_run"),
   },
@@ -236,6 +270,7 @@ const definitions = {
       pathLabel: { type: "string" },
       timeout: { type: "number" },
       tail_bytes: { type: "number" },
+      ...escalationProperties,
     },
     output: scriptOutput("cue_script"),
   },
@@ -247,6 +282,7 @@ const definitions = {
       timeout: { type: "number" },
       tail_bytes: { type: "number" },
       venv: { type: "string" },
+      ...escalationProperties,
     },
     output: languageOutput("script_run"),
   },
@@ -259,6 +295,7 @@ const definitions = {
       timeout: { type: "number" },
       tail_bytes: { type: "number" },
       venv: { type: "string" },
+      ...escalationProperties,
     },
     output: languageOutput("script_eval"),
   },
@@ -372,10 +409,162 @@ export function presentCueResult(name: CueToolName, result: ToolResult) {
   };
 }
 
+const EXECUTION_TOOLS = new Set<CueToolName>([
+  "cue_exec",
+  "cue_run",
+  "cue_script",
+  "script_run",
+  "script_eval",
+]);
+
+interface BrokerRegistry {
+  retain(sessionId: string, broker: SpawnAdapterBroker, mode: SandboxMode): void;
+  bindExecution(sessionId: string, executionId: string, broker: SpawnAdapterBroker): void;
+  sandboxFor(
+    sessionId: string,
+    executionId: string,
+  ): { mode: SandboxMode; facts: SandboxSpawnFact[]; pending: boolean } | undefined;
+  release(sessionId: string, broker: SpawnAdapterBroker): Promise<void>;
+  releaseSession(sessionId: string): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+function createBrokerRegistry(): BrokerRegistry {
+  const maxCompletedExecutions = 256;
+  const sessions = new Map<string, Set<SpawnAdapterBroker>>();
+  const metadata = new Map<
+    SpawnAdapterBroker,
+    { sessionId: string; mode: SandboxMode; executionId?: string }
+  >();
+  const completed = new Map<
+    string,
+    { sessionId: string; executionId: string; mode: SandboxMode; facts: SandboxSpawnFact[] }
+  >();
+  const completedKey = (sessionId: string, executionId: string) =>
+    `${sessionId.length}:${sessionId}${executionId}`;
+  return {
+    retain(sessionId, broker, mode) {
+      const brokers = sessions.get(sessionId) ?? new Set<SpawnAdapterBroker>();
+      brokers.add(broker);
+      sessions.set(sessionId, brokers);
+      metadata.set(broker, { sessionId, mode });
+    },
+    bindExecution(sessionId, executionId, broker) {
+      const entry = metadata.get(broker);
+      if (!entry || entry.sessionId !== sessionId) {
+        throw new Error("sandbox broker is not owned by this Cue session");
+      }
+      entry.executionId = executionId;
+    },
+    sandboxFor(sessionId, executionId) {
+      for (const [broker, entry] of metadata) {
+        if (entry.sessionId === sessionId && entry.executionId === executionId) {
+          return { mode: entry.mode, facts: broker.facts(), pending: true };
+        }
+      }
+      const entry = completed.get(completedKey(sessionId, executionId));
+      return entry ? { mode: entry.mode, facts: entry.facts, pending: false } : undefined;
+    },
+    async release(sessionId, broker) {
+      const entry = metadata.get(broker);
+      if (entry?.executionId) {
+        const key = completedKey(sessionId, entry.executionId);
+        completed.delete(key);
+        completed.set(key, {
+          sessionId,
+          executionId: entry.executionId,
+          mode: entry.mode,
+          facts: broker.facts(),
+        });
+        while (completed.size > maxCompletedExecutions) {
+          const oldest = completed.keys().next().value as string | undefined;
+          if (oldest === undefined) break;
+          completed.delete(oldest);
+        }
+      }
+      metadata.delete(broker);
+      const brokers = sessions.get(sessionId);
+      brokers?.delete(broker);
+      if (brokers?.size === 0) sessions.delete(sessionId);
+      await broker.close();
+    },
+    async releaseSession(sessionId) {
+      const brokers = sessions.get(sessionId);
+      sessions.delete(sessionId);
+      for (const [key, entry] of completed) {
+        if (entry.sessionId === sessionId) completed.delete(key);
+      }
+      for (const broker of brokers ?? []) metadata.delete(broker);
+      await Promise.all([...(brokers ?? [])].map(async (broker) => broker.close()));
+    },
+    async dispose() {
+      const brokers = [...sessions.values()].flatMap((items) => [...items]);
+      sessions.clear();
+      metadata.clear();
+      completed.clear();
+      await Promise.all(brokers.map(async (broker) => broker.close()));
+    },
+  };
+}
+
+function sandboxSummary(mode: SandboxMode, facts: SandboxSpawnFact[], pending: boolean) {
+  return {
+    mode,
+    enforcement:
+      mode === "danger-full-access"
+        ? "not_applicable"
+        : facts.some((fact) => fact.enforcement === "partial")
+          ? "partial"
+          : facts.length > 0
+            ? "full"
+            : "pending",
+    segments: facts.length,
+    denied: facts.some((fact) => fact.denied),
+    runnerFailure: facts.some((fact) => fact.runnerFailure),
+    pending,
+    facts,
+  };
+}
+
+function resultExecutionId(result: Record<string, unknown>): string | undefined {
+  const value = result.executionId;
+  return typeof value === "string" && /^E\d+$/u.test(value) ? value : undefined;
+}
+
+function resultDetached(result: Record<string, unknown>): boolean {
+  return result.detached === true || result.timedOut === true;
+}
+
+async function waitForExecutionAndRelease(
+  runtime: Pick<CueToolRuntime, "execute">,
+  executionId: string,
+  context: {
+    sessionId: string;
+    cwd: string;
+    env: Record<string, string | undefined>;
+  },
+  registry: BrokerRegistry,
+  broker: SpawnAdapterBroker,
+): Promise<void> {
+  try {
+    while (true) {
+      const result = await runtime.execute(
+        "cue_jobs",
+        { action: "wait", id: executionId, timeout: 3600 },
+        { ...context, operationId: `${executionId}:sandbox-lease` },
+      );
+      if (!result.timedOut) return;
+    }
+  } finally {
+    await registry.release(context.sessionId, broker);
+  }
+}
+
 function registerDefinition<Name extends CueToolName>(
   ctx: Context,
   runtime: Pick<CueToolRuntime, "execute">,
   toolName: Name,
+  brokerRegistry: BrokerRegistry,
 ): void {
   const spec = definitions[toolName];
   ctx.tools.register(
@@ -399,13 +588,113 @@ function registerDefinition<Name extends CueToolName>(
           throw new Error(`${toolName} requires an immutable session cwd`);
         }
         const env = { ...process.env, ...ctx.shellEnv.collect(exec) };
-        return runtime.execute(toolName, args as unknown as CueToolArgsMap[Name], {
-          sessionId: `dsh:${agent.session.id}`,
-          cwd,
-          env,
-          signal: exec.signal,
-          operationId: String(exec.callId),
-        }) as Promise<CueToolResultMap[Name]> as never;
+        const sessionId = `dsh:${agent.session.id}`;
+        const basePolicy = ctx.sandboxPolicy.resolve({ session: agent.session });
+        if (
+          toolName === "cue_schedule" &&
+          ((args as Record<string, unknown>).action === "add" ||
+            (args as Record<string, unknown>).action === "resume") &&
+          basePolicy.mode !== "danger-full-access"
+        ) {
+          throw new Error(
+            `cue_schedule ${(args as Record<string, unknown>).action as string} requires the current DSH session to have persistent danger-full-access; one-call escalation cannot authorize future execution`,
+          );
+        }
+
+        let mode = basePolicy.mode;
+        let broker: SpawnAdapterBroker | undefined;
+        let resolvedTransport: CueResolvedTransport | undefined;
+        if (EXECUTION_TOOLS.has(toolName)) {
+          const raw = args as Record<string, unknown>;
+          const sandboxPermissions =
+            typeof raw.sandbox_permissions === "string" ? raw.sandbox_permissions : undefined;
+          const justification =
+            typeof raw.justification === "string" ? raw.justification : undefined;
+          validateEscalationArgs(sandboxPermissions, justification);
+          if (sandboxPermissions && justification) {
+            mode = await approveEscalation(
+              {
+                requestedMode: sandboxPermissions,
+                justification,
+                effectiveMode: basePolicy.mode,
+                subject: "command",
+              },
+              {
+                approver: ctx.approval,
+                agent,
+                callId: exec.callId,
+                toolName,
+                signal: exec.signal,
+              },
+            );
+          }
+          resolvedTransport = await resolveCueTransport();
+          if (mode !== "danger-full-access") {
+            if (resolvedTransport.transport === "ssh") {
+              throw new Error(
+                `confined Cue execution over SSH is not supported; use a local Cue target or a persistent danger-full-access session`,
+              );
+            }
+            const policy = ctx.sandboxPolicy.resolve({
+              session: agent.session,
+              mode,
+            }) as SandboxPolicy;
+            broker = await startSpawnAdapterBroker({ sandbox: ctx.sandbox, policy });
+            brokerRegistry.retain(sessionId, broker, mode);
+          }
+        }
+
+        try {
+          const result = (await runtime.execute(toolName, args as unknown as CueToolArgsMap[Name], {
+            sessionId,
+            cwd,
+            env,
+            signal: exec.signal,
+            operationId: String(exec.callId),
+            spawnAdapter: broker?.handle,
+            resolvedTransport,
+          })) as CueToolResultMap[Name] & Record<string, unknown>;
+          const detached = broker !== undefined && resultDetached(result);
+          const executionId = resultExecutionId(result);
+          if (broker && executionId) {
+            brokerRegistry.bindExecution(sessionId, executionId, broker);
+          }
+          const tracked =
+            broker !== undefined
+              ? { mode, facts: broker.facts(), pending: detached }
+              : toolName === "cue_jobs" && typeof (args as Record<string, unknown>).id === "string"
+                ? brokerRegistry.sandboxFor(
+                    sessionId,
+                    (args as Record<string, unknown>).id as string,
+                  )
+                : undefined;
+          const sandbox = tracked
+            ? sandboxSummary(tracked.mode, tracked.facts, tracked.pending)
+            : undefined;
+          let text = result.text;
+          if (sandbox?.runnerFailure) text += `\n\n[sandbox runner failure]`;
+          if (sandbox?.denied) {
+            text += `\n\n${sandboxDenialMarker(tracked?.mode ?? mode)}\n${escalationHintMarker("command")}`;
+          }
+          const enriched = { ...result, text, ...(sandbox ? { sandbox } : {}) };
+          if (broker) {
+            if (detached && executionId) {
+              void waitForExecutionAndRelease(
+                runtime,
+                executionId,
+                { sessionId, cwd, env },
+                brokerRegistry,
+                broker,
+              );
+            } else {
+              await brokerRegistry.release(sessionId, broker);
+            }
+          }
+          return enriched as never;
+        } catch (error) {
+          if (broker) await brokerRegistry.release(sessionId, broker);
+          throw error;
+        }
       },
     }) as ToolDefinition,
   );
@@ -415,11 +704,13 @@ function registerDefinition<Name extends CueToolName>(
 export function registerCueToolDefinitions(
   ctx: Context,
   runtime: Pick<CueToolRuntime, "execute">,
+  brokerRegistry = createBrokerRegistry(),
 ): void {
-  for (const toolName of CUE_TOOL_NAMES) registerDefinition(ctx, runtime, toolName);
+  for (const toolName of CUE_TOOL_NAMES) registerDefinition(ctx, runtime, toolName, brokerRegistry);
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
+  const brokerRegistry = createBrokerRegistry();
   const runtime = createCueToolRuntime({
     autoStartLocal: config.autoStartLocal ?? true,
     remoteCwd: config.remoteCwd,
@@ -429,19 +720,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.tools.guard((exec) => {
     if (!(CUE_TOOL_NAMES as readonly string[]).includes(exec.name)) return undefined;
     return exec.agent === undefined ? `${exec.name} requires a DSH Agent and Session` : undefined;
-  });
-
-  ctx.on("tools/pre-execute", (exec, next) => {
-    if (!(CUE_TOOL_NAMES as readonly string[]).includes(exec.name)) return next();
-    if (exec.agent === undefined) return next();
-    const policy = ctx.sandboxPolicy.resolve({ session: exec.agent.session });
-    if (policy.mode !== "danger-full-access") {
-      return Promise.resolve({
-        kind: "deny" as const,
-        reason: `${exec.name} requires danger-full-access because external cued execution is not confined by the DSH file sandbox (current mode: ${policy.mode})`,
-      });
-    }
-    return next();
   });
 
   ctx.systemPrompt.section({
@@ -454,7 +732,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       "A foreground timeout detaches the durable job instead of killing it.",
   });
 
-  registerCueToolDefinitions(ctx, runtime);
-  ctx.on("agent/disposed", ({ agent }) => runtime.releaseSession(`dsh:${agent.session.id}`));
-  ctx.effect(() => () => runtime.dispose(), "dsh-tool-cue runtime teardown");
+  registerCueToolDefinitions(ctx, runtime, brokerRegistry);
+  ctx.on("agent/disposed", ({ agent }) => {
+    const sessionId = `dsh:${agent.session.id}`;
+    runtime.releaseSession(sessionId);
+    void brokerRegistry.releaseSession(sessionId);
+  });
+  ctx.effect(
+    () => () => {
+      runtime.dispose();
+      void brokerRegistry.dispose();
+    },
+    "dsh-tool-cue runtime teardown",
+  );
 }

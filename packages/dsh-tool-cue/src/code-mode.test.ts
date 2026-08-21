@@ -28,13 +28,19 @@ describe("DSH Code Mode contract", () => {
     await ctx.plugin(ToolRuntime, { mode: "code" });
     await ctx.plugin(WorkerThreadCodeRuntime, {});
     await ctx.plugin(ShellEnv, { dshHome: "/tmp/dsh-code-test" });
+    Object.assign(ctx as unknown as Record<string, unknown>, {
+      sandboxPolicy: {
+        resolve: () => ({ mode: "danger-full-access", workspaceRoot: "/workspace" }),
+      },
+    });
 
     const execute = vi.fn(async () => ({
       tool: "cue_exec" as const,
-      text: "Job J1: Done\nhello",
+      text: "Execution E1: Done\nhello",
       ok: true,
       kind: "foreground" as const,
-      jobId: "J1",
+      executionId: "E1",
+      stepIds: ["E1/S1"],
       status: "Done",
       exitCode: 0,
       timedOut: false,
