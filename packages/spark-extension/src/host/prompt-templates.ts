@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
-import { parseSkillFrontmatter } from "@zendev-lab/spark-host/skill-resolver";
+import { parseSkillFrontmatter } from "@zendev-lab/spark-roles/skill-resolver";
 
 export type SparkPromptTemplateLayer = "user" | "workspace" | "configured";
 

@@ -1,4 +1,4 @@
-import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 import type {
   ExtensionRoleRunner,
@@ -14,10 +14,11 @@ import type { LoadResult } from "./plugin-loader.ts";
 import type { SparkPromptTemplateResolveResult } from "./prompt-templates.ts";
 import type { SparkProviderRegistry } from "./provider-registry.ts";
 import type { SparkHostRuntime, SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
-import type { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
-import type { SparkSkillResolver } from "@zendev-lab/spark-host/skill-resolver";
+import type { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
+import type { SparkSkillResolver } from "@zendev-lab/spark-roles/skill-resolver";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
 import type { SparkAuthStore, SparkProviderAuthResolver } from "./auth.ts";
 export interface SparkCliHostDiagnostic {
   type: "warning" | "error";
@@ -70,6 +71,8 @@ export interface SparkCliHostServicesOptions {
   /** Control-plane Spark root retained across nested daemon-native role runs. */
   controlSparkHome?: string;
   sparkStateRoot?: string;
+  /** Daemon-owned shared DSH composition root; hosts never construct their own root. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   sessionLease?: SparkSessionLeaseIdentity;

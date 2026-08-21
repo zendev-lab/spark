@@ -92,10 +92,13 @@ cross-scope, or disappeared paths fail closed.
 ## Transcript persistence
 
 Canonical Session transcripts are DSH session JSONL. `packages/spark-host`
-`SparkSessionStore` is the Spark codec: it writes Spark entries as ignorable
-`spark/entry` events. The daemon implements `PersistenceBackend` only;
-`dsh-session-persistence` owns the coordinator. Pi JSONL v3 is a one-shot
-idempotent hard-cut on first load. Session projections remain Spark-owned.
+`SparkSessionStore` is the transition codec: transcript v4 writes model-visible
+content as native DSH surface events. It does not duplicate active messages in
+`spark/record`; ignorable Spark events carry only projection metadata,
+non-model records, and inactive branches. The daemon implements `PersistenceBackend` only;
+`dsh-session-persistence` owns the coordinator. Before admission, daemon startup
+backs up and journals the idempotent v3 to v4 hard cut. Session projections
+remain Spark-owned.
 See [`.agents/notes/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md).
 
 ## Invocation serialization

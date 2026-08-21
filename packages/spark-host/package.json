@@ -16,11 +16,6 @@
     "./context": "./src/context-tool.ts",
     "./headless-loader": "./src/headless-loader.ts",
     "./keybindings": "./src/keybindings.ts",
-    "./memory-direct-intent": "./src/memory-direct-intent.ts",
-    "./system-prompt": "./src/system-prompt.ts",
-    "./builtin-skills": "./src/builtin-skills.ts",
-    "./skill-resolver": "./src/skill-resolver-entry.ts",
-    "./session-store": "./src/session-store/index.ts",
     "./spark-widget": "./src/spark-widget.ts",
     "./spark-widget-controller": "./src/spark-widget-controller.ts",
     "./types": "./src/types.ts"
@@ -32,9 +27,11 @@
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-loop": "workspace:^",
+    "@zendev-lab/spark-memory": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
     "@zendev-lab/spark-roles": "workspace:^",
+    "@zendev-lab/spark-session": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",

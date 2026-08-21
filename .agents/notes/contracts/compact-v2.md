@@ -41,8 +41,9 @@ Example:
 A micro pass is stateless and model-free. It compacts eligible old tool output and other bounded message content until `targetReduction` is reached, while preserving recent and exact content. If its measured reduction is below `minUsefulReduction`, the original replay is retained. If replay remains above `fullThreshold`, scheduling requests one full pass.
 
 A full pass writes a versioned compaction entry into the session JSONL. The
-on-disk artifact is DSH session JSONL; Spark still persists the compaction
-record as a Spark entry inside that log. See
+on-disk artifact is DSH session JSONL; Spark persists compaction metadata in an
+ignorable record and replaces the compacted model-visible DSH surface with the
+summary plus protected recent messages. See
 [`.agents/notes/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md).
 The entry contains the summary, cut
 point, active-replay token count before compaction, structured details when Smart

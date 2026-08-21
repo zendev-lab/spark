@@ -1,4 +1,4 @@
-/** DSH session JSONL transcript storage shared by Spark host implementations. */
+/** DSH session JSONL transcript storage owned by Spark Session. */
 
 export {
   CURRENT_SPARK_SESSION_VERSION,
@@ -26,9 +26,11 @@ export {
 export {
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SPARK_DSH_META_EVENT_TYPE,
-  SPARK_DSH_ENTRY_EVENT_TYPE,
+  SPARK_DSH_RECORD_EVENT_TYPE,
+  SPARK_DSH_MESSAGE_META_EVENT_TYPE,
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
+  isSparkDshV4Document,
 } from "./dsh-format.ts";
 export {
   SparkSessionStore,

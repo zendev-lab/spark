@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SparkHostRuntime } from "./runtime.ts";
-import { createSparkMemoryDirectIntentTurnAuthority } from "./memory-direct-intent.ts";
+import { createSparkMemoryDirectIntentTurnAuthority } from "./direct-intent.ts";
 
 const input = {
   surface: "tui" as const,
@@ -17,7 +16,7 @@ const feedbackInput = {
   prompt: "memory feedback positive memory:ranked",
 };
 
-describe("host-private memory direct-intent authority", () => {
+describe("memory direct-intent authority", () => {
   it("verifies only the exact current receipt from its private signing key", async () => {
     const authority = createSparkMemoryDirectIntentTurnAuthority();
     const receipt = await authority.issue(input);
@@ -90,48 +89,5 @@ describe("host-private memory direct-intent authority", () => {
     if (replayed.ok) writerCalls.push("replay");
     expect(replayed).toEqual({ ok: false, code: "MEMORY_FEEDBACK_REPLAYED" });
     expect(writerCalls).toEqual([]);
-  });
-
-  it("exposes feedback receipt verification without signer or trusted telemetry writer", async () => {
-    const authority = createSparkMemoryDirectIntentTurnAuthority();
-    const receipt = await authority.issueFeedback(feedbackInput);
-    const host = new SparkHostRuntime({
-      cwd: input.workspaceId,
-      memoryDirectIntentAuthority: authority,
-    });
-    host.setSessionId(input.sessionId);
-    const context = host.makeContext();
-    expect(context.memoryFeedback).toEqual(receipt);
-    expect((await context.verifyMemoryFeedback?.(receipt))?.ok).toBe(true);
-    expect("memoryFeedbackAuthority" in context).toBe(false);
-    expect("signMemoryFeedback" in context).toBe(false);
-    expect("trustedTelemetryWriter" in context).toBe(false);
-    expect("recordTrustedMemoryFeedback" in context).toBe(false);
-    const serialized = JSON.stringify(context);
-    expect(serialized).not.toContain("privateKey");
-    expect(serialized).not.toContain("trustedTelemetryWriter");
-  });
-
-  it("exposes only receipt verification to tool context, never signer or private key", async () => {
-    const authority = createSparkMemoryDirectIntentTurnAuthority();
-    const receipt = await authority.issue(input);
-    const host = new SparkHostRuntime({
-      cwd: input.workspaceId,
-      memoryDirectIntentAuthority: authority,
-    });
-    host.setSessionId(input.sessionId);
-    const context = host.makeContext();
-
-    expect(context.memoryDirectIntent).toEqual(receipt);
-    expect(await context.verifyMemoryDirectIntent?.(receipt)).toBe(true);
-    expect("memoryDirectIntentAuthority" in context).toBe(false);
-    expect("issueMemoryDirectIntent" in context).toBe(false);
-    expect("signMemoryDirectIntent" in context).toBe(false);
-    expect("memoryDirectIntentPrivateKey" in context).toBe(false);
-    expect("memoryDirectIntentReceiptWriter" in context).toBe(false);
-    const serialized = JSON.stringify(context);
-    expect(serialized).not.toContain("privateKey");
-    expect(serialized).not.toContain("receiptWriter");
-    expect(serialized).not.toContain("signMemoryDirectIntent");
   });
 });

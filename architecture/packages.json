@@ -193,9 +193,9 @@
       "stability": "supported",
       "stateWriter": "workspace"
     },
-    "@zendev-lab/spark-fusion": {
-      "path": "packages/spark-fusion",
-      "layer": "capability",
+    "@zendev-lab/dsh-tool-fusion": {
+      "path": "packages/dsh-tool-fusion",
+      "layer": "adapter",
       "owner": "fusion",
       "stability": "internal",
       "stateWriter": "none"

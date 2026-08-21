@@ -1,5 +1,5 @@
 /**
- * Host-neutral Spark agent identity and conversation-surface prompts.
+ * Product-composition Spark agent identity and conversation-surface prompts.
  *
  * These strings are shared by local web, daemon headless, and channel sessions.
  * A local UI is only one optional host — never describe it as "the environment".

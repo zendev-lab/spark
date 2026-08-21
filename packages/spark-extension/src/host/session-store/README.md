@@ -1,7 +1,6 @@
 # Session-store import path
 
-The host-neutral DSH session JSONL transcript store lives at
-`@zendev-lab/spark-host/session-store`. This directory is not an implementation.
-It remains distinct from `@zendev-lab/spark-session`, which owns daemon
-registry, mailbox, and `session({action})` state rather than local host
-transcript I/O.
+The DSH session JSONL transcript store lives at
+`@zendev-lab/spark-session/transcript`. This directory is not an implementation.
+Registry, mailbox, action-tool, and transcript I/O now share the authoritative
+`spark-session` owner while remaining separate package subpaths.

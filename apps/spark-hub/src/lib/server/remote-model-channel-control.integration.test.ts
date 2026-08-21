@@ -31,6 +31,7 @@ import {
   type MessageContext,
 } from "../../../../spark-daemon/src/daemon.ts";
 import { createDaemonChannelIngressRuntime } from "../../../../spark-daemon/src/channels/global-ingress-runtime.ts";
+import { openSparkDaemonCordisContext } from "../../../../spark-daemon/src/cordis-root.ts";
 import type { SparkDaemonModelControl } from "../../../../spark-daemon/src/model-control.ts";
 import { acknowledgeRuntimeCommandTerminal } from "../../../../spark-daemon/src/runtime-command-receipts.ts";
 import { createDaemonSessionRegistry } from "../../../../spark-daemon/src/session-registry.ts";
@@ -77,6 +78,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
   let wss: WebSocketServer | undefined;
   let daemonWs: WebSocket | undefined;
   let httpsServer: ReturnType<typeof createHttpsServer> | undefined;
+  const cordisContext = openSparkDaemonCordisContext();
   try {
     await Promise.all([
       mkdir(daemonHome, { recursive: true }),
@@ -144,6 +146,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     const modelControl = new FixtureModelControl(registry, credentialTargets);
     const channelIngress = createDaemonChannelIngressRuntime({
       sparkHome: daemonHome,
+      ctx: cordisContext,
       hooks: { onAssignment: async () => {} },
       sessionRegistry: registry,
       createTransport: () => new FakeChannelTransport(),
@@ -418,6 +421,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     await closeRuntimeSocket(daemonWs);
     await closeWebSocketServer(wss);
     await closeHttpsServer(httpsServer);
+    await cordisContext.fiber.dispose();
     hubDb.close();
     daemonDb.close();
     await rm(root, { recursive: true, force: true });

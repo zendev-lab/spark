@@ -7,6 +7,9 @@ This package is intentionally conservative:
 - `memory({ action, kind? })` is the only public memory tool. `kind` is `entry` (default), `learning`, or `candidate`.
 - Default prompt behavior is policy-only. Hosts should inject guidance about how to use memory tools, not entry bodies, unless a user opts into a cache-aware snapshot.
 - Writes run a secret scanner before persistence.
+- `@zendev-lab/spark-memory/direct-intent` owns the process-local signed
+  authority that binds explicit remember/feedback intent to one exact turn;
+  hosts may project its verifier but never its private key or signer.
 - Compact/checkpoint handoff is explicit via `SparkMemoryStore.checkpoint()` and the extension wires policy-only `session_start` plus hidden `session_before_compact` checkpoint messages when the host supports extension events. The checkpoint is queued with `deliverAs: "nextTurn"` so it rides the next real user prompt instead of triggering an extra post-compaction request.
 - A successful full compact with Smart structured details schedules background `stable_fact` and `open_item` recall candidates. Open items remain candidates; stable facts enter durable Memory only when directly associated `artifact:`/`evidence:` refs resolve locally. Review, evidence, and write failures never alter the completed compact.
 - LearningStore, recall candidates, and reflection pipelines all live in this package (former `spark-learnings` / `spark-recall` packages are removed).

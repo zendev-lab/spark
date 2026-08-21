@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
+import { Context } from "@deepseek-ai/cordis";
 
 import {
   LlmAdapter,
+  LlmRuntime,
   createUserMessage,
   type GenerateOptions,
   type StreamChunk,
@@ -23,15 +25,17 @@ class ScriptedAdapter extends LlmAdapter {
   }
 }
 
-test("createSparkLlmComposition mounts LlmRuntime without exposing Context", async () => {
-  const composition = await createSparkLlmComposition();
+test("createSparkLlmComposition reuses the supplied LlmRuntime without exposing Context", async () => {
+  const ctx = new Context();
+  await ctx.plugin(LlmRuntime);
+  const composition = await createSparkLlmComposition({ ctx, routeNamespace: "inv-empty" });
   try {
     assert.equal("ctx" in composition, false);
     assert.equal(typeof composition.llm.stream, "function");
-    assert.equal(typeof composition.registerAdapter, "function");
-    assert.deepEqual(composition.llm.listProviders(), []);
+    assert.deepEqual(ctx.llm.listProviders(), []);
   } finally {
     await composition.dispose();
+    await ctx.fiber.dispose();
   }
 });
 
@@ -40,13 +44,17 @@ test("createSparkLlmComposition registers adapters and unloads them on dispose",
     { type: "usage", usage: { inputTokens: 1, outputTokens: 1 } },
     { type: "finish", reason: { kind: "stop" } },
   ]);
+  const ctx = new Context();
+  await ctx.plugin(LlmRuntime);
   const composition = await createSparkLlmComposition({
+    ctx,
+    routeNamespace: "inv-scripted",
     adapters: [{ providers: ["scripted"], adapter }],
   });
   try {
     assert.deepEqual(
-      composition.llm.listProviders().map((provider) => provider.id),
-      ["scripted"],
+      ctx.llm.listProviders().map((provider) => provider.id),
+      ["spark-invocation/inv-scripted/scripted"],
     );
     const chunks: StreamChunk["type"][] = [];
     for await (const chunk of composition.llm.stream({
@@ -65,11 +73,6 @@ test("createSparkLlmComposition registers adapters and unloads them on dispose",
   } finally {
     await composition.dispose();
   }
-
-  const afterDispose = await createSparkLlmComposition();
-  try {
-    assert.deepEqual(afterDispose.llm.listProviders(), []);
-  } finally {
-    await afterDispose.dispose();
-  }
+  assert.deepEqual(ctx.llm.listProviders(), []);
+  await ctx.fiber.dispose();
 });

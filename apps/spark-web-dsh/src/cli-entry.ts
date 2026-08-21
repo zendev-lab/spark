@@ -14,7 +14,7 @@ function isDirectRun(moduleUrl: string, argvEntry: string | undefined): boolean 
 
 export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(`spark-web-dsh - optional DeepSeek Harness compatibility workbench
+    process.stdout.write(`spark-web-dsh - Spark product workbench hosted by DeepSeek Harness
 
 Usage:
   spark-web-dsh [--host <host>] [--port <port>] [--trusted-host <host>] [args...]

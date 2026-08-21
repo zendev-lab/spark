@@ -1,4 +1,4 @@
-/** Shared JSONL I/O helpers for Spark session artifacts. */
+/** JSONL I/O helpers for Spark Session transcripts. */
 
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";

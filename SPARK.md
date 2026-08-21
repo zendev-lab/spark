@@ -88,13 +88,21 @@ updated: 2026-08-21
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
-- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算以 `architecture/packages.json` 为唯一事实源，新增 workspace 需要新的 architecture 决策。
-- DSH 组合已越过 LLM 小岛：daemon Cordis root 挂 Spark store 与 `ctx.sessions`；
-  `spark-turn` 用 `dsh-agent-loop` 做低层 turn driver；`spark-loop` 仍拥有
-  goal/tick。不接入 `dsh-llm-pi-ai` 或 `dsh-goal`，不把 Spark Session 绑到
-  Cordis Fiber。Invocation / channel / fleet / retry 数据权威仍是 Spark SQLite。
+- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。
+  `spark-web-dsh` 作为独立的 DSH-hosted Spark 产品应用保留；包预算的当前值和理由
+  只由 `architecture/packages.json` 维护，新增 workspace 需要新的 architecture 决策。
+- DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
+  persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
+  AgentLoop。transcript v4 已把模型可见内容迁入原生 DSH surface，并在 daemon
+  admission 前完成带备份和 journal 的 v3 硬切；Invocation 已在共享 root 上按
+  Session ID create/resume Agent，flush 后释放 handle，并用 Invocation 隔离的
+  provider route 避免共享 registry 冲突。`spark-turn` 暂只保留 host facade 和
+  投影兼容职责，顶层清理时删除。`spark-loop` 仍拥有 goal/tick；不接入
+  `dsh-llm-pi-ai` 或 `dsh-goal`。Invocation / channel / fleet / retry 数据权威仍是
+  Spark SQLite。
 - 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。
-  Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`。
+  Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`；模型可见消息不再
+  双写 `spark/record`，Spark 扩展事件只保留投影元数据、非模型记录和非活跃分支。
 - Channel 已原位迁移为 `dsh-channels` Cordis 插件；配置、Session、cwd、delivery、
   human wait 与控制面均为 daemon scope。旧 Workspace Channel 只保留一次性、
   fail-closed 的 v7→v8 数据迁移，不保留新行为兼容层。
@@ -109,5 +117,7 @@ updated: 2026-08-21
   运行且通过 real-host smoke，通用模型工具通常命名为 `dsh-tool-*`；`spark-*`
   承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`、
   `spark-acp` 与 `spark-tool-web` 保持产品 owner；特殊命名理由只登记在
-  `architecture/packages.json`。完整处置见
+  `architecture/packages.json`。`spark-fusion` 已按此规则改名为 Cordis-native
+  `dsh-tool-fusion`，旧 SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon
+  durable admission seam，因此 `spark-acp` 暂不替换。完整处置见
   [`.agents/notes/decisions/2026-08-20-dsh-package-naming.md`](.agents/notes/decisions/2026-08-20-dsh-package-naming.md)。

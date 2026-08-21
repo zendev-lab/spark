@@ -80,7 +80,7 @@ test("reflection scanner extracts user/custom/summary observations and tolerates
   }
 });
 
-test("reflection scanner reads DSH session JSONL spark/entry events", async () => {
+test("reflection scanner reads Spark projection records beside DSH events", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-dsh-"));
   try {
     const sessionDir = join(dir, "--workspaces-demo--");
@@ -100,14 +100,15 @@ test("reflection scanner reads DSH session JSONL spark/entry events", async () =
           type: "spark/meta",
           seq: 0,
           time: createdAt,
-          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 3 },
+          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 4 },
           ignorable: true,
         }),
         JSON.stringify({
-          type: "spark/entry",
+          type: "spark/record",
           seq: 1,
           time: createdAt + 1,
           data: {
+            position: 0,
             entry: {
               type: "message",
               id: "u1",

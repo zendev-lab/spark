@@ -1,16 +1,22 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Context } from "@deepseek-ai/cordis";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
+  CURRENT_SPARK_SESSION_VERSION,
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SparkSessionStore,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
+import type { Model } from "@zendev-lab/spark-llm";
+import { SparkAgentLoop, type SparkTurnLlm } from "@zendev-lab/spark-turn";
 
 import {
   createSparkDaemonCordisDispose,
+  createSparkDaemonHeadlessCordisRoot,
   createSparkDaemonCordisRoot,
   mountSparkDaemonStorePlugin,
   openSparkDaemonCordisContext,
@@ -45,6 +51,28 @@ async function sessionsRoot(): Promise<string> {
   return root;
 }
 
+async function sparkCueSkillRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "spark-daemon-skills-"));
+  roots.push(root);
+  const skillDir = join(root, "spark-cue");
+  await mkdir(skillDir);
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: spark-cue",
+      "description: Use Cue for command execution.",
+      "---",
+      "",
+      "# spark-cue",
+      "",
+      "Use cue-shell.",
+      "",
+    ].join("\n"),
+  );
+  return root;
+}
+
 describe("spark daemon Cordis root", () => {
   it("resolves mounted stores from the root context", async () => {
     const stores = fakeStores();
@@ -56,6 +84,20 @@ describe("spark daemon Cordis root", () => {
       expect(sparkDaemonStoresFromContext(root.ctx).sparkHumanWaits).toBe(stores.sparkHumanWaits);
       expect(root.ctx.sessions).toBeDefined();
       expect(root.ctx.sessionPersistence).toBeDefined();
+      expect(root.ctx.attachments).toBeDefined();
+      expect(root.ctx.llm).toBeDefined();
+      expect(root.ctx.systemPrompt).toBeDefined();
+      expect(root.ctx.tools).toBeDefined();
+      expect(root.ctx.skills).toBeDefined();
+      expect(root.ctx.tools.get("skill")).toMatchObject({
+        sparkPolicy: {
+          effect: "read",
+          approval: "none",
+          reconcile: "none",
+        },
+      });
+      expect(root.ctx.agents).toBeDefined();
+      expect(root.ctx.agentLoop).toBeDefined();
     } finally {
       await root.dispose();
     }
@@ -67,9 +109,63 @@ describe("spark daemon Cordis root", () => {
     await root.dispose();
     await root.dispose();
     expect(root.ctx.get("sparkInvocations")).toBeUndefined();
+    expect(root.ctx.get("llm")).toBeUndefined();
+    expect(root.ctx.get("systemPrompt")).toBeUndefined();
+    expect(root.ctx.get("tools")).toBeUndefined();
+    expect(root.ctx.get("skills")).toBeUndefined();
+    expect(root.ctx.get("agents")).toBeUndefined();
+    expect(root.ctx.get("agentLoop")).toBeUndefined();
     expect(() => sparkDaemonStoresFromContext(root.ctx)).toThrow(
       /missing service sparkInvocations/,
     );
+  });
+
+  it("mounts an ephemeral DSH runtime for an isolated headless worker", async () => {
+    const root = await createSparkDaemonHeadlessCordisRoot({ dshHome: await sessionsRoot() });
+    expect(root.ctx.sessions).toBeDefined();
+    expect(root.ctx.attachments).toBeDefined();
+    expect(root.ctx.llm).toBeDefined();
+    expect(root.ctx.systemPrompt).toBeDefined();
+    expect(root.ctx.tools).toBeDefined();
+    expect(root.ctx.skills).toBeDefined();
+    expect(root.ctx.agents).toBeDefined();
+    expect(root.ctx.agentLoop).toBeDefined();
+    expect(root.ctx.get("sessionPersistence")).toBeUndefined();
+    expect(root.ctx.get("sparkInvocations")).toBeUndefined();
+
+    await root.dispose();
+    expect(root.ctx.get("agentLoop")).toBeUndefined();
+  });
+
+  it("mounts the verified Cue Skill through the daemon-owned DSH provider", async () => {
+    const skillRoot = await sparkCueSkillRoot();
+    const cwd = await sessionsRoot();
+    const root = await createSparkDaemonHeadlessCordisRoot({
+      dshHome: await sessionsRoot(),
+      sparkCueSkillRoot: skillRoot,
+    });
+    try {
+      await expect(root.ctx.skills.list({ cwd })).resolves.toMatchObject([
+        { name: "spark-cue", provider: "spark-daemon", source: "bundled" },
+      ]);
+      await expect(root.ctx.skills.get("spark-cue", { cwd })).resolves.toMatchObject({
+        name: "spark-cue",
+        provider: "spark-daemon",
+        content: expect.stringContaining("Use cue-shell."),
+      });
+    } finally {
+      await root.dispose();
+    }
+  });
+
+  it("fails closed when an explicit Cue Skill root is missing", async () => {
+    const missing = join(await sessionsRoot(), "missing-skills");
+    await expect(
+      createSparkDaemonHeadlessCordisRoot({
+        dshHome: await sessionsRoot(),
+        sparkCueSkillRoot: missing,
+      }),
+    ).rejects.toThrow(/could not find the verified spark-cue Skill/);
   });
 
   it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
@@ -144,7 +240,90 @@ describe("spark daemon Cordis root", () => {
       const loaded = await root.ctx.sessionPersistence.load(SessionId("sess_persist"));
       expect(loaded.meta.id).toBe("sess_persist");
       expect(loaded.meta.cwd).toBe(store.cwd);
-      expect(loaded.events.some((event) => (event.type as string) === "spark/entry")).toBe(true);
+      expect(loaded.events.some((event) => event.type === "user/message")).toBe(true);
+      expect(loaded.events.some((event) => String(event.type) === "spark/message-meta")).toBe(true);
+    } finally {
+      await root.dispose();
+    }
+  });
+
+  it("resumes invocation-owned Agents on the shared root and projects native events", async () => {
+    const home = await sessionsRoot();
+    const cwd = join(home, "workspace");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(home, "spark-home") });
+    const seed = store.createCanonicalSession({
+      id: "sess_shared_agent",
+      timestamp: "2026-08-20T00:00:00.000Z",
+    });
+    const root = await createSparkDaemonCordisRoot(fakeStores(), {
+      sessionsRoot: store.sessionsRoot,
+    });
+    let calls = 0;
+    const llm: SparkTurnLlm = {
+      async *stream() {
+        calls += 1;
+        const text = `native reply ${calls}`;
+        yield { type: "block-start", index: 0, blockType: "text" };
+        yield { type: "text-delta", index: 0, text };
+        yield { type: "block-end", index: 0, block: { type: "text", text } };
+        yield { type: "usage", usage: { inputTokens: 2, outputTokens: 3 } };
+        yield { type: "finish", reason: { kind: "stop" } };
+      },
+    };
+    const model: Model<string> = {
+      id: "shared-agent-model",
+      name: "Shared Agent Model",
+      api: "openai-completions",
+      provider: "shared-agent",
+      baseUrl: "https://example.invalid",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 8_000,
+      maxTokens: 1_000,
+    };
+    const host = new SparkHostRuntime({ cwd });
+    let executionSessionId: string | undefined;
+    const loop = new SparkAgentLoop({
+      host,
+      llm,
+      dshContext: root.ctx,
+      getModel: () => model,
+      streamIdleTimeoutMs: 0,
+      agentPlugins: [
+        {
+          name: "capture-spark-execution",
+          inject: ["sparkExecution"],
+          apply(ctx: Context) {
+            executionSessionId = ctx.sparkExecution.sessionId;
+          },
+        },
+      ],
+    });
+    loop.setViewSessionId(seed.header.id);
+    loop.setDshSessionMetadata({
+      timestamp: seed.header.timestamp,
+      sparkVersion: seed.header.version ?? CURRENT_SPARK_SESSION_VERSION,
+    });
+
+    try {
+      await loop.submit("first prompt");
+      expect(root.ctx.agents.list()).toEqual([]);
+      expect(executionSessionId).toBe(seed.header.id);
+      const first = await store.load(seed.path);
+      const firstMessages = first.entries.filter((entry) => entry.type === "message");
+      // The first native turn persists one DSH Skill catalog beside user/model messages.
+      expect(firstMessages).toHaveLength(3);
+      expect(firstMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(1);
+
+      await loop.submit("second prompt");
+      expect(root.ctx.agents.list()).toEqual([]);
+      const second = await store.load(seed.path);
+      const secondMessages = second.entries.filter((entry) => entry.type === "message");
+      // An unchanged catalog is not republished on the second turn.
+      expect(secondMessages).toHaveLength(5);
+      expect(secondMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(2);
+      expect(JSON.stringify(second.entries)).toContain("native reply 2");
     } finally {
       await root.dispose();
     }

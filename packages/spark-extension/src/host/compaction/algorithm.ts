@@ -16,7 +16,7 @@ import type {
   SparkSessionMessageEntry,
   SparkSessionRecord,
   SparkSessionStore,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 
 import {
   getSparkSessionBranch,

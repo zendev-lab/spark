@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import type { AssistantMessage } from "@zendev-lab/spark-llm";
+import { createSparkDshTurnTestRuntime } from "@zendev-lab/spark-turn/testing/dsh-runtime";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   createSparkCliHostServices,
@@ -187,8 +188,10 @@ async function makeFakeServices(options: SparkCliHostServicesOptions) {
     await mkdir(options.sparkHome, { recursive: true });
     await writeFile(join(options.sparkHome, "config.json"), `${JSON.stringify(config)}\n`, "utf8");
   }
+  const dshRuntime = await createSparkDshTurnTestRuntime(4);
   return await createSparkCliHostServices({
     ...options,
+    dshContext: dshRuntime.ctx,
     config,
     extensions: [],
     providers: ["fake-provider"],

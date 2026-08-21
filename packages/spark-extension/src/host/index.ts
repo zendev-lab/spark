@@ -161,6 +161,7 @@ export {
   getBuiltinExtensionFactory,
   loadBuiltinExtensionFactories,
   loadSparkExtensions,
+  selectSparkAgentPlugins,
 } from "./extension-loader.ts";
 export {
   BUILTIN_SPARK_THEMES,
@@ -200,7 +201,6 @@ export {
 export {
   SparkSkillResolver,
   defaultBuiltinSkillsDir,
-  defaultSparkCueSkillsDir,
   defaultProjectAgentsSkillsDirs,
   defaultSparkSkillsRoot,
   defaultUserAgentsSkillsDir,
@@ -210,7 +210,7 @@ export {
   loadMatchingSparkSkillsForPrompt,
   loadSkillsFromDir,
   parseSkillFrontmatter,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "@zendev-lab/spark-roles/skill-resolver";
 export type {
   SparkCliHostDiagnostic,
   SparkCliHostServices,
@@ -247,6 +247,7 @@ export type {
   SparkExtensionLoadOutcome,
   SparkExtensionLoadResult,
   SparkExtensionLoaderOptions,
+  SparkAgentPluginSelection,
 } from "./extension-loader.ts";
 export type {
   SparkHtmlExportInput,
@@ -270,7 +271,7 @@ export type {
   SparkSkillPromptMatch,
   SparkSkillResolveResult,
   SparkSkillResolverOptions,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "@zendev-lab/spark-roles/skill-resolver";
 export {
   CURRENT_SPARK_SESSION_VERSION,
   SparkSessionStore,
@@ -279,7 +280,7 @@ export {
   parseSparkSessionEntries,
   workspaceSessionHash,
   writeJsonLinesAtomically,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 export {
   buildSparkSessionTree,
   exportSparkSessionRecord,
@@ -315,7 +316,7 @@ export type {
   SparkSessionAtomicWriteOptions,
   SparkSessionStoreOptions,
   SparkThinkingLevelChangeEntry,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 export type {
   SparkSessionExportFormat,
   SparkSessionNavigationState,

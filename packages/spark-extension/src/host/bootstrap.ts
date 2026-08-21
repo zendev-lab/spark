@@ -11,11 +11,11 @@ import {
   type SparkProviderAttemptObservation,
 } from "@zendev-lab/spark-llm";
 import { createSparkLlmComposition } from "../llm-runtime.ts";
-import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
-} from "@zendev-lab/spark-host/system-prompt";
+} from "../system-prompt.ts";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
@@ -46,7 +46,7 @@ import {
   loadSparkConfig,
   saveSparkConfig,
 } from "./config.ts";
-import { SparkExtensionLoader } from "./extension-loader.ts";
+import { SparkExtensionLoader, selectSparkAgentPlugins } from "./extension-loader.ts";
 import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import {
   SparkModelSelector,
@@ -62,12 +62,12 @@ import {
 } from "./prompt-templates.ts";
 import { SparkProviderRegistry, type SparkActiveSelection } from "./provider-registry.ts";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   SparkSkillResolver,
   formatSelectedSparkSkillsForPrompt,
   type SparkSkillPromptMatch,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "@zendev-lab/spark-roles/skill-resolver";
 import { loadSparkThemeCatalog } from "./theme.ts";
 
 import { SparkAgentLoop } from "./agent-loop.ts";
@@ -227,11 +227,13 @@ export async function createSparkCliHostServices(
     options.sessionManager ?? createSparkCliSessionManagerStub(sessionStore, cwd),
   );
 
+  const agentPluginSelection = selectSparkAgentPlugins(options.extensions ?? config.extensions);
   const extensionLoadResult = await new SparkExtensionLoader({
     api: runtime as SparkHostAPI,
-    extensions: options.extensions ?? config.extensions,
+    extensions: agentPluginSelection.extensionSpecs,
     importer: options.extensionImporter,
   }).load();
+  extensionLoadResult.outcomes.push(...agentPluginSelection.outcomes);
   for (const outcome of extensionLoadResult.outcomes) {
     if (!outcome.ok)
       diagnostics.push({
@@ -279,7 +281,12 @@ export async function createSparkCliHostServices(
     skillsCatalogPrompt,
     selectedSkillsPrompt,
   );
+  if (!options.dshContext) {
+    throw new Error("Spark host services require the daemon shared DSH context");
+  }
   const llmComposition = await createSparkLlmComposition({
+    ctx: options.dshContext,
+    routeNamespace: options.invocationId ?? globalThis.crypto.randomUUID(),
     adapters: adaptersFromProviderRegistry(providerRegistry, { resolveApiKey }),
   });
   runtime.on("session_shutdown", () => {
@@ -288,6 +295,8 @@ export async function createSparkCliHostServices(
   const agentLoop = new SparkAgentLoop({
     host: runtime,
     llm: llmComposition.llm,
+    dshContext: options.dshContext,
+    agentPlugins: agentPluginSelection.agentPlugins,
     getModel: () => {
       const model = providerRegistry.buildActiveModel();
       if (!model) throw new Error("No active Spark model selected");

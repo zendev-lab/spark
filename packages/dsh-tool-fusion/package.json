@@ -1,0 +1,34 @@
+{
+  "name": "@zendev-lab/dsh-tool-fusion",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Cordis-native bounded multi-model deliberation tool for DeepSeek Harness.",
+  "license": "MIT",
+  "author": "zrr1999",
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/extension.ts",
+    "./deliberation": "./src/deliberation.ts"
+  },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test:real-host": "vp test run src/extension.test.ts",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
+    "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

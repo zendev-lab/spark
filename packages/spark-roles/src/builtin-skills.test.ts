@@ -1,9 +1,9 @@
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, expect, test } from "vitest";
-import { defaultBuiltinSkillsDir, defaultSparkCueSkillsDir } from "./builtin-skills.ts";
+import { defaultBasePromptDirs, defaultBuiltinSkillsDir } from "./builtin-skills.ts";
 
 const temporaryDirectories: string[] = [];
 const originalProductDist = process.env.SPARK_PRODUCT_DIST;
@@ -16,7 +16,7 @@ afterEach(async () => {
   );
 });
 
-test("packaged skills resolve from the generated product root", async () => {
+test("packaged Cue skills stay out of the legacy Spark resolver defaults", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-product-skills-"));
   temporaryDirectories.push(root);
   const productDist = join(root, "dist");
@@ -24,14 +24,7 @@ test("packaged skills resolve from the generated product root", async () => {
   await mkdir(join(skills, "spark-cue"), { recursive: true });
   process.env.SPARK_PRODUCT_DIST = productDist;
 
-  expect(defaultBuiltinSkillsDir()).toBe(skills);
-  expect(defaultSparkCueSkillsDir()).toBe(join(skills, "spark-cue"));
-});
-
-test("source-tree Cue skills resolve from the verified Cue vendor snapshot", async () => {
-  delete process.env.SPARK_PRODUCT_DIST;
-  const skills = defaultSparkCueSkillsDir();
-
-  expect(skills.endsWith(join("vendor", "cue", "skills"))).toBe(true);
-  await expect(access(join(skills, "spark-cue", "SKILL.md"))).resolves.toBeUndefined();
+  const builtinSkills = join(root, "builtin-skills");
+  expect(defaultBuiltinSkillsDir()).toBe(builtinSkills);
+  expect(defaultBasePromptDirs()).toEqual([builtinSkills]);
 });

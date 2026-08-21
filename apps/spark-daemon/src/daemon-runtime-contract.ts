@@ -17,6 +17,7 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SessionSupervisor } from "./session-supervisor.ts";
 import type { CancelSparkInvocationFn, RunSparkCommandFn } from "./spark/bridge.ts";
+import type { SparkDaemonCordisRoot } from "./cordis-root.ts";
 
 export interface ServerSocket {
   send(data: string): void;
@@ -102,6 +103,7 @@ export interface MessageContext {
   serverUrl?: string;
   sparkHome: string;
   controlSparkHome?: string;
+  dshContext?: SparkDaemonCordisRoot["ctx"];
   runtimeSessionId: string | undefined;
   setRuntimeSessionId(value: string): void;
   ensureHeartbeat(intervalMs: number): void;

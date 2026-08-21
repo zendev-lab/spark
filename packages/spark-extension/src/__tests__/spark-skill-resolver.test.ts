@@ -11,7 +11,7 @@ import {
   parseSkillFrontmatter,
 } from "../host/index.ts";
 import { splitSparkSystemPrompt } from "@zendev-lab/spark-turn";
-import { loadBuiltinSkills } from "@zendev-lab/spark-host/builtin-skills";
+import { loadBuiltinSkills } from "@zendev-lab/spark-roles/builtin-skills";
 
 async function writeSkill(
   root: string,

@@ -47,7 +47,7 @@ import {
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
   renderSparkChannelSurfacePrompt,
-} from "@zendev-lab/spark-host/system-prompt";
+} from "@zendev-lab/spark-extension/system-prompt";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   refreshSparkSessionSnapshotIndex,
@@ -55,6 +55,7 @@ import {
 } from "@zendev-lab/spark-session";
 import {
   isSparkTurnRestartYieldError,
+  type SparkDshTurnRuntime,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import {
@@ -134,6 +135,8 @@ class ChannelReplyTerminalPresentedError extends Error {
 
 export interface SparkDaemonTaskExecutorOptions {
   paths: SparkPaths;
+  /** Shared daemon DSH root inherited by every Invocation-owned Agent handle. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
   cwd?: string;
   /** Resolve the current daemon-local root for workspace-owned state. */
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
@@ -249,6 +252,7 @@ export function createSparkDaemonTaskExecutor(
     sessionCompactor = createSessionCompactor({
       ...(options.paths.sessionRuntimeDir ? { sparkHome: options.paths.sessionRuntimeDir } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+      ...(options.dshContext ? { dshContext: options.dshContext } : {}),
     });
     return sessionCompactor;
   };
@@ -261,6 +265,7 @@ export function createSparkDaemonTaskExecutor(
     sessionExecutor = createSessionExecutor({
       ...(options.paths.sessionRuntimeDir ? { sparkHome: options.paths.sessionRuntimeDir } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+      ...(options.dshContext ? { dshContext: options.dshContext } : {}),
     });
     return sessionExecutor;
   };

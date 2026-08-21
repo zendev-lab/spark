@@ -2,7 +2,8 @@
 
 import { resolve } from "node:path";
 
-import type { SparkHostAPI } from "@zendev-lab/spark-core";
+import type { Context, Plugin } from "@deepseek-ai/cordis";
+import type { SparkDshToolPolicyMetadata, SparkHostAPI } from "@zendev-lab/spark-core";
 import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
 
 import sparkAskExtension, { type SparkAskDaemonRequest } from "@zendev-lab/spark-ask/extension";
@@ -10,13 +11,14 @@ import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";
 import sparkCueExtension from "@zendev-lab/spark-cue/extension";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesExtension from "@zendev-lab/spark-files/extension";
-import sparkFusionExtension from "@zendev-lab/spark-fusion/extension";
+import * as dshFusionPlugin from "@zendev-lab/dsh-tool-fusion";
 import sparkMemoryExtension, {
   type SparkMemoryExtensionApi,
 } from "@zendev-lab/spark-memory/extension";
 import sparkRolesExtension from "@zendev-lab/spark-roles/extension";
 import sparkSessionExtension from "@zendev-lab/spark-session/extension";
 import sparkWebExtension from "@zendev-lab/spark-tool-web/extension";
+import { encodeSparkAuxiliaryModelRoute } from "@zendev-lab/spark-turn";
 import sparkWorkflowsExtension from "@zendev-lab/spark-workflows/extension";
 
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
@@ -26,12 +28,56 @@ import sparkModelsExtension from "@zendev-lab/spark-llm/models-extension";
 import sparkExtension from "../extension/index.ts";
 import { createAskBackedMemoryApprovalVerifier } from "../extension/memory-approval-verifier.ts";
 
+declare module "@deepseek-ai/dsh-tools" {
+  interface ToolDefinition {
+    /** Product policy is attached by Spark composition, never by the reusable DSH tool. */
+    readonly sparkPolicy?: SparkDshToolPolicyMetadata;
+  }
+}
+
+const SPARK_FUSION_POLICY = Object.freeze({
+  effect: "read",
+  executionMode: "sequential",
+  domains: ["models", "deliberation"],
+  modes: ["plan", "execute"],
+  approval: "required",
+  reconcile: "none",
+} as const satisfies SparkDshToolPolicyMetadata);
+
+const SPARK_FUSION_PLUGIN: Plugin = {
+  name: dshFusionPlugin.name,
+  inject: dshFusionPlugin.inject,
+  apply(ctx: Context) {
+    ctx.tools.register({
+      ...dshFusionPlugin.createDshFusionTool(ctx, {
+        resolveModel(override, fallback) {
+          if (!override) return fallback;
+          if (!fallback) return undefined;
+          const separator = override.indexOf("/");
+          const provider = separator > 0 ? override.slice(0, separator).trim() : undefined;
+          const model = (separator > 0 ? override.slice(separator + 1) : override).trim();
+          if (!model) return undefined;
+          return {
+            provider: fallback.provider,
+            model: encodeSparkAuxiliaryModelRoute(model, provider),
+          };
+        },
+      }),
+      sparkPolicy: SPARK_FUSION_POLICY,
+    });
+    ctx.systemPrompt.section({
+      name: "tool:fusion",
+      order: 120,
+      text: dshFusionPlugin.FUSION_TOOL_GUIDANCE.join(" "),
+    });
+  },
+};
+
 export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-ask"
   | "@zendev-lab/spark-artifacts"
   | "@zendev-lab/spark-cue"
   | "@zendev-lab/spark-files"
-  | "@zendev-lab/spark-fusion"
   | "@zendev-lab/spark-graft"
   | "@zendev-lab/spark-memory"
   | "@zendev-lab/spark-roles"
@@ -58,6 +104,12 @@ export interface SparkExtensionLoadOutcome {
 }
 
 export interface SparkExtensionLoadResult {
+  outcomes: SparkExtensionLoadOutcome[];
+}
+
+export interface SparkAgentPluginSelection {
+  extensionSpecs: string[];
+  agentPlugins: Plugin[];
   outcomes: SparkExtensionLoadOutcome[];
 }
 
@@ -90,11 +142,6 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     name: "@zendev-lab/spark-files",
     specifier: "@zendev-lab/spark-files/extension",
     factory: sparkFilesExtension as SparkCapabilityFactory,
-  },
-  {
-    name: "@zendev-lab/spark-fusion",
-    specifier: "@zendev-lab/spark-fusion/extension",
-    factory: sparkFusionExtension as SparkCapabilityFactory,
   },
   {
     name: "@zendev-lab/spark-llm",
@@ -137,6 +184,26 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     factory: sparkExtension as SparkCapabilityFactory,
   },
 ];
+
+/**
+ * Split Cordis-native Agent plugins from the temporary SparkHostAPI loader.
+ * The root package specifier is intentionally the only accepted Fusion ABI;
+ * the removed `/legacy` factory now produces the normal migration error.
+ */
+export function selectSparkAgentPlugins(specifiers: readonly string[]): SparkAgentPluginSelection {
+  const extensionSpecs: string[] = [];
+  const agentPlugins: Plugin[] = [];
+  const outcomes: SparkExtensionLoadOutcome[] = [];
+  for (const specifier of specifiers) {
+    if (specifier === "@zendev-lab/dsh-tool-fusion") {
+      agentPlugins.push(SPARK_FUSION_PLUGIN);
+      outcomes.push({ specifier, kind: "extension", ok: true, builtin: true });
+      continue;
+    }
+    extensionSpecs.push(specifier);
+  }
+  return { extensionSpecs, agentPlugins, outcomes };
+}
 
 async function loadSparkMemoryExtension(api: SparkHostAPI): Promise<void> {
   if (!api.registerTool) throw new Error("Spark host does not support tool registration");

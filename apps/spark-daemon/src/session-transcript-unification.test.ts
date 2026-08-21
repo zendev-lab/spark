@@ -1,7 +1,7 @@
-import { access, mkdtemp, readdir, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { ensureDaemonSessionTranscript } from "./session-transcript-control.ts";
@@ -116,10 +116,13 @@ describe("daemon session transcript ownership", () => {
     });
     await expect(access(first.path)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(second.path)).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readdir(join(backupRoot, session.sessionId))).toEqual([
-      first.path.split("/").at(-1),
-      second.path.split("/").at(-1),
-    ]);
+    expect(await readdir(join(backupRoot, session.sessionId))).toEqual(
+      expect.arrayContaining([
+        first.path.split("/").at(-1),
+        second.path.split("/").at(-1),
+        "journal.json",
+      ]),
+    );
 
     const repeated = await unifyDaemonSessionTranscripts({
       registry: harness.registry,
@@ -130,6 +133,164 @@ describe("daemon session transcript ownership", () => {
     expect(repeated.sessions).toEqual([
       expect.objectContaining({ sessionId: session.sessionId, changed: false }),
     ]);
+  });
+
+  it("backs up and hard-cuts a canonical Pi v3 transcript to native DSH v4", async () => {
+    const harness = await createHarness("v3-hard-cut");
+    const session = await createDaemonWorkspaceSession(harness.registry, {
+      sessionId: "sess_v3_hard_cut",
+      workspaceId: "workspace",
+    });
+    const legacy = harness.store.createCanonicalSession({
+      id: session.sessionId,
+      timestamp: "2026-07-20T00:00:00.000Z",
+    });
+    const legacySource = `${[
+      {
+        type: "session",
+        version: 3,
+        id: session.sessionId,
+        timestamp: "2026-07-20T00:00:00.000Z",
+        cwd: harness.cwd,
+      },
+      {
+        type: "message",
+        id: "legacy-user",
+        parentId: null,
+        timestamp: "2026-07-20T00:00:01.000Z",
+        message: { role: "user", content: "legacy question" },
+      },
+    ]
+      .map((value) => JSON.stringify(value))
+      .join("\n")}\n`;
+    await mkdir(harness.store.sessionDir, { recursive: true });
+    await writeFile(legacy.path, legacySource, "utf8");
+    await harness.registry.bindTranscriptPath({
+      sessionId: session.sessionId,
+      sessionPath: legacy.path,
+    });
+    const backupRoot = join(harness.root, "v3-backups");
+
+    const result = await unifyDaemonSessionTranscripts({
+      registry: harness.registry,
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot,
+      apply: true,
+    });
+
+    expect(result.sessions).toEqual([
+      expect.objectContaining({ sessionId: session.sessionId, changed: true, entryCount: 1 }),
+    ]);
+    await expect(harness.store.load(legacy.path)).resolves.toMatchObject({
+      header: { version: 4 },
+      entries: [expect.objectContaining({ id: "legacy-user" })],
+    });
+    const migrated = await readFile(legacy.path, "utf8");
+    expect(migrated).toContain('"type":"user/message"');
+    expect(
+      await readFile(join(backupRoot, session.sessionId, legacy.path.split("/").at(-1)!), "utf8"),
+    ).toBe(legacySource);
+  });
+
+  it("restores backups after a pre-CAS interruption and retries idempotently", async () => {
+    const harness = await createHarness("recover-pre-cas");
+    const session = await createDaemonWorkspaceSession(harness.registry, {
+      sessionId: "sess_recover_pre_cas",
+      workspaceId: "workspace",
+    });
+    const first = harness.store.createSession({
+      id: session.sessionId,
+      timestamp: "2026-07-20T00:00:00.000Z",
+    });
+    harness.store.appendMessage(first, { role: "user", content: "first" });
+    await harness.store.save(first);
+    const second = harness.store.createSession({
+      id: session.sessionId,
+      timestamp: "2026-07-21T00:00:00.000Z",
+    });
+    harness.store.appendMessage(second, { role: "assistant", content: "second" });
+    await harness.store.save(second);
+    await harness.registry.bindTranscriptPath({
+      sessionId: session.sessionId,
+      sessionPath: second.path,
+    });
+    const backupRoot = join(harness.root, "recovery-backups");
+
+    await expect(
+      unifyDaemonSessionTranscripts({
+        registry: {
+          list: (input) => harness.registry.list(input),
+          relocateTranscriptPath: async () => {
+            throw new Error("simulated registry CAS interruption");
+          },
+        },
+        transcriptSparkHome: harness.transcriptSparkHome,
+        backupRoot,
+        apply: true,
+      }),
+    ).rejects.toThrow("simulated registry CAS interruption");
+    await expect(access(join(backupRoot, "active.json"))).resolves.toBeUndefined();
+    await expect(access(first.path)).resolves.toBeUndefined();
+    await expect(access(second.path)).resolves.toBeUndefined();
+
+    const recovered = await unifyDaemonSessionTranscripts({
+      registry: harness.registry,
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot,
+      apply: true,
+    });
+    expect(recovered.sessions).toEqual([
+      expect.objectContaining({ sessionId: session.sessionId, entryCount: 2, changed: true }),
+    ]);
+    await expect(access(join(backupRoot, "active.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    const target = harness.store.canonicalSessionPath(session.sessionId);
+    await expect(harness.store.load(target)).resolves.toMatchObject({
+      header: { version: 4 },
+      entries: [
+        expect.objectContaining({ id: first.entries[0]?.id }),
+        expect.objectContaining({ id: second.entries[0]?.id }),
+      ],
+    });
+  });
+
+  it("fails closed while another transcript migration holds the stable migration lock", async () => {
+    const harness = await createHarness("migration-lock");
+    const backupRoot = join(harness.root, "stable-migration-root");
+    let enterList!: () => void;
+    const listEntered = new Promise<void>((resolve) => {
+      enterList = resolve;
+    });
+    let releaseList!: () => void;
+    const listReleased = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const first = unifyDaemonSessionTranscripts({
+      registry: {
+        list: async () => {
+          enterList();
+          await listReleased;
+          return [];
+        },
+        relocateTranscriptPath: (input) => harness.registry.relocateTranscriptPath(input),
+      },
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot,
+      apply: true,
+    });
+    await listEntered;
+
+    await expect(
+      unifyDaemonSessionTranscripts({
+        registry: harness.registry,
+        transcriptSparkHome: harness.transcriptSparkHome,
+        backupRoot,
+        apply: true,
+      }),
+    ).rejects.toThrow("another transcript migration is active");
+
+    releaseList();
+    await expect(first).resolves.toEqual({ backupRoot, sessions: [] });
+    await expect(access(`${backupRoot}.lock`)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("does not back up a closing discard-on-close transcript", async () => {

@@ -710,6 +710,7 @@ async function runTaskCommand(input: {
       ...((context.controlSparkHome ?? context.sparkHome)
         ? { controlSparkHome: context.controlSparkHome ?? context.sparkHome }
         : {}),
+      ...(context.dshContext ? { dshContext: context.dshContext } : {}),
       db: context.db,
       ...(invocation ? { invocationId: invocation.invocationId, signal: invocation.signal } : {}),
       emit(message) {

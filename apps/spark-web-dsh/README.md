@@ -1,6 +1,6 @@
 # @zendev-lab/spark-web-dsh
 
-Spark-owned **DSH compatibility web application**. `spark web-dsh` /
+Spark-owned **DSH-hosted web application**. `spark web-dsh` /
 `spark-web-dsh` boot the installed
 DeepSeek Harness web profile with Cue, LLM, and provider-onboarding plugins.
 Search/fetch tools live in `@zendev-lab/spark-tool-web`.
@@ -14,8 +14,9 @@ spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080
 ```
 
 Initialize the DSH profile once with `dsh web` before the first Spark boot.
-`pnpm --filter @zendev-lab/spark-web-dsh run build` writes the host and client
-bundles under `lib/`.
+`pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the
+host and client bundles under ignored `lib/`; release build and smoke generate
+them instead of relying on tracked output.
 
 For the supported DSH release, Spark rejects cold history artifacts larger than 8 MiB
 before upstream `inspect()` can materialize the complete transcript. Servable

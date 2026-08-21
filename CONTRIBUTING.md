@@ -38,7 +38,7 @@ supported packages.
 | `apps/spark-cli` | Native root parser, diagnostics, and companion process router |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
 | `apps/spark-web` | Local daemon browser workbench: every workspace bound to this daemon |
-| `apps/spark-web-dsh` | Optional DeepSeek Harness compatibility workbench |
+| `apps/spark-web-dsh` | DeepSeek Harness-hosted Spark product workbench |
 | `apps/spark-hub` | Multi-daemon proxy, auth, registry, and management UI |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |

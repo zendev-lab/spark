@@ -1,7 +1,30 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { SparkHostRuntime, SparkProviderRegistry, loadPlugins } from "../host/index.ts";
+import {
+  SparkHostRuntime,
+  SparkProviderRegistry,
+  loadPlugins,
+  selectSparkAgentPlugins,
+} from "../host/index.ts";
+
+test("selectSparkAgentPlugins removes Cordis plugins from the SparkHostAPI loader", () => {
+  const selection = selectSparkAgentPlugins([
+    "@zendev-lab/spark-files/extension",
+    "@zendev-lab/dsh-tool-fusion",
+  ]);
+
+  assert.deepEqual(selection.extensionSpecs, ["@zendev-lab/spark-files/extension"]);
+  assert.equal(selection.agentPlugins.length, 1);
+  assert.deepEqual(selection.outcomes, [
+    {
+      specifier: "@zendev-lab/dsh-tool-fusion",
+      kind: "extension",
+      ok: true,
+      builtin: true,
+    },
+  ]);
+});
 
 test("loadPlugins invokes extension default factory with the host runtime", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-plugin-loader-test" });

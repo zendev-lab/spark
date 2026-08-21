@@ -3,6 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
+import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
+import { defineTool, type JsonValue } from "@deepseek-ai/dsh-tools";
 
 import type {
   AssistantMessage,
@@ -17,7 +19,11 @@ import {
   MODEL_EMPTY_RESPONSE_ERROR_CODE,
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
 } from "@zendev-lab/spark-llm";
-import { assertRef, type SparkHostDelegationEnvelope } from "@zendev-lab/spark-core";
+import {
+  assertRef,
+  type SparkDshToolPolicyMetadata,
+  type SparkHostDelegationEnvelope,
+} from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
   SPARK_PROTOCOL_VERSION,
@@ -32,6 +38,7 @@ import {
   resolveSparkPromptCache,
   SparkTurnRestartYieldError,
   splitSparkSystemPrompt,
+  type SparkBeforeProviderRequest,
   type SparkBeforeToolCallsCheckpoint,
   type SparkAgentLoopEvent,
   type SparkAgentStreamFunction,
@@ -39,6 +46,7 @@ import {
   type SparkTurnLlm,
 } from "./agent-loop.ts";
 import { asSparkTurnLlm } from "./turn-llm.ts";
+import { createSparkDshTurnTestRuntime } from "./testing/dsh-runtime.ts";
 import { evaluateSparkBehavior } from "./behavior-eval.ts";
 import {
   lowerSparkPromptItem,
@@ -451,6 +459,32 @@ function makeFakeStream(plan: FakeStreamPlan): SparkAgentStreamFunction {
     return iterable;
   };
   return fake;
+}
+
+function nativeToolPlugin(
+  name: string,
+  policy: SparkDshToolPolicyMetadata,
+  execute: () => Promise<Record<string, JsonValue>>,
+): CordisPlugin {
+  return {
+    name: `test-${name}`,
+    apply(ctx: CordisContext) {
+      const definition = {
+        ...defineTool({
+          name,
+          description: `Native ${name} test tool`,
+          parameters: {},
+          output: {
+            schema: { type: "object", additionalProperties: true },
+            render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }],
+          },
+          execute,
+        }),
+        sparkPolicy: policy,
+      };
+      ctx.tools.register(definition);
+    },
+  };
 }
 
 async function waitForCondition(predicate: () => boolean, message: string): Promise<void> {
@@ -3456,6 +3490,188 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
   assert.match(JSON.stringify(toolResult), /no tool execution occurred/u);
 });
 
+test("SparkAgentLoop applies human approval to a Cordis-native DSH tool", async () => {
+  const interactionRequests: unknown[] = [];
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-native-approval",
+    ui: {
+      interaction: async (request) => {
+        interactionRequests.push(request);
+        return {
+          version: SPARK_PROTOCOL_VERSION,
+          kind: "toolApproval",
+          requestId: request.requestId,
+          status: "blocked",
+          approved: false,
+          message: "native denied",
+          metadata: {},
+        };
+      },
+    },
+  });
+  let executions = 0;
+  let preparedRequest: SparkBeforeProviderRequest | undefined;
+  const manifests: SparkAgentLoopEvent[] = [];
+  const firstAssistant = buildAssistant(
+    [{ type: "toolCall", id: "native-approval-call", name: "native_guarded", arguments: {} }],
+    "toolUse",
+  );
+  const fake = makeFakeStream({
+    rounds: [
+      [{ type: "done", reason: "toolUse", message: firstAssistant }],
+      [
+        {
+          type: "done",
+          reason: "stop",
+          message: buildAssistant([{ type: "text", text: "native denial observed" }]),
+        },
+      ],
+    ],
+  });
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(fake),
+    getModel: () => TEST_MODEL,
+    beforeProviderRequest: (request) => {
+      preparedRequest = request;
+    },
+    agentPlugins: [
+      nativeToolPlugin(
+        "native_guarded",
+        {
+          effect: "read",
+          executionMode: "sequential",
+          domains: ["test"],
+          modes: ["execute"],
+          approval: "required",
+          reconcile: "none",
+        },
+        async () => {
+          executions += 1;
+          return { ok: true };
+        },
+      ),
+    ],
+  });
+  loop.onEvent((event) => {
+    if (event.type === "prompt_manifest") manifests.push(event);
+  });
+  loop.setCurrentMode("execute");
+
+  await loop.submit("try native guarded tool");
+
+  assert.equal(executions, 0);
+  assert.equal(interactionRequests.length, 1);
+  assert.equal((interactionRequests[0] as { kind?: unknown } | undefined)?.kind, "toolApproval");
+  assert.equal(
+    preparedRequest?.context.tools?.some((tool) => tool.name === "native_guarded"),
+    true,
+  );
+  const lastManifest = manifests.at(-1);
+  assert.equal(lastManifest?.type, "prompt_manifest");
+  assert.deepEqual(
+    lastManifest?.type === "prompt_manifest"
+      ? lastManifest.manifest.tools.find((tool) => tool.name === "native_guarded")
+      : undefined,
+    {
+      name: "native_guarded",
+      effect: "read",
+      executionMode: "sequential",
+      approval: "required",
+      domains: ["test"],
+      modes: ["execute"],
+    },
+  );
+  assert.equal(
+    loop
+      .getMessages()
+      .some(
+        (message) =>
+          message.role === "toolResult" && message.toolName === "native_guarded" && message.isError,
+      ),
+    true,
+  );
+});
+
+test("SparkAgentLoop hides and denies a DSH tool outside the host effect allowlist", async () => {
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-native-effect-policy",
+    allowedToolEffects: ["read"],
+  });
+  let executions = 0;
+  const contexts: Context[] = [];
+  const planned = makeFakeStream({
+    rounds: [
+      [
+        {
+          type: "done",
+          reason: "toolUse",
+          message: buildAssistant(
+            [
+              {
+                type: "toolCall",
+                id: "native-effect-call",
+                name: "native_write",
+                arguments: {},
+              },
+            ],
+            "toolUse",
+          ),
+        },
+      ],
+      [
+        {
+          type: "done",
+          reason: "stop",
+          message: buildAssistant([{ type: "text", text: "native write denied" }]),
+        },
+      ],
+    ],
+  });
+  const fake: SparkAgentStreamFunction = (model, context, options) => {
+    contexts.push(context);
+    return planned(model, context, options);
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(fake),
+    getModel: () => TEST_MODEL,
+    agentPlugins: [
+      nativeToolPlugin(
+        "native_write",
+        {
+          effect: "local_write",
+          executionMode: "sequential",
+          domains: ["filesystem"],
+          modes: ["execute"],
+          approval: "required",
+          reconcile: "tool_owner",
+        },
+        async () => {
+          executions += 1;
+          return { ok: true };
+        },
+      ),
+    ],
+  });
+  loop.setCurrentMode("execute");
+
+  await loop.submit("try native write");
+
+  assert.equal(executions, 0);
+  assert.equal(
+    contexts[0]?.tools?.some((tool) => tool.name === "native_write"),
+    false,
+  );
+  const result = asToolResult(
+    loop
+      .getMessages()
+      .find((message) => message.role === "toolResult" && message.toolName === "native_write"),
+  );
+  assert.equal(result?.isError, true);
+  assert.match(JSON.stringify(result), /denied by Spark policy/u);
+});
+
 test("manual_only authority excludes standalone WorkflowRuns and includes real drivers", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-manual-only-driver-authority" });
   host.registerTool({
@@ -5011,7 +5227,7 @@ test("SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately bef
   assert.match(toolResultText(results[1]), /denied by host policy: mutate/u);
 });
 
-test("SparkAgentLoop runs a scripted turn from llm without Context", async () => {
+test("SparkAgentLoop runs a structural llm through an explicit isolated test runtime", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-llm-only" });
   const llm: SparkTurnLlm = {
     async *stream() {
@@ -5019,6 +5235,7 @@ test("SparkAgentLoop runs a scripted turn from llm without Context", async () =>
       yield { type: "usage", usage: { inputTokens: 1, outputTokens: 2 } };
       yield { type: "finish", reason: { kind: "stop" } };
     },
+    createDshTestRuntime: createSparkDshTurnTestRuntime,
   };
   const loop = new SparkAgentLoop({
     host,

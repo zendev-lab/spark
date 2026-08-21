@@ -177,7 +177,7 @@ describe("loadSparkSessionSnapshot", () => {
     expect(history.truncated).toBe(true);
   });
 
-  it("projects DSH session JSONL spark/entry events as native messages", async () => {
+  it("projects and indexes authoritative native DSH messages without spark/record copies", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-session-dsh-snapshot-"));
     roots.push(root);
     const transcriptPath = join(root, "session.jsonl");
@@ -191,38 +191,98 @@ describe("loadSparkSessionSnapshot", () => {
           type: "spark/meta",
           seq: 0,
           time: createdAt,
-          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 3 },
+          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 4 },
           ignorable: true,
         }),
         JSON.stringify({
-          type: "spark/entry",
+          type: "turn/start",
           seq: 1,
           time: createdAt + 1,
-          data: {
-            entry: {
-              type: "message",
-              id: "user-1",
-              parentId: null,
-              timestamp: "2026-08-20T00:00:01.000Z",
-              message: { role: "user", content: "dsh user" },
-            },
-          },
-          ignorable: true,
+          data: { turn: 1 },
         }),
         JSON.stringify({
-          type: "spark/entry",
+          type: "user/message",
           seq: 2,
           time: createdAt + 2,
           data: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "dsh user" }],
+            source: { kind: "user" },
+          },
+          surfaceOp: "append",
+        }),
+        JSON.stringify({
+          type: "spark/message-meta",
+          seq: 3,
+          time: createdAt + 3,
+          data: {
+            position: 0,
             entry: {
-              type: "message",
+              id: "user-1",
+              parentId: null,
+              timestamp: "2026-08-20T00:00:01.000Z",
+            },
+            eventSeq: 2,
+            role: "user",
+            contentShape: "string",
+            messageMeta: {},
+            blockMeta: [{}],
+          },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "step/start",
+          seq: 4,
+          time: createdAt + 4,
+          data: { turn: 1, step: 1 },
+        }),
+        JSON.stringify({
+          type: "assistant/message",
+          seq: 5,
+          time: createdAt + 5,
+          data: {
+            turn: 1,
+            step: 1,
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              content: [{ type: "text", text: "dsh assistant" }],
+              source: { kind: "model", provider: "test", model: "test" },
+            },
+          },
+          surfaceOp: "append",
+        }),
+        JSON.stringify({
+          type: "step/end",
+          seq: 6,
+          time: createdAt + 6,
+          data: { turn: 1, step: 1 },
+        }),
+        JSON.stringify({
+          type: "spark/message-meta",
+          seq: 7,
+          time: createdAt + 7,
+          data: {
+            position: 1,
+            entry: {
               id: "assistant-1",
               parentId: "user-1",
               timestamp: "2026-08-20T00:00:02.000Z",
-              message: { role: "assistant", content: "dsh assistant" },
             },
+            eventSeq: 5,
+            role: "assistant",
+            contentShape: "string",
+            messageMeta: { provider: "test", model: "test" },
+            blockMeta: [{}],
           },
           ignorable: true,
+        }),
+        JSON.stringify({
+          type: "turn/end",
+          seq: 8,
+          time: createdAt + 8,
+          data: { turn: 1, reason: { kind: "completed" } },
         }),
       ].join("\n")}\n`,
       "utf8",
@@ -242,6 +302,18 @@ describe("loadSparkSessionSnapshot", () => {
     expect(snapshot.messages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
     expect(snapshot.messages[0]?.text).toBe("dsh user");
     expect(snapshot.messages[1]?.text).toBe("dsh assistant");
+    await refreshSparkSessionSnapshotIndex({ sessionPath: transcriptPath, sessionId });
+    const indexed = await loadSparkSessionSnapshotTail({
+      sessionsRoot: root,
+      session,
+      messageLimit: 2,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(indexed.snapshot.messages.map((message) => message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(indexed.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
   });
 
   it("rebuilds an older additive index once before bounded prompt reads", async () => {

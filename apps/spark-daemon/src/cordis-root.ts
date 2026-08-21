@@ -1,13 +1,29 @@
 /**
- * Process-local Cordis root for daemon store composition and session persistence.
+ * Process-local Cordis root for daemon stores and the shared DSH runtime.
  *
  * Invocation, channel, loop, and retry data authority stays in Spark SQLite.
  * Live sessions are `ctx.sessions`; JSONL durability is dsh-session-persistence
- * with Spark's PersistenceBackend. This module does not own the LLM island.
+ * with Spark's PersistenceBackend. Agent handles remain invocation-owned and
+ * are mounted only after transcript migration makes their surface native DSH.
  */
-import { Context } from "@deepseek-ai/cordis";
+import { lstatSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Context, type Plugin } from "@deepseek-ai/cordis";
+import AgentRegistry from "@deepseek-ai/dsh-agent";
+import AgentLoop from "@deepseek-ai/dsh-agent-loop";
+import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
+import LlmRuntime from "@deepseek-ai/dsh-llm";
 import { SessionStore } from "@deepseek-ai/dsh-session";
+import SkillRegistry from "@deepseek-ai/dsh-skill";
+import * as SkillFileSystem from "@deepseek-ai/dsh-skill-filesystem";
+import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
+import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
+import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
+import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
+import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "@zendev-lab/spark-turn";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
 import { SparkDaemonInvocationRegistry } from "./core/index.ts";
@@ -52,9 +68,41 @@ export interface SparkDaemonCordisRoot {
 
 export interface SparkDaemonCordisRootOptions {
   sessionsRoot: string;
+  /** Root containing the verified product-owned `spark-cue` Skill directory. */
+  sparkCueSkillRoot?: string;
   /** Reuse the process root opened before daemon adapters are constructed. */
   ctx?: Context;
 }
+
+export interface SparkDaemonHeadlessCordisRootOptions {
+  dshHome: string;
+  /** Root containing the verified product-owned `spark-cue` Skill directory. */
+  sparkCueSkillRoot?: string;
+  /** Test-only reuse seam. Production workers open their own process root. */
+  ctx?: Context;
+}
+
+const SPARK_CUE_SKILL_NAME = "spark-cue";
+const SPARK_DAEMON_SKILL_PROVIDER = "spark-daemon";
+const SPARK_SKILL_TOOL_POLICY = Object.freeze({
+  effect: "read",
+  executionMode: "sequential",
+  domains: ["skills"],
+  modes: ["plan", "execute"],
+  approval: "none",
+  reconcile: "none",
+} as const satisfies SparkDshToolPolicyMetadata);
+
+const SPARK_SKILL_TOOL_PLUGIN: Plugin = {
+  name: SkillTool.name,
+  inject: SkillTool.inject,
+  apply(ctx: Context) {
+    SkillTool.apply(ctx);
+    const definition = ctx.tools.get("skill");
+    if (!definition) throw new Error("Spark daemon failed to register the DSH skill tool");
+    Object.assign(definition, { sparkPolicy: SPARK_SKILL_TOOL_POLICY });
+  },
+};
 
 const STORE_NAMES = [
   "sparkInvocations",
@@ -99,13 +147,95 @@ export async function createSparkDaemonCordisRoot(
   const dispose = createSparkDaemonCordisDispose(ctx);
   try {
     await mountSparkDaemonStorePlugin(ctx, stores);
-    await ctx.plugin(SessionStore);
-    await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
+    await mountSparkDshRuntime(ctx, {
+      dshHome: dirname(options.sessionsRoot),
+      sessionsRoot: options.sessionsRoot,
+      sparkCueSkillRoot: resolveSparkCueSkillRoot(options.sparkCueSkillRoot),
+    });
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;
   }
   return { ctx, dispose };
+}
+
+/**
+ * Process root for the isolated daemon-native compatibility worker.
+ *
+ * A worker cannot borrow the daemon Context across the worker-thread boundary,
+ * so the daemon composition owner mounts the same execution services without a
+ * second durable Session writer. The worker is one request and always disposes
+ * this root before it exits.
+ */
+export async function createSparkDaemonHeadlessCordisRoot(
+  options: SparkDaemonHeadlessCordisRootOptions,
+): Promise<SparkDaemonCordisRoot> {
+  const ctx = options.ctx ?? openSparkDaemonCordisContext();
+  const dispose = createSparkDaemonCordisDispose(ctx);
+  try {
+    await mountSparkDshRuntime(ctx, {
+      dshHome: options.dshHome,
+      sparkCueSkillRoot: resolveSparkCueSkillRoot(options.sparkCueSkillRoot),
+    });
+  } catch (error) {
+    await dispose().catch(() => undefined);
+    throw error;
+  }
+  return { ctx, dispose };
+}
+
+async function mountSparkDshRuntime(
+  ctx: Context,
+  options: { dshHome: string; sessionsRoot?: string; sparkCueSkillRoot: string },
+): Promise<void> {
+  await ctx.plugin(SessionStore);
+  if (options.sessionsRoot) {
+    await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
+  }
+  await ctx.plugin(LocalAttachmentStore, { dshHome: options.dshHome });
+  await ctx.plugin(LlmRuntime);
+  await ctx.plugin(SystemPrompt);
+  await ctx.plugin(ToolRuntime);
+  await ctx.plugin(SkillRegistry);
+  await ctx.plugin(SkillFileSystem, {
+    providerName: SPARK_DAEMON_SKILL_PROVIDER,
+    includeDefaultRoots: false,
+    bundledSkillDir: options.sparkCueSkillRoot,
+    dshHome: options.dshHome,
+    watch: false,
+  });
+  await ctx.plugin(AgentRegistry);
+  await ctx.plugin(SPARK_SKILL_TOOL_PLUGIN);
+  await ctx.plugin(AgentLoop, {
+    agents: [],
+    maxParallelToolCalls: DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS,
+  });
+}
+
+export function resolveSparkCueSkillRoot(explicitRoot?: string): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
+  const candidates = explicitRoot
+    ? [resolve(explicitRoot)]
+    : [
+        ...(productDist ? [resolve(productDist, "../skills")] : []),
+        resolve(moduleDir, "../skills"),
+        resolve(moduleDir, "../../../vendor/cue/skills"),
+        resolve(process.cwd(), "vendor/cue/skills"),
+      ];
+  for (const root of new Set(candidates)) {
+    try {
+      const skillFile = lstatSync(join(root, SPARK_CUE_SKILL_NAME, "SKILL.md"));
+      if (skillFile.isFile() && !skillFile.isSymbolicLink()) return root;
+    } catch {
+      // Try the next product/source layout candidate.
+    }
+  }
+  throw new Error(
+    `Spark daemon could not find the verified ${SPARK_CUE_SKILL_NAME} Skill under: ${[
+      ...new Set(candidates),
+    ].join(", ")}`,
+  );
 }
 
 export function sparkDaemonStoresFromContext(ctx: Context): SparkDaemonStoreServices {

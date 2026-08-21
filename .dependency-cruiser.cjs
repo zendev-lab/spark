@@ -47,10 +47,11 @@ module.exports = {
     {
       name: "no-direct-dsh-llm",
       comment:
-        "dsh-llm is limited to the composition root, the provider adapter family, and the turn-loop driver.",
+        "dsh-llm is limited to the daemon composition root, the provider adapter family, and the transitional turn-loop driver.",
       severity: "error",
       from: {
-        pathNot: "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/)",
+        pathNot:
+          "^(apps/spark-daemon/|packages/spark-extension/|packages/spark-llm/|packages/spark-turn/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-llm(?:/|$)|/node_modules/@deepseek-ai/dsh-llm(?:/|$)|^@deepseek-ai/dsh-llm(?:/|$)",

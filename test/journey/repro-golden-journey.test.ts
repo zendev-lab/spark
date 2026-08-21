@@ -18,7 +18,7 @@ import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import {
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";

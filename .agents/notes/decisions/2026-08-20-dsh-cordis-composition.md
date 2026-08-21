@@ -2,8 +2,8 @@
 
 ## Decision
 
-Cordis is Spark's composition runtime for three process-local roots. It is not
-a Spark Session, Invocation, or transcript owner. This **supersedes**:
+Cordis is Spark's composition runtime for one process-local daemon root. It is
+not a Spark Invocation, channel, fleet, or retry owner. This **supersedes**:
 
 - [`2026-08-18-dsh-llm-cordis-island.md`](./2026-08-18-dsh-llm-cordis-island.md)
   ("Cordis is only a process-local `dsh-llm` island");
@@ -13,29 +13,34 @@ a Spark Session, Invocation, or transcript owner. This **supersedes**:
   already lifted by
   [`2026-08-20-dsh-session-persistence.md`](./2026-08-20-dsh-session-persistence.md).
 
-The three roots:
+The daemon Cordis root (`apps/spark-daemon`) mounts Spark SQLite stores as
+services plus `SessionStore`, persistence, attachment storage, `LlmRuntime`,
+`SystemPrompt`, `ToolRuntime`, `AgentRegistry`, and `AgentLoop`. Process
+shutdown disposes `ctx.fiber`; production packages do not create another
+`Context`.
 
-1. **Daemon Cordis root** (`apps/spark-daemon`) mounts Spark SQLite stores as
-   services and `ctx.sessions` / `ctx.sessionPersistence`. Dispose is
-   `ctx.fiber.dispose()`. Invocation, channel, fleet, and retry **data
-   authority stays Spark SQLite**.
-2. **LLM island** (`packages/spark-extension`) still mounts `dsh-llm` and
-   exposes `LlmRuntime`, never `Context`, through
-   `createSparkLlmComposition()`.
-3. **Turn driver** (`packages/spark-turn`) mounts
-   `SessionStore → LlmRuntime → SystemPrompt → ToolRuntime → AgentRegistry →
-   AgentLoop` per drive. `dsh-agent-loop@0.1.0-rc.7` is the low-level driver.
-   `SparkAgentLoop` remains the host facade (prompt items, outbox, views,
-   Spark tool policy). `packages/spark-loop` stays the goal/tick owner. Do not
-   add a second Spark `AgentFactory`. Do not import `dsh-goal`.
+Each Spark Invocation creates or resumes its DSH Agent by Session ID on that
+shared root. Invocation setup registers scoped tool hooks and a unique LLM
+provider route, the Agent flushes its native transcript before completion, and
+then only the Agent handle and Invocation routes are disposed. The daemon
+scheduler remains the sole owner of cross-Invocation serialization, channel,
+fleet, and retry durability; the DSH inbox is not a second scheduler.
+
+The supported DSH ABI supplies the low-level turn driver.
+`SparkAgentLoop` temporarily remains the host facade for prompt items, outbox,
+views, and Spark tool policy while those capabilities move to Cordis plugins.
+`packages/spark-loop` stays the goal/tick owner. Do not add a second Spark
+`AgentFactory` or import `dsh-goal`.
 
 Import allowlist (enforced by `.dependency-cruiser.cjs`):
 
-- `@deepseek-ai/cordis`: `spark-extension`, `spark-llm`, `spark-turn`,
-  `apps/spark-daemon`.
-- `@deepseek-ai/dsh-llm`: `spark-extension`, `spark-llm`, `spark-turn`.
-- `@deepseek-ai/dsh-session` / `dsh-session-persistence`: `apps/spark-daemon`,
-  `spark-turn`.
+- `@deepseek-ai/cordis`: production `Context` construction belongs only to
+  `apps/spark-daemon`; packages may consume the injected context. Isolated test
+  helpers may construct their own root.
+- `@deepseek-ai/dsh-llm`: `apps/spark-daemon`, `spark-extension`, `spark-llm`,
+  and the temporary `spark-turn` facade consume the shared service.
+- `@deepseek-ai/dsh-session` / `dsh-session-persistence`: `apps/spark-daemon`
+  owns composition and `spark-turn` consumes the injected session services.
 
 A Cordis Fiber is not a Spark Session. Spark Session registry, mailbox, and
 invocation durability stay daemon-owned. Session projections stay Spark-owned;
@@ -46,10 +51,10 @@ no public dsh↔pi reverse bridge.
 
 ## Rationale
 
-Stage 5 needs `ctx.sessions` and AgentLoop on Cordis. Keeping Cordis as an LLM
-island would force a second composition story for the same process. Expanding
-the allowlist while keeping SQLite and Session registry ownership avoids a
-second scheduler or transcript writer.
+Agent resume/dispose needs `ctx.sessions`, `ctx.agents`, and the provider
+registry to share one lifecycle. A single daemon root removes the duplicated
+LLM and per-drive compositions while keeping SQLite scheduling and Session
+registry ownership unchanged.
 
 ## Consequences
 
@@ -61,3 +66,7 @@ second scheduler or transcript writer.
   around the driver.
 - `SparkTurnResumeCheckpoint` and invocation SQLite are not replaced by the
   AgentLoop session log.
+- `SparkSessionStore` remains a stack-internal projection API for non-model
+  records and inactive branches. Active and newly appended messages project
+  from native DSH events; they are not duplicated into a second transcript
+  format.

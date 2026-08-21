@@ -36,7 +36,7 @@ export interface SparkMemoryDirectIntentTurnAuthority {
 }
 
 /**
- * Host-private one-turn authority. The private key and exact prompt binding stay
+ * Memory-owned one-turn authority. The private key and exact prompt binding stay
  * inside this closure; only the signed public receipt reaches capability code.
  */
 export function createSparkMemoryDirectIntentTurnAuthority(): SparkMemoryDirectIntentTurnAuthority {
