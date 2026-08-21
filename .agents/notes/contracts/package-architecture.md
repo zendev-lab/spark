@@ -231,10 +231,10 @@ not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.
 
-The current package budget is closed at 41 after retiring `spark-tui`,
-`spark-tui-adapter`, and `pi-spark`. Raising or replacing that budget requires
-an explicit architecture decision in the inventory rather than a new constant
-in a checker.
+The current package budget is closed at 42. The machine-readable inventory owns
+the current count and rationale. Raising or replacing that budget requires an
+explicit architecture decision in the inventory rather than a new constant in
+a checker.
 
 ## Deliberate boundaries
 

@@ -9,7 +9,7 @@ description: 在协调工作前，先区分 Role 定义、Session lineage 与消
 | --- | --- | --- |
 | Role | 单一可复用职责、权限叠加与可选预载 Skill | 每次 Invocation 冻结定义与精确 Skill 组合 |
 | Session | 执行上下文、历史、队列和 mailbox | 由 Owner 派生 persistent、scoped 或 ephemeral 生命周期 |
-| Channel | 飞书（Feishu）、如流（Infoflow）或 QQ Bot 对话 | 绑定到 scoped Session 的路由别名 |
+| Channel | 飞书（Feishu）、如流（Infoflow）或 QQ Bot 对话 | 绑定 daemon root Session 的全局 ingress |
 
 行为和能力策略需要复用时选择 Role。Role Session 直接遵循其声明的预载 Skill；
 `skill_agent` 只用于没有预定义 Role 的临时、自包含能力。Session 默认使用 `none`，不增加 Role prompt；
@@ -17,7 +17,8 @@ description: 在协调工作前，先区分 Role 定义、Session lineage 与消
 Session，Role call 使用仅一次 Invocation 的 ephemeral Session。
 受限的只读旁支问题使用 [Side Thread](/zh/guides/side-threads/)；它是 origin 为
 `side_thread` 的子 Session，不是另一种运行时实体。所有 child origin 都作为
-subsession 显示在同一棵递归本地 Web / Hub Session tree 中。
+subsession 显示在同一棵递归本地 Web / Hub Session tree 中。Daemon Channel
+Session 是顶层 root，与该 Workspace tree 分开展示。
 
 ## Session request 与 notification
 
@@ -36,9 +37,10 @@ session 的 mailbox 文件。
 
 ## 消息平台 Channel
 
-Channel adapter 会规范化平台入站消息，将它绑定到 workspace session，再通过
-daemon 提交。它不拥有 task、session 或执行真相。Provider 返回结果不明确时，
-出站投递会 fail closed，避免自动重复发送。
+Channel adapter 会规范化平台入站消息，在不需要 Workspace 的前提下解析私有
+daemon-scoped root Session，再通过 daemon 提交。它不拥有 task、session 或执行
+真相。Provider 返回结果不明确时，出站投递会 fail closed，避免自动重复发送。
+账号身份、存储、迁移与操作见 [Daemon 全局 Channel](/zh/guides/channels/)。
 
 为了缩小远程攻击面，channel-bound agent 只获得四个 canonical 工具：
 
@@ -47,7 +49,9 @@ daemon 提交。它不拥有 task、session 或执行真相。Provider 返回结
 - `context` 预览已注册的受限上下文 provider。
 - `todo` 跟踪当前 session 的清单。
 
-Shell 执行、role fan-out、assign 和 workflow execution 在该表面保持禁用。
+`session` 工具只能在同一 daemon scope 内 list/send。Shell、files、Git、Workspace
+或 repository Memory、role fan-out、assignment、Task 和 Workflow execution 在该
+表面保持禁用。
 
 ## MCP 客户端
 

@@ -17,7 +17,7 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 
 | Package | Mutate surface |
 | --- | --- |
-| `@zendev-lab/spark-channels` | modules with `*.test.ts` peers |
+| `@zendev-lab/dsh-channels` | modules with `*.test.ts` peers |
 | `@zendev-lab/spark-hub-coordination` | modules with `*.test.ts` peers (+ `hub-queries.ts`) |
 | `@zendev-lab/spark-session` | `action-tool`, `mail-store`, `registry`, `snapshot` |
 | `@zendev-lab/spark-artifacts` | product store/forge/types/worktree |
@@ -32,7 +32,7 @@ Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation C
 
 ```bash
 pnpm run test:mutation
-pnpm --filter @zendev-lab/spark-channels run test:mutation
+pnpm --filter @zendev-lab/dsh-channels run test:mutation
 ```
 
 CI: `.github/workflows/ce-mutation.yml` (Monday 03:17 UTC + `workflow_dispatch`, `continue-on-error`, uploads HTML/JSON reports).

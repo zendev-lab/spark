@@ -115,6 +115,11 @@ export default defineConfig({
               link: "/guides/collaboration/",
             },
             {
+              label: "Daemon Channels",
+              translations: { zh: "Daemon 全局 Channel" },
+              link: "/guides/channels/",
+            },
+            {
               label: "Side Threads",
               translations: { zh: "Side Threads" },
               link: "/guides/side-threads/",

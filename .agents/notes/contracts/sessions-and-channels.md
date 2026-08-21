@@ -1,6 +1,6 @@
 # Sessions, subsessions, mail, and channels
 
-Status: normative for Session registry v7 / protocol v3.
+Status: normative for Session registry v8 / protocol v4.
 
 ## One runtime entity
 
@@ -32,11 +32,15 @@ provenance only; TaskRef, RunRef, driver generation, retention, audit, and
 authorization remain in their owning records. There is no `owner` union,
 `stateBindingSessionId`, `presentationSessionId`, or `hiddenExecution`.
 
-Every Workspace has one protected Administrator root. All other Sessions are
-children. The daemon validates same-Workspace ancestry, rejects missing parents
-and cycles, and derives parentage only through `sparkSessionParentId(lineage)`.
-Local web and Hub render the same bounded recursive tree. Any origin may nest
-to any depth. Orphans and cycles are diagnostics, not silently reparented nodes.
+Every Workspace has one protected Administrator root. Ordinary Workspace
+Sessions are children in that Workspace scope. A daemon Channel Session is a
+separate top-level root with `lineage: { kind: "root" }`; it is not a child of a
+Workspace Administrator. The daemon validates same-scope ancestry, rejects
+missing parents and cycles, and derives parentage only through
+`sparkSessionParentId(lineage)`. Local web and Hub render the same bounded
+recursive Workspace tree, while daemon Channel roots appear in a separate
+daemon-level collection. Any child origin may nest to any depth. Orphans and
+cycles are diagnostics, not silently reparented nodes.
 
 ## Registry and projection
 
@@ -58,18 +62,32 @@ Parent activity never aliases child activity. Cancellation targets the selected
 Invocation, not a parent or descendant inferred from a busy indicator.
 `session.list` filters by `parentSessionId` before applying bounded pagination.
 
-Registry v7 migrates only v6. Startup writes backup and journal, stages the
+Registry v8 migrates only v7. Startup writes a backup and journal, stages the
 complete migration, validates readback, then atomically swaps it. Older versions
-fail closed and instruct the operator to upgrade through 0.4.0. Protocol v3 is a
-hard client cut. Runtime decoding has no legacy owner/state-binding aliases.
+fail closed and instruct the operator to upgrade through an intermediate
+release. Protocol v4 is a hard client cut. Runtime decoding has no legacy
+owner/state-binding aliases.
 
-## Cwd and Workspace
+## Scope and cwd
 
-A Session has immutable execution cwd and immutable owning Workspace. Cwd may be
-the Workspace root, a descendant, or an attached GitChange worktree. The
-Workspace may contain zero, one, or many repositories; Session admission never
-assumes cwd itself is Git. Missing, escaping, cross-Workspace, or disappeared
-paths fail closed.
+A Session has immutable scope and execution cwd. Workspace scope is
+`{ kind: "workspace", workspaceId }`; daemon scope is
+`{ kind: "daemon", daemonId }`. Cwd ownership is derived only from scope, never
+from lineage or Channel binding metadata.
+
+A Workspace Session cwd may be the Workspace root, a descendant, or an attached
+GitChange worktree. The Workspace may contain zero, one, or many repositories;
+Session admission never assumes cwd itself is Git. A daemon Channel Session has
+`purpose: "channel"`, `roleBinding: { kind: "none" }`, and a private cwd at
+`<paths.dataDir>/channels/sessions/<sessionId>/workspace`. Only the validated
+Session ID participates in that path; provider user, group, and conversation
+identifiers never do.
+
+Channel cwd creation and every execution admission verify an absolute
+directory, its real path, the expected data-directory boundary, symlink or
+reparse-point absence, and rejection of `/`. The directory is mode `0700`.
+Closing or archiving a Channel Session does not delete it. Missing, escaping,
+cross-scope, or disappeared paths fail closed.
 
 ## Transcript persistence
 
@@ -141,13 +159,56 @@ lane Session.
 
 ## Channels
 
-A message-platform Channel is a routing alias bound to a scoped Session. It is
-not a Session owner, executor, Task store, or scheduler. Inbound messages persist
-an idempotent receipt before Session submission. Outbound effects are
-fail-closed: only a provider-proven `not_sent` or provider-deduplicated identity
-may retry automatically; ambiguous delivery is durable `uncertain`.
+A message-platform Channel is daemon-global ingress and delivery bound to one
+daemon Channel Session. It is not a Session owner, executor, Task store, or
+scheduler. `@zendev-lab/dsh-channels` is the Cordis lifecycle plugin and typed
+`ctx.channels` service; Spark Session Registry, Invocation, outbox, retry,
+human wait, and SQLite remain the only durable authorities.
+
+An automatic binding is identified by
+`(adapterAccountIdentity, normalizedExternalKey)`. Account identity is stable
+across secret rotation. Duplicate configured identities are rejected, and two
+accounts with the same external key resolve to different Sessions and cwd
+directories. Automatic ingress never merges conversations; sharing a Session
+requires an explicit binding operation.
+
+Daemon-internal `resolveChannelSession()` atomically matches or creates the
+root Session, private cwd, and initial binding in one registry revision. Public
+Session creation cannot request daemon scope or supply a Channel cwd. Inbound
+messages persist an idempotent receipt before Invocation admission. Outbound
+effects are fail-closed: only a provider-proven `not_sent` or
+provider-deduplicated identity may retry automatically; ambiguous delivery is
+durable `uncertain` and never automatically resent.
 
 Channel-bound hosts expose only canonical `session`, `ask`, `context`, and
-`todo` tools. Shell execution, Role fan-out, assignment, and Workflow
-execution remain disabled. Local web, Hub, ACP, MCP, and channel transports call daemon
-owner APIs and never open registry, transcript, or mailbox storage directly.
+`todo` tools. The `session` tool may list or send only within the same daemon
+scope. Direct access to Workspace Sessions, GitChange, workspace or repository
+Memory, shell, files, Git, Role fan-out, assignment, Task, and Workflow
+execution remains disabled. Local web, Hub, ACP, MCP, and channel transports
+call daemon owner APIs and never open registry, transcript, or mailbox storage
+directly.
+
+Configuration is daemon-global at `<paths.configDir>/channels.json` with mode
+`0600`; transient transport state lives under `<paths.runtimeDir>/channels/`.
+Each configured account runs in an isolated Cordis fiber. Reload starts and
+validates a replacement generation before switching atomically; failure keeps
+the previous generation. Shutdown stops ingress, drains accepted handlers,
+stops reconcilers, closes transports, and finally disposes the daemon root
+fiber.
+
+### Registry and delivery migration
+
+The v7 to v8 migration preserves the Session ID, transcript, model, binding,
+and audit history when converting an ordinary Channel child to a daemon Channel
+root. Automatic conversion is allowed only for `roleBinding: none`, no
+descendants, no Task, Fleet, Driver, or Side Thread ownership, and no GitChange
+cwd. Any conflict leaves Channels degraded with a redacted report; it is not
+silently reparented or guessed.
+
+Legacy global and Workspace Channel configurations merge into the new global
+configuration only when account, route, and secret facts are unambiguous.
+Conflicts keep listeners stopped. Delivery payload v2 and QQ cursors key state
+by account identity; human wait and mail origins carry no Workspace route. An
+outbound record that was dispatched before migration but has no proven result
+becomes terminal `uncertain`. All migrations use backup, journal, staged
+readback, idempotent replay, and corruption recovery.

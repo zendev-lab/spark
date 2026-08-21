@@ -9,7 +9,7 @@ description: Distinguish Role definitions, Session lineage, and message-platform
 | --- | --- | --- |
 | Role | One reusable responsibility, authority overlay, and optional preloaded Skills | Definition and exact Skill composition frozen per Invocation |
 | Session | Execution context, history, queue, and mailbox | Owner-derived persistent, scoped, or ephemeral lifetime |
-| Channel | Feishu, Infoflow, or QQ Bot conversation | Routing alias bound to a scoped Session |
+| Channel | Feishu, Infoflow, or QQ Bot conversation | Daemon-global ingress bound to a daemon-owned root Session |
 
 Choose a Role when behavior and capability policy should be reusable. The
 Role Session follows its declared preloaded Skills directly; `skill_agent` is
@@ -20,6 +20,8 @@ scoped Sessions. A Role call uses a one-Invocation ephemeral Session. Use a
 [Side Thread](/guides/side-threads/) for a bounded read-only tangent; it is a
 child Session with `side_thread` origin, not another runtime entity. Every child
 origin is shown as a subsession in the same recursive local-web and Hub tree.
+Daemon Channel Sessions are top-level roots shown separately from that
+Workspace tree.
 
 ## Session requests and notifications
 
@@ -39,10 +41,12 @@ open another session's mailbox files directly.
 
 ## Message-platform channels
 
-Channel adapters normalize an inbound platform message, bind it to a workspace
-session, and submit it through the daemon. They do not own task, session, or
-execution truth. Outbound delivery fails closed when a provider response is
-ambiguous, avoiding an automatic duplicate send.
+Channel adapters normalize an inbound platform message, resolve a private
+daemon-scoped root Session without requiring a Workspace, and submit it through
+the daemon. They do not own task, session, or execution truth. Outbound delivery
+fails closed when a provider response is ambiguous, avoiding an automatic
+duplicate send. See [daemon-global Channels](/guides/channels/) for account
+identity, storage, migration, and operation.
 
 For a smaller remote attack surface, a channel-bound agent receives only four
 canonical tools:
@@ -52,8 +56,9 @@ canonical tools:
 - `context` previews bounded registered context providers.
 - `todo` tracks the current session's checklist.
 
-Shell execution, role fan-out, assignment, and workflow execution remain
-disabled on that surface.
+The `session` tool is limited to list/send in the same daemon scope. Shell,
+files, Git, Workspace or repository Memory, role fan-out, assignment, Task, and
+Workflow execution remain disabled on that surface.
 
 ## MCP clients
 
