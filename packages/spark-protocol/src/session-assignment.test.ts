@@ -50,7 +50,7 @@ function workspaceRecord(lineage: Record<string, unknown>, extra: Record<string,
 
 describe("session lineage protocol", () => {
   it.each([
-    [{ kind: "root", workspaceId: "ws_test" }, "persistent"],
+    [{ kind: "root" }, "persistent"],
     [{ kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } }, "scoped"],
     [
       {
@@ -106,7 +106,7 @@ describe("session lineage protocol", () => {
   });
 
   it.each([
-    [{ kind: "root", workspaceId: "ws_test" }, undefined],
+    [{ kind: "root" }, undefined],
     [{ kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } }, "sess_admin"],
     [
       {
@@ -236,7 +236,7 @@ describe("session lineage protocol", () => {
   });
 
   it("requires the workspace-owned Administrator projection to remain audit-retained", () => {
-    const administrator = workspaceRecord({ kind: "root", workspaceId: "ws_test" });
+    const administrator = workspaceRecord({ kind: "root" });
     expect(() => parseSparkSessionProjection({ ...administrator, retention: "retain" })).toThrow(
       /audit-retained/u,
     );
@@ -277,6 +277,38 @@ describe("session lineage protocol", () => {
     expect(audit).toMatchObject({ lifecycle: "closed", lifetime: "ephemeral" });
     expect(() => parseSparkSessionProjection({ ...audit, lifecycle: "open" })).toThrow(
       /closed audit records only/u,
+    );
+  });
+
+  it("admits only daemon-root Channel Sessions as live daemon state", () => {
+    const channel = {
+      sessionId: "sess_daemon_channel",
+      scope: { kind: "daemon", daemonId: "installation-demo" },
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      lineage: { kind: "root" },
+      incarnation: 1,
+      visibility: "public",
+      retention: "retain",
+      purpose: "channel",
+      cwd: "/private/channels/sess_daemon_channel/workspace",
+      bindings: [
+        {
+          kind: "channel",
+          adapter: "feishu",
+          adapterAccountIdentity: "feishu:tenant:app",
+          externalKey: "feishu:chat:oc_demo",
+        },
+      ],
+      ...timestamps,
+    };
+    expect(parseSparkSessionState(channel)).toMatchObject({ lineage: { kind: "root" } });
+    expect(() => parseSparkSessionState({ ...channel, roleBinding: { kind: "inherit" } })).toThrow(
+      /daemon root Sessions/u,
+    );
+    expect(() => parseSparkSessionState({ ...channel, cwdArtifactRef: "artifact:repo" })).toThrow(
+      /no role or GitChange/u,
     );
   });
 

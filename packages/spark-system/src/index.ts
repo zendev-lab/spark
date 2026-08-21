@@ -1,4 +1,5 @@
 export * from "./commands.ts";
+export * from "./channel-paths.ts";
 export * from "./paths.ts";
 export * from "./permissions.ts";
 export * from "./resource-paths.ts";

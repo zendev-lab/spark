@@ -108,7 +108,7 @@ describe("SessionSupervisor", () => {
     expect(second.sessionId).toBe(first.sessionId);
     expect(first).toMatchObject({
       lifecycle: "open",
-      lineage: { kind: "root", workspaceId: "ws-test" },
+      lineage: { kind: "root" },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
       purpose: "workspace_administrator",
     });

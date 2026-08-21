@@ -887,7 +887,7 @@ export class SessionSupervisor {
     workspaceId: string,
     sessionId?: string,
   ): Promise<boolean> {
-    if (lineage.kind === "root") return lineage.workspaceId === workspaceId;
+    if (lineage.kind === "root") return true;
     const parent = await this.registry.get(lineage.parentSessionId);
     if (
       !parent ||
@@ -957,7 +957,7 @@ function required(value: string, field: string): string {
 }
 
 function lineageIdentity(lineage: SparkSessionLineage): string {
-  if (lineage.kind === "root") return `root:${lineage.workspaceId}`;
+  if (lineage.kind === "root") return "root";
   return `${lineage.parentSessionId}/${originIdentity(lineage.origin)}`;
 }
 

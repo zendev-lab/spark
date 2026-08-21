@@ -1498,7 +1498,7 @@ describe("daemon session control admission", () => {
             scope: { kind: "workspace", workspaceId: hubWorkspaceId },
           }),
           expect.objectContaining({
-            lineage: { kind: "root", workspaceId: hubWorkspaceId },
+            lineage: { kind: "root" },
             roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
           }),
         ]),
@@ -1534,7 +1534,7 @@ describe("daemon session control admission", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-07-17T00:00:00.000Z",
         cwd: root,
@@ -1992,7 +1992,7 @@ function writeAssistantUsageTranscript(
   const entries = [
     {
       type: "session",
-      version: 3,
+      version: 4,
       id: sessionId,
       timestamp: "2026-08-17T00:00:00.000Z",
       cwd: "/workspace/demo",

@@ -34,7 +34,7 @@ import {
   resolveRoleModelSetting,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import { validateChannelSessionWorkspace, type SparkPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkHeadlessSessionModule,
   type CreateSparkHeadlessSessionCompactorFn,
@@ -411,7 +411,7 @@ export function createSparkDaemonTaskExecutor(
         const frozenSessionContext = await sessionContextForTask(
           sessionTask,
           options.sessionRegistry,
-          options.paths.sessionRuntimeDir,
+          options.paths,
         );
         const effectiveTask = await withEffectiveTaskProfile(
           sessionTask,
@@ -1453,6 +1453,9 @@ export async function executeSparkDaemonSessionCompactTask(
   ) {
     throw sessionCompactionFenceError(task, session);
   }
+  if (session.scope.kind === "daemon" && session.purpose === "channel") {
+    await validateChannelSessionWorkspace(options.paths, session.sessionId, session.cwd);
+  }
   const workspaceId =
     session.scope.kind === "workspace" ? session.scope.workspaceId : task.workspaceId;
   if (task.workspaceId && workspaceId && task.workspaceId !== workspaceId) {
@@ -1544,7 +1547,7 @@ export async function executeSparkDaemonSessionRunTask(
 ): Promise<unknown> {
   const sessionContext =
     options.frozenSessionContext ??
-    (await sessionContextForTask(task, options.sessionRegistry, options.paths.sessionRuntimeDir));
+    (await sessionContextForTask(task, options.sessionRegistry, options.paths));
   const systemPrompt = await systemPromptForSession(
     task,
     options,
@@ -1866,7 +1869,7 @@ interface SessionInvocationContext {
 async function sessionContextForTask(
   task: SparkDaemonSessionRunTask,
   registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
-  sparkHome: string | undefined,
+  paths: SparkPaths,
 ): Promise<SessionInvocationContext> {
   const session = await registry?.get?.(task.sessionId);
   if (session && (session.lifecycle !== "open" || session.placement !== "active")) {
@@ -1879,6 +1882,10 @@ async function sessionContextForTask(
       `cannot execute ${session.lifecycle} Session ${session.sessionId}`,
     );
   }
+  if (session?.scope.kind === "daemon" && session.purpose === "channel") {
+    await validateChannelSessionWorkspace(paths, session.sessionId, session.cwd);
+  }
+  const sparkHome = paths.sessionRuntimeDir;
   const role = session
     ? await resolveInvocationRole(registry, session, session.cwd ?? task.cwd ?? process.cwd())
     : undefined;

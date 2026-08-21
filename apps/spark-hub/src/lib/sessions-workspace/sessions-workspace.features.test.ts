@@ -224,7 +224,7 @@ describe("sessions-workspace feature safety net", () => {
       new Response(
         JSON.stringify({
           snapshot: {
-            version: 3,
+            version: 4,
             sessionId: "sess_latest",
             status: "idle",
             messages: [],
@@ -263,7 +263,7 @@ describe("sessions-workspace feature safety net", () => {
       new Response(
         JSON.stringify({
           snapshot: {
-            version: 3,
+            version: 4,
             sessionId: "sess_cached",
             status: "idle",
             updatedAt,
