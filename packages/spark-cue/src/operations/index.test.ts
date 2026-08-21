@@ -107,14 +107,17 @@ describe("host-neutral Cue operation runtime", () => {
       client: {
         isClosed: false,
         runScript: vi.fn(async () => ({
-          scriptId: "E4",
+          executionId: "E4",
           stepIds: ["E4/S1"],
           source: { kind: "file", path: "<inline>" },
           status: "cancelled",
           cancelReason: "forced",
           exitCode: null,
-          failedItemIndex: null,
-          items: [],
+          failedStepIndex: null,
+          stdout: "",
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
           timedOut: false,
         })),
       } as unknown as CueClient,
@@ -136,12 +139,12 @@ describe("host-neutral Cue operation runtime", () => {
     runtime.dispose();
   });
 
-  it("projects cancelled Python jobs with their forced reason", async () => {
-    const { runtime } = runtimeWithRunJob({
-      jobId: "E5",
+  it("projects cancelled Python executions with their forced reason", async () => {
+    const { runtime } = runtimeWithRunExecution({
+      executionId: "E5",
       stepIds: ["E5/S1"],
-      status: "Cancelled",
-      cancelReason: "Forced",
+      status: "cancelled",
+      cancelReason: "forced",
       stdout: "",
       stderr: "",
       exitCode: null,
@@ -161,7 +164,7 @@ describe("host-neutral Cue operation runtime", () => {
     ).resolves.toMatchObject({
       tool: "script_eval",
       ok: false,
-      status: "Cancelled",
+      status: "cancelled",
       cancelled: true,
       cancelReason: "forced",
     });

@@ -131,7 +131,7 @@ describe("Cue execution compiler", () => {
   );
 
   it("keeps a quoted colon executable as an ordinary word", () => {
-    expect(compileExecution('\":echo\" ok').plan).toMatchObject({
+    expect(compileExecution('":echo" ok').plan).toMatchObject({
       pipeline: { segments: [{ command: [":echo", "ok"] }] },
     });
   });

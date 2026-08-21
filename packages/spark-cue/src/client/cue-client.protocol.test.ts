@@ -293,16 +293,11 @@ describe("Cue IPC v3 client", () => {
 
     const result = await client.runScript({ path: "build.cue", input: "true" });
     expect(result).toMatchObject({
-      scriptId: "E1",
+      executionId: "E1",
       status: "cancelled",
       cancelReason: "forced",
     });
-    expect(result.items[0]?.jobs[0]?.cancelReason).toBe("Forced");
-    await expect(client.scriptInfo("E1")).resolves.toMatchObject({
-      script_id: "E1",
-      status: "cancelled",
-      cancelReason: "forced",
-    });
+    expect(result).not.toHaveProperty("items");
     client.close();
   });
 
