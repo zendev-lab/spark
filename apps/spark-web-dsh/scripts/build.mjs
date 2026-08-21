@@ -62,3 +62,15 @@ await build({
   minify: true,
   logLevel: "info",
 });
+
+await build({
+  entryPoints: ["../../packages/spark-session/src/subagent.ts"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node22",
+  outfile: "lib/spark-session-subagent-plugin.mjs",
+  external: ["@deepseek-ai/*"],
+  minify: true,
+  logLevel: "info",
+});

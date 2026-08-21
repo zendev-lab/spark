@@ -121,3 +121,9 @@ updated: 2026-08-21
   `dsh-tool-fusion`，旧 SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon
   durable admission seam，因此 `spark-acp` 暂不替换。完整处置见
   [`.agents/notes/decisions/2026-08-20-dsh-package-naming.md`](.agents/notes/decisions/2026-08-20-dsh-package-naming.md)。
+- 产品 subagent 是 Role-bound 子 Session：官方 `@deepseek-ai/dsh-subagent`
+  作为 HOST（`ctx.subagents`），`spark-session` 注册 spawn/fork provider。
+  daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）；
+  spark-web-dsh 插入同一插件并关掉 stock in-process spawn/fork。不重写
+  `ctx.subagents`，不新增 `dsh-spark` 包。compaction 与 jobs 仍是后续 owner
+  决策。

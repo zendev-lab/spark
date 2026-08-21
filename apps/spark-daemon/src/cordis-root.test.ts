@@ -68,6 +68,8 @@ describe("spark daemon Cordis root", () => {
       expect(root.ctx.tools).toBeDefined();
       expect(root.ctx.agents).toBeDefined();
       expect(root.ctx.agentLoop).toBeDefined();
+      expect(root.ctx.subagents).toBeDefined();
+      expect(root.ctx.subagents.list()).toEqual([]);
     } finally {
       await root.dispose();
     }
@@ -84,6 +86,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.get("tools")).toBeUndefined();
     expect(root.ctx.get("agents")).toBeUndefined();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
+    expect(root.ctx.get("subagents")).toBeUndefined();
     expect(() => sparkDaemonStoresFromContext(root.ctx)).toThrow(
       /missing service sparkInvocations/,
     );
@@ -255,6 +258,36 @@ describe("spark daemon Cordis root", () => {
       const second = await store.load(seed.path);
       expect(second.entries.filter((entry) => entry.type === "message")).toHaveLength(4);
       expect(JSON.stringify(second.entries)).toContain("native reply 2");
+    } finally {
+      await root.dispose();
+    }
+  });
+
+  it("registers Role-bound spawn/fork providers when a host is provided", async () => {
+    const created: string[] = [];
+    const root = await createSparkDaemonCordisRoot(fakeStores(), {
+      sessionsRoot: await sessionsRoot(),
+      subagentHost: {
+        async createChild(input) {
+          created.push(input.roleRef);
+          return {
+            sessionId: "sess_child",
+            roleRef: input.roleRef,
+            mode: input.mode,
+          };
+        },
+      },
+    });
+    try {
+      expect(root.ctx.subagents.list()).toEqual(["spawn", "fork"]);
+      const spawn = root.ctx.subagents.getProvider("spawn");
+      expect(spawn?.inheritsParentContext).toBe(false);
+      const run = await spawn!.start({
+        parent: { session: { id: "sess_admin" } },
+        persona: "executor",
+      } as never);
+      expect(String(run.id)).toBe("sess_child");
+      expect(created).toEqual(["role:builtin-executor"]);
     } finally {
       await root.dispose();
     }
