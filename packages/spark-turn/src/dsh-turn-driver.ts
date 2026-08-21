@@ -22,7 +22,7 @@ import {
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { idleWatchdog } from "@deepseek-ai/dsh-timeout";
 import { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
-import type { SparkDshToolPolicyMetadata, SparkExecutionService } from "@zendev-lab/spark-core";
+import type { SparkDshToolPolicyMetadata, SparkInvocationService } from "@zendev-lab/spark-core";
 import type {
   AssistantMessage,
   AssistantMessageEvent,
@@ -39,14 +39,9 @@ import {
 } from "@zendev-lab/spark-llm/pi-ai-stream";
 
 import type { SparkPromptItem } from "./prompt-items.ts";
+import { createSparkInvocationPlugin, reserveSparkInvocationTurn } from "./invocation-plugin.ts";
 import { isPlainRecord } from "./tool-dispatch.ts";
 import type { SparkTurnLlm } from "./turn-llm.ts";
-
-declare module "@deepseek-ai/cordis" {
-  interface Context {
-    sparkExecution: SparkExecutionService;
-  }
-}
 
 export interface SparkTurnDriverCheckpoint {
   toolCalls: ToolCall[];
@@ -124,7 +119,8 @@ export interface RunSparkDshTurnInput {
   llm: SparkTurnLlm;
   sessionId: string;
   sessionMetadata?: SparkDshSessionMetadata;
-  execution: SparkExecutionService;
+  /** Present only for daemon-admitted durable Invocations. */
+  invocation?: SparkInvocationService;
   /** Cordis plugins composed into this invocation's unpublished Agent scope. */
   agentPlugins?: readonly Plugin[];
   cwd?: string;
@@ -161,27 +157,35 @@ interface SparkTurnDriverCapture {
 }
 
 export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void> {
+  input.signal.throwIfAborted();
+  if (input.invocation && input.invocation.sessionId !== input.sessionId) {
+    throw new Error(
+      `Spark Invocation session mismatch: ${input.invocation.sessionId} != ${input.sessionId}`,
+    );
+  }
+  if (input.invocation && input.invocation.signal !== input.signal) {
+    throw new Error("Spark Invocation and DSH Turn must share one cancellation signal");
+  }
+  const cwd = input.invocation?.cwd ?? input.cwd;
   const ctx = input.ctx;
   let handle: AgentHandle | undefined;
-  let disposeExecutionService: (() => Promise<void>) | undefined;
+  let disposeInvocationService: (() => Promise<void>) | undefined;
+  let invocationLabel: symbol | undefined;
   const captured: SparkTurnDriverCapture = {};
   const cancelAgent = (): void => {
     handle?.agent.cancel({ kind: "user" });
   };
   try {
-    // Cordis services are context-global unless their isolation label is
-    // changed explicitly. Mount one active provider fiber per Invocation, then
-    // join that label from the Agent scope so dependency-injected plugins can
-    // consume ctx.sparkExecution without colliding with concurrent Agents.
-    const executionLabel = Symbol("sparkExecution");
-    const executionFiber = await ctx.isolate("sparkExecution", executionLabel).plugin({
-      name: `spark-execution/${randomUUID()}`,
-      provide: "sparkExecution",
-      apply(providerCtx: Context) {
-        providerCtx.provide("sparkExecution", input.execution);
-      },
-    });
-    disposeExecutionService = executionFiber.dispose;
+    // Cordis services are context-global unless their isolation label changes.
+    // Mount one immutable daemon admission per Invocation and join that exact
+    // label from the Agent scope so concurrent Sessions cannot collide.
+    if (input.invocation) {
+      invocationLabel = Symbol("sparkInvocation");
+      const invocationFiber = await ctx
+        .isolate("sparkInvocation", invocationLabel)
+        .plugin(createSparkInvocationPlugin(input.invocation));
+      disposeInvocationService = invocationFiber.dispose;
+    }
     const registeredNames = new Set(input.tools.map((tool) => tool.name));
     const parallelSafeNames = new Set(
       input.tools.filter((tool) => tool.parallelSafe).map((tool) => tool.name),
@@ -189,7 +193,9 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
     const concurrency: SparkTurnConcurrencyGate = { sequential: false };
     const driverProvider = `${SPARK_TURN_PROVIDER}/${randomUUID()}`;
     const setup = async (agentCtx: Context): Promise<void> => {
-      const executionCtx = agentCtx.isolate("sparkExecution", executionLabel);
+      const executionCtx = invocationLabel
+        ? agentCtx.isolate("sparkInvocation", invocationLabel)
+        : agentCtx;
       if (!persisted && input.sessionMetadata) {
         const agent = executionCtx.agent;
         if (!agent) throw new Error("DSH Agent setup is missing its scoped Agent");
@@ -243,15 +249,17 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       : await ctx.agents.create({
           sessionId,
           agentOptions: { provider: driverProvider, model: driverProvider },
-          ...(isAbsolutePath(input.cwd) ? { meta: { cwd: input.cwd } } : {}),
+          ...(isAbsolutePath(cwd) ? { meta: { cwd } } : {}),
           signal: input.signal,
           setup,
         });
     if (input.signal.aborted) {
       cancelAgent();
+      input.signal.throwIfAborted();
     } else {
       input.signal.addEventListener("abort", cancelAgent, { once: true });
     }
+    if (input.invocation) reserveSparkInvocationTurn(handle.agent.session, input.invocation);
     handle.agent.followup(
       createUserMessage({
         content: [{ type: "text", text: input.followupText }],
@@ -270,7 +278,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
   } finally {
     input.signal.removeEventListener("abort", cancelAgent);
     await handle?.dispose().catch(() => undefined);
-    await disposeExecutionService?.().catch(() => undefined);
+    await disposeInvocationService?.().catch(() => undefined);
   }
 }
 

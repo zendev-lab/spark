@@ -14,7 +14,10 @@ import LlmRuntime, {
 import SessionStore, { SessionId } from "@deepseek-ai/dsh-session";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, { defineTool } from "@deepseek-ai/dsh-tools";
-import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
+import {
+  createSparkInvocationService,
+  type SparkDshToolPolicyMetadata,
+} from "@zendev-lab/spark-core";
 import type {
   AssistantMessage,
   Message,
@@ -173,6 +176,60 @@ test("Spark consent plugin denies a tool before execute", async () => {
   assert.ok(events.includes("tool/result"));
 });
 
+test("runSparkDshTurn rejects pre-start cancellation without reserving a Turn", async () => {
+  const ctx = new Context();
+  await mountLoop(ctx);
+  const events: string[] = [];
+  ctx.on("session/event", (_session, event) => events.push(event.type));
+  const controller = new AbortController();
+  controller.abort(new Error("cancel before admission"));
+  const invocation = createSparkInvocationService({
+    cwd: "/tmp",
+    sessionId: "pre-start-cancel",
+    invocationId: "inv_pre_start_cancel",
+    attempt: {
+      epoch: 1,
+      daemonGeneration: 1,
+      correlationId: "attempt:inv_pre_start_cancel:1",
+    },
+    signal: controller.signal,
+  });
+
+  try {
+    await assert.rejects(
+      runSparkDshTurn({
+        ctx,
+        llm: {
+          stream() {
+            throw new Error("LLM must not start");
+          },
+        },
+        sessionId: "pre-start-cancel",
+        invocation,
+        followupText: "do not start",
+        tools: [],
+        streamIdleTimeoutMs: 0,
+        signal: controller.signal,
+        hooks: {
+          assemble: async () => {
+            throw new Error("turn assembly must not start");
+          },
+          dispatchToolCall: async () => {
+            throw new Error("tool dispatch must not start");
+          },
+          promptItems: () => [],
+          roundtrips: () => 0,
+        },
+      }),
+      /cancel before admission/,
+    );
+    assert.deepEqual(events, []);
+    assert.deepEqual(ctx.agents.list(), []);
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
 test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
@@ -275,11 +332,6 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
       ctx,
       llm,
       sessionId: "spark-turn-native-probe",
-      execution: {
-        cwd: "/tmp/spark-turn-native-probe",
-        sessionId: "spark-turn-native-probe",
-        mode: "execute",
-      },
       agentPlugins: [nativePlugin],
       followupText: "run native probe",
       tools: [],
@@ -443,7 +495,6 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
       ctx,
       llm,
       sessionId: "auxiliary-model-call",
-      execution: { cwd: "/tmp", sessionId: "auxiliary-model-call" },
       agentPlugins: [plugin],
       followupText: "run auxiliary probe",
       tools: [],
@@ -484,7 +535,7 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
   assert.equal(requests[1]?.system, "bounded auxiliary request");
 });
 
-test("runSparkDshTurn isolates sparkExecution across concurrent Agents", async () => {
+test("runSparkDshTurn isolates sparkInvocation across concurrent Agents", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
   const seen = new Set<string>();
@@ -501,10 +552,10 @@ test("runSparkDshTurn isolates sparkExecution across concurrent Agents", async (
     maxTokens: 2_000,
   };
   const plugin = {
-    name: "capture-concurrent-spark-execution",
-    inject: ["sparkExecution"],
+    name: "capture-concurrent-spark-invocation",
+    inject: ["sparkInvocation"],
     apply(agentCtx: Context) {
-      seen.add(agentCtx.sparkExecution.sessionId);
+      seen.add(agentCtx.sparkInvocation.sessionId);
     },
   };
   const llm = {
@@ -522,6 +573,7 @@ test("runSparkDshTurn isolates sparkExecution across concurrent Agents", async (
     },
   };
   const run = async (sessionId: string): Promise<void> => {
+    const controller = new AbortController();
     const messages: Message[] = [
       { role: "user", content: `run ${sessionId}`, timestamp: Date.now() },
     ];
@@ -529,12 +581,22 @@ test("runSparkDshTurn isolates sparkExecution across concurrent Agents", async (
       ctx,
       llm,
       sessionId,
-      execution: { cwd: "/tmp", sessionId },
+      invocation: createSparkInvocationService({
+        cwd: "/tmp",
+        sessionId,
+        invocationId: `inv_${sessionId}`,
+        attempt: {
+          epoch: 1,
+          daemonGeneration: 1,
+          correlationId: `attempt:inv_${sessionId}:1`,
+        },
+        signal: controller.signal,
+      }),
       agentPlugins: [plugin],
       followupText: `run ${sessionId}`,
       tools: [],
       streamIdleTimeoutMs: 0,
-      signal: new AbortController().signal,
+      signal: controller.signal,
       hooks: {
         assemble: async () => ({
           model,

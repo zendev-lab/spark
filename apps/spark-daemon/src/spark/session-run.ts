@@ -1628,6 +1628,16 @@ export async function executeSparkDaemonSessionRunTask(
       ? { requireStructuredOutcome: task.requireStructuredOutcome }
       : {}),
     invocationId: context.invocationId,
+    invocationAttempt: context.invocationAttempt,
+    ...(sessionContext.role
+      ? {
+          invocationRole: {
+            ref: sessionContext.role.ref,
+            id: sessionContext.role.id,
+            revision: sessionContext.role.revision,
+          },
+        }
+      : {}),
     ...(context.recordTokenUsage
       ? {
           tokenUsage: {

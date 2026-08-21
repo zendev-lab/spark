@@ -76,6 +76,9 @@ export interface SparkCliHostServicesOptions {
   sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: SparkHostRuntimeOptions["channelBinding"];
   invocationId?: string;
+  invocationAttempt?: SparkHostRuntimeOptions["invocationAttempt"];
+  invocationRole?: SparkHostRuntimeOptions["invocationRole"];
+  driverAuthority?: SparkHostRuntimeOptions["driverAuthority"];
   taskExecutionScope?: SparkHostRuntimeOptions["taskExecutionScope"];
   /** Host-private test/bootstrap seam; never exposed to product capabilities or model tools. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;

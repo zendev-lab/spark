@@ -35,6 +35,7 @@ import {
   getSparkDaemonTaskSessionId,
   validateSparkDaemonTask,
   type SparkDaemonTask,
+  type SparkDaemonTaskExecutionContext,
   type SparkDaemonTaskExecutor,
   type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
@@ -668,8 +669,14 @@ export class SparkInvocationScheduler {
         persistUsage: (usage) => recordUsage(usage as SparkDaemonTokenUsageObservation),
         eventIngress: this.executionEventIngress,
       });
-      const context = {
+      const activeAttempt = attemptSession.current();
+      const context: SparkDaemonTaskExecutionContext = {
         invocationId: invocation.invocationId,
+        invocationAttempt: {
+          epoch: activeAttempt.attemptEpoch,
+          daemonGeneration: activeAttempt.daemonGeneration,
+          correlationId: activeAttempt.correlationId,
+        },
         signal: controller.signal,
         timeoutMs: this.taskTimeoutMs,
         beginDurableCommit: () => {
