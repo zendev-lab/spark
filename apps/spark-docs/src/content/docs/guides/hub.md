@@ -55,6 +55,15 @@ Use **Quick test** to send one bounded, tool-free request to the selected model
 and verify that it can actually answer. Invocation diagnostics use the same
 runtime connection and do not require a daemon socket on the Hub host.
 
+Channels are daemon-global rather than Workspace settings. Open
+`/settings/channels` and select the installation/runtime explicitly when Hub
+knows more than one daemon. The page shows all configured accounts by adapter
+ID and lists daemon Channel Sessions separately from Workspace conversations.
+Its remote projection is deliberately narrow: it never exposes credentials,
+full cwd, external conversation keys, account identities, or transcripts. See
+[daemon-global Channels](/guides/channels/) for configuration and failure
+behavior.
+
 **Hub updates** reports only the Hub installation. Each connected daemon is
 updated independently on the machine where it runs.
 

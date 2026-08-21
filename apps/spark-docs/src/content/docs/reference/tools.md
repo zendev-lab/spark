@@ -166,5 +166,10 @@ Unknown or conflicting policy fails closed.
 - Compatibility and Channel profiles may expose a smaller set than the native
   TUI or Hub Session.
 
+A daemon Channel Session exposes exactly `session`, `ask`, `context`, and
+`todo`. Its `session` tool can list or send only within the same daemon scope.
+It cannot reach Workspace Sessions, GitChange, Workspace or repository Memory,
+shell, files, Git, Task, Role fan-out, assignment, or Workflow execution.
+
 Private implementation helpers are not public tools. For the commands available
 in your installed version, see [command discovery](/reference/cli/).

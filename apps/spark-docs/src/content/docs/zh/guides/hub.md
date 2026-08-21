@@ -48,6 +48,12 @@ daemon 投影快速显示，再提供显式的 daemon 刷新；“已连接”�
 使用**快速测试**会向所选模型发送一次受限、无工具的请求，以确认模型确实能够
 响应。调用诊断复用同一条 runtime 连接，不要求 Hub 主机存在 daemon socket。
 
+Channel 属于 daemon 全局设置，不是 Workspace 设置。打开 `/settings/channels`；当
+Hub 发现多个 daemon 时，必须显式选择 installation/runtime。该页面按 adapter ID
+展示所有已配置账号，并把 daemon Channel Session 与 Workspace 对话分开。远端投影
+刻意保持窄范围：绝不暴露凭据、完整 cwd、外部对话 key、账号身份或 transcript。
+配置与失败行为见 [Daemon 全局 Channel](/zh/guides/channels/)。
+
 **Hub 更新**只报告 Hub 安装自身的状态；每个已连接 daemon 仍在其所在机器上独立
 更新。
 

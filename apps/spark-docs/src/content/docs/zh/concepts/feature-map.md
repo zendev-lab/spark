@@ -87,13 +87,13 @@ Repro 拥有三个稳定子 Session：Implementation、Exactness 和 Formalize�
 ## 5. 渠道与多会话协作
 
 Spark 运行时只有一种会话实体：Session。Role 是可复用定义；具有 child lineage 的
-Session 就是 subsession。Side Thread 功能创建只读子 Session，消息平台 Channel 是
-路由别名。
-飞书、如流（Infoflow）和 QQ Bot 对话会绑定到 daemon session，不会产生第二个
-执行所有者。Session 可以发送 request 或 notification，并通过 Inbox 接收完成摘要。
+Session 就是 subsession。Side Thread 功能创建只读子 Session。飞书、如流
+（Infoflow）和 QQ Bot 对话无需 Workspace，直接解析为 daemon 全局 root Channel
+Session，也不会产生第二个执行所有者。Session 可以发送 request 或 notification，
+并通过 Inbox 接收完成摘要。
 
-详情见[协作与渠道](/zh/guides/collaboration/)和
-[Side Threads](/zh/guides/side-threads/)。
+详情见[协作](/zh/guides/collaboration/)、
+[Daemon 全局 Channel](/zh/guides/channels/)和 [Side Threads](/zh/guides/side-threads/)。
 
 ## 6. 模型、上下文、扩展与运维
 

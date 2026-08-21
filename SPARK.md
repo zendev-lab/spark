@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一本地 Web / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-20
+updated: 2026-08-21
 ---
 
 # `spark` 项目意图
@@ -13,7 +13,7 @@ updated: 2026-08-20
 
 ## 目标
 
-- 以 daemon 为 Session registry、Owner 派生生命周期、关闭级联与 Invocation 调度真源；本地 Web、Hub、消息通道、本地 RPC 共用一套状态机，不维护并行会话状态。
+- 以 daemon 为 Session registry、scope/lineage 派生生命周期、关闭级联与 Invocation 调度真源；Workspace Session tree 与 daemon-global Channel root 共用一套状态机，本地 Web、Hub、消息通道、本地 RPC 不维护并行会话状态。
 - 将 Role 固定为静态行为/能力定义，Session 固定为执行上下文，Invocation 固定为一次执行；公开流程统一为创建 Role → `session spawn|fork` 创建 Role-bound Session → `session send(kind=request)` 触发 Invocation，三个阶段互不隐式代办。
 - Session Owner 只表达生命周期与资源归属，不表达 Role 能力或子 Session 创建授权；Registry 只持久化严格 state，`lifetime` 与 `activity` 分别由 Owner 和 Invocation 真相投影。
 - 以 Spark Hub 作为同一 Hub 内跨 workspace 的逻辑协调真源；Hub 持有 registry、委托状态、投递幂等、审计和有限回执，目标 daemon/workspace 始终持有执行、工具副作用与本地成果真相，Hub 只负责呈现和收集决策。
@@ -38,6 +38,7 @@ updated: 2026-08-20
 
 - Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm` 只作为 provider / `LlmAdapter` 实现族。Cordis 是 daemon 根、`dsh-llm` 小岛与 `spark-turn` driver 的 process-local 组合运行时，不是 Spark Session；详见 [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md)。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。
+- `@zendev-lab/dsh-channels` 是 daemon root 内的 Cordis transport/lifecycle 插件；Channel Session 是无需 Workspace 的 daemon-scoped root，私有 cwd 位于 daemon data root。Cordis 不接管 Registry、Invocation、outbox、retry、human wait 或 SQLite 权威；详见 [`.agents/notes/decisions/2026-08-21-daemon-global-channel-sessions.md`](.agents/notes/decisions/2026-08-21-daemon-global-channel-sessions.md)。
 - 跨表面 schema 与语义进入 `spark-protocol`，传输层只校验和翻译。
 - `packages/spark-extension` 是唯一产品 extension 组合根。
 
@@ -72,6 +73,7 @@ updated: 2026-08-20
 - builtin Role 只有 `administrator | explorer | executor | reviewer`；Administrator 的实际工具策略禁止 write/exec/net，Explorer/Reviewer 只有 read/net 且没有 exec，Role revision 在 Invocation 开始时冻结。
 - registry v6、daemon SQLite、Task/Workflow/Repro、Role model settings 与 Evidence 的结构化 RoleRef 能在 daemon admission 前完成有备份、journal、校验与恢复入口的硬切迁移；EvidenceRef 保持稳定，正文 hash 重算，自由文本与 transcript 不改写。
 - 两个同 Hub workspace 可完成 create → delivery → ask/reply → complete/reject/cancel 闭环；离线恢复复用原消息幂等键，最多四跳且拒绝 workspace 循环，回执仅公开目标 `artifact:` refs 与有限验证摘要。
+- 不注册任何 Workspace 的 daemon 也能完成 Channel ingress → Session → Invocation → reply；两个账号使用同一 external key 时解析到不同 daemon Channel Session 与私有 cwd，Hub 不把它们混入 Workspace tree。
 
 ## 当前开放问题
 
@@ -86,13 +88,16 @@ updated: 2026-08-20
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
-- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算关闭在 41，新增 workspace 需要新的 architecture 决策。
+- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算关闭在 42，新增 workspace 需要新的 architecture 决策。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 挂 Spark store 与 `ctx.sessions`；
   `spark-turn` 用 `dsh-agent-loop` 做低层 turn driver；`spark-loop` 仍拥有
   goal/tick。不接入 `dsh-llm-pi-ai` 或 `dsh-goal`，不把 Spark Session 绑到
   Cordis Fiber。Invocation / channel / fleet / retry 数据权威仍是 Spark SQLite。
 - 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。
   Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`。
+- Channel 已原位迁移为 `dsh-channels` Cordis 插件；配置、Session、cwd、delivery、
+  human wait 与控制面均为 daemon scope。旧 Workspace Channel 只保留一次性、
+  fail-closed 的 v7→v8 数据迁移，不保留新行为兼容层。
 - Goal/Loop/Repro 的 `manual_only` 旁路需要 Session 级 `driverAuthority`：交互
   启动 ask 一次，CLI/API/daemon tick 静默授予；拒绝则退化为逐工具批准。绑定本身
   不是同意。
