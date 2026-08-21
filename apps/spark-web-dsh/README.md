@@ -5,8 +5,7 @@ Spark-owned **DSH-hosted web application**. `spark web-dsh` /
 DeepSeek Harness web profile with Cue, LLM, and provider-onboarding plugins.
 Search/fetch tools live in `@zendev-lab/spark-tool-web`.
 This application owns the managed `spark-standard` / `spark-code` presets and
-bundles a verified snapshot of the canonical `spark-cue` Skill maintained in
-the [Cue repository](https://github.com/zendev-lab/cue/tree/main/skills/spark-cue).
+bundles the verified canonical [`cue` Skill](https://github.com/zendev-lab/cue/tree/main/skills/cue).
 
 ```sh
 spark web-dsh

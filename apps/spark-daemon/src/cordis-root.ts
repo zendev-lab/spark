@@ -68,21 +68,21 @@ export interface SparkDaemonCordisRoot {
 
 export interface SparkDaemonCordisRootOptions {
   sessionsRoot: string;
-  /** Root containing the verified product-owned `spark-cue` Skill directory. */
-  sparkCueSkillRoot?: string;
+  /** Root containing the verified product-owned `cue` Skill directory. */
+  cueSkillRoot?: string;
   /** Reuse the process root opened before daemon adapters are constructed. */
   ctx?: Context;
 }
 
 export interface SparkDaemonHeadlessCordisRootOptions {
   dshHome: string;
-  /** Root containing the verified product-owned `spark-cue` Skill directory. */
-  sparkCueSkillRoot?: string;
+  /** Root containing the verified product-owned `cue` Skill directory. */
+  cueSkillRoot?: string;
   /** Test-only reuse seam. Production workers open their own process root. */
   ctx?: Context;
 }
 
-const SPARK_CUE_SKILL_NAME = "spark-cue";
+const CUE_SKILL_NAME = "cue";
 const SPARK_DAEMON_SKILL_PROVIDER = "spark-daemon";
 const SPARK_SKILL_TOOL_POLICY = Object.freeze({
   effect: "read",
@@ -150,7 +150,7 @@ export async function createSparkDaemonCordisRoot(
     await mountSparkDshRuntime(ctx, {
       dshHome: dirname(options.sessionsRoot),
       sessionsRoot: options.sessionsRoot,
-      sparkCueSkillRoot: resolveSparkCueSkillRoot(options.sparkCueSkillRoot),
+      cueSkillRoot: resolveCueSkillRoot(options.cueSkillRoot),
     });
   } catch (error) {
     await dispose().catch(() => undefined);
@@ -175,7 +175,7 @@ export async function createSparkDaemonHeadlessCordisRoot(
   try {
     await mountSparkDshRuntime(ctx, {
       dshHome: options.dshHome,
-      sparkCueSkillRoot: resolveSparkCueSkillRoot(options.sparkCueSkillRoot),
+      cueSkillRoot: resolveCueSkillRoot(options.cueSkillRoot),
     });
   } catch (error) {
     await dispose().catch(() => undefined);
@@ -186,7 +186,7 @@ export async function createSparkDaemonHeadlessCordisRoot(
 
 async function mountSparkDshRuntime(
   ctx: Context,
-  options: { dshHome: string; sessionsRoot?: string; sparkCueSkillRoot: string },
+  options: { dshHome: string; sessionsRoot?: string; cueSkillRoot: string },
 ): Promise<void> {
   await ctx.plugin(SessionStore);
   if (options.sessionsRoot) {
@@ -200,7 +200,7 @@ async function mountSparkDshRuntime(
   await ctx.plugin(SkillFileSystem, {
     providerName: SPARK_DAEMON_SKILL_PROVIDER,
     includeDefaultRoots: false,
-    bundledSkillDir: options.sparkCueSkillRoot,
+    bundledSkillDir: options.cueSkillRoot,
     dshHome: options.dshHome,
     watch: false,
   });
@@ -212,7 +212,7 @@ async function mountSparkDshRuntime(
   });
 }
 
-export function resolveSparkCueSkillRoot(explicitRoot?: string): string {
+export function resolveCueSkillRoot(explicitRoot?: string): string {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
   const candidates = explicitRoot
@@ -225,14 +225,14 @@ export function resolveSparkCueSkillRoot(explicitRoot?: string): string {
       ];
   for (const root of new Set(candidates)) {
     try {
-      const skillFile = lstatSync(join(root, SPARK_CUE_SKILL_NAME, "SKILL.md"));
+      const skillFile = lstatSync(join(root, CUE_SKILL_NAME, "SKILL.md"));
       if (skillFile.isFile() && !skillFile.isSymbolicLink()) return root;
     } catch {
       // Try the next product/source layout candidate.
     }
   }
   throw new Error(
-    `Spark daemon could not find the verified ${SPARK_CUE_SKILL_NAME} Skill under: ${[
+    `Spark daemon could not find the verified ${CUE_SKILL_NAME} Skill under: ${[
       ...new Set(candidates),
     ].join(", ")}`,
   );

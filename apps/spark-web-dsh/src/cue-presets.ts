@@ -109,7 +109,7 @@ export function removeDshShellAndJobsRows(source: string): string {
   return result.join("\n");
 }
 
-export function addSparkCueSkillProvider(source: string, skillDir: string): string {
+export function addCueSkillProvider(source: string, skillDir: string): string {
   const row = "- id: skill-filesystem\n  name: '@deepseek-ai/dsh-skill-filesystem'";
   const matches = source.split(row).length - 1;
   if (matches !== 1) {
@@ -122,7 +122,7 @@ export function addSparkCueSkillProvider(source: string, skillDir: string): stri
     [
       row,
       "",
-      "- id: spark-cue-skill",
+      "- id: cue-skill",
       "  name: '@deepseek-ai/dsh-skill-filesystem'",
       "  config:",
       "    providerName: spark-web-dsh",
@@ -150,7 +150,7 @@ function generatePreset(
   skillDir: string,
 ): Record<"agent.cordis.yml" | "preset.yml", string> {
   const base: UpstreamPreset = id === "spark-standard" ? "standard" : "code";
-  const composition = addSparkCueSkillProvider(
+  const composition = addCueSkillProvider(
     removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]),
     skillDir,
   );
@@ -286,10 +286,10 @@ export function installManagedCuePresets(
   skillDir: string,
 ): ManagedPresetResult[] {
   const dshVersion = readDshPackageVersion(dshPackageDir);
-  const skillPath = join(skillDir, "spark-cue", "SKILL.md");
+  const skillPath = join(skillDir, "cue", "SKILL.md");
   const skillStats = lstatSync(skillPath, { throwIfNoEntry: false });
   if (skillStats === undefined || !skillStats.isFile() || skillStats.isSymbolicLink()) {
-    throw new Error(`spark web: bundled spark-cue Skill is not a regular file at ${skillPath}`);
+    throw new Error(`spark web: bundled cue Skill is not a regular file at ${skillPath}`);
   }
   const upstream = readVerifiedUpstream(dshPackageDir);
   const sourceDigest = digestFiles(upstream);

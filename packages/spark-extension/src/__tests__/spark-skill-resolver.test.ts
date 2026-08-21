@@ -301,7 +301,7 @@ test("loadMatchingSparkSkillsForPrompt loads full SKILL.md content by descriptio
   }
 });
 
-test("SparkSkillResolver leaves product-owned spark-cue to the native DSH catalog", async () => {
+test("SparkSkillResolver leaves product-owned cue to the native DSH catalog", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-skills-default-cue-"));
   try {
     const resolver = new SparkSkillResolver({
@@ -312,7 +312,7 @@ test("SparkSkillResolver leaves product-owned spark-cue to the native DSH catalo
     });
     const { skills } = await resolver.resolve();
     assert.equal(
-      skills.find((skill) => skill.name === "spark-cue"),
+      skills.find((skill) => skill.name === "cue"),
       undefined,
     );
   } finally {

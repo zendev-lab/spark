@@ -55,9 +55,8 @@ status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Tas
 ## Role、Session 与 Skill Agent
 
 daemon 的共享 DSH root 与隔离 headless DSH root 会通过独立 filesystem provider
-挂载经过校验的 Cue `spark-cue` Skill 产品快照。DSH 使用原生 Skill 目录和 `skill`
-工具发布它；Cue 仓库仍是源码 authority，Spark 只校验 vendored 发布快照，不再通过
-旧 Spark resolver 重复发现它。
+挂载经过校验的 `cue` Skill 产品快照。DSH 使用原生 Skill 目录和 `skill` 工具发布它；
+Cue 仓库维护源码，Spark 只校验 vendored 发布快照。
 
 - Role 定义类型化能力与责任叠加，包括语义 Model Type。它可以声明最多八个有序
   Skill；Spark 在创建子 Session 前解析并预载完整指令正文。Role 不决定 Session

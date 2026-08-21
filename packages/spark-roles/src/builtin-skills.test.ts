@@ -21,7 +21,7 @@ test("packaged Cue skills stay out of the legacy Spark resolver defaults", async
   temporaryDirectories.push(root);
   const productDist = join(root, "dist");
   const skills = join(root, "skills");
-  await mkdir(join(skills, "spark-cue"), { recursive: true });
+  await mkdir(join(skills, "cue"), { recursive: true });
   process.env.SPARK_PRODUCT_DIST = productDist;
 
   const builtinSkills = join(root, "builtin-skills");

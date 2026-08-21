@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  addSparkCueSkillProvider,
+  addCueSkillProvider,
   installManagedCuePresets,
   readDshPackageVersion,
   removeDshShellAndJobsRows,
@@ -45,12 +45,12 @@ describe("managed Cue-first presets", () => {
     }
   });
 
-  it("rejects a missing product-bundled spark-cue Skill", () => {
-    const home = mkdtempSync(join(tmpdir(), "spark-cue-missing-skill-"));
+  it("rejects a missing product-bundled cue Skill", () => {
+    const home = mkdtempSync(join(tmpdir(), "cue-missing-skill-"));
     try {
       const missingSkillDir = join(home, "missing");
       expect(() => installManagedCuePresets(home, dshPackageDir, missingSkillDir)).toThrow(
-        /bundled spark-cue Skill is not a regular file/u,
+        /bundled cue Skill is not a regular file/u,
       );
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -69,7 +69,7 @@ describe("managed Cue-first presets", () => {
         expect(composition).not.toContain("id: tool-jobs");
         expect(composition).toContain(
           [
-            "- id: spark-cue-skill",
+            "- id: cue-skill",
             "  name: '@deepseek-ai/dsh-skill-filesystem'",
             "  config:",
             "    providerName: spark-web-dsh",
@@ -122,7 +122,7 @@ describe("managed Cue-first presets", () => {
   });
 
   it("requires exactly one DSH skill-filesystem row", () => {
-    expect(() => addSparkCueSkillProvider("- id: keep\n", skillDir)).toThrow(
+    expect(() => addCueSkillProvider("- id: keep\n", skillDir)).toThrow(
       /expected one DSH skill-filesystem row/u,
     );
   });

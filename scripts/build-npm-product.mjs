@@ -386,11 +386,9 @@ await Promise.all(
   npmDistributions
     .filter((distribution) => distribution.skills)
     .map((distribution) =>
-      cp(
-        resolve(root, "vendor/cue/skills/spark-cue"),
-        resolve(distribution.directory, "skills/spark-cue"),
-        { recursive: true },
-      ),
+      cp(resolve(root, "vendor/cue/skills/cue"), resolve(distribution.directory, "skills/cue"), {
+        recursive: true,
+      }),
     ),
 );
 await removeSourceMaps(resolve(hub.directory, "build"));

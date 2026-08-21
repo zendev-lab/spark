@@ -24,7 +24,7 @@ import {
   prepareSparkWebDispatch,
   resolveDshProfileDir,
   resolveFromDirectory,
-  resolveSparkCueSkillsDir,
+  resolveCueSkillsDir,
   resolveSparkLlmPackageDir,
   resolveSparkWebDshPackageDir,
   sparkWebBootErrorLines,
@@ -134,11 +134,8 @@ test("spark-web-dsh resolves its package root and verified source Skill snapshot
   const webDir = resolveSparkWebDshPackageDir();
   assert.ok(existsSync(join(webDir, "src", "client.tsx")), "client plugin entry exists");
   assert.ok(existsSync(join(webDir, "bin", "spark-web-dsh")), "spark-web-dsh executable exists");
-  const skills = resolveSparkCueSkillsDir(webDir);
-  assert.ok(
-    existsSync(join(skills, "spark-cue", "SKILL.md")),
-    "verified spark-cue Skill snapshot exists",
-  );
+  const skills = resolveCueSkillsDir(webDir);
+  assert.ok(existsSync(join(skills, "cue", "SKILL.md")), "verified cue Skill snapshot exists");
   assert.ok(skills.endsWith(join("vendor", "cue", "skills")));
 });
 

@@ -27,8 +27,8 @@ Hub 仍是多 daemon 代理与管理界面。
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 Cue `spark-cue` Skill
-快照挂入 DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding，
+DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 `cue` Skill 快照挂入
+DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding，
 并在 DSH 将完整 transcript 载入内存前拒绝过大的冷历史文件。对于可以安全读取的
 历史，它会预估并缩小初始页、限制响应字节数、压缩重复的 token chunk；即使
 单条最终消息仍很大，也会返回带截断标记的预览，而不是等待请求超时。

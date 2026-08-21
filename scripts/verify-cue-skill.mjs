@@ -6,8 +6,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const manifestPath = resolve(root, "vendor/cue/skills/spark-cue.upstream.json");
-const skillPath = resolve(root, "vendor/cue/skills/spark-cue/SKILL.md");
+const manifestPath = resolve(root, "vendor/cue/skills/cue.upstream.json");
+const skillPath = resolve(root, "vendor/cue/skills/cue/SKILL.md");
 const expectedKeys = ["path", "repository", "revision", "sha256"];
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -21,7 +21,7 @@ if (manifest.repository !== "https://github.com/zendev-lab/cue") {
 if (!/^[0-9a-f]{40}$/u.test(manifest.revision)) {
   throw new Error(`invalid Cue Skill revision: ${String(manifest.revision)}`);
 }
-if (manifest.path !== "skills/spark-cue/SKILL.md") {
+if (manifest.path !== "skills/cue/SKILL.md") {
   throw new Error(`invalid Cue Skill upstream path: ${String(manifest.path)}`);
 }
 if (!/^[0-9a-f]{64}$/u.test(manifest.sha256)) {
@@ -37,8 +37,8 @@ const digest = createHash("sha256").update(content).digest("hex");
 if (digest !== manifest.sha256) {
   throw new Error(`vendored Cue Skill digest mismatch: expected ${manifest.sha256}, got ${digest}`);
 }
-if (!content.toString("utf8").startsWith("---\nname: spark-cue\n")) {
-  throw new Error("vendored Cue Skill does not declare name: spark-cue");
+if (!content.toString("utf8").startsWith("---\nname: cue\n")) {
+  throw new Error("vendored Cue Skill does not declare name: cue");
 }
 
 const sourcePath = process.env.CUE_SKILL_SOURCE?.trim();

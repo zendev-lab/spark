@@ -30,8 +30,8 @@ workspace and plugin behavior are required:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-The DSH-hosted app restores the Spark LLM and Cue plugins and mounts a verified
-snapshot of Cue's `spark-cue` Skill in the DSH Skill catalog. It handles
+The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
+`cue` Skill in the DSH Skill catalog. It handles
 plain-HTTP UUID and remote credential onboarding, and rejects oversized cold
 history artifacts before DSH materializes the whole transcript. For histories
 that are safe to inspect, it predicts a smaller initial page, enforces a

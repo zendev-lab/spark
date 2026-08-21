@@ -51,20 +51,20 @@ async function sessionsRoot(): Promise<string> {
   return root;
 }
 
-async function sparkCueSkillRoot(): Promise<string> {
+async function cueSkillRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "spark-daemon-skills-"));
   roots.push(root);
-  const skillDir = join(root, "spark-cue");
+  const skillDir = join(root, "cue");
   await mkdir(skillDir);
   await writeFile(
     join(skillDir, "SKILL.md"),
     [
       "---",
-      "name: spark-cue",
+      "name: cue",
       "description: Use Cue for command execution.",
       "---",
       "",
-      "# spark-cue",
+      "# cue",
       "",
       "Use cue-shell.",
       "",
@@ -138,18 +138,18 @@ describe("spark daemon Cordis root", () => {
   });
 
   it("mounts the verified Cue Skill through the daemon-owned DSH provider", async () => {
-    const skillRoot = await sparkCueSkillRoot();
+    const skillRoot = await cueSkillRoot();
     const cwd = await sessionsRoot();
     const root = await createSparkDaemonHeadlessCordisRoot({
       dshHome: await sessionsRoot(),
-      sparkCueSkillRoot: skillRoot,
+      cueSkillRoot: skillRoot,
     });
     try {
       await expect(root.ctx.skills.list({ cwd })).resolves.toMatchObject([
-        { name: "spark-cue", provider: "spark-daemon", source: "bundled" },
+        { name: "cue", provider: "spark-daemon", source: "bundled" },
       ]);
-      await expect(root.ctx.skills.get("spark-cue", { cwd })).resolves.toMatchObject({
-        name: "spark-cue",
+      await expect(root.ctx.skills.get("cue", { cwd })).resolves.toMatchObject({
+        name: "cue",
         provider: "spark-daemon",
         content: expect.stringContaining("Use cue-shell."),
       });
@@ -163,9 +163,9 @@ describe("spark daemon Cordis root", () => {
     await expect(
       createSparkDaemonHeadlessCordisRoot({
         dshHome: await sessionsRoot(),
-        sparkCueSkillRoot: missing,
+        cueSkillRoot: missing,
       }),
-    ).rejects.toThrow(/could not find the verified spark-cue Skill/);
+    ).rejects.toThrow(/could not find the verified cue Skill/);
   });
 
   it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
