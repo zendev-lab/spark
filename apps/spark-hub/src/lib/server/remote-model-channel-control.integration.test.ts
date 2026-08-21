@@ -30,7 +30,7 @@ import {
   sparkDaemonSupportedFeatures,
   type MessageContext,
 } from "../../../../spark-daemon/src/daemon.ts";
-import { createDaemonChannelIngressRuntime } from "../../../../spark-daemon/src/channels/ingress.ts";
+import { createDaemonChannelIngressRuntime } from "../../../../spark-daemon/src/channels/global-ingress-runtime.ts";
 import type { SparkDaemonModelControl } from "../../../../spark-daemon/src/model-control.ts";
 import { acknowledgeRuntimeCommandTerminal } from "../../../../spark-daemon/src/runtime-command-receipts.ts";
 import { createDaemonSessionRegistry } from "../../../../spark-daemon/src/session-registry.ts";

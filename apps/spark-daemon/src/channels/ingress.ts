@@ -759,5 +759,3 @@ function channelSessionTitle(message: IncomingMessage): string {
   }
   return `channel ${message.externalKey}`;
 }
-
-export { createDaemonChannelIngressRuntime } from "./global-ingress-runtime.ts";

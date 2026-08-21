@@ -23,11 +23,8 @@ import {
   sparkDaemonServerProfileFromConfig,
   type SparkDaemonServerProfile,
 } from "./server-profiles.js";
-import {
-  createDaemonChannelIngressRuntime,
-  type ChannelIngressHooks,
-  type DaemonChannelIngressRuntime,
-} from "./channels/ingress.ts";
+import type { ChannelIngressHooks, DaemonChannelIngressRuntime } from "./channels/ingress.ts";
+import { createDaemonChannelIngressRuntime } from "./channels/global-ingress-runtime.ts";
 import {
   findChannelInboundInvocation,
   submitChannelInboundInvocation,

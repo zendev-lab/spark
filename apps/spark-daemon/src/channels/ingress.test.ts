@@ -14,13 +14,13 @@ import {
   CHANNEL_INGRESS_FAILURE_REPLY,
   channelIngressIdempotencyKey,
   createChannelIngressController,
-  createDaemonChannelIngressRuntime,
   enrichInboundMessageReferenceFromSession,
   findChannelMessagePreviewById,
   loadDaemonChannelsConfig,
   type ChannelIngressAssignment,
   type ChannelIngressRejectedReply,
 } from "./ingress.ts";
+import { createDaemonChannelIngressRuntime } from "./global-ingress-runtime.ts";
 
 const roots: string[] = [];
 
