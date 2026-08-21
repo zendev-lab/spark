@@ -628,8 +628,8 @@ function registerDefinition<Name extends CueToolName>(
               },
             );
           }
-          resolvedTransport = await resolveCueTransport();
           if (mode !== "danger-full-access") {
+            resolvedTransport = await resolveCueTransport();
             if (resolvedTransport.transport === "ssh") {
               throw new Error(
                 `confined Cue execution over SSH is not supported; use a local Cue target or a persistent danger-full-access session`,
@@ -685,7 +685,12 @@ function registerDefinition<Name extends CueToolName>(
                 { sessionId, cwd, env },
                 brokerRegistry,
                 broker,
-              );
+              ).catch((error) => {
+                console.error(
+                  `[dsh-tool-cue] failed to settle sandbox lease for ${executionId}`,
+                  error,
+                );
+              });
             } else {
               await brokerRegistry.release(sessionId, broker);
             }
@@ -736,12 +741,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.on("agent/disposed", ({ agent }) => {
     const sessionId = `dsh:${agent.session.id}`;
     runtime.releaseSession(sessionId);
-    void brokerRegistry.releaseSession(sessionId);
+    void brokerRegistry.releaseSession(sessionId).catch((error) => {
+      console.error(`[dsh-tool-cue] failed to release sandbox session ${sessionId}`, error);
+    });
   });
   ctx.effect(
     () => () => {
       runtime.dispose();
-      void brokerRegistry.dispose();
+      void brokerRegistry.dispose().catch((error) => {
+        console.error("[dsh-tool-cue] failed to dispose sandbox brokers", error);
+      });
     },
     "dsh-tool-cue runtime teardown",
   );

@@ -81,8 +81,9 @@ describe("DSH Code Mode contract", () => {
       },
       agent: callingAgent,
     });
-    expect(result.isError).toBe(false);
-    if (result.isError) throw new Error("expected Code Mode success");
+    if (result.isError) {
+      throw new Error(`expected Code Mode success: ${JSON.stringify(result.content)}`);
+    }
     expect(result.value).toMatchObject({
       result: { kind: "foreground", timedOut: false, exitCode: 0, stdout: "hello\n" },
     });
