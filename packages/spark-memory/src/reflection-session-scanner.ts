@@ -90,7 +90,7 @@ interface SessionHeaderLike {
   createdAt?: unknown;
 }
 
-const SPARK_DSH_ENTRY_EVENT_TYPE = "spark/entry";
+const SPARK_DSH_RECORD_EVENT_TYPE = "spark/record";
 
 interface SessionEntryLike {
   type?: unknown;
@@ -457,7 +457,7 @@ function isDshSessionHeader(value: SessionHeaderLike): boolean {
 
 function sparkTranscriptEntryFromLine(value: SessionEntryLike): SessionEntryLike | undefined {
   if (isDshSessionHeader(value)) return undefined;
-  if (value.type === SPARK_DSH_ENTRY_EVENT_TYPE) {
+  if (value.type === SPARK_DSH_RECORD_EVENT_TYPE) {
     if (!isRecord(value.data)) return undefined;
     return value.data.entry as SessionEntryLike;
   }

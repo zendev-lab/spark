@@ -19,14 +19,24 @@ That gate is now closed by this Stage 4 change.
   on-disk event envelope belong to `dsh-session-persistence`.
 - Spark host transcripts stay in `packages/spark-host/src/session-store`. The
   public `SparkSessionStore` API still exposes Spark entries (`message`,
-  `compaction`, …). New writes use DSH session JSONL (`SESSION_FORMAT_VERSION`
-  0) with Spark records stored as ignorable `spark/entry` events.
-- Pi JSONL (`type: "session"`, including v3) is a one-shot, idempotent hard-cut:
-  first load/save rewrites the same path atomically. Already-DSH files are left
-  untouched.
+  `compaction`, …) as a stack-internal compatibility projection. Transcript v4
+  writes user, assistant, tool, turn, and step records to the native DSH surface
+  without duplicating model-visible messages in `spark/record`.
+  `spark/message-meta` preserves projection-only identifiers and block metadata;
+  `spark/record` is limited to non-model Spark records and inactive branches.
+- Pi JSONL and the former DSH wrapper are v3 migration inputs only. Daemon
+  startup holds its process lock, backs up every source, writes an active
+  migration journal, generates and validates v4 through the DSH Session API,
+  atomically replaces the transcript, then updates the registry by CAS. A
+  restart rolls back a pre-CAS interruption or completes a committed one before
+  admitting requests.
+- Inline Pi images are admitted into the official content-addressed
+  `dsh-attachment-local` store. The daemon root mounts the same store before the
+  LLM runtime.
 - Invocation, channel, fleet, and retry **data authority stays Spark SQLite**.
-- Compaction still writes a Spark compaction entry into the session JSONL.
-  Each fork still has its own canonical JSONL and atomic rename.
+- Compaction metadata remains Spark-owned while its model-visible summary uses
+  a DSH surface replacement. Each fork still has its own canonical JSONL and
+  atomic rename.
 
 Do not adopt `dsh-session-projection` in this step. Spark's existing projection
 owners remain until a later decision.
@@ -40,11 +50,10 @@ paths without forking the coordinator.
 
 ## Consequences
 
-- Hosts that still call `SparkSessionStore.save/load` automatically persist DSH
-  JSONL. Callers must not assume a Pi `type: "session"` first line.
-- Rollback is restoring the previous JSONL from backup; the migration does not
-  keep a sidecar. Operators who need a copy must snapshot `sessions/` before
-  upgrade.
+- Hosts that still call `SparkSessionStore.save/load` write v4 DSH JSONL.
+  Callers must not assume a Pi `type: "session"` first line.
+- Migration backups and completed journals live below
+  `backups/session-transcript-v4`; runtime never falls back to the v3 writer.
 - Stage 6 replaces the older Cordis-island wording. This note only lifts the
   dsh-session persistence gate. See
   [`2026-08-20-dsh-cordis-composition.md`](./2026-08-20-dsh-cordis-composition.md).

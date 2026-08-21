@@ -34,6 +34,12 @@ import {
   type SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
 import { gitCommand } from "@zendev-lab/spark-system";
+import {
+  SPARK_DSH_MESSAGE_META_EVENT_TYPE,
+  parseSparkDshMessageMetaData,
+  projectSparkDshMessageEntry,
+  type SparkDshProjectionMessageMetaData,
+} from "./dsh-message-projection.ts";
 import { SparkSessionRegistryError } from "./registry.ts";
 
 interface NativeSessionHeader {
@@ -62,6 +68,13 @@ interface NativeSessionEntryLocation {
   offset: number;
   length: number;
   sha256: string;
+  companion?: NativeSessionLineLocation;
+}
+
+interface NativeSessionLineLocation {
+  offset: number;
+  length: number;
+  sha256: string;
 }
 
 interface NativeSessionRecord {
@@ -74,8 +87,7 @@ interface NativeSessionRecord {
 }
 
 const SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
-/** Host DSH JSONL wraps Spark entries as ignorable `spark/entry` events. */
-const SPARK_DSH_ENTRY_EVENT_TYPE = "spark/entry";
+const SPARK_DSH_RECORD_EVENT_TYPE = "spark/record";
 
 interface NativeSessionSnapshotIndex {
   version: 1;
@@ -785,7 +797,29 @@ function parseIndexEntryLocation(
   if (!sha256 || !/^[0-9a-f]{64}$/u.test(sha256)) {
     throw new Error("Spark session snapshot index entry hash is invalid.");
   }
-  return { id, offset, length, sha256 };
+  const companion =
+    value.companion === undefined ? undefined : parseIndexLineLocation(value.companion, checkpoint);
+  return { id, offset, length, sha256, ...(companion ? { companion } : {}) };
+}
+
+function parseIndexLineLocation(
+  value: unknown,
+  checkpoint: NativeTranscriptCheckpoint,
+): NativeSessionLineLocation {
+  if (!isRecord(value)) throw new Error("Spark session snapshot index companion is invalid.");
+  const offset = nonnegativeInteger(value.offset);
+  const length = positiveInteger(value.length);
+  const digest = optionalIndexString(value.sha256);
+  if (
+    offset === undefined ||
+    length === undefined ||
+    offset + length > checkpoint.byteLength ||
+    !digest ||
+    !/^[0-9a-f]{64}$/u.test(digest)
+  ) {
+    throw new Error("Spark session snapshot index companion is out of bounds.");
+  }
+  return { offset, length, sha256: digest };
 }
 
 async function readIndexedTranscriptEntries(
@@ -801,14 +835,14 @@ async function readIndexedTranscriptEntries(
   try {
     const entries: NativeSessionEntry[] = [];
     for (const descriptor of descriptors) {
-      const buffer = Buffer.alloc(descriptor.length);
-      const { bytesRead } = await handle.read(buffer, 0, descriptor.length, descriptor.offset);
-      if (bytesRead !== descriptor.length)
-        throw new Error("Indexed transcript read was truncated.");
-      if (sha256(buffer) !== descriptor.sha256) {
-        throw new Error("Indexed transcript entry hash mismatch.");
-      }
-      const entry = parseEntry(JSON.parse(buffer.toString("utf8").trim()) as unknown, path);
+      const value = await readIndexedTranscriptValue(handle, descriptor);
+      const entry = descriptor.companion
+        ? parseDshMessageEntry(
+            value,
+            await readIndexedTranscriptValue(handle, descriptor.companion),
+            path,
+          )
+        : parseEntry(value, path);
       if (entry.id !== descriptor.id)
         throw new Error("Indexed transcript entry identity mismatch.");
       entries.push(entry);
@@ -821,6 +855,19 @@ async function readIndexedTranscriptEntries(
   } finally {
     await handle.close();
   }
+}
+
+async function readIndexedTranscriptValue(
+  handle: Awaited<ReturnType<typeof open>>,
+  descriptor: NativeSessionLineLocation,
+): Promise<unknown> {
+  const buffer = Buffer.alloc(descriptor.length);
+  const { bytesRead } = await handle.read(buffer, 0, descriptor.length, descriptor.offset);
+  if (bytesRead !== descriptor.length) throw new Error("Indexed transcript read was truncated.");
+  if (sha256(buffer) !== descriptor.sha256) {
+    throw new Error("Indexed transcript entry hash mismatch.");
+  }
+  return JSON.parse(buffer.toString("utf8").trim()) as unknown;
 }
 
 async function loadNativeSessionRecord(
@@ -853,19 +900,69 @@ function parseNativeSessionRecord(
       `native transcript ${path} belongs to ${header.id}, not ${expectedSessionId}`,
     );
   }
-  const entries: NativeSessionEntry[] = [];
+  const positioned: Array<{
+    position: number;
+    entry: NativeSessionEntry;
+    location: NativeSessionEntryLocation;
+  }> = [];
   const entryLocations = new Map<string, NativeSessionEntryLocation>();
-  for (const line of lines.slice(1)) {
-    if (isIgnorableDshSessionEvent(line.value)) continue;
-    const entry = parseEntry(line.value, path);
-    entries.push(entry);
-    entryLocations.set(entry.id, {
-      id: entry.id,
-      offset: line.offset,
-      length: line.length,
-      sha256: line.sha256,
-    });
+  const dshHeader = isRecord(lines[0]?.value) && lines[0]?.value.type !== "session";
+  if (dshHeader) {
+    const eventsBySeq = new Map<number, (typeof lines)[number]>();
+    for (const line of lines.slice(1)) {
+      if (!isRecord(line.value) || typeof line.value.seq !== "number") continue;
+      if (eventsBySeq.has(line.value.seq)) {
+        throw new Error(`Native transcript ${path} repeats DSH event seq ${line.value.seq}.`);
+      }
+      eventsBySeq.set(line.value.seq, line);
+    }
+    for (const line of lines.slice(1)) {
+      const stored = storedSparkDshEntry(line.value, path);
+      if (stored) {
+        positioned.push({
+          position: stored.position,
+          entry: stored.entry,
+          location: entryLocation(stored.entry.id, line),
+        });
+        continue;
+      }
+      const messageMeta = sparkDshMessageMeta(line.value, path);
+      if (!messageMeta) continue;
+      const nativeLine = eventsBySeq.get(messageMeta.eventSeq);
+      if (!nativeLine) {
+        throw new Error(
+          `Native transcript ${path} is missing DSH message seq ${messageMeta.eventSeq}.`,
+        );
+      }
+      const entry = parseDshMessageEntry(nativeLine.value, line.value, path);
+      positioned.push({
+        position: messageMeta.position,
+        entry,
+        location: {
+          ...entryLocation(entry.id, nativeLine),
+          companion: lineLocation(line),
+        },
+      });
+    }
+  } else {
+    for (const [position, line] of lines.slice(1).entries()) {
+      const entry = parseEntry(line.value, path);
+      positioned.push({ position, entry, location: entryLocation(entry.id, line) });
+    }
   }
+  positioned.sort((left, right) => left.position - right.position);
+  const positions = new Set<number>();
+  for (const value of positioned) {
+    if (positions.has(value.position)) {
+      throw new Error(`Native transcript ${path} repeats Spark entry position ${value.position}.`);
+    }
+    if (entryLocations.has(value.entry.id)) {
+      throw new Error(`Native transcript ${path} repeats Spark entry id ${value.entry.id}.`);
+    }
+    positions.add(value.position);
+    entryLocations.set(value.entry.id, value.location);
+  }
+  const entries = positioned.map(({ entry }) => entry);
   return {
     path,
     header,
@@ -874,6 +971,21 @@ function parseNativeSessionRecord(
     checkpoint,
     modifiedAt: new Date(checkpoint.modifiedAtMs).toISOString(),
   };
+}
+
+function entryLocation(
+  id: string,
+  line: { offset: number; length: number; sha256: string },
+): NativeSessionEntryLocation {
+  return { id, ...lineLocation(line) };
+}
+
+function lineLocation(line: {
+  offset: number;
+  length: number;
+  sha256: string;
+}): NativeSessionLineLocation {
+  return { offset: line.offset, length: line.length, sha256: line.sha256 };
 }
 
 function nativeTranscriptLines(content: Buffer, path: string) {
@@ -991,16 +1103,49 @@ function parseEntry(value: unknown, path: string): NativeSessionEntry {
   };
 }
 
+function storedSparkDshEntry(
+  value: unknown,
+  path: string,
+): { position: number; entry: NativeSessionEntry } | undefined {
+  if (!isRecord(value) || value.type !== SPARK_DSH_RECORD_EVENT_TYPE) return undefined;
+  if (
+    !isRecord(value.data) ||
+    !Number.isSafeInteger(value.data.position) ||
+    Number(value.data.position) < 0
+  ) {
+    throw new Error(`Native transcript ${path} has invalid spark/record metadata.`);
+  }
+  return {
+    position: Number(value.data.position),
+    entry: parseEntry(value, path),
+  };
+}
+
+function sparkDshMessageMeta(
+  value: unknown,
+  path: string,
+): SparkDshProjectionMessageMetaData | undefined {
+  if (!isRecord(value) || value.type !== SPARK_DSH_MESSAGE_META_EVENT_TYPE) return undefined;
+  return parseSparkDshMessageMetaData(value.data, path);
+}
+
+function parseDshMessageEntry(
+  nativeValue: unknown,
+  metaValue: unknown,
+  path: string,
+): NativeSessionEntry {
+  const meta = sparkDshMessageMeta(metaValue, path);
+  if (!meta) {
+    throw new Error(`Native transcript ${path} has mismatched DSH message metadata.`);
+  }
+  return projectSparkDshMessageEntry(nativeValue, meta, path) as NativeSessionEntry;
+}
+
 function unwrapSparkDshEntry(value: unknown): unknown {
-  if (!isRecord(value) || value.type !== SPARK_DSH_ENTRY_EVENT_TYPE || !isRecord(value.data)) {
+  if (!isRecord(value) || value.type !== SPARK_DSH_RECORD_EVENT_TYPE || !isRecord(value.data)) {
     return undefined;
   }
   return value.data.entry;
-}
-
-function isIgnorableDshSessionEvent(value: unknown): boolean {
-  if (!isRecord(value) || value.type === SPARK_DSH_ENTRY_EVENT_TYPE) return false;
-  return typeof value.seq === "number" && typeof value.time === "number" && "data" in value;
 }
 
 function activeBranchEntriesNewestFirst(entries: NativeSessionEntry[]): NativeSessionEntry[] {

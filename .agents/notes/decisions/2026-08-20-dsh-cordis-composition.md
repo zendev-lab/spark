@@ -18,10 +18,11 @@ The three roots:
 1. **Daemon Cordis root** (`apps/spark-daemon`) mounts Spark SQLite stores as
    services plus `SessionStore`, persistence, `LlmRuntime`, `SystemPrompt`,
    `ToolRuntime`, `AgentRegistry`, and `AgentLoop`. Dispose is
-   `ctx.fiber.dispose()`. Until transcript v4 lands, Invocation execution still
-   uses the compatibility roots below and does not resume an Agent from this
-   shared root. Invocation, channel, fleet, and retry **data authority stays
-   Spark SQLite**.
+   `ctx.fiber.dispose()`. Transcript v4 now supplies a native DSH surface and
+   the root also mounts the official local attachment store. Invocation
+   execution still uses the compatibility roots below until the following
+   Agent resume/dispose slice. Invocation, channel, fleet, and retry **data
+   authority stays Spark SQLite**.
 2. **LLM island** (`packages/spark-extension`) still mounts `dsh-llm` and
    exposes `LlmRuntime`, never `Context`, through
    `createSparkLlmComposition()`.

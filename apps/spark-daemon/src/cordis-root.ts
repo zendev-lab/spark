@@ -6,9 +6,12 @@
  * with Spark's PersistenceBackend. Agent handles remain invocation-owned and
  * are mounted only after transcript migration makes their surface native DSH.
  */
+import { dirname } from "node:path";
+
 import { Context } from "@deepseek-ai/cordis";
 import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentLoop from "@deepseek-ai/dsh-agent-loop";
+import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
 import { SessionStore } from "@deepseek-ai/dsh-session";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
@@ -107,6 +110,7 @@ export async function createSparkDaemonCordisRoot(
     await mountSparkDaemonStorePlugin(ctx, stores);
     await ctx.plugin(SessionStore);
     await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
+    await ctx.plugin(LocalAttachmentStore, { dshHome: dirname(options.sessionsRoot) });
     await ctx.plugin(LlmRuntime);
     await ctx.plugin(SystemPrompt);
     await ctx.plugin(ToolRuntime);

@@ -56,6 +56,7 @@ describe("spark daemon Cordis root", () => {
       expect(sparkDaemonStoresFromContext(root.ctx).sparkHumanWaits).toBe(stores.sparkHumanWaits);
       expect(root.ctx.sessions).toBeDefined();
       expect(root.ctx.sessionPersistence).toBeDefined();
+      expect(root.ctx.attachments).toBeDefined();
       expect(root.ctx.llm).toBeDefined();
       expect(root.ctx.systemPrompt).toBeDefined();
       expect(root.ctx.tools).toBeDefined();
@@ -154,7 +155,8 @@ describe("spark daemon Cordis root", () => {
       const loaded = await root.ctx.sessionPersistence.load(SessionId("sess_persist"));
       expect(loaded.meta.id).toBe("sess_persist");
       expect(loaded.meta.cwd).toBe(store.cwd);
-      expect(loaded.events.some((event) => (event.type as string) === "spark/entry")).toBe(true);
+      expect(loaded.events.some((event) => event.type === "user/message")).toBe(true);
+      expect(loaded.events.some((event) => event.type === "spark/message-meta")).toBe(true);
     } finally {
       await root.dispose();
     }
