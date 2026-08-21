@@ -63,7 +63,6 @@
       "@zendev-lab/spark-host": ["./packages/spark-host/src/runtime.ts"],
       "@zendev-lab/spark-host/context": ["./packages/spark-host/src/context-tool.ts"],
       "@zendev-lab/spark-host/keybindings": ["./packages/spark-host/src/keybindings.ts"],
-      "@zendev-lab/spark-host/system-prompt": ["./packages/spark-host/src/system-prompt.ts"],
       "@zendev-lab/spark-host/types": ["./packages/spark-host/src/types.ts"],
       "@zendev-lab/spark-ui": ["./packages/spark-ui/src/index.ts"],
       "@zendev-lab/spark-ui/headless": ["./packages/spark-ui/src/ui/headless.ts"],

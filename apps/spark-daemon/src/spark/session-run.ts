@@ -47,7 +47,7 @@ import {
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
   renderSparkChannelSurfacePrompt,
-} from "@zendev-lab/spark-host/system-prompt";
+} from "@zendev-lab/spark-extension/system-prompt";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   refreshSparkSessionSnapshotIndex,
