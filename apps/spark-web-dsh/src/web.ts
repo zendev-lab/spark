@@ -26,8 +26,8 @@
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. This is a deliberate bypass of that guard —
  *    a 0.0.0.0-bound harness exposes agent code execution to the network.
- * 6. **Host plugin HMR enabled**, so bundle replacements reload the affected
- *    plugin entry instead of requiring a restart.
+ * 6. **Host plugin HMR disabled by default**, because this compatibility server
+ *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
  * Boot independence notes:
  *
@@ -683,8 +683,8 @@ export async function runSparkWebDirect(
  * - `spark-web-dsh` client plugin (package name; the client-modules host
  *   resolves it from the profile's node_modules and serves its bundle);
  * - `agent-presets` defaulting to spark-standard;
- * - the supported DSH cold-preparation cache reduced to one entry;
- * - `hmr` re-enabled (the web-app bundle ships it disabled);
+ * - HMR remains disabled for the long-lived compatibility server (the command
+ *   builds bundles before boot, and HMR retains reload state across sessions);
  * - the `webserver` row restated with the requested host when it is not the
  *   DSH default — this is the documented way to bind 0.0.0.0, which the
  *   `dsh` CLI rejects outright.
@@ -729,13 +729,7 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
     "    root: !!js dshHomePath('sessions')",
     "    preparedSessionCacheSize: 1",
   );
-  rows.push(
-    "- id: subagent-spawn-in-process",
-    "  disabled: true",
-    "- id: subagent-fork-in-process",
-    "  disabled: true",
-  );
-  rows.push("- id: hmr", "  disabled: false");
+  rows.push("- id: hmr", "  disabled: true");
   if (args.host !== undefined && args.host !== "127.0.0.1") {
     // Restating the row replaces its whole config, so the port keeps the
     // webStartup fallback (the `--port` flag still flows through it).

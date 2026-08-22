@@ -15,7 +15,9 @@ An explicit `--host` may expose the token-protected workbench on another
 interface, including `0.0.0.0`.
 
 Use `--host`, `--port`, and `--no-open` when you need to change the bind or skip
-opening a browser. This workbench lists every workspace
+opening a browser. Pass `--hmr` for local development when you need Vite to watch
+source changes; it is disabled by default for the long-lived server. This
+workbench lists every workspace
 bound to this local daemon. Register a local directory from the home page; Hub
 origin and announce stay on `spark daemon login`, not this form. Hub remains
 the multi-daemon proxy and management UI.

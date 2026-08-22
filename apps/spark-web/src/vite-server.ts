@@ -14,6 +14,7 @@ export async function startSparkWebDevelopmentServer(
       host: options.host,
       port: options.port,
       strictPort: true,
+      hmr: options.hmr,
       allowedHosts: ["127.0.0.1", "localhost"],
     },
   });
