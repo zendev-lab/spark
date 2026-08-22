@@ -8,7 +8,6 @@ export { __resetSparkCueClientForTests, DEFAULT_CUED_AUTOSTART_TIMEOUT_MS } from
 export {
   registerSparkCueTools,
   renderCueScriptResult,
-  renderCueChainStatus,
   normalizeCueTerminalOutput,
   normalizeCueStderrForDisplay,
   normalizeCueTailBytes,

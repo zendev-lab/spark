@@ -27,6 +27,8 @@ function harness(
       section: vi.fn((_section: { name: string; text: string }) => () => undefined),
     },
     sandboxPolicy: { resolve: vi.fn(() => ({ mode, workspaceRoot: "/workspace" })) },
+    sandbox: { confine: vi.fn() },
+    approval: { request: vi.fn() },
     shellEnv: { collect: vi.fn(() => ({ DSH_SHELL: "1" })) },
     on(
       event: string,
@@ -53,6 +55,7 @@ function validOutput(name: string): Record<string, unknown> {
     return {
       ...base,
       kind: "foreground",
+      stepIds: [],
       timedOut: false,
       detached: false,
       cancelled: false,
@@ -62,17 +65,25 @@ function validOutput(name: string): Record<string, unknown> {
     };
   }
   if (name === "cue_run" || name === "cue_script") {
-    return { ...base, status: "finished", timedOut: false, cancelled: false, items: [] };
+    return {
+      ...base,
+      status: "finished",
+      timedOut: false,
+      cancelled: false,
+      stepIds: [],
+      stdout: stream,
+      stderr: stream,
+    };
   }
   if (name === "script_run" || name === "script_eval") {
     return {
       ...base,
       language: "python",
-      kind: "python-job",
+      kind: "python-execution",
+      stepIds: [],
       status: "finished",
       timedOut: false,
       cancelled: false,
-      items: [],
       stdout: stream,
       stderr: stream,
     };
@@ -93,7 +104,7 @@ describe("dsh-tool-cue plugin", () => {
     expect("default" in plugin).toBe(false);
     expect(plugin).toMatchObject({
       name: "dsh-tool-cue",
-      inject: ["tools", "systemPrompt", "sandboxPolicy", "shellEnv"],
+      inject: ["tools", "systemPrompt", "sandboxPolicy", "sandbox", "approval", "shellEnv"],
       Config: expect.any(Function),
       apply: expect.any(Function),
     });
@@ -122,23 +133,56 @@ describe("dsh-tool-cue plugin", () => {
         ),
       ).not.toEqual([]);
     }
+    const cueScript = tools.find((tool) => tool.name === "cue_script");
+    expect(
+      validateJsonSchemaValue(
+        cueScript!.output!.schema,
+        {
+          ...validOutput("cue_script"),
+          ok: false,
+          status: "cancelled",
+          cancelled: true,
+          cancelReason: "forced",
+        },
+        "",
+      ),
+    ).toEqual([]);
+    const cueExec = tools.find((tool) => tool.name === "cue_exec");
+    expect(
+      validateJsonSchemaValue(
+        cueExec!.output!.schema,
+        {
+          ...validOutput("cue_exec"),
+          ok: false,
+          status: "cancelled",
+          cancelled: true,
+          cancelReason: "forced",
+        },
+        "",
+      ),
+    ).toEqual([]);
     for (const cleanup of dispose) cleanup();
   });
 
-  it("fails closed without an Agent and resolves current sandbox mode per call", async () => {
-    const { context, tools, guards, pre, dispose } = harness("workspace-write");
+  it("fails closed without an Agent and rejects future schedules outside persistent DFA", async () => {
+    const { context, tools, guards, dispose } = harness("workspace-write");
     expect(guards).toHaveLength(1);
     expect(guards[0]?.({ name: "cue_exec" })).toContain("requires a DSH Agent and Session");
     expect(guards[0]?.({ name: "read" })).toBeUndefined();
 
     const agent = { session: { id: "s1", header: { cwd: "/workspace" } } };
-    const next = vi.fn(async () => ({ kind: "allow" }));
-    await expect(pre[0]?.({ name: "cue_exec", agent }, next)).resolves.toMatchObject({
-      kind: "deny",
-      reason: expect.stringContaining("danger-full-access"),
-    });
+    const cueSchedule = tools.find((tool) => tool.name === "cue_schedule");
+    await expect(
+      cueSchedule?.execute({ action: "add", schedule: "daily", command: "true" }, {
+        agent,
+        callId: "schedule-1",
+        rootCallId: "schedule-1",
+        name: "cue_schedule",
+        arguments: {},
+        signal: new AbortController().signal,
+      } as never),
+    ).rejects.toThrow("persistent danger-full-access");
     expect(context.sandboxPolicy.resolve).toHaveBeenCalledWith({ session: agent.session });
-    expect(next).not.toHaveBeenCalled();
 
     const cueExec = tools.find((tool) => tool.name === "cue_exec");
     await expect(

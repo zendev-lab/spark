@@ -2,16 +2,14 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
 /**
- * Build the process environment used to launch cue-shell companion binaries.
+ * Build the process environment used to launch Cue companion binaries.
  *
  * GUI and service managers commonly start Spark with a system-only PATH, while
- * cue-shell's supported installers place commands in ~/.local/bin (uv) or
+ * Cue's supported installers place commands in ~/.local/bin (uv) or
  * ~/.cargo/bin (Cargo). Keep the caller's PATH authoritative, then add those
  * user-owned install locations without mutating the host process environment.
  */
-export function cueShellProcessEnvironment(
-  source: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
+export function cueProcessEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const home = source.HOME?.trim() || homedir();
   const cargoHome = source.CARGO_HOME?.trim() || join(home, ".cargo");
   const pathEntries = [
