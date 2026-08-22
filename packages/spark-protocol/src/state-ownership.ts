@@ -1,7 +1,7 @@
 /**
  * Spark state ownership boundaries (daemon canonical, Hub projection).
  *
- * Inspired by cue-shell's single-daemon truth model: execution state lives in the
+ * Inspired by Cue's single-daemon truth model: execution state lives in the
  * runtime/daemon; web/TUI clients observe and submit commands through protocol envelopes.
  *
  * These helpers are used by coordination projection writers so ownership is enforced

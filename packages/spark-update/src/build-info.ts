@@ -13,7 +13,8 @@ const DISTRIBUTION_PACKAGE_NAMES = new Set<SparkDistributionPackageName>([
   "@zendev-lab/spark-cli",
   "@zendev-lab/spark-daemon",
   "@zendev-lab/spark-hub",
-  "@zendev-lab/spark-tui",
+  "@zendev-lab/spark-web",
+  "@zendev-lab/spark-web-dsh",
 ]);
 
 export function readSparkBuildInfo(
@@ -35,7 +36,7 @@ export function readSparkBuildInfo(
   };
   const version = typeof manifest.version === "string" ? manifest.version : "0.0.0";
   const minimumNodeVersion =
-    typeof manifest.engines?.node === "string" ? manifest.engines.node : ">=26.0.0 <27";
+    typeof manifest.engines?.node === "string" ? manifest.engines.node : ">=24.0.0";
   return {
     schemaVersion: 1,
     packageName: "@zendev-lab/spark",
@@ -44,7 +45,8 @@ export function readSparkBuildInfo(
     protocolVersion: SPARK_PROTOCOL_VERSION,
     minimumNodeVersion,
     migrationHead: "source-checkout",
-    migrationMode: "expand-only",
+    migrationMode: "manual",
+    deploymentGeneration: 2,
     fingerprint: createBuildFingerprint({
       version,
       gitSha: env.SPARK_BUILD_GIT_SHA?.trim() || "source-checkout",
@@ -80,6 +82,7 @@ export function isSparkBuildInfo(value: unknown): value is SparkBuildInfo {
     typeof candidate.minimumNodeVersion === "string" &&
     typeof candidate.migrationHead === "string" &&
     (candidate.migrationMode === "expand-only" || candidate.migrationMode === "manual") &&
+    (candidate.deploymentGeneration === undefined || candidate.deploymentGeneration === 2) &&
     typeof candidate.fingerprint === "string"
   );
 }

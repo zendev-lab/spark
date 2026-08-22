@@ -9,7 +9,7 @@ import {
   ChannelRegistry,
   FakeChannelTransport,
   parseChannelsConfig,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 
 const roots: string[] = [];
 
@@ -38,7 +38,11 @@ test("session registry bind + channel inbound share one sessionId", async () => 
   const administrator = await registry.ensureWorkspaceAdministrator({ workspaceId: "ws_a" });
   const session = await registry.create({
     scope: { kind: "workspace", workspaceId: "ws_a" },
-    owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+    lineage: {
+      kind: "child",
+      parentSessionId: administrator.sessionId,
+      origin: { kind: "session" },
+    },
     name: "Shared",
   });
   const externalKey = normalizeChannelExternalKey("infoflow:user:alice");

@@ -17,10 +17,13 @@ describe("daemon migration registry", () => {
       expect.arrayContaining([
         "execution-attempts.schema",
         "human-waits.answer-event-mailbox",
+        "human-waits.respondent-user",
+        "invocations.serialization-key-v1",
         "invocations.workspace-projection-index",
         "migration.driver-to-loop-v1",
         "migration.retire-daemon-error-outbox-v1",
-        "repro.formal-evidence-receipts",
+        "repro.v10-owner-store",
+        "repro.v10-remove-legacy-runtime",
       ]),
     );
   });
@@ -67,6 +70,46 @@ describe("daemon migration registry", () => {
           )
           .get(),
       ).toEqual({ name: "daemon_human_waits_evidence_interaction_idx" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("backfills missing human wait respondent to user", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE daemon_human_waits (
+          human_request_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          request_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO daemon_human_waits (
+          human_request_id, kind, status, request_json, created_at, updated_at
+        ) VALUES (
+          'hreq-legacy',
+          'ask_user',
+          'pending',
+          '{"humanRequestId":"hreq-legacy","title":"Choose","prompt":"Continue?"}',
+          '2026-08-01T00:00:00.000Z',
+          '2026-08-01T00:00:00.000Z'
+        );
+      `);
+      const mailbox = daemonMigrations.filter((migration) => migration.owner === "human-waits");
+      runDaemonMigrations(db, mailbox);
+      runDaemonMigrations(db, mailbox);
+      expect(
+        db
+          .prepare(
+            `SELECT json_extract(request_json, '$.respondent.kind') AS kind
+             FROM daemon_human_waits
+             WHERE human_request_id = 'hreq-legacy'`,
+          )
+          .get(),
+      ).toEqual({ kind: "user" });
     } finally {
       db.close();
     }
@@ -140,6 +183,174 @@ describe("daemon migration registry", () => {
     }
   });
 
+  it("adds a serialization key after the older invocation migration was already recorded", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE daemon_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE invocations (
+          id TEXT PRIMARY KEY,
+          session_id TEXT,
+          task_json TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO daemon_meta (key, value, updated_at)
+        VALUES (
+          'invocations.lifecycle-columns-and-indexes',
+          'complete',
+          '2026-08-19T00:00:00.000Z'
+        );
+        INSERT INTO invocations (id, session_id, task_json, status, created_at, updated_at)
+        VALUES (
+          'inv_legacy',
+          'session_parent',
+          '{}',
+          'queued',
+          '2026-08-19T00:00:00.000Z',
+          '2026-08-19T00:00:00.000Z'
+        );
+      `);
+
+      const migration = daemonMigrations.filter(
+        (candidate) => candidate.id === "invocations.serialization-key-v1",
+      );
+      runDaemonMigrations(db, migration);
+      runDaemonMigrations(db, migration);
+
+      expect(
+        db.prepare("SELECT serialization_key AS serializationKey FROM invocations").get(),
+      ).toEqual({ serializationKey: "session_parent" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'invocations_serialization_status_fifo_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "invocations_serialization_status_fifo_idx" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("runs once migrations only until they are marked complete", () => {
+    const db = new DatabaseSync(":memory:");
+    const calls: string[] = [];
+    try {
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "test",
+          up(target) {
+            calls.push("foundation");
+            target.exec(`
+              CREATE TABLE IF NOT EXISTS daemon_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              );
+            `);
+          },
+        },
+        { id: "once.example", owner: "test", up: () => calls.push("once") },
+        {
+          id: "every.example",
+          owner: "test",
+          everyOpen: true,
+          up: () => calls.push("every"),
+        },
+      ]);
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "test",
+          up: () => calls.push("foundation"),
+        },
+        { id: "once.example", owner: "test", up: () => calls.push("once") },
+        {
+          id: "every.example",
+          owner: "test",
+          everyOpen: true,
+          up: () => calls.push("every"),
+        },
+      ]);
+      expect(calls).toEqual(["foundation", "once", "every", "every"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drops the write-only lens observation dispositions table idempotently", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "daemon-schema",
+          up(target) {
+            target.exec(`
+              CREATE TABLE daemon_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              );
+              CREATE TABLE lens_observation_dispositions (
+                observation_ref TEXT PRIMARY KEY,
+                workspace_root TEXT NOT NULL,
+                revision_digest TEXT NOT NULL,
+                disposition TEXT NOT NULL,
+                patch_proposal_ref TEXT,
+                updated_at TEXT NOT NULL
+              );
+            `);
+          },
+        },
+        {
+          id: "migration.drop-lens-observation-dispositions-v1",
+          owner: "daemon-schema",
+          up: (target) =>
+            target.exec(
+              "DROP TABLE IF EXISTS lens_observation_dispositions;\n" +
+                "DROP INDEX IF EXISTS lens_observation_dispositions_revision_idx;",
+            ),
+        },
+      ]);
+      const table = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lens_observation_dispositions'",
+        )
+        .get();
+      expect(table).toBeUndefined();
+      // Idempotent: a second pass skips the once migration.
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "daemon-schema",
+          up: (target) => target.exec("SELECT 1"),
+        },
+        {
+          id: "migration.drop-lens-observation-dispositions-v1",
+          owner: "daemon-schema",
+          up: () => {
+            throw new Error("drop migration must not run twice");
+          },
+        },
+      ]);
+      expect(
+        db
+          .prepare("SELECT value FROM daemon_meta WHERE key = ?")
+          .get("migration.drop-lens-observation-dispositions-v1"),
+      ).toMatchObject({ value: "complete" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("runs migrations sequentially and rejects duplicate ids before any write", () => {
     const db = new DatabaseSync(":memory:");
     const calls: string[] = [];
@@ -163,6 +374,20 @@ describe("daemon migration registry", () => {
     expect(daemonMigrations.every((migration) => typeof migration.up === "function")).toBe(true);
   });
 
+  it("keeps late-write scrubs everyOpen and dual-write backfills once", () => {
+    expect(
+      daemonMigrations
+        .filter((migration) => migration.everyOpen)
+        .map((migration) => migration.id)
+        .sort(),
+    ).toEqual(["migration.driver-to-loop-v1", "migration.retire-daemon-error-outbox-v1"]);
+    expect(
+      daemonMigrations.find(
+        (migration) => migration.id === "workspaces.daemon-registration-backfill",
+      )?.everyOpen,
+    ).toBeUndefined();
+  });
+
   it("bundles the complete registry into the packaged daemon graph", async () => {
     const daemonRoot = resolve(import.meta.dirname, "../../..");
     const outputDirectory = await mkdtemp(join(daemonRoot, ".migration-bundle-"));
@@ -176,7 +401,7 @@ describe("daemon migration registry", () => {
         outfile: outputPath,
         packages: "external",
         platform: "node",
-        target: "node26",
+        target: "node24",
       });
       const packaged = (await import(`${pathToFileURL(outputPath).href}?test=${Date.now()}`)) as {
         migrateSparkDaemonDatabase(db: DatabaseSync): void;
@@ -194,7 +419,7 @@ describe("daemon migration registry", () => {
         expect(
           db
             .prepare(
-              "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'daemon_repro_formal_evidence_receipts'",
+              "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'daemon_repro_runs'",
             )
             .get(),
         ).toEqual({ present: 1 });

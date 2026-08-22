@@ -5,22 +5,14 @@ import {
   type SparkLocalRpcOutput,
   type SparkLocalRpcParsedInput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { parseChannelsConfig } from "@zendev-lab/spark-channels";
+import { parseChannelsConfig } from "@zendev-lab/dsh-channels";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { isRecord } from "./is-record.ts";
 import type {
   LocalRpcRequest,
-  LocalTurnCancelParams,
-  LocalTurnCancelRequest,
   LocalTurnSubmitParams,
-  LocalWorkspaceClientAttachParams,
-  LocalWorkspaceClientAttachRequest,
-  LocalWorkspaceClientHeartbeatParams,
-  LocalWorkspaceClientHeartbeatRequest,
   LocalWorkspaceEnsureLocalParams,
   LocalWorkspaceEnsureLocalRequest,
-  LocalWorkspaceExecutorEnsureParams,
-  LocalWorkspaceExecutorEnsureRequest,
   LocalWorkspaceRegisterParams,
   LocalWorkspaceRegisterRequest,
   LocalWorkspaceRelocateResult,
@@ -96,10 +88,6 @@ export function localTurnSubmitParams(params: LocalTurnSubmitParams): LocalTurnS
   return parseLocalRpcInput("turn.submit", params);
 }
 
-export function localTurnCancelParams(params: LocalTurnCancelRequest): LocalTurnCancelParams {
-  return parseLocalRpcInput("turn.cancel", params);
-}
-
 export function localWorkspaceRegisterParams(
   params: LocalWorkspaceRegisterRequest,
 ): LocalWorkspaceRegisterParams {
@@ -114,22 +102,4 @@ export function localWorkspaceEnsureLocalParams(
   params: LocalWorkspaceEnsureLocalRequest,
 ): LocalWorkspaceEnsureLocalParams {
   return parseLocalRpcInput("workspace.ensure-local", params);
-}
-
-export function localWorkspaceClientAttachParams(
-  params: LocalWorkspaceClientAttachRequest,
-): LocalWorkspaceClientAttachParams {
-  return parseLocalRpcInput("workspace.client.attach", params);
-}
-
-export function localWorkspaceClientHeartbeatParams(
-  params: LocalWorkspaceClientHeartbeatRequest,
-): LocalWorkspaceClientHeartbeatParams {
-  return parseLocalRpcInput("workspace.client.heartbeat", params);
-}
-
-export function localWorkspaceExecutorEnsureParams(
-  params: LocalWorkspaceExecutorEnsureRequest,
-): LocalWorkspaceExecutorEnsureParams {
-  return parseLocalRpcInput("workspace.executor.ensure", params);
 }

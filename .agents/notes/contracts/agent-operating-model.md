@@ -12,8 +12,11 @@ lower layer.
 
 - Keep model-facing instructions in one language and one semantic source.
 - Separate how a Session works from what causes it to continue.
-- Keep Role binding optional and explicit; default Sessions add no Role prompt
-  or Role capability ceiling.
+- Keep Role as a static catalog and Session as the runtime bind. The
+  Workspace Administrator root always binds builtin `administrator`.
+  `session spawn|fork` children always bind an exact RoleRef (a subagent).
+  Unbound Sessions add no Role prompt or Role capability ceiling. The human
+  operator is not a Role.
 - Compose predefined single-responsibility Roles from ordered preloaded Skills.
 - Compile one or more Skills into one dedicated autonomous Agent invocation
   only when no predefined Role owns the responsibility.
@@ -30,7 +33,9 @@ lower layer.
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
-| **Role** | One reusable responsibility, authority overlay, and optional ordered preloaded Skills | Administrator, Architecture Guardian, Executor |
+| **Role** | One reusable static responsibility, authority overlay, and optional ordered preloaded Skills. Bound onto a Session at runtime through `roleBinding`; never a wire role or the human operator | Administrator, Architecture Guardian, Executor |
+| **Subsession** | Presentation language for any Session whose lineage is child | Side Thread, Task worker, Role-bound child |
+| **Subagent** | Presentation language for a child Session with an explicit Role bind | `session spawn` / `fork` with `roleRef` |
 | **Agent form** | The execution identity and authority envelope of one model invocation | scoped Session, Role Invocation, Skill Agent, Workflow child, leaf |
 | **WorkflowRun** | A bounded orchestration program execution | saved or generated Workflow |
 
@@ -107,7 +112,7 @@ The continuation driver answers **who owns another turn**:
 - `goal`: a Goal contract owns autonomous continuation and reviewer-gated
   completion;
 - `loop`: an open-ended scheduler owns cadence but has no completion protocol;
-- `repro`: the Repro protocol owns Stage/Gate progression and settlement.
+- `repro`: the daemon Repro v10 owner advances a fixed five-checkpoint chain.
 
 A WorkflowRun is not a continuation driver. It is an execution mechanism that
 may be started by a manual turn, Goal, Loop, or Repro. A WorkflowRun can finish
@@ -130,9 +135,11 @@ priority, the user decides.
 
 ### Repro
 
-Repro owns its Goal Contract, typed Stages, Steps, Evidence requirements,
-Gates, and settlement policy. It may dispatch independent safe-local frontier
-work while keeping decision and approval Steps with the owning Session.
+Repro owns one objective-scoped WorkItem, three stable child Sessions, three
+Tasks, and the fixed Implementation → Exactness → Formalize → Exactness refresh
+→ Implementation refresh chain. It is not a Goal/Loop facade and does not own
+Stage, Step, subgoal, or generic frontier scheduling. Attention stays on the
+current checkpoint and is answered through the Root-owned Ask.
 
 ### Workflow
 
@@ -148,11 +155,21 @@ The host resolves selectors before approval and writes the exact Role ref and
 revision to the approval summary and run record. Execution fails closed if the
 binding changes before the child Role starts.
 
-The repository `workspace:repo-change` Workflow scopes with the architecture
-guardian, implements through the builtin executor in the owning worktree,
-reviews independently (adding the knowledge curator for `.agents` changes), and
-verifies delivery evidence. It returns accepted or rejected structured evidence
-and never creates, pushes, merges, or publishes a pull request.
+Repository-owned engineering Workflows keep distinct entry boundaries:
+
+- [`workspace:repo-change`](../../workflows/repo-change/WORKFLOW.md) handles an
+  already-bounded repository change;
+- [`workspace:maintainability-change`](../../workflows/maintainability-change/WORKFLOW.md)
+  establishes a behavior baseline, combines correctness and simplification
+  review, and implements only bounded equivalent improvements;
+- [`workspace:feature-change`](../../workflows/feature-change/WORKFLOW.md)
+  separates research, architecture selection, planning, implementation, and
+  independent review.
+
+Their Workflow definitions own exact stage order and handoffs. All three
+execute in the current owning worktree, add the knowledge curator when
+`.agents` changes, return accepted or rejected structured evidence, and never
+create, push, merge, or publish a pull request.
 
 ## Prompt ownership
 
@@ -317,14 +334,28 @@ context-specific question when a missing answer would change those decisions.
 Do not ask about routine execution details that stay within confirmed intent
 and are low-risk, reversible, and high-confidence.
 
-Proceed without another confirmation for in-scope reads, local edits,
-non-destructive validation, and reversible high-confidence work already
-authorized by the request.
+Every action resolves to one approval requirement:
 
-Require user authorization for destructive, irreversible, externally
-consequential, security-sensitive, costly, high-impact, or materially
-scope-expanding actions. Automated review and model confidence are not user
-authorization.
+- `none`: proceed without another confirmation for in-scope reads, local
+  edits, non-destructive validation, and other approval-free work;
+- `manual_only`: a manual continuation requires human approval for the exact
+  operation. An active Goal, Loop, or Repro driver may execute the bounded,
+  low-risk, reversible external operation without another approval only after
+  the owning Session has persisted `driverAuthority: "granted"`, and only when
+  the call remains within the confirmed objective, Workspace, repository, and
+  writable target. Denied consent keeps per-tool approval;
+- `required`: destructive, irreversible, security-sensitive, costly,
+  high-impact, materially scope-expanding, release, deployment, merge, and
+  other consequential actions always require human approval.
+
+Driver authority is temporary and scoped. A loop binding is not consent.
+Interactive starts ask once; non-interactive starts grant silently for that
+Session. Authority cannot widen the objective or target, resolve unknown or
+conflicting policy, or survive driver stop, completion, or replacement. A
+WorkflowRun is not a continuation driver and inherits the authority of the
+driver that started it only while that authority remains active; it cannot
+create or retain driver authority by itself. Automated review and model
+confidence are safety signals, not human authorization.
 
 ## Engineering policy
 
@@ -356,10 +387,15 @@ local work
   -> terminal when every PR is merged or closed
 ```
 
-A request to submit or open a PR authorizes creating or updating it as draft
-during work and promoting it to ready when the requested work is complete. Do
-not ask again solely for the draft-to-ready transition unless the target,
-scope, or external impact materially changes.
+Creating, updating, or synchronizing a Draft PR is `manual_only`. A manual
+continuation obtains human approval for the exact operation. A Goal, Loop, or
+Repro driver-owned continuation may perform the same Draft operations without
+another approval only while Session `driverAuthority` is `granted` and the
+operations remain inside its bounded authority.
+
+Promotion to Ready is `required`. It needs human approval for the exact PR
+stack after the gates below pass; a broad delivery objective, an active driver,
+automated review, or passing checks does not grant that approval.
 
 Before promotion to ready:
 
@@ -369,10 +405,10 @@ Before promotion to ready:
 - required Artifact and Evidence references are synchronized;
 - no unresolved blocker remains.
 
-Promotion to ready and the refreshed `git_change` Artifact are part of
-completing PR delivery. Do not leave completed work in draft unless the user
-explicitly asks for a draft-only deliverable or a documented blocker prevents
-review.
+After the gates pass, keep the Draft stack synchronized and request the
+required Ready approval. Until it is granted, report PR delivery as waiting on
+that decision. Once granted, promotion to Ready and the refreshed `git_change`
+Artifact are part of completing PR delivery.
 
 Each PR snapshot already records `draft`. Stack review state should be derived,
 not independently persisted:
@@ -386,9 +422,10 @@ export type GitChangeReviewState =
   | "terminal";
 ```
 
-Intermediate Tasks may finish while a stack is still draft. Ready is required
-at the final PR-delivery, integration, Project-completion, or Goal-completion
-boundary when the confirmed success criteria include a reviewable PR.
+Intermediate Tasks may finish while a stack is still Draft. When the confirmed
+success criteria include a reviewable PR, the final PR-delivery, integration,
+Project-completion, or Goal-completion boundary waits for the required Ready
+approval.
 
 ## Acceptance criteria
 
@@ -403,9 +440,9 @@ The completed refactor must prove:
 - one `skill_agent` call loads and executes multiple Skills exactly once;
 - the dedicated Skill Agent cannot recursively delegate or mutate coordination
   state;
-- a requested PR is draft while work remains and ready when the complete
-  verified delivery is finished;
-- important actions still require user authorization even when an automated
-  reviewer approves them;
+- a requested PR remains Draft while work remains, and becomes Ready only after
+  complete verification and the required human approval;
+- `required` actions still need human approval under every continuation driver,
+  even when an automated reviewer approves them;
 - behavior tests cover unnecessary asks, missed material asks, unauthorized
   actions, unnecessary delegation, Skill conflicts, and final PR readiness.

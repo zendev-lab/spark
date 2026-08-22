@@ -5,7 +5,6 @@ import {
   sparkTokenUsageByPersistenceSchema,
   sparkUsageExecutionSchema,
   type SparkReproUsageScope,
-  type SparkLegacyTokenUsageBackfillRequest,
   type SparkTokenBreakdown,
   type SparkTokenUsageAggregate,
   type SparkTokenUsageByPersistence,
@@ -82,21 +81,6 @@ export interface RecordTurnCompleteUsageInput extends RegisterUsageExecutionInpu
   recordedAt?: string;
   /** @internal Stable identity for explicit legacy imports only. */
   eventIdOverride?: string;
-}
-
-/** Explicit, conservative import of one provable legacy assistant response. */
-export interface BackfillLegacyAssistantUsageInput {
-  sourceEventId: string;
-  invocationId: string;
-  reproId: string;
-  executionId?: string;
-  parentExecutionId?: string;
-  kind: SparkUsageExecutionKind;
-  persistence: SparkUsageExecutionPersistence;
-  sessionId?: string;
-  runRef?: string;
-  assistant: unknown;
-  recordedAt?: string;
 }
 
 export interface TokenUsageSummaryOptions {
@@ -337,127 +321,6 @@ export class SparkTokenUsageStore {
         recordedAt,
       );
     return Number(result.changes) > 0;
-  }
-
-  /**
-   * Import one legacy response only when its attribution and provider counters
-   * are explicit. This API never scans transcripts and never guesses scope.
-   */
-  backfillLegacyAssistantUsage(input: BackfillLegacyAssistantUsageInput): boolean {
-    const sourceEventId = nonEmptyString(input.sourceEventId);
-    if (!sourceEventId) throw new Error("Legacy token usage requires a stable sourceEventId");
-    if (!isRecord(input.assistant) || input.assistant.role !== "assistant") return false;
-    if (!nonEmptyString(input.assistant.provider) || !nonEmptyString(input.assistant.model)) {
-      return false;
-    }
-    if (!recognizedUsageRecord(input.assistant.usage)) return false;
-
-    const eventId = `usage_legacy_${digest(sourceEventId)}`;
-    const existing = this.db
-      .prepare(
-        `SELECT execution_id, invocation_id
-         FROM token_usage_receipts
-         WHERE event_id = ?`,
-      )
-      .get(eventId) as { execution_id: string; invocation_id: string } | undefined;
-    const executionId = input.executionId ?? input.invocationId;
-    if (existing) {
-      if (existing.execution_id === executionId && existing.invocation_id === input.invocationId) {
-        return false;
-      }
-      throw new Error(`Legacy token usage event ${sourceEventId} has conflicting attribution`);
-    }
-
-    return this.recordTurnComplete({
-      invocationId: input.invocationId,
-      executionId,
-      ...(input.parentExecutionId ? { parentExecutionId: input.parentExecutionId } : {}),
-      scope: { kind: "repro", reproId: input.reproId },
-      kind: input.kind,
-      persistence: input.persistence,
-      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      ...(input.runRef ? { runRef: input.runRef } : {}),
-      event: {
-        type: "turn_complete",
-        message: input.assistant,
-        reason: input.assistant.stopReason,
-      },
-      ...(input.recordedAt ? { recordedAt: input.recordedAt } : {}),
-      eventIdOverride: eventId,
-    });
-  }
-
-  /** Typed daemon entry used by local RPC; callers must name every attribution boundary. */
-  backfillLegacyUsage(input: SparkLegacyTokenUsageBackfillRequest): boolean {
-    const common = {
-      sourceEventId: input.sourceEventId,
-      invocationId: input.invocationId,
-      reproId: input.scope.reproId,
-      ...(input.executionId ? { executionId: input.executionId } : {}),
-      ...(input.parentExecutionId ? { parentExecutionId: input.parentExecutionId } : {}),
-      kind: input.executionKind,
-      persistence: input.persistence,
-      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      ...(input.runRef ? { runRef: input.runRef } : {}),
-    };
-    if (input.action === "response") {
-      return this.backfillLegacyAssistantUsage({
-        ...common,
-        assistant: {
-          role: "assistant",
-          provider: input.provider,
-          model: input.model,
-          ...(input.providerResponseId ? { providerResponseId: input.providerResponseId } : {}),
-          content: [],
-          stopReason: "stop",
-          timestamp: input.observedAt,
-          usage: {
-            ...input.usage,
-            ...(input.costUsd === undefined ? {} : { costUsd: input.costUsd }),
-          },
-        },
-      });
-    }
-
-    const eventId = `usage_legacy_${digest(input.sourceEventId)}`;
-    const executionId = input.executionId ?? input.invocationId;
-    const existing = this.db
-      .prepare(
-        `SELECT execution_id, invocation_id
-         FROM token_usage_receipts
-         WHERE event_id = ?`,
-      )
-      .get(eventId) as { execution_id: string; invocation_id: string } | undefined;
-    if (existing) {
-      if (existing.execution_id === executionId && existing.invocation_id === input.invocationId) {
-        return false;
-      }
-      throw new Error(
-        `Legacy token usage event ${input.sourceEventId} has conflicting attribution`,
-      );
-    }
-    return this.recordTurnComplete({
-      invocationId: input.invocationId,
-      executionId,
-      ...(input.parentExecutionId ? { parentExecutionId: input.parentExecutionId } : {}),
-      scope: input.scope,
-      kind: input.executionKind,
-      persistence: input.persistence,
-      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      ...(input.runRef ? { runRef: input.runRef } : {}),
-      detailKind: `unsupported:legacy_${input.reason}`,
-      event: {
-        type: "turn_complete",
-        message: {
-          role: "assistant",
-          content: [],
-          stopReason: "error",
-          timestamp: input.observedAt,
-        },
-        reason: "legacy_coverage_gap",
-      },
-      eventIdOverride: eventId,
-    });
   }
 
   summarize(

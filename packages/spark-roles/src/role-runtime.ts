@@ -1,15 +1,18 @@
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   contentHash,
+  sparkWorkspaceStatePath,
   stableId,
   writeTextFileAtomic,
   type EvidenceRef,
   type ExtensionRoleRunInputController,
   type ExtensionRoleRunner,
   type RoleRunCompletionOutcome,
+  type SparkStateRootContext,
   type ToolEffect,
 } from "@zendev-lab/spark-core";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkSkillByName,
@@ -667,6 +670,35 @@ export class MarkdownRoleStore implements RoleStore {
     await writeFile(filePath, serializeRoleSpecMarkdown(role), "utf8");
   }
 
+  async saveIfAbsent(role: RoleSpec): Promise<boolean> {
+    validateRoleSpec(role);
+    if (!this.writable) throw new Error("role store is read-only");
+    if (role.source !== this.source)
+      throw new Error(`only ${this.source} roles can be saved to this MarkdownRoleStore`);
+    const filePath = this.pathFor(role);
+    await mkdir(dirname(filePath), { recursive: true });
+    const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, serializeRoleSpecMarkdown(role), {
+        encoding: "utf8",
+        flag: "wx",
+      });
+      try {
+        await link(temporaryPath, filePath);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw error;
+      }
+    } finally {
+      try {
+        await unlink(temporaryPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+  }
+
   async loadAll(): Promise<RoleSpec[]> {
     const paths = await findMarkdownFiles(this.rootDir);
     const roles: RoleSpec[] = [];
@@ -805,8 +837,14 @@ export class RoleModelSettingsStore {
   }
 }
 
-export function defaultProjectRoleModelSettingsStore(cwd: string): RoleModelSettingsStore {
-  return new RoleModelSettingsStore(join(cwd, ".spark", "role-model-settings.json"), "project");
+export function defaultProjectRoleModelSettingsStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): RoleModelSettingsStore {
+  return new RoleModelSettingsStore(
+    sparkWorkspaceStatePath(cwd, ["role-model-settings.json"], ctx),
+    "project",
+  );
 }
 
 export function defaultUserRoleModelSettingsStore(sparkHome?: string): RoleModelSettingsStore {
@@ -1776,7 +1814,7 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
   const effectiveRoleRevision =
     composition?.compositionRevision ?? input.roleRevision ?? "unversioned";
   const effectiveSystemPrompt = composition?.systemPrompt ?? input.systemPrompt;
-  // Preserve the recursion guard for nested role calls even when the run is
+  // Preserve the recursion guard for nested Role execution even when the run is
   // daemon-native rather than process-backed.
   const nativeEnv = roleRunChildEnv(input.env);
   const nativeExecutor = await resolveRoleNativeExecutor({ runRole: input.nativeExecutor });
@@ -1954,6 +1992,54 @@ export function parsePiJsonlEvents(text: string): unknown[] {
     }
   }
   return events;
+}
+
+export function finalAssistantTextFromRoleRunEvents(
+  events: readonly unknown[],
+): string | undefined {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    const direct = assistantTextFromRoleRunMessage(eventMessage(event));
+    if (direct) return direct;
+
+    const messages = eventMessages(event);
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const text = assistantTextFromRoleRunMessage(messages[messageIndex]);
+      if (text) return text;
+    }
+  }
+  return undefined;
+}
+
+function eventMessage(event: unknown): unknown {
+  if (!event || typeof event !== "object") return undefined;
+  return (event as { message?: unknown }).message;
+}
+
+function eventMessages(event: unknown): unknown[] {
+  if (!event || typeof event !== "object") return [];
+  const messages = (event as { messages?: unknown }).messages;
+  return Array.isArray(messages) ? messages : [];
+}
+
+function assistantTextFromRoleRunMessage(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  if ((message as { role?: unknown }).role !== "assistant") return undefined;
+  return roleRunMessageContentText((message as { content?: unknown }).content);
+}
+
+function roleRunMessageContentText(content: unknown): string | undefined {
+  if (typeof content === "string") return content.trim() || undefined;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const item = block as { type?: unknown; text?: unknown };
+      return item.type === "text" && typeof item.text === "string" ? item.text : "";
+    })
+    .join("")
+    .trim();
+  return text || undefined;
 }
 
 function abortSignalReason(signal: AbortSignal | undefined): string {

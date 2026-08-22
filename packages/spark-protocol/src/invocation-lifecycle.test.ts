@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  isSparkInvocationTerminalStatus,
   sparkInvocationEventSchema,
   sparkInvocationRetentionApplyRequestSchema,
   sparkInvocationRetentionApplyResultSchema,
+  sparkInvocationStatusSchema,
   sparkTurnCancelRequestSchema,
   sparkTurnAttachmentsSchema,
   sparkTurnSubmitRequestSchema,
@@ -200,5 +202,20 @@ describe("invocation lifecycle protocol", () => {
       }),
     ).toThrow();
     expect(sparkInvocationEventSchema.shape.payload).toBeDefined();
+  });
+
+  it.each(sparkInvocationStatusSchema.options)(
+    "classifies daemon invocation status %s as terminal or live",
+    (status) => {
+      expect(isSparkInvocationTerminalStatus(status)).toBe(
+        status === "succeeded" || status === "failed" || status === "cancelled",
+      );
+    },
+  );
+
+  it("rejects unknown daemon invocation statuses as non-terminal", () => {
+    expect(isSparkInvocationTerminalStatus("timed_out")).toBe(false);
+    expect(isSparkInvocationTerminalStatus("lost")).toBe(false);
+    expect(isSparkInvocationTerminalStatus("done")).toBe(false);
   });
 });

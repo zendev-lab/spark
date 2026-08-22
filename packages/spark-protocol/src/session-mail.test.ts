@@ -44,16 +44,48 @@ const message = {
 };
 
 describe("session mail protocol", () => {
+  it("keeps active-target handling explicit", () => {
+    expect(sparkSessionSendRequestSchema.parse(request).onActive).toBeUndefined();
+    expect(
+      sparkSessionSendRequestSchema.parse({
+        ...request,
+        onActive: "queue",
+      }).onActive,
+    ).toBe("queue");
+    expect(
+      sparkSessionSendRequestSchema.parse({
+        ...request,
+        onActive: "interrupt",
+      }).onActive,
+    ).toBe("interrupt");
+  });
+
   it("keeps send admission as one daemon-owned RPC contract", () => {
     expect(sparkSessionSendRequestSchema.parse(request)).toMatchObject({
       kind: "request",
-      notifyOnCompletion: false,
+      wake: false,
       source: "tool",
     });
     expect(sparkSessionMailMessageSchema.parse(message).requestAdmission).toMatchObject({
       status: "accepted",
       invocationId: "inv_1",
     });
+  });
+
+  it("accepts notifyOnCompletion as a wake compatibility decoder", () => {
+    expect(
+      sparkSessionSendRequestSchema.parse({ ...request, notifyOnCompletion: true }),
+    ).toMatchObject({ wake: true });
+    expect(sparkSessionSendRequestSchema.parse({ ...request, wake: true })).toMatchObject({
+      wake: true,
+    });
+    expect(
+      sparkSessionSendRequestSchema.parse({
+        ...request,
+        wake: false,
+        notifyOnCompletion: true,
+      }),
+    ).toMatchObject({ wake: false });
   });
 
   it("requires an invocation receipt when execution was triggered", () => {
@@ -71,9 +103,12 @@ describe("session mail protocol", () => {
           lifetime: "scoped",
           activity: "idle",
           roleBinding: { kind: "none" },
-          owner: { kind: "session", supervisorSessionId: "sess_admin_workspace_1" },
+          lineage: {
+            kind: "child",
+            parentSessionId: "sess_admin_workspace_1",
+            origin: { kind: "session" },
+          },
           incarnation: 1,
-          stateBinding: { kind: "session", ref: "sess_admin_workspace_1" },
           visibility: "public",
           retention: "retain",
           purpose: "interactive",
@@ -88,5 +123,59 @@ describe("session mail protocol", () => {
         },
       }).submitted,
     ).toMatchObject({ invocationId: "inv_1" });
+  });
+
+  it("persists the frozen execution envelope on request mail", () => {
+    expect(
+      sparkSessionMailMessageSchema.parse({
+        ...message,
+        requestAdmission: undefined,
+        requestExecution: {
+          notifyOnCompletion: true,
+          parentInvocationId: "inv_parent",
+          origin: { surface: "channel", host: "channel" },
+        },
+      }).requestExecution,
+    ).toEqual({
+      notifyOnCompletion: true,
+      parentInvocationId: "inv_parent",
+      origin: { surface: "channel", host: "channel" },
+    });
+  });
+
+  it("accepts a queued send result without an invocation receipt", () => {
+    const parsed = sparkSessionSendResultSchema.parse({
+      message: {
+        ...message,
+        requestAdmission: { status: "pending", updatedAt: "2026-07-23T00:00:00.000Z" },
+      },
+      filePath: "/tmp/mailbox.json",
+      created: true,
+      executionTriggered: false,
+      target: {
+        sessionId: "sess_worker",
+        scope: { kind: "workspace", workspaceId: "workspace-1" },
+        lifecycle: "open",
+        placement: "active",
+        lifetime: "scoped",
+        activity: "idle",
+        roleBinding: { kind: "none" },
+        lineage: {
+          kind: "child",
+          parentSessionId: "sess_admin_workspace_1",
+          origin: { kind: "session" },
+        },
+        incarnation: 1,
+        visibility: "public",
+        retention: "retain",
+        purpose: "interactive",
+        bindings: [],
+        createdAt: "2026-07-23T00:00:00.000Z",
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      },
+      submitted: undefined,
+    });
+    expect(parsed).toMatchObject({ created: true, executionTriggered: false });
+    expect(parsed.submitted).toBeUndefined();
   });
 });

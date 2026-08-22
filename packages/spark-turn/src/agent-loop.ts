@@ -3,10 +3,9 @@
  *
  * Design goals:
  *
- *   1. **Stream-agnostic.** The loop is parameterised on a `streamFunction`
- *      with the same shape as `pi-ai`'s `stream(model, context, options)`.
- *      The default wiring will plug in the real `stream` import; tests pass a
- *      fake stream so the loop can be exercised without a network call.
+ *   1. **LLM-agnostic.** The loop is parameterised on `llm: Pick<LlmRuntime, "stream">`.
+ *      Hosts inject the process-local dsh-llm runtime; tests pass a structured
+ *      fake so the loop can be exercised without Cordis or a network call.
  *
  *   2. **One claim per host.** Holds the current system prompt and message
  *      log. Producers call `submit(content)` to enqueue a user message; the
@@ -50,8 +49,8 @@ import type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-ai";
-import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
+import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-llm";
 
 export type {
   AssistantMessage,
@@ -64,17 +63,22 @@ export type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 
 import { createHash } from "node:crypto";
+import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
 
-import type {
-  SparkHostDelegationEnvelope,
-  SparkHostContext,
-  SparkDelegationThinkingLevel,
-  ToolExecutionResult,
-  ToolExecutionReconciliation,
-  ToolExecutionRetryability,
+import {
+  hasActiveDriverBinding,
+  type SparkDriverAuthority,
+  type SparkHostDelegationEnvelope,
+  type SparkHostContext,
+  type SparkExecutionService,
+  type SparkDshToolPolicyMetadata,
+  type SparkDelegationThinkingLevel,
+  type ToolExecutionResult,
+  type ToolExecutionReconciliation,
+  type ToolExecutionRetryability,
 } from "@zendev-lab/spark-core";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
 
@@ -191,13 +195,21 @@ export type {
   SparkTurnRegisteredTool,
 } from "./turn-types.ts";
 
-export type SparkAgentStreamFunction = (
-  model: Model<string>,
-  context: Context,
-  options?: StreamOptions,
-) => AsyncIterable<AssistantMessageEvent> & {
-  result(): Promise<AssistantMessage>;
-};
+import { type SparkTurnLlm } from "./turn-llm.ts";
+import {
+  encodeSparkAuxiliaryModelRoute,
+  runSparkDshTurn,
+  type SparkAssembledTurn,
+  type SparkDshSessionMetadata,
+  type SparkDshToolDescriptor,
+} from "./dsh-turn-driver.ts";
+export {
+  asSparkTurnLlm,
+  sparkTurnLlmStream,
+  type SparkAgentStreamFunction,
+  type SparkDshTurnRuntime,
+  type SparkTurnLlm,
+} from "./turn-llm.ts";
 
 export type SparkAgentLoopState = "idle" | "streaming" | "tooling" | "aborting";
 export type SparkAgentMode = "plan" | "execute" | "fleet";
@@ -504,10 +516,20 @@ export interface SparkTurnHost {
    * dispatch time as well as when advertising tool schemas.
    */
   isToolDispatchAllowed?(name: string, tool: SparkTurnRegisteredTool): boolean;
+  /** Host-owned allowlist check for a Cordis-native DSH tool. */
+  isDshToolDispatchAllowed?(name: string, policy: SparkDshToolPolicyMetadata): boolean;
   emit(event: string, payload: unknown): Promise<unknown[]>;
   getTool(name: string): SparkTurnRegisteredTool | undefined;
   makeContext(extra?: Partial<SparkHostContext>): SparkHostContext;
   requestInteraction(request: SparkInteractionRequest): Promise<SparkInteractionResponse>;
+  /**
+   * Resolve Session consent for driver `manual_only` bypass. Interactive
+   * hosts ask once; headless hosts persist a silent grant.
+   */
+  ensureDriverAuthority?(
+    ctx: SparkHostContext,
+    signal?: AbortSignal,
+  ): Promise<SparkDriverAuthority>;
   listTools(): SparkTurnRegisteredTool[];
   drainOutbox(): SparkTurnOutboxEnvelope[];
   setIdle(idle: boolean): void;
@@ -582,8 +604,12 @@ export interface SparkPromptManifestOptions {
 
 export interface SparkAgentLoopOptions {
   host: SparkTurnHost;
-  /** pi-ai stream function. Pass the production `stream` import or a test fake. */
-  streamFunction: SparkAgentStreamFunction;
+  /** dsh-llm runtime stream surface. Tests may pass a structural fake. */
+  llm: SparkTurnLlm;
+  /** Shared daemon DSH root. Omitted only by isolated test/scripted providers. */
+  dshContext?: CordisContext;
+  /** Product-composed plugins mounted into each invocation Agent scope. */
+  agentPlugins?: readonly CordisPlugin[];
   /** Resolves the current model. May be replaced at runtime via setModel. */
   getModel: () => Model<string>;
   systemPrompt?: string;
@@ -604,19 +630,20 @@ export interface SparkAgentLoopOptions {
   /** Maximum concurrent calls in an explicitly safe read-only tool batch. Defaults to 4. */
   maxParallelToolCalls?: number;
   /**
-   * Session/host method for tools with `requiresApproval`.
-   * Defaults to `auto`. Local TUI should pass `skip`; channel sessions keep `auto`.
+   * Session/host method for approval-required tools. Defaults to `human`.
+   * Driver-owned turns bypass only calls explicitly marked `manual_only`.
    */
   approvalMethod?: SparkToolApprovalMethod;
   /**
-   * When `approvalMethod` is `auto` and the reviewer does not approve.
-   * Defaults to `ask` (escalate to human / toolApproval).
+   * When `approvalMethod` is `auto` and the reviewer rejects the call.
+   * Defaults to `ask`; reviewer approval is only a safety signal and still
+   * proceeds through human toolApproval.
    */
   approvalRejectAction?: SparkToolApprovalRejectAction;
   /**
    * Auto-review hook (same conceptual channel as goal completion reviewer).
-   * When omitted under `auto`, the call is treated as blocked and follows
-   * `approvalRejectAction`.
+   * It may reject before asking the user but cannot grant execution authority.
+   * When omitted under `auto`, the call follows `approvalRejectAction`.
    */
   reviewToolApproval?: (
     request: SparkToolApprovalReviewRequest,
@@ -638,7 +665,7 @@ export interface SparkAgentLoopOptions {
 /**
  * Turn-loop subscriber events. Discriminants are single-sourced in
  * `@zendev-lab/spark-protocol` (`SPARK_AGENT_LOOP_EVENT_TYPES`). AI message
- * payloads use spark-ai / pi-ai types (not protocol view projections);
+ * payloads use spark-llm / pi-ai types (not protocol view projections);
  * `view_event` carries protocol `SparkViewModelEvent`.
  */
 export type SparkAgentLoopEvent =
@@ -659,7 +686,9 @@ export type SparkAgentLoopEvent =
 
 export class SparkAgentLoop {
   readonly host: SparkTurnHost;
-  private readonly streamFunction: SparkAgentStreamFunction;
+  private readonly llm: SparkTurnLlm;
+  private readonly dshContext: CordisContext | undefined;
+  private readonly agentPlugins: readonly CordisPlugin[];
   private readonly getModel: () => Model<string>;
   private readonly streamTimeoutMs: number;
   private readonly streamIdleTimeoutMs: number;
@@ -698,6 +727,7 @@ export class SparkAgentLoop {
   private triggerTurnRunning = false;
   private triggerTurnDeferred = false;
   private viewSessionId = "spark-agent";
+  private dshSessionMetadata: SparkDshSessionMetadata | undefined;
   private viewRunCounter = 0;
   private currentViewRunId: string | undefined;
   private currentViewRunUsage: SparkRunUsageTotals | undefined;
@@ -708,7 +738,9 @@ export class SparkAgentLoop {
 
   constructor(options: SparkAgentLoopOptions) {
     this.host = options.host;
-    this.streamFunction = options.streamFunction;
+    this.llm = options.llm;
+    this.dshContext = options.dshContext;
+    this.agentPlugins = [...(options.agentPlugins ?? [])];
     this.getModel = options.getModel;
     this.systemPrompt = options.systemPrompt ?? "";
     this.promptCacheOptions = options.promptCache ?? {};
@@ -748,6 +780,10 @@ export class SparkAgentLoop {
 
   setApprovalRejectAction(action: SparkToolApprovalRejectAction): void {
     this.approvalRejectAction = normalizeApprovalRejectAction(action);
+  }
+
+  setDshSessionMetadata(metadata: SparkDshSessionMetadata): void {
+    this.dshSessionMetadata = structuredClone(metadata);
   }
 
   /**
@@ -1062,104 +1098,24 @@ export class SparkAgentLoop {
         }
         skipLifecycle = false;
         this.transition("streaming");
-        roundtrips += 1;
 
         const abortController = new AbortController();
         this.currentAbort = abortController;
-        const activeRegisteredTools = this.collectActiveRegisteredTools();
-        const tools = this.collectActiveTools(activeRegisteredTools);
-        const activeToolGuidance = renderActiveToolGuidance(activeRegisteredTools);
-        const turnSystemPrompt = [this.systemPrompt, activeToolGuidance]
-          .filter((section): section is string => Boolean(section))
-          .join("\n\n");
-        const messageCountBeforeAssistant = this.promptItems.length;
-        const promptCache = resolveSparkPromptCache({
-          systemPrompt: turnSystemPrompt,
-          sessionId: this.viewSessionId,
-          ...this.promptCacheOptions,
-        });
-        const context = {
-          systemPrompt: turnSystemPrompt || undefined,
-          systemPromptStable: promptCache.stablePrompt || undefined,
-          systemPromptDynamic: promptCache.dynamicPrompt || undefined,
-          promptCacheKey: promptCache.promptCacheKey,
-          promptCache,
-          messages: lowerSparkPromptItems(this.promptItems) as Message[],
-          tools,
-        } as Context;
+        const roundtripsBefore = roundtrips;
 
         let assistant: AssistantMessage;
         try {
-          const reasoning = this.getReasoning?.();
-          const model = this.getModel();
-          const manifest = buildSparkPromptManifest({
-            promptVersion: this.promptManifestOptions.promptVersion,
-            sessionId: this.viewSessionId,
-            model: {
-              provider: model?.provider,
-              id: model?.id,
-              api: model?.api,
+          assistant = await this.driveWithDshAgentLoop(
+            abortController,
+            options.hooks,
+            lifecycleSource,
+            () => {
+              roundtrips += 1;
             },
-            reasoning,
-            stablePrompt: promptCache.stablePrompt,
-            dynamicPrompt: promptCache.dynamicPrompt,
-            stableHash: promptCache.stableHash,
-            dynamicHash: promptCache.dynamicHash,
-            promptCacheKey: promptCache.promptCacheKey,
-            promptCacheDisabledReason: promptCache.disabledReason,
-            tools: this.host.listTools().map((tool) => {
-              const policy = resolvedRegisteredToolPolicy(tool);
-              return {
-                name: tool.config.name,
-                active: this.isToolAvailable(tool),
-                effect: policy.effect,
-                executionMode: policy.executionMode,
-                requiresApproval: policy.approval === "required",
-                domains: policy.domains,
-                modes: policy.modes,
-                promptGuidelines: tool.config.promptGuidelines,
-              };
-            }),
-            selectedSkills: safeSelectedSkills(this.promptManifestOptions.getSelectedSkills),
-            roundtripIndex: roundtrips,
-            maxParallelToolCalls: this.maxParallelToolCalls,
-          });
-          this.lastPromptManifest = manifest;
-          this.publish({ type: "prompt_manifest", manifest });
-          const estimate = estimateSparkProviderContextTokens(context);
-          const requestedOutputTokens = resolveSparkProviderOutputTokens(
-            estimate.tokens,
-            model.contextWindow,
-            model.maxTokens,
+            () => roundtrips > roundtripsBefore,
           );
-          await this.beforeProviderRequest?.({
-            model,
-            context,
-            requestedOutputTokens,
-            estimate,
-            roundtrips,
-          });
-          const stream = this.streamFunction(model, context, {
-            signal: abortController.signal,
-            maxTokens: requestedOutputTokens,
-            promptCacheKey: promptCache.promptCacheKey,
-            prompt_cache_key: promptCache.promptCacheKey,
-            ...(reasoning !== undefined ? { reasoning } : {}),
-          } as StreamOptions);
-          const consume = this.consumeAssistantStream(stream, abortController);
-          assistant =
-            this.streamTimeoutMs > 0
-              ? await runWithTimeout(
-                  consume,
-                  this.streamTimeoutMs,
-                  `Spark agent model stream timed out after ${this.streamTimeoutMs}ms`,
-                  (error) => {
-                    (error as Error & { code?: string }).code ??= "STREAM_WALL_TIMEOUT";
-                    abortController.abort(error);
-                  },
-                )
-              : await consume;
         } catch (error) {
+          if (isSparkTurnRestartYieldError(error)) throw error;
           const message = error instanceof Error ? error.message : String(error);
           if (
             (this.state as SparkAgentLoopState) === "aborting" ||
@@ -1177,11 +1133,10 @@ export class SparkAgentLoop {
           return fail(Object.assign(new Error(message), { code: MODEL_EMPTY_RESPONSE_ERROR_CODE }));
         }
 
-        const toolCalls = collectToolCalls(assistant);
         if (
           assistant.stopReason !== "error" &&
           assistant.stopReason !== "aborted" &&
-          toolCalls.length === 0 &&
+          collectToolCalls(assistant).length === 0 &&
           !displaySafeAssistantText(assistant.content).trim()
         ) {
           const message = "model completed without a displayable response";
@@ -1189,10 +1144,8 @@ export class SparkAgentLoop {
           return fail(Object.assign(new Error(message), { code: MODEL_EMPTY_RESPONSE_ERROR_CODE }));
         }
 
-        this.promptItems.push(asProviderMessageItem(assistant));
         lastAssistant = assistant;
-        this.publish({ type: "turn_complete", assistant, reason: assistant.stopReason });
-        await this.host.emit("turn_end", { message: assistant, toolResults: [] });
+        if (roundtrips === roundtripsBefore) roundtrips += 1;
 
         if (assistant.stopReason === "aborted") {
           return finishAgentTurn({
@@ -1213,32 +1166,12 @@ export class SparkAgentLoop {
           });
         }
 
-        // Tool calls require execution and another stream pass.
-        if (toolCalls.length === 0) {
-          this.drainOutboxIntoMessages();
-          // If the outbox didn't add anything beyond the assistant we just
-          // pushed, the turn is over. Compare against the snapshot taken
-          // before this round, plus 1 for the assistant message itself.
-          if (this.promptItems.length === messageCountBeforeAssistant + 1) {
-            return finishAgentTurn({ status: "completed", assistant, roundtrips });
-          }
-          // Outbox queued more user/runtime messages; loop again.
-          continue;
-        }
-
-        await options.hooks?.beforeToolCalls?.({
-          toolCalls,
-          promptItems: this.getPromptItems(),
-          roundtrips,
-        });
-        this.transition("tooling");
-        const toolResults = await this.dispatchToolCalls(toolCalls, abortController.signal);
-        for (const result of toolResults) {
-          this.promptItems.push(asProviderMessageItem(result));
-          this.publish({ type: "tool_result", message: result });
-          this.publishEntityViewsForToolResult(result);
-        }
+        const lengthAfterDriver = this.promptItems.length;
         this.drainOutboxIntoMessages();
+        if (this.promptItems.length === lengthAfterDriver) {
+          return finishAgentTurn({ status: "completed", assistant, roundtrips });
+        }
+        continue;
       }
 
       if (this.state === "aborting") {
@@ -1270,6 +1203,313 @@ export class SparkAgentLoop {
         );
       }
     }
+  }
+
+  private async driveWithDshAgentLoop(
+    abortController: AbortController,
+    hooks: SparkAgentLoopRunHooks | undefined,
+    lifecycleSource: SparkAgentLifecycleSource,
+    bumpRoundtrip: () => void,
+    isSubsequentRoundtrip: () => boolean,
+  ): Promise<AssistantMessage> {
+    let lastAssistant: AssistantMessage | undefined;
+    let sawTerminalFailure = false;
+    let pendingToolCalls: ToolCall[] = [];
+    const pendingToolResults = new Map<string, ToolResultMessage>();
+    const publishToolResult = (result: ToolResultMessage): void => {
+      this.promptItems.push(asProviderMessageItem(result));
+      this.publish({ type: "tool_result", message: result });
+      this.publishEntityViewsForToolResult(result);
+    };
+    const flushToolResults = (): void => {
+      for (const call of pendingToolCalls) {
+        const result = pendingToolResults.get(call.id);
+        if (!result) continue;
+        pendingToolResults.delete(call.id);
+        publishToolResult(result);
+      }
+      pendingToolCalls = [];
+      for (const result of pendingToolResults.values()) {
+        publishToolResult(result);
+      }
+      pendingToolResults.clear();
+    };
+    const pairSkippedToolResults = (): void => {
+      for (const call of pendingToolCalls) {
+        if (pendingToolResults.has(call.id)) continue;
+        pendingToolResults.set(
+          call.id,
+          errorToolResult(call, "tool call skipped because the agent was aborted"),
+        );
+      }
+    };
+    const tools = this.host.listTools().map((tool) => {
+      const policy = resolvedRegisteredToolPolicy(tool);
+      return {
+        name: tool.config.name,
+        description: tool.config.description ?? tool.config.name,
+        parallelSafe:
+          policy.effect === "read" &&
+          policy.executionMode === "parallel" &&
+          !toolRequiresApproval(tool),
+        ...(this.toolTimeoutMs > 0 ? { timeoutMs: this.toolTimeoutMs } : {}),
+      };
+    });
+    const testRuntime = this.dshContext
+      ? undefined
+      : await this.llm.createDshTestRuntime?.(this.maxParallelToolCalls);
+    const dshContext = this.dshContext ?? testRuntime?.ctx;
+    if (!dshContext) {
+      throw new Error("SparkAgentLoop requires the daemon shared DSH context");
+    }
+    const executionContext = this.host.makeContext();
+    const activeModel = this.getModel();
+    const execution: SparkExecutionService = Object.freeze({
+      ...(executionContext.workspaceId ? { workspaceId: executionContext.workspaceId } : {}),
+      cwd: executionContext.cwd ?? process.cwd(),
+      sessionId: this.viewSessionId,
+      ...(executionContext.invocationId ? { invocationId: executionContext.invocationId } : {}),
+      ...(this.currentMode ? { mode: this.currentMode } : {}),
+      ...(executionContext.driverAuthority
+        ? { driverAuthority: executionContext.driverAuthority }
+        : {}),
+      model: { provider: activeModel.provider, id: activeModel.id },
+      ...(executionContext.runLeaf ? { runLeaf: executionContext.runLeaf } : {}),
+      ...(executionContext.ui?.interaction ? { interaction: executionContext.ui.interaction } : {}),
+    });
+    const driveOperation = runSparkDshTurn({
+      ctx: dshContext,
+      llm: this.llm,
+      sessionId: this.viewSessionId,
+      ...(this.dshSessionMetadata ? { sessionMetadata: this.dshSessionMetadata } : {}),
+      execution,
+      agentPlugins: this.agentPlugins,
+      cwd: execution.cwd,
+      followupText: this.followupTextForDriver(),
+      tools,
+      streamIdleTimeoutMs: this.streamIdleTimeoutMs,
+      signal: abortController.signal,
+      hooks: {
+        assemble: async () => {
+          flushToolResults();
+          // Tool-enqueued follow-ups belong in this model request, not a second AgentLoop.
+          this.drainOutboxIntoMessages();
+          return this.assembleSparkTurnRequest();
+        },
+        resolveAuxiliaryModel: () => this.getModel(),
+        prepareRequest: (assembled, context, dshTools) =>
+          this.prepareSparkTurnRequest(assembled, context, dshTools),
+        dispatchToolCall: (toolCall, signal) => this.dispatchToolCall(toolCall, signal),
+        onStreamEvent: (event) => {
+          this.publish({ type: "stream_event", event: event as AssistantMessageEvent });
+        },
+        onAssistant: async (assistant) => {
+          flushToolResults();
+          lastAssistant = assistant as AssistantMessage;
+          if (lastAssistant.stopReason === "error" || lastAssistant.stopReason === "aborted") {
+            sawTerminalFailure = true;
+          }
+          this.promptItems.push(asProviderMessageItem(lastAssistant));
+          pendingToolCalls = collectToolCalls(lastAssistant);
+          this.publish({
+            type: "turn_complete",
+            assistant: lastAssistant,
+            reason: lastAssistant.stopReason,
+          });
+          await this.host.emit("turn_end", { message: lastAssistant, toolResults: [] });
+        },
+        onToolResult: (result) => {
+          pendingToolResults.set(result.toolCallId, result);
+        },
+        onTooling: () => this.transition("tooling"),
+        onRoundtrip: async () => {
+          if (isSubsequentRoundtrip()) {
+            await this.host.emit("turn_start", { source: lifecycleSource });
+            await this.injectBeforeAgentStartMessages(lifecycleSource);
+          }
+          bumpRoundtrip();
+        },
+        beforeToolCalls: hooks?.beforeToolCalls,
+        preExecute: async (name, args, signal, registration) => {
+          throwIfSignalAborted(signal);
+          if (registration.owner === "spark-host") return { kind: "allow" };
+          return await this.preExecuteDshTool(
+            registration.callId,
+            name,
+            args,
+            registration.policy,
+            signal,
+          );
+        },
+        isDshToolAvailable: (name, policy) => this.isDshToolAvailable(name, policy),
+        collectToolCalls,
+        promptItems: () => this.getPromptItems(),
+        roundtrips: () => this.lastPromptManifest?.roundtrip.index ?? 1,
+      },
+    });
+    const drive = testRuntime
+      ? driveOperation.finally(async () => await testRuntime.dispose())
+      : driveOperation;
+    try {
+      if (this.streamTimeoutMs > 0) {
+        await runWithTimeout(
+          drive,
+          this.streamTimeoutMs,
+          `Spark agent model stream timed out after ${this.streamTimeoutMs}ms`,
+          (error) => {
+            (error as Error & { code?: string }).code ??= "STREAM_WALL_TIMEOUT";
+            abortController.abort(error);
+          },
+        );
+      } else {
+        await drive;
+      }
+    } catch (error) {
+      if (
+        (this.state as SparkAgentLoopState) === "aborting" ||
+        (abortController.signal.aborted && this.currentAbortReason)
+      ) {
+        pairSkippedToolResults();
+        flushToolResults();
+        throw error;
+      }
+      flushToolResults();
+      if (
+        sawTerminalFailure &&
+        lastAssistant &&
+        (lastAssistant.stopReason === "error" || lastAssistant.stopReason === "aborted")
+      ) {
+        return lastAssistant;
+      }
+      throw error;
+    }
+    flushToolResults();
+    if (!lastAssistant) {
+      throw Object.assign(new Error("stream produced no assistant message"), {
+        code: MODEL_EMPTY_RESPONSE_ERROR_CODE,
+      });
+    }
+    return lastAssistant;
+  }
+
+  private followupTextForDriver(): string {
+    for (let index = this.promptItems.length - 1; index >= 0; index -= 1) {
+      const item = this.promptItems[index];
+      if (item?.content.kind !== "provider_message") continue;
+      if (item.content.message.role !== "user") continue;
+      const text = sparkPromptItemText(item).trim();
+      if (text) return text;
+    }
+    const tail = this.promptItems.at(-1);
+    return tail ? sparkPromptItemText(tail).trim() || "continue" : "continue";
+  }
+
+  private async assembleSparkTurnRequest() {
+    const activeRegisteredTools = this.collectActiveRegisteredTools();
+    const tools = this.collectActiveTools(activeRegisteredTools);
+    const activeToolGuidance = renderActiveToolGuidance(activeRegisteredTools);
+    const turnSystemPrompt = [this.systemPrompt, activeToolGuidance]
+      .filter((section): section is string => Boolean(section))
+      .join("\n\n");
+    const context = {
+      systemPrompt: turnSystemPrompt || undefined,
+      messages: lowerSparkPromptItems(this.promptItems) as Message[],
+      tools,
+    } as Context;
+    const reasoning = this.getReasoning?.();
+    const model = this.getModel();
+    return {
+      model,
+      context,
+      // The driver asks prepareSparkTurnRequest for the exact final budget
+      // after Cordis-native prompt sections and tools have been merged.
+      requestedOutputTokens: model.maxTokens,
+      ...(reasoning !== undefined ? { reasoning } : {}),
+    };
+  }
+
+  private async prepareSparkTurnRequest(
+    assembled: SparkAssembledTurn,
+    context: Context,
+    dshTools: readonly SparkDshToolDescriptor[],
+  ) {
+    const systemPrompt = context.systemPrompt ?? "";
+    const promptCache = resolveSparkPromptCache({
+      systemPrompt,
+      sessionId: this.viewSessionId,
+      ...this.promptCacheOptions,
+    });
+    const preparedContext = {
+      ...context,
+      systemPromptStable: promptCache.stablePrompt || undefined,
+      systemPromptDynamic: promptCache.dynamicPrompt || undefined,
+      promptCacheKey: promptCache.promptCacheKey,
+      promptCache,
+    } as Context;
+    const model = assembled.model;
+    const reasoning = assembled.reasoning;
+    const manifest = buildSparkPromptManifest({
+      promptVersion: this.promptManifestOptions.promptVersion,
+      sessionId: this.viewSessionId,
+      model: {
+        provider: model?.provider,
+        id: model?.id,
+        api: model?.api,
+      },
+      reasoning,
+      stablePrompt: promptCache.stablePrompt,
+      dynamicPrompt: promptCache.dynamicPrompt,
+      stableHash: promptCache.stableHash,
+      dynamicHash: promptCache.dynamicHash,
+      promptCacheKey: promptCache.promptCacheKey,
+      promptCacheDisabledReason: promptCache.disabledReason,
+      tools: [
+        ...this.host.listTools().map((tool) => {
+          const policy = resolvedRegisteredToolPolicy(tool);
+          return {
+            name: tool.config.name,
+            active: this.isToolAvailable(tool),
+            effect: policy.effect,
+            executionMode: policy.executionMode,
+            approval: policy.approval,
+            domains: policy.domains,
+            modes: policy.modes,
+            promptGuidelines: tool.config.promptGuidelines,
+          };
+        }),
+        ...dshTools.map(({ schema, policy }) => ({
+          name: schema.name,
+          active: true,
+          effect: policy?.effect,
+          executionMode: policy?.executionMode,
+          approval: policy?.approval,
+          domains: policy?.domains,
+          modes: policy?.modes,
+        })),
+      ],
+      selectedSkills: safeSelectedSkills(this.promptManifestOptions.getSelectedSkills),
+      roundtripIndex: (this.lastPromptManifest?.roundtrip.index ?? 0) + 1,
+      maxParallelToolCalls: this.maxParallelToolCalls,
+    });
+    this.lastPromptManifest = manifest;
+    this.publish({ type: "prompt_manifest", manifest });
+    const estimate = estimateSparkProviderContextTokens(preparedContext);
+    const requestedOutputTokens = resolveSparkProviderOutputTokens(
+      estimate.tokens,
+      model.contextWindow,
+      model.maxTokens,
+    );
+    await this.beforeProviderRequest?.({
+      model,
+      context: preparedContext,
+      requestedOutputTokens,
+      estimate,
+      roundtrips: manifest.roundtrip.index,
+    });
+    return {
+      context: preparedContext,
+      requestedOutputTokens,
+    };
   }
 
   private async dispatchToolCalls(
@@ -1333,65 +1573,6 @@ export class SparkAgentLoop {
     );
   }
 
-  private async consumeAssistantStream(
-    stream: ReturnType<SparkAgentStreamFunction>,
-    abortController: AbortController,
-  ): Promise<AssistantMessage> {
-    let assistant;
-    const idleMs = this.streamIdleTimeoutMs;
-    if (idleMs <= 0) {
-      for await (const event of stream) {
-        this.publish({ type: "stream_event", event });
-        if (event.type === "done" || event.type === "error") {
-          assistant = event.type === "done" ? event.message : event.error;
-        }
-      }
-      return assistant ?? (await stream.result());
-    }
-
-    let idleTimer: ReturnType<typeof setTimeout> | undefined;
-    let rejectIdle: ((error: Error) => void) | undefined;
-    const clearIdle = () => {
-      if (idleTimer !== undefined) {
-        clearTimeout(idleTimer);
-        idleTimer = undefined;
-      }
-    };
-    const armIdle = () => {
-      clearIdle();
-      idleTimer = setTimeout(() => {
-        const error = Object.assign(
-          new Error(`Spark agent model stream idle for ${idleMs}ms with no events`),
-          { name: "SparkAgentLoopIdleTimeoutError", code: "STREAM_IDLE_TIMEOUT" },
-        );
-        abortController.abort(error);
-        rejectIdle?.(error);
-      }, idleMs);
-      idleTimer.unref?.();
-    };
-
-    try {
-      armIdle();
-      const idleWatch = new Promise<never>((_resolve, reject) => {
-        rejectIdle = reject;
-      });
-      const consume = (async () => {
-        for await (const event of stream) {
-          armIdle();
-          this.publish({ type: "stream_event", event });
-          if (event.type === "done" || event.type === "error") {
-            assistant = event.type === "done" ? event.message : event.error;
-          }
-        }
-        return assistant ?? (await stream.result());
-      })();
-      return await Promise.race([consume, idleWatch]);
-    } finally {
-      clearIdle();
-      rejectIdle = undefined;
-    }
-  }
-
   private async dispatchToolCall(
     toolCall: ToolCall,
     signal: AbortSignal,
@@ -1422,7 +1603,12 @@ export class SparkAgentLoop {
         sessionId: this.viewSessionId,
         ...(delegation ? { delegation } : {}),
       });
-      const approval = await this.requestToolApprovalIfNeeded(normalizedToolCall, tool, signal);
+      const approval = await this.requestToolApprovalIfNeeded(
+        normalizedToolCall,
+        tool,
+        ctx,
+        signal,
+      );
       if (!approval.approved) return errorToolResult(toolCall, approval.message);
       if (this.host.getTool(toolCall.name) !== tool) {
         return errorToolResult(
@@ -1721,11 +1907,33 @@ export class SparkAgentLoop {
   private async requestToolApprovalIfNeeded(
     toolCall: ToolCall,
     tool: SparkTurnRegisteredTool,
+    ctx: SparkHostContext,
     signal: AbortSignal,
   ): Promise<{ approved: true } | { approved: false; message: string }> {
-    if (!toolRequiresApproval(tool, toolCall.arguments)) return { approved: true };
+    if (!toolRequiresApproval(tool, toolCall.arguments, ctx)) return { approved: true };
 
-    const reason = `Tool "${toolCall.name}" requires approval before execution.`;
+    if (
+      resolvedRegisteredToolPolicy(tool, toolCall.arguments).approval === "manual_only" &&
+      hasActiveDriverBinding(ctx.loop) &&
+      this.host.ensureDriverAuthority
+    ) {
+      ctx.driverAuthority = await this.host.ensureDriverAuthority(ctx, signal);
+      throwIfSignalAborted(signal);
+      if (!toolRequiresApproval(tool, toolCall.arguments, ctx)) return { approved: true };
+    }
+
+    return await this.requestConfiguredToolApproval(
+      toolCall,
+      `Tool "${toolCall.name}" requires approval before execution.`,
+      signal,
+    );
+  }
+
+  private async requestConfiguredToolApproval(
+    toolCall: ToolCall,
+    reason: string,
+    signal: AbortSignal,
+  ): Promise<{ approved: true } | { approved: false; message: string }> {
     switch (this.approvalMethod) {
       case "skip":
         return { approved: true };
@@ -1734,7 +1942,9 @@ export class SparkAgentLoop {
       case "auto": {
         const review = await this.runAutoToolApproval(toolCall, reason, signal);
         throwIfSignalAborted(signal);
-        if (review.outcome === "approved") return { approved: true };
+        if (review.outcome === "approved") {
+          return await this.requestHumanToolApproval(toolCall, reason, signal);
+        }
         const rejectMessage =
           review.summary.trim() || `tool "${toolCall.name}" was not auto-approved`;
         if (this.approvalRejectAction === "deny") {
@@ -1747,6 +1957,72 @@ export class SparkAgentLoop {
         return _exhaustive;
       }
     }
+  }
+
+  private isDshToolAvailable(
+    name: string,
+    policy: SparkDshToolPolicyMetadata | undefined,
+  ): boolean {
+    if (!policy) return false;
+    const modes = policy.modes ?? [];
+    if (this.currentMode !== undefined && modes.length > 0 && !modes.includes(this.currentMode)) {
+      return false;
+    }
+    return this.host.isDshToolDispatchAllowed?.(name, policy) ?? true;
+  }
+
+  private async preExecuteDshTool(
+    callId: string,
+    name: string,
+    args: Readonly<Record<string, unknown>>,
+    policy: SparkDshToolPolicyMetadata | undefined,
+    signal: AbortSignal,
+  ) {
+    if (!policy) {
+      return {
+        kind: "deny" as const,
+        reason: `DSH tool is missing Spark policy metadata: ${name}`,
+      };
+    }
+    if (!this.isDshToolAvailable(name, policy)) {
+      return { kind: "deny" as const, reason: `DSH tool denied by Spark policy: ${name}` };
+    }
+    if (policy.approval === undefined || policy.approval === "none") {
+      return { kind: "allow" as const };
+    }
+    const ctx = this.host.makeContext({
+      model: this.getModel(),
+      sessionId: this.viewSessionId,
+    });
+    if (
+      policy.approval === "manual_only" &&
+      hasActiveDriverBinding(ctx.loop) &&
+      ctx.driverAuthority !== "granted" &&
+      this.host.ensureDriverAuthority
+    ) {
+      ctx.driverAuthority = await this.host.ensureDriverAuthority(ctx, signal);
+      throwIfSignalAborted(signal);
+    }
+    if (
+      policy.approval === "manual_only" &&
+      hasActiveDriverBinding(ctx.loop) &&
+      ctx.driverAuthority === "granted"
+    ) {
+      return { kind: "allow" as const };
+    }
+    const approval = await this.requestConfiguredToolApproval(
+      {
+        type: "toolCall",
+        id: callId,
+        name,
+        arguments: { ...args },
+      },
+      `Tool "${name}" requires approval before execution.`,
+      signal,
+    );
+    return approval.approved
+      ? { kind: "allow" as const }
+      : { kind: "deny" as const, reason: approval.message };
   }
 
   private async runAutoToolApproval(
@@ -2557,6 +2833,7 @@ function formatAssistantUsageSummary(assistant: AssistantMessage): string | unde
 }
 
 export { SparkAgentLoop as SparkTurnRunner };
+export { encodeSparkAuxiliaryModelRoute };
 
 function renderToolApprovalRejection(
   toolName: string,

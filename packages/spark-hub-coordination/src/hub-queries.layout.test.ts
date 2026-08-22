@@ -12,7 +12,6 @@ import {
   loadEvidencePage,
   loadInboxDetailPage,
   loadInboxPage,
-  loadProjectsPage,
   loadWorkbenchHome,
   loadWorkbenchLayout,
   loadWorkspaceDashboard,
@@ -217,8 +216,6 @@ describe("public artifact counts", () => {
     });
     expect(home.workspaces[0]?.artifactCount).toBe(2);
 
-    const projects = loadProjectsPage(db, "spore");
-    expect(projects?.projects[0]?.artifactCount).toBe(1);
     db.close();
   });
 });

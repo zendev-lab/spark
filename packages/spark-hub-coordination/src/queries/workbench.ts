@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { loadProjectHub } from "../project-hub.ts";
 import { loadWorkspaceServerControl } from "../projection-services.ts";
 import { loadWorkspaceByRouteId } from "../routing.ts";
 import { hashSecret } from "../security.ts";
@@ -185,54 +184,6 @@ export function loadWorkspaceDashboard(db: DatabaseSync, workspaceRouteId: strin
     recentEvents: listRecentWorkspaceEvents(db, workspace.id),
     connectedSessionCount: countConnectedRuntimeSessions(db),
   };
-}
-
-export function loadProjectsPage(db: DatabaseSync, workspaceRouteId: string) {
-  const workspace = loadWorkspaceByRouteId(db, workspaceRouteId);
-  if (!workspace) return null;
-  const projects = db
-    .prepare(
-      `SELECT p.id,
-              p.slug,
-              p.name,
-              p.description,
-              p.status,
-              p.created_at AS createdAt,
-              p.updated_at AS updatedAt,
-              COUNT(DISTINCT ii.id) FILTER (WHERE ii.status = 'pending') AS pendingInboxCount,
-              COUNT(DISTINCT mi.id) FILTER (WHERE mi.status = 'running') AS runningInvocationCount,
-              COUNT(DISTINCT a.id) AS artifactCount
-       FROM projects p
-       LEFT JOIN inbox_items ii ON ii.project_id = p.id
-       LEFT JOIN mirrored_invocations mi ON mi.project_id = p.id
-       LEFT JOIN artifacts a
-         ON a.project_id = p.id
-        AND a.kind IN ('issue', 'git_change', 'document', 'pr', 'preview')
-       WHERE p.workspace_id = ?
-       GROUP BY p.id
-       ORDER BY p.updated_at DESC, p.created_at DESC`,
-    )
-    .all(workspace.id) as Array<{
-    id: string;
-    slug: string;
-    name: string;
-    description: string | null;
-    status: string;
-    createdAt: string;
-    updatedAt: string;
-    pendingInboxCount: number;
-    runningInvocationCount: number;
-    artifactCount: number;
-  }>;
-  return { workspace, projects };
-}
-
-export function loadProjectPage(db: DatabaseSync, workspaceRouteId: string, projectId: string) {
-  const workspace = loadWorkspaceByRouteId(db, workspaceRouteId);
-  if (!workspace) return null;
-  const hub = loadProjectHub(db, projectId);
-  if (!hub || hub.project.workspaceId !== workspace.id) return null;
-  return hub;
 }
 
 export function requireProjectForWorkspace(

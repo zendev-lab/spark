@@ -78,9 +78,35 @@ export const sparkDefaultModelSetRequestSchema = z.object({
   model: sparkModelRefSchema,
 });
 
+export const SPARK_ENABLED_MODELS_WRITE_INTENT_KIND = "user-initiated" as const;
+export const sparkEnabledModelsWriteViaOptions = ["slash-command", "settings-ui", "cli"] as const;
+
+/** Explicit user-facing write provenance. Catalog/reconnect/session switches cannot mint this. */
+export const sparkEnabledModelsWriteIntentSchema = z.object({
+  kind: z.literal(SPARK_ENABLED_MODELS_WRITE_INTENT_KIND),
+  via: z.enum(sparkEnabledModelsWriteViaOptions),
+});
+
+export function sparkUserInitiatedEnabledModelsIntent(
+  via: (typeof sparkEnabledModelsWriteViaOptions)[number],
+): SparkEnabledModelsWriteIntent {
+  return { kind: SPARK_ENABLED_MODELS_WRITE_INTENT_KIND, via };
+}
+
+export function requireSparkEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): SparkEnabledModelsWriteIntent {
+  const parsed = sparkEnabledModelsWriteIntentSchema.safeParse(intent);
+  if (!parsed.success) {
+    throw new Error("enabledModels writes require explicit user-initiated intent");
+  }
+  return parsed.data;
+}
+
 /** Replace the user's enabledModels policy with exact catalog model refs. */
 export const sparkEnabledModelsSetRequestSchema = z.object({
   models: z.array(sparkModelRefSchema),
+  intent: sparkEnabledModelsWriteIntentSchema,
 });
 
 export const sparkModelConnectivityTestRequestSchema = z.object({
@@ -220,6 +246,7 @@ export type SparkModelCatalogProvider = z.infer<typeof sparkModelCatalogProvider
 export type SparkSessionModelSelection = z.infer<typeof sparkSessionModelSelectionSchema>;
 export type SparkModelControlSnapshot = z.infer<typeof sparkModelControlSnapshotSchema>;
 export type SparkDefaultModelSetRequest = z.infer<typeof sparkDefaultModelSetRequestSchema>;
+export type SparkEnabledModelsWriteIntent = z.infer<typeof sparkEnabledModelsWriteIntentSchema>;
 export type SparkEnabledModelsSetRequest = z.infer<typeof sparkEnabledModelsSetRequestSchema>;
 export type SparkModelConnectivityFailureReason = z.infer<
   typeof sparkModelConnectivityFailureReasonSchema
@@ -251,7 +278,11 @@ export function parseSparkDefaultModelSetRequest(value: unknown): SparkDefaultMo
 }
 
 export function parseSparkEnabledModelsSetRequest(value: unknown): SparkEnabledModelsSetRequest {
-  return sparkEnabledModelsSetRequestSchema.parse(value);
+  const parsed = sparkEnabledModelsSetRequestSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("enabledModels writes require explicit user-initiated intent");
+  }
+  return parsed.data;
 }
 
 export function parseSparkModelConnectivityTestResult(

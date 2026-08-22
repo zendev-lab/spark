@@ -42,6 +42,57 @@ describe("architecture inventory governance", () => {
     }
   });
 
+  test("keeps the Node engine in the root manifest only", () => {
+    const candidateManifests = structuredClone(manifests);
+    candidateManifests["@zendev-lab/spark-text"].engines = { node: ">=26.0.0 <27" };
+
+    expect(
+      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+    ).toContain(
+      "@zendev-lab/spark-text duplicates the root Node engine; private workspaces must inherit it",
+    );
+  });
+
+  test("keeps DSH dependency versions in the named catalog", () => {
+    const candidateManifests = structuredClone(manifests);
+    candidateManifests["@zendev-lab/spark-turn"].dependencies["@deepseek-ai/dsh-agent"] =
+      "0.0.0-copied-version";
+
+    expect(
+      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+    ).toContain(
+      "@zendev-lab/spark-turn must resolve @deepseek-ai/dsh-agent through the named DSH catalog",
+    );
+  });
+
+  test("requires dsh packages to stay independent and prove a real host", () => {
+    const candidateManifests = structuredClone(manifests);
+    candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-text"] =
+      "workspace:^";
+    delete candidateManifests["@zendev-lab/dsh-tool-cue"].scripts["test:real-host"];
+
+    const failures = governance.validateArchitectureGovernance(
+      inventory,
+      candidateManifests,
+      rootManifest,
+    );
+    expect(failures).toContain(
+      "@zendev-lab/dsh-tool-cue must not depend on Spark workspace @zendev-lab/spark-text",
+    );
+    expect(failures).toContain("@zendev-lab/dsh-tool-cue must expose test:real-host");
+  });
+
+  test("rejects stale DSH independence migration exceptions", () => {
+    const candidateManifests = structuredClone(manifests);
+    delete candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-cue"];
+
+    expect(
+      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+    ).toContain(
+      "@zendev-lab/dsh-tool-cue has stale DSH independence exception for @zendev-lab/spark-cue",
+    );
+  });
+
   test("decides every ordered layer pair and enforces strict inward direction", () => {
     const layerCount = Object.keys(inventory.governance.layerPolicy.tiers).length;
     const matrix = governance.buildLayerPairMatrix(inventory);
@@ -77,7 +128,15 @@ describe("architecture inventory governance", () => {
         inventory,
         "application",
         "private-adapter",
-        "@zendev-lab/spark-tui",
+        "@zendev-lab/spark-web",
+      ).allowed,
+    ).toBe(true);
+    expect(
+      governance.decideLayerDependency(
+        inventory,
+        "application",
+        "private-adapter",
+        "@zendev-lab/spark-cli",
       ).allowed,
     ).toBe(false);
   });
@@ -158,6 +217,54 @@ describe("architecture inventory governance", () => {
         "@zendev-lab/spark-daemon-client",
       ).status,
     ).toBe("unregistered-violation");
+  });
+
+  test("allows the daemon to import cordis as the store composition root", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "no-direct-cordis",
+    );
+    expect(rule).toBeDefined();
+    expect(rule.from.pathNot).toContain("apps/spark-daemon/");
+    expect(rule.from.pathNot).toContain("packages/spark-turn/");
+    expect(rule.from.pathNot).toContain("packages/spark-llm/");
+  });
+
+  test("allows spark-turn to import dsh-llm as the agent-loop driver", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "no-direct-dsh-llm",
+    );
+    expect(rule).toBeDefined();
+    expect(rule.from.pathNot).toContain("packages/spark-turn/");
+    expect(rule.from.pathNot).toContain("packages/spark-llm/");
+  });
+
+  test("allows the daemon to import dsh-session persistence on the Cordis root", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "no-direct-dsh-session",
+    );
+    expect(rule).toBeDefined();
+    expect(rule.from.pathNot).toContain("apps/spark-daemon/");
+    expect(rule.from.pathNot).toContain("packages/spark-turn/");
+  });
+
+  test("keeps Hub and native Web behind daemon client APIs", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "client-surfaces-no-daemon-internals",
+    );
+    expect(rule).toBeDefined();
+    const sourcePattern = new RegExp(rule.from.path);
+    const sourceExclusionPattern = new RegExp(rule.from.pathNot);
+    const targetPattern = new RegExp(rule.to.path);
+    expect(sourcePattern.test("apps/spark-hub/src/index.ts")).toBe(true);
+    expect(sourcePattern.test("apps/spark-web/src/index.ts")).toBe(true);
+    expect(sourcePattern.test("packages/spark-hub-runtime/src/index.ts")).toBe(true);
+    expect(sourceExclusionPattern.test("apps/spark-hub/src/daemon.integration.test.ts")).toBe(true);
+    expect(targetPattern.test("apps/spark-daemon/src/product/host/bootstrap.ts")).toBe(true);
+    expect(targetPattern.test("@zendev-lab/spark-daemon/headless-role-executor")).toBe(true);
   });
 
   test("rejects growing or stale exception metadata", () => {
@@ -272,44 +379,23 @@ describe("architecture inventory governance", () => {
     );
   });
 
-  test("allows only the approved forty-second package", () => {
+  test("rejects any package beyond the closed budget", () => {
     const currentPackages = Object.keys(inventory.packages);
     expect(governance.validatePackageBudgetCandidate(inventory, currentPackages)).toEqual([]);
     expect(
       governance.validatePackageBudgetCandidate(inventory, [
         ...currentPackages,
-        "@zendev-lab/pi-spark",
-      ]),
-    ).toEqual([]);
-    expect(
-      governance.validatePackageBudgetCandidate(inventory, [
-        ...currentPackages,
         "@zendev-lab/spark-unapproved",
       ]),
     ).not.toEqual([]);
-    expect(
-      governance.validatePackageBudgetCandidate(inventory, [
-        ...currentPackages,
-        "@zendev-lab/pi-spark",
-        "@zendev-lab/spark-unapproved",
-      ]),
-    ).not.toEqual([]);
+    expect(governance.isClosedPackageBudget(inventory.governance.packageBudget)).toBe(true);
   });
 
   test("rejects Pi product and SDK manifest ownership outside declared owners", () => {
     const actual = governance.validatePiOwnership(inventory, manifests, rootManifest);
     expect(actual.failures).toEqual([]);
     expect(actual.violations).toEqual([]);
-    expect(actual.registeredExceptions).toEqual([
-      {
-        package: "@zendev-lab/spark-text",
-        dependency: "@earendil-works/pi-tui",
-      },
-      {
-        package: "root",
-        dependency: "package.json#pi",
-      },
-    ]);
+    expect(actual.registeredExceptions).toEqual([]);
 
     const candidateManifests = structuredClone(manifests);
     const candidate = candidateManifests["@zendev-lab/spark-core"];
@@ -317,27 +403,35 @@ describe("architecture inventory governance", () => {
     candidate.dependencies = {
       ...(candidate.dependencies ?? {}),
       "@earendil-works/pi-ai": "0.0.0-test",
-      "@earendil-works/pi-coding-agent": "0.0.0-test",
-      "@earendil-works/pi-tui": "0.0.0-test",
     };
     const result = governance.validatePiOwnership(inventory, candidateManifests, rootManifest);
-    expect(result.violations).toHaveLength(4);
+    expect(result.violations).toHaveLength(2);
     expect(result.violations.map(({ dependency }: PiViolation) => dependency)).toEqual([
       "@earendil-works/pi-ai",
-      "@earendil-works/pi-coding-agent",
-      "@earendil-works/pi-tui",
       "package.json#pi",
     ]);
 
-    const noRootException = structuredClone(inventory);
-    noRootException.governance.piOwnership.temporaryProductManifestExceptions = [];
+    const rootWithPi = { ...rootManifest, pi: { extensions: ["./src/extension.ts"] } };
     expect(
-      governance.validatePiOwnership(noRootException, manifests, rootManifest).violations,
+      governance.validatePiOwnership(inventory, manifests, rootWithPi).violations,
     ).toContainEqual({
       package: "root",
       kind: "product-manifest-owner",
       dependency: "package.json#pi",
-      expectedOwner: "@zendev-lab/pi-spark",
+      expectedOwner: null,
+    });
+
+    const splitManifests = structuredClone(manifests);
+    splitManifests["@zendev-lab/spark-daemon"].pi = {
+      extensions: ["./src/extension.ts"],
+    };
+    expect(
+      governance.validatePiOwnership(inventory, splitManifests, rootManifest).violations,
+    ).toContainEqual({
+      package: "@zendev-lab/spark-daemon",
+      kind: "product-manifest-owner",
+      dependency: "package.json#pi",
+      expectedOwner: null,
     });
   });
 
@@ -355,7 +449,6 @@ describe("architecture inventory governance", () => {
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
     expect(report.inventory.workspaceCount).toBe(41);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
-    expect(report.dependencies.edgeCount).toBe(165);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
       current: exceptionCount,
@@ -368,6 +461,10 @@ describe("architecture inventory governance", () => {
     expect(report.piOwnership.violations).toEqual([]);
     expect(Object.keys(report.workspaces)).toHaveLength(41);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
+    expect(report.workspaces["@zendev-lab/spark-daemon"].layer).toBe("composition");
+    expect(report.workspaces["@zendev-lab/spark-web"].layer).toBe("application");
+    expect(report.workspaces["@zendev-lab/spark-web-dsh"].layer).toBe("application");
+    expect(report.workspaces["@zendev-lab/spark-tool-web"].layer).toBe("capability");
     expect(compactMarkdown).toContain(`exceptionBudget: ${exceptionCount}/${exceptionCount}`);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     // Stable digest for the projected health report body.

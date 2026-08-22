@@ -73,7 +73,7 @@ production code.
 
 ## Pass semantics and budgets
 
-The repeated lane uses `@zendev-lab/spark-turn/behavior-ce`. It fails when:
+The repeated lane uses the spark-turn behavior-CE module (`packages/spark-turn/src/behavior-ce.ts`). It fails when:
 
 - an expected run or case is missing;
 - a run exposes a different case inventory;
@@ -121,6 +121,6 @@ case.
 
 This lane does not evaluate model intelligence, prompt quality, HTTP/SSE adapter
 serialization, transport retry policy, or live-provider availability. Transport
-retry remains owned by `spark-ai`; a future fake HTTP provider server can test
+retry remains owned by `spark-llm`; a future fake HTTP provider server can test
 that adapter boundary separately. Live-provider canaries must remain a distinct
 secret-backed lane with explicit request, token, cost, and wall-clock budgets.

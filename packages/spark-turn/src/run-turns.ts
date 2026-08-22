@@ -7,7 +7,7 @@ import type {
   Model,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 import {
   sparkPromptItemFromProviderMessage,
   sparkRuntimePromptItem,
@@ -93,7 +93,7 @@ export function throwIfSignalAborted(signal: AbortSignal): void {
   if (signal.aborted) throw abortSignalError(signal);
 }
 
-export function abortSignalError(signal: AbortSignal): Error {
+function abortSignalError(signal: AbortSignal): Error {
   const reason = (signal as { reason?: unknown }).reason;
   if (reason instanceof Error) return reason;
   const error = new Error(typeof reason === "string" && reason ? reason : "operation aborted");

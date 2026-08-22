@@ -8,7 +8,7 @@ import {
   createSparkDaemonOrpcClient,
   invokeSparkDaemonOrpcLiveMethod,
   isSparkDaemonSideThreadOrpcError,
-} from "@zendev-lab/spark-daemon-client/orpc";
+} from "@zendev-lab/spark-daemon-client";
 import { describe, expect, it, vi } from "vitest";
 
 import { createDaemonSessionRegistry } from "../session-registry.ts";
@@ -107,7 +107,7 @@ describe("Side Thread local-rpc oRPC integration", () => {
           expect.arrayContaining([
             expect.objectContaining({ sessionId: "parent-session" }),
             expect.objectContaining({
-              owner: { kind: "workspace", workspaceId: resolvedWorkspace.id },
+              lineage: { kind: "root" },
               roleBinding: {
                 kind: "explicit",
                 roleRef: "role:builtin-administrator",

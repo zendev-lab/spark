@@ -18,7 +18,7 @@
       "effect": "external_write"
     },
     "code_search": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "compatibility",
       "effect": "network_read"
     },
@@ -68,7 +68,7 @@
       "effect": "external_write"
     },
     "delegation": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "external_write"
     },
@@ -83,7 +83,7 @@
       "effect": "local_write"
     },
     "fetch_content": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
       "effect": "network_read"
     },
@@ -92,8 +92,13 @@
       "kind": "capability",
       "effect": "read"
     },
+    "fusion": {
+      "owner": "@zendev-lab/dsh-tool-fusion",
+      "kind": "action",
+      "effect": "read"
+    },
     "get_search_content": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
       "effect": "read"
     },
@@ -103,7 +108,7 @@
       "effect": "destructive"
     },
     "goal": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "local_write"
     },
@@ -113,7 +118,7 @@
       "effect": "read"
     },
     "loop": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "local_write"
     },
@@ -123,12 +128,12 @@
       "effect": "unclassified"
     },
     "mode": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "unclassified"
     },
     "models": {
-      "owner": "@zendev-lab/spark-ai",
+      "owner": "@zendev-lab/spark-llm",
       "kind": "capability",
       "effect": "read"
     },
@@ -138,7 +143,7 @@
       "effect": "read"
     },
     "repro": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "local_write"
     },
@@ -183,7 +188,7 @@
       "effect": "unclassified"
     },
     "web_search": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
       "effect": "network_read"
     },

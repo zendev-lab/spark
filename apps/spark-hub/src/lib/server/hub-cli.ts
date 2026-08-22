@@ -1,6 +1,13 @@
+import { object, or } from "@optique/core/constructs";
+import { formatMessage, message } from "@optique/core/message";
+import { map, optional, withDefault } from "@optique/core/modifiers";
+import { parse } from "@optique/core/parser";
+import { argument, command, constant, flag, option, passThrough } from "@optique/core/primitives";
+import { string, type ValueParser } from "@optique/core/valueparser";
 import {
   cancelHubWorkspaceDelegation,
   createHubWorkspaceDelegation,
+  listHubDaemons,
   listHubWorkspaceDelegationMessages,
   listHubWorkspaceDelegations,
   listHubWorkspaces,
@@ -13,14 +20,284 @@ import { createId, wireIdempotencyKey } from "@zendev-lab/spark-protocol";
 import {
   consoleSparkCliErrorOutput,
   consoleSparkCliOutput,
-  parseSparkCliOptions,
   printSparkCliResult,
-  readBooleanOption,
-  readNumberOption,
-  readStringOption,
   type SparkCliOutput,
 } from "../../cli/shared.ts";
 import { parseSparkHubCliArgs, runSparkHubCliCommand } from "../../cli/coordination.ts";
+
+interface HubDatabaseCliCommand {
+  resource: "help" | "status" | "workspace" | "daemon" | "delegation";
+  verb?: "list" | "create" | "show" | "reply" | "cancel";
+  selector?: string;
+  json?: boolean;
+  databasePath?: string;
+  workspace?: string;
+  limit?: number;
+  actor?: string;
+  source?: string;
+  target?: string;
+  goal?: string;
+  constraints?: string;
+  role?: string;
+  idempotencyKey?: string;
+  text?: string;
+  reason?: string;
+}
+
+const remainingArgv = () => passThrough({ format: "greedy" });
+const helpFlag = () => withDefault(flag("-h", "--help"), false);
+const jsonFlag = () => withDefault(flag("--json"), false);
+const databaseOption = () => optional(option("--database", string()));
+
+const finiteNumber: ValueParser<"sync", number> = {
+  mode: "sync",
+  metavar: "NUMBER",
+  placeholder: 0,
+  parse(input) {
+    const value = Number(input);
+    return Number.isFinite(value)
+      ? { success: true, value }
+      : { success: false, error: message`Expected a finite number.` };
+  },
+  format: String,
+};
+
+const databaseStatusParser = command(
+  "status",
+  map(
+    object({ help: helpFlag(), json: jsonFlag(), database: databaseOption() }),
+    (value): HubDatabaseCliCommand =>
+      value.help
+        ? { resource: "help" }
+        : {
+            resource: "status",
+            json: value.json,
+            databasePath: value.database?.trim(),
+          },
+  ),
+);
+
+const databaseWorkspaceListOptions = () =>
+  object({ help: helpFlag(), json: jsonFlag(), database: databaseOption() });
+
+const databaseWorkspaceParser = command(
+  "workspace",
+  or(
+    command(
+      "list",
+      map(databaseWorkspaceListOptions(), (value): HubDatabaseCliCommand =>
+        value.help
+          ? { resource: "help" }
+          : {
+              resource: "workspace",
+              verb: "list",
+              json: value.json,
+              databasePath: value.database?.trim(),
+            },
+      ),
+    ),
+    map(databaseWorkspaceListOptions(), (value): HubDatabaseCliCommand =>
+      value.help
+        ? { resource: "help" }
+        : {
+            resource: "workspace",
+            verb: "list",
+            json: value.json,
+            databasePath: value.database?.trim(),
+          },
+    ),
+  ),
+);
+
+const databaseDaemonListOptions = () =>
+  object({ help: helpFlag(), json: jsonFlag(), database: databaseOption() });
+
+const databaseDaemonParser = command(
+  "daemon",
+  or(
+    command(
+      "list",
+      map(databaseDaemonListOptions(), (value): HubDatabaseCliCommand =>
+        value.help
+          ? { resource: "help" }
+          : {
+              resource: "daemon",
+              verb: "list",
+              json: value.json,
+              databasePath: value.database?.trim(),
+            },
+      ),
+    ),
+    map(databaseDaemonListOptions(), (value): HubDatabaseCliCommand =>
+      value.help
+        ? { resource: "help" }
+        : {
+            resource: "daemon",
+            verb: "list",
+            json: value.json,
+            databasePath: value.database?.trim(),
+          },
+    ),
+  ),
+);
+
+const delegationListOptions = () =>
+  object({
+    help: helpFlag(),
+    json: jsonFlag(),
+    database: databaseOption(),
+    workspace: optional(option("--workspace", string())),
+    limit: optional(
+      option("--limit", finiteNumber, {
+        errors: {
+          endOfInput: message`--limit requires a value`,
+          invalidValue: message`--limit must be a number`,
+        },
+      }),
+    ),
+  });
+
+function parseDelegationListValue(value: {
+  help: boolean;
+  json: boolean;
+  database?: string;
+  workspace?: string;
+  limit?: number;
+}): HubDatabaseCliCommand {
+  return value.help
+    ? { resource: "help" }
+    : {
+        resource: "delegation",
+        verb: "list",
+        json: value.json,
+        databasePath: value.database?.trim(),
+        workspace: value.workspace?.trim(),
+        limit: value.limit,
+      };
+}
+
+const delegationParser = command(
+  "delegation",
+  or(
+    command(
+      "create",
+      map(
+        object({
+          help: helpFlag(),
+          json: jsonFlag(),
+          database: databaseOption(),
+          actor: optional(option("--actor", string())),
+          source: optional(option("--source", string())),
+          target: optional(option("--target", string())),
+          goal: optional(option("--goal", string())),
+          constraints: optional(option("--constraints", string())),
+          role: optional(option("--role", string())),
+          idempotencyKey: optional(option("--idempotency-key", string())),
+        }),
+        (value): HubDatabaseCliCommand =>
+          value.help
+            ? { resource: "help" }
+            : {
+                resource: "delegation",
+                verb: "create",
+                json: value.json,
+                databasePath: value.database?.trim(),
+                actor: value.actor?.trim(),
+                source: value.source?.trim(),
+                target: value.target?.trim(),
+                goal: value.goal?.trim(),
+                constraints: value.constraints,
+                role: value.role?.trim(),
+                idempotencyKey: value.idempotencyKey?.trim(),
+              },
+      ),
+    ),
+    command("list", map(delegationListOptions(), parseDelegationListValue)),
+    command(
+      "show",
+      map(
+        object({
+          help: helpFlag(),
+          json: jsonFlag(),
+          database: databaseOption(),
+          selector: optional(argument(string())),
+        }),
+        (value): HubDatabaseCliCommand =>
+          value.help
+            ? { resource: "help" }
+            : {
+                resource: "delegation",
+                verb: "show",
+                selector: value.selector,
+                json: value.json,
+                databasePath: value.database?.trim(),
+              },
+      ),
+    ),
+    command(
+      "reply",
+      map(
+        object({
+          help: helpFlag(),
+          json: jsonFlag(),
+          database: databaseOption(),
+          actor: optional(option("--actor", string())),
+          text: optional(option("--text", string())),
+          selector: optional(argument(string())),
+        }),
+        (value): HubDatabaseCliCommand =>
+          value.help
+            ? { resource: "help" }
+            : {
+                resource: "delegation",
+                verb: "reply",
+                selector: value.selector,
+                json: value.json,
+                databasePath: value.database?.trim(),
+                actor: value.actor?.trim(),
+                text: value.text?.trim(),
+              },
+      ),
+    ),
+    command(
+      "cancel",
+      map(
+        object({
+          help: helpFlag(),
+          json: jsonFlag(),
+          database: databaseOption(),
+          actor: optional(option("--actor", string())),
+          reason: optional(option("--reason", string())),
+          selector: optional(argument(string())),
+        }),
+        (value): HubDatabaseCliCommand =>
+          value.help
+            ? { resource: "help" }
+            : {
+                resource: "delegation",
+                verb: "cancel",
+                selector: value.selector,
+                json: value.json,
+                databasePath: value.database?.trim(),
+                actor: value.actor?.trim(),
+                reason: value.reason?.trim(),
+              },
+      ),
+    ),
+    map(delegationListOptions(), parseDelegationListValue),
+  ),
+);
+
+const hubDatabaseCliParser = or(
+  command("help", object({ resource: constant("help" as const), argv: remainingArgv() })),
+  command("--help", object({ resource: constant("help" as const), argv: remainingArgv() })),
+  command("-h", object({ resource: constant("help" as const), argv: remainingArgv() })),
+  databaseStatusParser,
+  databaseWorkspaceParser,
+  databaseDaemonParser,
+  delegationParser,
+  object({ resource: constant("empty" as const) }),
+);
 
 export async function runSparkHubCli(
   argv: string[],
@@ -42,14 +319,16 @@ export async function runSparkHubCli(
     );
   }
 
-  const parsed = parseSparkCliOptions(rest);
-  const json = readBooleanOption(parsed.options, "json");
-  const databasePath = readStringOption(parsed.options, "database")?.trim();
-  const db = openDatabase(databasePath ? { path: databasePath } : {});
+  const command = parseHubDatabaseCliArgs(argv);
+  if (command.resource === "help") {
+    output.write(sparkHubHelpText());
+    return 0;
+  }
+  const db = openDatabase(command.databasePath ? { path: command.databasePath } : {});
   try {
     migrate(db);
-    const result = runHubDatabaseCommand(db, resource, parsed.positionals, parsed.options);
-    printSparkCliResult(output, result, { json });
+    const result = runHubDatabaseCommand(db, command);
+    printSparkCliResult(output, result, { json: command.json });
     return 0;
   } catch (error) {
     errorOutput.write(error instanceof Error ? error.message : String(error));
@@ -59,12 +338,47 @@ export async function runSparkHubCli(
   }
 }
 
+function parseHubDatabaseCliArgs(argv: string[]): HubDatabaseCliCommand {
+  const result = parse(hubDatabaseCliParser, argv);
+  if (!result.success) {
+    const [resource = "status", verb] = argv;
+    if (
+      !new Set(["help", "--help", "-h", "status", "workspace", "daemon", "delegation"]).has(
+        resource,
+      )
+    ) {
+      throw new Error(`Unknown spark hub resource: ${resource}`);
+    }
+    if (resource === "workspace" && verb && verb !== "list") {
+      throw new Error("Usage: spark hub workspace list");
+    }
+    if (resource === "daemon" && verb && verb !== "list") {
+      throw new Error("Usage: spark hub daemon list");
+    }
+    if (
+      resource === "delegation" &&
+      verb &&
+      !new Set(["create", "list", "show", "reply", "cancel"]).has(verb) &&
+      !verb.startsWith("-")
+    ) {
+      throw new Error(`Unknown spark hub delegation verb: ${verb}`);
+    }
+    throw new Error(formatMessage(result.error));
+  }
+  if (result.value.resource === "empty") {
+    return { resource: "status", json: false };
+  }
+  if (result.value.resource === "help") return { resource: "help" };
+  return result.value;
+}
+
 export function sparkHubHelpText(): string {
   return `spark hub - Spark logical coordination plane
 
 Usage:
   spark hub status [--json]
   spark hub workspace list [--json]
+  spark hub daemon list [--json]
   spark hub delegation create --source <workspace> --target <workspace> --goal <text> [--role <role>]
   spark hub delegation list [--workspace <workspace>] [--limit <count>] [--json]
   spark hub delegation show <delegation-id> [--json]
@@ -74,17 +388,15 @@ Usage:
   spark hub workspace access <create|list|revoke> [...]
   spark hub instance <status|backup|restore> [...]
 
-Hub owns workspace registry, delegation state, routing, audit, and receipts. Daemons own execution truth; Hub is the Web presentation client.
+Hub binds daemons (one per machine) and keeps their workspaces in a shared registry; delegation state, routing, audit, and receipts live here. Daemons own execution truth; Hub is the Web presentation client.
 `;
 }
 
 function runHubDatabaseCommand(
   db: ReturnType<typeof openDatabase>,
-  resource: string,
-  positionals: string[],
-  options: Record<string, string | boolean>,
+  command: Exclude<HubDatabaseCliCommand, { resource: "help" }>,
 ): unknown {
-  if (resource === "status") {
+  if (command.resource === "status") {
     return {
       plane: "hub",
       resource: "status",
@@ -92,25 +404,27 @@ function runHubDatabaseCommand(
     };
   }
 
-  if (resource === "workspace") {
-    if ((positionals[0] ?? "list") !== "list") {
-      throw new Error("Usage: spark hub workspace list");
-    }
+  if (command.resource === "workspace") {
     return { plane: "hub", resource: "workspace", workspaces: listHubWorkspaces(db) };
   }
 
-  if (resource !== "delegation") {
-    throw new Error(`Unknown spark hub resource: ${resource}`);
+  if (command.resource === "daemon") {
+    return { plane: "hub", resource: "daemon", daemons: listHubDaemons(db) };
   }
-  const [verb = "list", selector] = positionals;
+
+  if (command.resource !== "delegation") {
+    throw new Error(`Unknown spark hub resource: ${command.resource}`);
+  }
+  const verb = command.verb ?? "list";
+  const selector = command.selector;
   if (verb === "list") {
-    const workspace = resolveWorkspaceId(db, readStringOption(options, "workspace")?.trim(), false);
+    const workspace = resolveWorkspaceId(db, command.workspace, false);
     return {
       plane: "hub",
       resource: "delegation",
       delegations: listHubWorkspaceDelegations(db, {
         ...(workspace ? { workspaceId: workspace } : {}),
-        limit: readNumberOption(options, "limit"),
+        limit: command.limit,
       }),
     };
   }
@@ -124,19 +438,11 @@ function runHubDatabaseCommand(
     };
   }
 
-  const ownerUserId = requireHubOwnerUserId(db, readStringOption(options, "actor")?.trim());
+  const ownerUserId = requireHubOwnerUserId(db, command.actor);
   if (verb === "create") {
-    const sourceWorkspaceId = resolveWorkspaceId(
-      db,
-      readStringOption(options, "source")?.trim(),
-      true,
-    )!;
-    const targetWorkspaceId = resolveWorkspaceId(
-      db,
-      readStringOption(options, "target")?.trim(),
-      true,
-    )!;
-    const goal = readStringOption(options, "goal")?.trim();
+    const sourceWorkspaceId = resolveWorkspaceId(db, command.source, true)!;
+    const targetWorkspaceId = resolveWorkspaceId(db, command.target, true)!;
+    const goal = command.goal;
     if (!goal) throw new Error("spark hub delegation create requires --goal");
     const delegationId = createId("dlg");
     return {
@@ -147,21 +453,19 @@ function runHubDatabaseCommand(
         sourceWorkspaceId,
         targetWorkspaceId,
         goal,
-        constraints: optionalList(readStringOption(options, "constraints")),
-        requestedRole: readStringOption(options, "role")?.trim(),
+        constraints: optionalList(command.constraints),
+        requestedRole: command.role,
         actor: { kind: "hub_owner", id: ownerUserId },
         lineage: [],
         hopCount: 1,
-        idempotencyKey: wireIdempotencyKey(
-          readStringOption(options, "idempotency-key")?.trim() ?? `hub-cli:${delegationId}`,
-        ),
+        idempotencyKey: wireIdempotencyKey(command.idempotencyKey ?? `hub-cli:${delegationId}`),
         createdAt: new Date().toISOString(),
       }),
     };
   }
   if (verb === "reply") {
     if (!selector) throw new Error("spark hub delegation reply requires a delegation id");
-    const text = readStringOption(options, "text")?.trim();
+    const text = command.text;
     if (!text) throw new Error("spark hub delegation reply requires --text");
     return {
       plane: "hub",
@@ -181,11 +485,12 @@ function runHubDatabaseCommand(
       delegation: cancelHubWorkspaceDelegation(db, {
         delegationId: selector,
         ownerUserId,
-        reason: readStringOption(options, "reason")?.trim(),
+        reason: command.reason,
       }),
     };
   }
-  throw new Error(`Unknown spark hub delegation verb: ${verb}`);
+  const exhaustive: never = verb;
+  return exhaustive;
 }
 
 function requireHubOwnerUserId(

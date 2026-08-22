@@ -214,7 +214,7 @@ describe("Spark action-bar protocol", () => {
   });
 
   it("publishes lifecycle controls and workflow run actions as typed intents", () => {
-    for (const resource of ["goal", "loop", "repro"] as const) {
+    for (const resource of ["goal", "loop"] as const) {
       expect(sparkSlashActionBarForInput(`/${resource}`)?.actions).toEqual([
         expect.objectContaining({ intent: `${resource}.status`, tone: "primary" }),
         expect.objectContaining({ intent: `${resource}.start` }),
@@ -222,6 +222,11 @@ describe("Spark action-bar protocol", () => {
         expect.objectContaining({ intent: `${resource}.stop`, tone: "danger" }),
       ]);
     }
+    expect(sparkSlashActionBarForInput("/repro")?.actions).toEqual([
+      expect.objectContaining({ intent: "repro.status", tone: "primary" }),
+      expect.objectContaining({ intent: "repro.start" }),
+      expect.objectContaining({ intent: "repro.stop", tone: "danger" }),
+    ]);
     expect(
       sparkSlashActionBarForInput("/workflow-runs")?.actions.map((action) => action.intent),
     ).toEqual(["workflow.open", "workflow.inspect"]);

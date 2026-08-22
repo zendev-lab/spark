@@ -1,4 +1,4 @@
-import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/spark-channels";
+import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channels";
 import type { RuntimeEphemeralSecretRequestContext } from "@zendev-lab/spark-hub-coordination/runtime-model-channel-control";
 import {
   parseSparkChannelControlSnapshot,
@@ -11,7 +11,7 @@ import { createHubRuntimeModelChannelClient } from "./hub-runtime-model-channel-
 export type HubChannelStatusSnapshot =
   | SparkChannelControlSnapshot
   | {
-      workspaceId: string;
+      runtimeId: string;
       available: false;
       configured: false;
       ingressEnabled: false;
@@ -25,13 +25,13 @@ export type HubChannelStatusSnapshot =
     };
 
 export interface HubChannelDaemonClient {
-  status(workspaceId: string): Promise<unknown>;
+  status(runtimeId: string): Promise<unknown>;
   configure(
-    workspaceId: string,
+    runtimeId: string,
     config: ChannelsConfig,
     context: RuntimeEphemeralSecretRequestContext,
   ): Promise<unknown>;
-  reload(workspaceId: string): Promise<unknown>;
+  reload(runtimeId: string): Promise<unknown>;
 }
 
 export interface HubChannelEditorValues {
@@ -85,10 +85,10 @@ export const DEFAULT_INFOFLOW_ENDPOINT = "https://api.im.baidu.com";
 
 const runtimeClient = createHubRuntimeModelChannelClient();
 const defaultHubChannelDaemonClient: HubChannelDaemonClient = {
-  status: async (workspaceId) => await runtimeClient.channelStatus(workspaceId),
-  configure: async (workspaceId, config, context) =>
-    await runtimeClient.configureChannel({ workspaceId, config, context }),
-  reload: async (workspaceId) => await runtimeClient.reloadChannel({ workspaceId }),
+  status: async (runtimeId) => await runtimeClient.channelStatus(runtimeId),
+  configure: async (runtimeId, config, context) =>
+    await runtimeClient.configureChannel({ runtimeId, config, context }),
+  reload: async (runtimeId) => await runtimeClient.reloadChannel({ runtimeId }),
 };
 
 export function emptyChannelEditorValues(): HubChannelEditorValues {
@@ -316,40 +316,47 @@ export function channelsConfigFromEditorValues(values: HubChannelEditorValues): 
 }
 
 export async function saveChannelsConfigForHub(
-  workspaceId: string,
+  runtimeId: string,
   values: HubChannelEditorValues,
   context: RuntimeEphemeralSecretRequestContext,
   client: HubChannelDaemonClient = defaultHubChannelDaemonClient,
 ): Promise<{ config: ChannelsConfig; status: SparkChannelControlSnapshot }> {
   const config = channelsConfigFromEditorValues(values);
   const status = parseSparkChannelControlSnapshot(
-    await client.configure(workspaceId, config, context),
+    await client.configure(runtimeId, config, context),
   );
   return { config, status };
 }
 
 export async function loadChannelStatusForHub(
-  workspaceId: string,
+  runtimeId: string,
   client: HubChannelDaemonClient = defaultHubChannelDaemonClient,
 ): Promise<HubChannelStatusSnapshot> {
   try {
-    return parseSparkChannelControlSnapshot(await client.status(workspaceId));
+    return parseSparkChannelControlSnapshot(await client.status(runtimeId));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      workspaceId,
-      available: false,
-      configured: false,
-      ingressEnabled: false,
-      state: "unavailable",
-      adapters: [],
-      routes: [],
-      configuration: { routes: [], onUnbound: "create" },
-      observedAt: new Date().toISOString(),
-      error: message,
-      text: `channel runtime unavailable: ${message}`,
-    };
+    return unavailableChannelStatusForHub(runtimeId, message);
   }
+}
+
+export function unavailableChannelStatusForHub(
+  runtimeId: string,
+  message: string,
+): HubChannelStatusSnapshot {
+  return {
+    runtimeId,
+    available: false,
+    configured: false,
+    ingressEnabled: false,
+    state: "unavailable",
+    adapters: [],
+    routes: [],
+    configuration: { routes: [], onUnbound: "create" },
+    observedAt: new Date().toISOString(),
+    error: message,
+    text: `channel runtime unavailable: ${message}`,
+  };
 }
 
 function preferredRouteAdapter(

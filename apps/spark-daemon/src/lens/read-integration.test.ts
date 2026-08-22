@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const execFileAsync = promisify(execFile);
 
 import { contentVersion, readRegularFileSnapshot } from "@zendev-lab/spark-files";
 import {
@@ -11,15 +15,21 @@ import {
   type ProviderId,
   type WorkspaceRevision,
 } from "@zendev-lab/spark-lens";
+import { gitCommand } from "@zendev-lab/spark-system";
 import { expect, test } from "vitest";
 
 import { DaemonLensPatchService } from "./patch-service.ts";
 import { DaemonLensPatchStore } from "./patch-store.ts";
 import { DaemonLensReadIntegration, requireSuccessfulProviderRun } from "./read-integration.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
+import { gitEnvironmentWithoutRepository, gitRepositoryArguments } from "../test-support/git.ts";
 
 test("read preflight previews a provider fix without modifying or persisting a proposal", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-lens-read-annotation-"));
+  await execFileAsync(gitCommand(), [...gitRepositoryArguments(root), "init", "-q"], {
+    cwd: root,
+    env: gitEnvironmentWithoutRepository(),
+  });
   const path = join(root, "value.ts");
   await writeFile(path, "export const  value=1\n", "utf8");
   const snapshot = await readRegularFileSnapshot(path);
@@ -49,6 +59,12 @@ test("read preflight previews a provider fix without modifying or persisting a p
     async formatSource() {
       return "export const value = 1;\n";
     },
+    async safeFixSource(input: { source: string }) {
+      // Return unchanged: this test exercises read-orchestration, not the
+      // real Vite+ lint provider subprocess (which can exceed the preflight
+      // budget on slow filesystems and flip the annotation to "pending").
+      return input.source;
+    },
   });
 
   const annotation = await integration.annotate({
@@ -69,6 +85,10 @@ test("read preflight previews a provider fix without modifying or persisting a p
 
 test("read repair promotes the provider patch by CAS and returns the final version", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-lens-read-repair-"));
+  await execFileAsync(gitCommand(), [...gitRepositoryArguments(root), "init", "-q"], {
+    cwd: root,
+    env: gitEnvironmentWithoutRepository(),
+  });
   const path = join(root, "value.ts");
   await writeFile(path, "export const  value=1\n", "utf8");
   const snapshot = await readRegularFileSnapshot(path);
@@ -99,6 +119,9 @@ test("read repair promotes the provider patch by CAS and returns the final versi
     patches,
     async formatSource() {
       return "export const value = 1;\n";
+    },
+    async safeFixSource(input: { source: string }) {
+      return input.source;
     },
   });
 

@@ -122,13 +122,13 @@ public boundary:
 ```text
 spark-daemon
 spark-hub
-spark-tui
+spark-web
 spark-acp
 spark-mcp
-spark-update
 ```
 
-The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
+The top-level native `spark` executable owns root parsing, diagnostics, and
+deployment/update transitions. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
 application. A companion can come from its independently installed app package or from the
@@ -139,13 +139,11 @@ dispatcher. A retired product name must not remain as another public executable
 or dispatcher namespace merely to avoid updating callers.
 
 The Hub source directory, private packages, i18n subpath, environment variables,
-and state writer all use the canonical `hub` name. The Hub database owner
-performs one explicit, idempotent migration from retired Cockpit XDG and
-`SPARK_HOME` trees, `cockpit.toml`, and `cockpit.sqlite`. Migration preflights
-all destinations, refuses live legacy locks and source/target conflicts, and
-rolls back completed renames if a later move fails. Historical SQLite migration
-filenames, snapshot-v1 manifests, cookies, and instance IDs remain compatibility
-inputs until their documented exit gate; new writes use Hub names only.
+and state writer all use the canonical `hub` name. Historical SQLite migration
+filenames that still contain `cockpit` remain applied schema history. Retired
+Cockpit paths, environment aliases, cookies, snapshot-v1 manifests, command
+sources, and instance IDs are rejected; operators must use Hub names and
+re-register daemons that still hold a `cockpit_` deployment ID.
 
 ### Distributions
 
@@ -158,51 +156,78 @@ public package.
   complete-installation meta package; thin spark forwarding launcher only
 
 @zendev-lab/spark-cli
-  real spark dispatcher + spark-acp + spark-mcp + spark-update + app companion shims
+  native spark parser/router/updater + spark-acp + spark-mcp + app companion shims
 
 @zendev-lab/spark-daemon
   spark-daemon + daemon migrations + headless executor
 
-@zendev-lab/spark-tui
-  spark-tui
+@zendev-lab/spark-web
+  spark-web
 
 @zendev-lab/spark-hub
   spark-hub + embedded Web build + Hub migrations
+
+@zendev-lab/spark-web-dsh
+  optional spark-web-dsh compatibility app
 ```
 
 The root package is the complete-installation meta package and managed-update
-identity; it contains no dispatcher implementation. `spark-cli` owns the real
-`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, TUI, and Hub are also
-independently installable deployment closures. All public packages share a
+identity; it contains no parser implementation. `spark-cli` owns the native
+`spark` parser, diagnostics, updater, router, ACP/MCP adapters, and four exact
+macOS/Linux optional payload aliases. Daemon, Hub, local web, and DSH web are
+also independently installable deployment closures. All product packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
 lockstep dependencies instead of repackaging those assets.
 
 Do not create publishable source manifests inside `apps/*` or `packages/*`.
-Source workspaces retain `private: true`; the release builder generates all five
-manifests under `dist/npm-products/`, computes runtime dependency closures
-independently, and publishes exact tarballs from one release tag. The root
+Source workspaces retain `private: true`; the release builder generates six
+product manifests and four platform payload manifests under
+`dist/npm-products/`, computes runtime dependency closures independently, and
+publishes exact tarballs from one release tag. The root
 manifest owns the `@zendev-lab/spark` name and lockstep version, while source
 ownership, process ownership, and distribution placement remain separate axes.
 
+GitHub Releases carry only the four native bootstrap archives, their native
+release manifest, `SHA256SUMS`, provenance, and an installer with an embedded
+exact version. The curl installer is a stateless bootstrap: it verifies the
+selected archive, then delegates to
+`spark install --managed --version <exact-version>`. npm remains the
+authoritative source for the Node product payload and update channels; GitHub
+assets do not bundle Node or define a second deployment state owner.
+
 ### Agent tool packages
 
-Do not add `tools` to every package that happens to expose an agent-callable
-operation. Most tools are adapters over an owning domain:
+Package names describe the dependency closure and owner, not merely whether a
+Cordis plugin happens to be exported:
 
-- `spark-files`, `spark-memory`, `spark-tasks`, and `spark-artifacts` remain
-  domain packages because they own vocabulary, policy, and state semantics;
-- a package whose primary reusable contract is one stateless tool family uses
-  the singular form `spark-tool-<family>`;
-- `spark-tools-*` is avoided because the plural prefix does not identify an
-  owner or boundary. The bare `spark-tools` name is reserved for a future
-  composition-only aggregator and must not own behavior.
+- a local `dsh-*` workspace must run outside Spark, must not depend on a local
+  `spark-*` workspace, and must expose the real-host smoke required by the
+  inventory. `dsh-tool-*` is the normal name for a reusable model-facing tool
+  consumer because Spark does not define another tool mechanism;
+- a `spark-*` workspace owns Spark product state, policy, daemon/protocol
+  behavior, or a Spark-specific provider. Exporting a Cordis plugin does not
+  change that owner;
+- an official `@deepseek-ai/dsh-*` package is preferred when it satisfies the
+  Spark owner and lifecycle contract. Spark must not publish a differently
+  scoped duplicate of an official tool family;
+- `dsh-tool-*` must have `stateWriter: "none"` and must not own a product
+  command, UI, provider registry, scheduler, durable store, or second policy
+  implementation;
+- for a generic DSH consumer/provider family, put the seam before the
+  implementation (`dsh-<seam>-<implementation>`). The generic
+  `dsh-plugin-*` form is not used because plugin is a composition mechanism,
+  not an owner;
+- a Spark product application hosted on DSH remains
+  `spark-<surface>-dsh`. `spark-web-dsh` is therefore an application, not a
+  candidate for `dsh-tool-*` naming;
+- an exceptional retained name must carry its reason in that package's
+  `architecture/packages.json` entry. A temporary DSH independence exception
+  names its exact local Spark dependencies and exit condition; the architecture
+  gate rejects unregistered or stale edges.
 
-A rename to `spark-tool-*` therefore requires evidence that the package is a
-tool adapter rather than a domain owner. The current `spark-web` search/fetch
-capability is the first candidate for a separate `spark-tool-web` migration;
-that migration is intentionally outside the Hub/executable rename because it
-changes extension specifiers and user configuration compatibility.
+The selected migration names and replacement order are explained in the dated
+[`DSH package reuse and naming decision`](../decisions/2026-08-20-dsh-package-naming.md).
 
 ## Layer meanings
 
@@ -230,19 +255,17 @@ normative owner specifications and enforced owner APIs.
 
 ## Pi ownership and package budget
 
-The inventory assigns `package.json#pi` to the dedicated `pi-spark` product
-manifest owner. It also assigns each Pi SDK dependency (`pi-ai`, `pi-tui`, and
-`pi-coding-agent`) to one workspace manifest owner. The root compatibility
-manifest remains one frozen, exact product-manifest exception until the Pi
-manifest cutover task. Existing migration debt may appear only as an exact
-non-growing exception with an exit task; a new direct Pi manifest dependency
-anywhere else fails architecture validation.
+The inventory has no `package.json#pi` owner (`productManifestOwner` is
+`null`). It assigns the remaining Pi SDK dependency (`pi-ai`) to
+`@zendev-lab/spark-llm`. `pi-tui` and `pi-coding-agent` are retired and must
+not reappear as workspace dependencies. Existing migration debt may appear
+only as an exact non-growing exception with an exit task; a new direct Pi
+manifest dependency anywhere else fails architecture validation.
 
-The current package budget is 41. The only pre-approved forty-second workspace
-is `@zendev-lab/pi-spark` at `packages/pi-spark`, bound to its inventory exit
-task. Another package at 42 or any package at 43 fails closed. Raising or
-replacing this budget requires an explicit architecture decision in the
-inventory rather than a new constant in a checker.
+The current package budget is closed at 41. The machine-readable inventory owns
+the current count and rationale. Raising or replacing that budget requires an
+explicit architecture decision in the inventory rather than a new constant in
+a checker.
 
 ## Deliberate boundaries
 
@@ -258,9 +281,11 @@ inventory rather than a new constant in a checker.
 - The transport-neutral local control service stays private to
   `apps/spark-daemon`; oRPC and legacy socket adapters share that service and
   cannot own policy, durable state, or alternative handler implementations.
-- `spark-extension` owns product extension composition and policy for native
-  and structurally compatible hosts. Legacy `pi-extension` specifiers are
-  rewritten while reading configuration; there is no facade workspace.
+- `apps/spark-daemon/src/product` owns product composition and policy. The
+  daemon workspace is the composition root; there is no `spark-base`,
+  `spark-extension`, or other facade workspace. Historical `pi-extension` and
+  `spark-extension` config values are compatibility input only and receive no
+  new behavior.
 - `spark-hub-*` packages are Hub-private. Shared code must move to a
   capability or foundation package before daemon/native reuse.
 - Hub's en/zh-CN product catalog lives at the owner-restricted
@@ -306,7 +331,7 @@ The design borrows three useful patterns without adopting their toolchains:
 
 - [VS Code Extension Host](https://code.visualstudio.com/api/advanced-topics/extension-host)
   separates extension execution from UI placement and distinguishes local,
-  web, and remote hosts. Spark similarly keeps TUI/Hub adapters outside the
+  web, and remote hosts. Spark similarly keeps local-web/Hub adapters outside the
   daemon-owned execution truth.
 - [Backstage package roles](https://backstage.io/docs/tutorials/package-role-migration/)
   make package purpose machine-readable so repository tooling can select the

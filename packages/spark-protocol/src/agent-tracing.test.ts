@@ -77,8 +77,8 @@ function roundtripFinished(
 function toolStarted(
   overrides: Record<string, unknown> = {},
   spanId = "tool:call-1",
-): SparkAgentTraceEvent {
-  return parseEvent({
+): Extract<SparkAgentTraceEvent, { kind: "tool.call.started" }> {
+  const event = parseEvent({
     schemaVersion: 1,
     eventId: `event:${spanId}:start`,
     traceId: "invocation:123",
@@ -96,6 +96,8 @@ function toolStarted(
     argumentBytes: 48,
     ...overrides,
   });
+  if (event.kind !== "tool.call.started") throw new Error("expected tool.call.started event");
+  return event;
 }
 
 function toolFinished(
@@ -222,6 +224,8 @@ describe("agent trace protocol", () => {
   });
 
   it("records pre-execution unknown-Tool failures as complete spans", () => {
+    expect(toolStarted({ approval: "manual_only" }).approval).toBe("manual_only");
+
     expect(
       parseEvent({
         schemaVersion: 1,

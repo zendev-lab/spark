@@ -22,6 +22,8 @@ import {
 } from "./server-profiles.js";
 import { refreshSparkDaemonCredentials, shouldRefreshSparkDaemonToken } from "./token-refresh.js";
 
+import { isRecord } from "./local-rpc/is-record.ts";
+
 export class RegistrationGrantRefusedError extends Error {}
 
 export class DeviceAuthorizationError extends Error {
@@ -228,12 +230,6 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   let current = existingProfile
     ? sparkDaemonConfigForServerProfile(identity, existingProfile)
     : identity;
-  if (!input.registrationToken) {
-    throw new SparkDaemonControlError(
-      "workspace_registration_invalid",
-      `Workspace registration for ${serverUrl} requires a new one-time workspace token. Hub machine credentials do not grant access to additional workspaces.`,
-    );
-  }
   if (!input.workspaceRegistration) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
@@ -248,7 +244,7 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
       serverUrl,
       runtimeId: current.runtimeId!,
       runtimeToken: current.runtimeToken!,
-      registrationToken: input.registrationToken,
+      ...(input.registrationToken ? { registrationToken: input.registrationToken } : {}),
       workspaceRegistration: input.workspaceRegistration,
     });
     return {
@@ -256,6 +252,13 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
       workspaceBinding: registered.workspaceBinding,
       workspaceAuthorization: registered.workspaceAuthorization,
     };
+  }
+
+  if (!input.registrationToken) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      `The daemon is not yet connected to ${serverUrl}. Register it first with spark daemon login, then attach this workspace with the same command and no token.`,
+    );
   }
 
   const registered = await registerSparkDaemonWithToken(paths, {
@@ -567,7 +570,7 @@ function toWebSocketUrl(value: string): string {
 function requireConfig(value: string | undefined, name: string): string {
   if (!value) {
     throw new Error(
-      `Spark daemon config is missing ${name}. Run spark daemon workspace register first.`,
+      `Spark daemon config is missing ${name}. Run spark daemon login --server-url <url>.`,
     );
   }
   return value;
@@ -615,7 +618,7 @@ async function registerWorkspaceWithRuntime(input: {
   serverUrl: string;
   runtimeId: string;
   runtimeToken: string;
-  registrationToken: string;
+  registrationToken?: string;
   workspaceRegistration: NonNullable<SparkDaemonRegistrationInput["workspaceRegistration"]>;
 }) {
   const url = new URL(
@@ -629,7 +632,7 @@ async function registerWorkspaceWithRuntime(input: {
       authorization: `Bearer ${input.runtimeToken}`,
     },
     body: JSON.stringify({
-      registrationToken: input.registrationToken,
+      ...(input.registrationToken ? { registrationToken: input.registrationToken } : {}),
       workspaceRegistration: input.workspaceRegistration,
     }),
   });
@@ -674,9 +677,6 @@ async function persistSparkDaemonCredentials(
     ...(current.invocationConcurrency !== undefined
       ? { invocationConcurrency: current.invocationConcurrency }
       : {}),
-    ...(current.reproFormalEvidencePublicKeysJson
-      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
-      : {}),
   });
 }
 
@@ -718,8 +718,4 @@ async function readHttpFailure(response: Response): Promise<{ code: string; mess
 function stringProperty(value: Record<string, unknown>, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

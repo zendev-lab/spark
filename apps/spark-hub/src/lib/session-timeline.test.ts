@@ -386,7 +386,7 @@ describe("session timeline", () => {
       status: "error" as const,
     };
     const toolFailure = {
-      version: 2 as const,
+      version: 4 as const,
       id: "tool-failure",
       role: "tool" as const,
       text: "tool failed",
@@ -424,7 +424,7 @@ describe("session timeline", () => {
           ],
         },
         {
-          version: 2 as const,
+          version: 4 as const,
           id: "tool-result:call-cue",
           role: "tool" as const,
           text: transportError,
@@ -838,7 +838,7 @@ describe("session timeline", () => {
           status: "done",
           createdAt: "2026-07-10T00:00:03.000Z",
           message: {
-            version: 2,
+            version: 4,
             id: "a-fallback",
             role: "assistant",
             text: "The check passed.",
@@ -1181,7 +1181,7 @@ describe("session timeline", () => {
       fallbackTimestamp: "2026-07-10T00:00:00.000Z",
       messages: [
         {
-          version: 2 as const,
+          version: 4 as const,
           id: "a-running",
           role: "assistant",
           text: "我先检查一下。",
@@ -1230,7 +1230,7 @@ describe("session timeline", () => {
       fallbackTimestamp: "2026-07-10T00:00:00.000Z",
       messages: [
         {
-          version: 2 as const,
+          version: 4 as const,
           id: "a1",
           role: "assistant",
           text: "我来列一下目录。",
@@ -1264,7 +1264,7 @@ describe("session timeline", () => {
           metadata: {},
         },
         {
-          version: 2 as const,
+          version: 4 as const,
           id: "tool-result:call-1",
           role: "tool",
           text: ".cursor/\n.github/\nREADME.md",
@@ -1286,7 +1286,7 @@ describe("session timeline", () => {
           metadata: {},
         },
         {
-          version: 2 as const,
+          version: 4 as const,
           id: "a2",
           role: "assistant",
           text: "当前目录内容如上。",
@@ -1361,7 +1361,7 @@ function message(
   metadata: SparkJsonObject = {},
 ) {
   return {
-    version: 2 as const,
+    version: 4 as const,
     id,
     role,
     text,

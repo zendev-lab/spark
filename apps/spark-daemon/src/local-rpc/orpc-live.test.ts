@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/spark-channels";
+import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/dsh-channels";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,
@@ -13,7 +13,7 @@ import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
 import {
   createSparkDaemonOrpcClient,
   invokeSparkDaemonOrpcLiveMethod,
-} from "@zendev-lab/spark-daemon-client/orpc";
+} from "@zendev-lab/spark-daemon-client";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { SparkDaemonControlError } from "../control-error.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
@@ -112,7 +112,7 @@ describe("local-rpc direct oRPC service", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: sessionId,
           timestamp: "2026-08-12T00:00:00.000Z",
           cwd: dir,
@@ -137,6 +137,23 @@ describe("local-rpc direct oRPC service", () => {
           parentId: "answer-1",
           timestamp: "2026-08-12T00:00:03.000Z",
           message: { role: "user", content: "second prompt" },
+        },
+        {
+          type: "message",
+          id: "image-1",
+          parentId: "prompt-2",
+          timestamp: "2026-08-12T00:00:03.500Z",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "image",
+                data: Buffer.from("native image").toString("base64"),
+                mimeType: "image/png",
+                name: "result.png",
+              },
+            ],
+          },
         },
       ]
         .map((entry) => JSON.stringify(entry))
@@ -195,6 +212,53 @@ describe("local-rpc direct oRPC service", () => {
         failedAt: "2026-08-12T00:00:05.000Z",
       },
     });
+    const latestPage = await invokeSparkDaemonOrpcLiveMethod(
+      handle.client,
+      "session.snapshot-page",
+      { sessionId, messageLimit: 2 },
+    );
+    expect(latestPage).toMatchObject({
+      history: {
+        totalMessages: 4,
+        loadedMessages: 2,
+        earlierMessages: 2,
+        laterMessages: 0,
+        hasEarlierMessages: true,
+        nextBeforeMessageId: "prompt-2",
+      },
+    });
+    await expect(
+      invokeSparkDaemonOrpcLiveMethod(handle.client, "session.media.read", {
+        sessionId,
+        messageId: "image-1",
+        contentIndex: 0,
+        limit: 7,
+      }),
+    ).resolves.toMatchObject({
+      sessionId,
+      messageId: "image-1",
+      contentIndex: 0,
+      mediaType: "image/png",
+      name: "result.png",
+      offset: 0,
+      sizeBytes: 12,
+      nextOffset: 7,
+      complete: false,
+    });
+    for (const method of ["session.snapshot-page", "session.media.read"] as const) {
+      await expect(
+        handleLocalRpcLine(
+          JSON.stringify({ id: `legacy-${method}`, method, params: { sessionId } }),
+          paths,
+          db,
+          undefined,
+          { sessionRegistry },
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        error: { message: `Unknown local RPC method: ${method}` },
+      });
+    }
     await expect(
       handleLocalRpcLine(
         JSON.stringify({
@@ -404,10 +468,9 @@ describe("local-rpc direct oRPC service", () => {
       sessionId: child.sessionId,
       externalKey: "qqbot:c2c:side-thread",
     };
-    const bindError = await rejectionOf(
+    await expect(
       invokeSparkDaemonOrpcLiveMethod(handle.client, "session.bind", bindInput),
-    );
-    expect(bindError).toMatchObject({ code: "side_thread_mutation_forbidden" });
+    ).resolves.toMatchObject({ sessionId: child.sessionId });
     await expect(
       handleLocalRpcLine(
         JSON.stringify({ id: "legacy-bind", method: "session.bind", params: bindInput }),
@@ -416,19 +479,15 @@ describe("local-rpc direct oRPC service", () => {
         undefined,
         { sessionRegistry },
       ),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "side_thread_mutation_forbidden" },
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     const submitInput = {
       sessionId: child.sessionId,
       prompt: "must use the Side Thread controller",
     };
-    const submitError = await rejectionOf(
+    await expect(
       invokeSparkDaemonOrpcLiveMethod(handle.client, "turn.submit", submitInput),
-    );
-    expect(submitError).toMatchObject({ code: "side_thread_direct_submit_forbidden" });
+    ).resolves.toMatchObject({ status: "queued" });
     await expect(
       handleLocalRpcLine(
         JSON.stringify({ id: "legacy-submit", method: "turn.submit", params: submitInput }),
@@ -437,10 +496,7 @@ describe("local-rpc direct oRPC service", () => {
         undefined,
         { sessionRegistry },
       ),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "side_thread_direct_submit_forbidden" },
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     const mismatchPath = join(dir, "mismatched-session.jsonl");
     writeFileSync(
@@ -583,7 +639,7 @@ describe("local-rpc direct oRPC service", () => {
         status: () => channelStatus,
         configure: async () => channelStatus,
         reload: async () => channelStatus,
-        async notify(_workspaceId, input) {
+        async notify(input) {
           if (input.text === "not-sent") {
             throw new ChannelDeliveryError("provider rejected before send", "not-sent");
           }
@@ -695,7 +751,6 @@ describe("local-rpc direct oRPC service", () => {
       handlerOptions,
       method: "channel.notify",
       params: {
-        workspaceId: "ws_channel",
         action: "send",
         adapter: "missing",
         recipient: "recipient",

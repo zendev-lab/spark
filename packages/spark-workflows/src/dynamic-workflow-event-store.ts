@@ -4,7 +4,9 @@ import { dirname, join, relative } from "node:path";
 import {
   newRef,
   nowIso,
+  sparkWorkspaceStatePath,
   type RunRef,
+  type SparkStateRootContext,
   writeJsonFileAtomic,
   readJsonFileOptional,
 } from "@zendev-lab/spark-core";
@@ -786,8 +788,13 @@ export function dynamicWorkflowRecordFromEventRun(
   };
 }
 
-export function defaultSparkDynamicWorkflowEventStore(cwd: string): SparkDynamicWorkflowEventStore {
-  return new SparkDynamicWorkflowEventStore(join(cwd, ".spark", "dynamic-workflows"));
+export function defaultSparkDynamicWorkflowEventStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): SparkDynamicWorkflowEventStore {
+  return new SparkDynamicWorkflowEventStore(
+    sparkWorkspaceStatePath(cwd, ["dynamic-workflows"], ctx),
+  );
 }
 
 function snapshotStatusToDynamicStatus(

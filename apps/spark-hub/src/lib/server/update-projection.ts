@@ -1,4 +1,4 @@
-import { SparkUpdateManager } from "@zendev-lab/spark-update";
+import { readSparkUpdateStatus } from "@zendev-lab/spark-update";
 
 export interface HubUpdateProjection {
   managed: boolean;
@@ -30,7 +30,7 @@ export interface HubUpdateProjection {
 export async function readHubUpdateProjection(
   options: { env?: NodeJS.ProcessEnv } = {},
 ): Promise<HubUpdateProjection> {
-  const status = await new SparkUpdateManager({ env: options.env }).status();
+  const status = await readSparkUpdateStatus({ env: options.env });
   return {
     managed: status.managed,
     installation: status.installation.method,

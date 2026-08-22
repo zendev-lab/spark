@@ -167,8 +167,8 @@ function seedDatabase(db: DatabaseSync): void {
   db.prepare(
     `INSERT INTO runtime_session_projections
       (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-       lifecycle, placement, activity, lifetime, owner_kind, record_json, projected_at)
-     VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'persistent', 'workspace', ?, ?)`,
+       lifecycle, placement, activity, lifetime, lineage_origin_kind, record_json, projected_at)
+     VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'persistent', 'root', ?, ?)`,
   ).run(
     runtimeId,
     sessionId,
@@ -182,10 +182,9 @@ function seedDatabase(db: DatabaseSync): void {
       placement: "active",
       activity: "idle",
       lifetime: "persistent",
-      owner: { kind: "workspace", workspaceId },
+      lineage: { kind: "root" },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
       incarnation: 1,
-      stateBinding: { kind: "session", ref: sessionId },
       visibility: "public",
       retention: "audit",
       purpose: "workspace_administrator",

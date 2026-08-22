@@ -6,8 +6,8 @@ import {
   parseSparkDaemonEvent,
   runtimeProtocolVersion,
 } from "@zendev-lab/spark-protocol";
+import { defaultSparkSessionsRoot } from "@zendev-lab/spark-session/transcript";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import {
@@ -23,15 +23,10 @@ import {
   sparkDaemonServerProfileFromConfig,
   type SparkDaemonServerProfile,
 } from "./server-profiles.js";
+import type { ChannelIngressHooks, DaemonChannelIngressRuntime } from "./channels/ingress.ts";
+import { createDaemonChannelIngressRuntime } from "./channels/global-ingress-runtime.ts";
 import {
-  createDaemonChannelIngressRuntime,
-  type ChannelIngressHooks,
-  type DaemonChannelIngressRuntime,
-} from "./channels/ingress.ts";
-import {
-  admitChannelWorkspaceIdentity,
   findChannelInboundInvocation,
-  isPermanentWorkspaceIdentityFailure,
   submitChannelInboundInvocation,
 } from "./channels/admission.ts";
 import {
@@ -53,6 +48,7 @@ import {
 import {
   SparkDaemonInvocationRegistry,
   SparkDaemonHumanInteractionBroker,
+  renderSparkDaemonSessionAskDeliveryBody,
   legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
   type SparkDaemonDrainWork,
@@ -62,6 +58,8 @@ import {
   type SparkInvocationSchedulerOptions,
 } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
+import { admitSparkDaemonSessionSend } from "./local-rpc/handlers/session.ts";
+import type { LocalRpcDispatchContext } from "./local-rpc/handlers/context.ts";
 import { InvocationDeliveryPump } from "./core/invocation-delivery-pump.ts";
 import {
   ensureHumanAnswerEventEvidence,
@@ -97,31 +95,31 @@ import {
   type SparkInvocationRecord,
 } from "./store/invocations.ts";
 import { SparkTokenUsageStore } from "./store/token-usage.ts";
-import { SparkReproFormalEvidenceReceiptStore } from "./store/repro-formal-evidence.ts";
+import { resolveActiveSessionReproUsageScope } from "./session-work-projection.ts";
 import {
-  readSessionReproForDaemon,
-  resolveActiveSessionReproUsageScope,
-} from "./session-work-projection.ts";
+  reconcileDaemonSparkRepros,
+  resumeDaemonSparkReproAnswer,
+  type DaemonSparkReproRuntimeDeps,
+} from "./repro-owner-runtime.ts";
+import { migrateLegacyReproV9Snapshots } from "./repro-v9-migration.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
-import { WorkbenchArtifactBindingStore } from "./store/workbench-artifact-bindings.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
+import {
+  createSparkDaemonCordisRoot,
+  openSparkDaemonCordisContext,
+  type SparkDaemonCordisRoot,
+} from "./cordis-root.ts";
+import { createSparkDaemonSubagentHost } from "./spark-subagent-plugin.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
   createGitHubMergedPrsLoopEvaluator,
   GITHUB_MERGED_PRS_LOOP_EVALUATOR,
 } from "./spark/github-merged-prs-loop-evaluator.ts";
-import {
-  createReproCompletionEvaluator,
-  reproPendingDecisionEvaluator,
-  validateAcceptedFormalEvidenceAuthority,
-} from "./spark/repro-loop-evaluator.ts";
-import { reconcileReproWorkbenchArtifacts } from "./spark/repro-workbench-reconciler.ts";
 import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
   listWorkspaceBindingIdsForServer,
-  listWorkspaceUplinkServerUrls,
   listWorkspaces,
   listWorkspacesForServer,
   markSparkDaemonServerConnected,
@@ -139,6 +137,7 @@ import {
   reconcileSessionRequestCompletions,
   sessionRequestCompletionRequested,
 } from "./session-request-completion-notify.ts";
+import { drainSessionMailRequestQueue } from "./session-mail-queue.ts";
 import {
   reconcileInactiveSessionRetention,
   SESSION_RETENTION_RECONCILE_INTERVAL_MS,
@@ -209,6 +208,7 @@ interface DaemonServingLoops {
   channelReply?: Promise<void>;
   notification?: Promise<void>;
   sessionCompletion?: Promise<void>;
+  sessionMailQueue?: Promise<void>;
   sessionRetention?: Promise<void>;
   taskClaims?: Promise<void>;
 }
@@ -238,9 +238,7 @@ interface PreparedDaemonRuntime {
   invocationStore: SparkInvocationStore;
   loopStore: SparkLoopStore;
   loopEvaluators: SparkLoopEvaluatorRegistry;
-  workbenchBindings: WorkbenchArtifactBindingStore;
   nextLoopGcAtMs: number;
-  nextWorkbenchReconcileAtMs: number;
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   executionAttemptStore: ExecutionAttemptStore;
@@ -256,6 +254,7 @@ interface PreparedDaemonRuntime {
   stopScheduler: () => void;
   stopDirectInvocations: () => void;
   stopChannelIngress: () => void;
+  cordisRoot: SparkDaemonCordisRoot;
 }
 
 async function createPreparedDaemonRuntime(
@@ -276,17 +275,19 @@ async function createPreparedDaemonRuntime(
   const humanWaits = options.humanWaits ?? new SparkDaemonHumanWaitRegistry(options.db);
   const channelDeliveryStore = new SparkChannelDeliveryStore(options.db);
   const channelDeliveryOutbox = createDaemonChannelDeliveryOutbox(channelDeliveryStore);
+  const cordisContext = openSparkDaemonCordisContext();
   const channelIngress: DaemonChannelIngressRuntime | null = prepareChannelIngress(
     options,
     channelDeliveryOutbox,
+    cordisContext,
   );
   const shutdownChannelIngress = createChannelIngressShutdown(channelIngress, options);
   const admission = { open: false };
-  channelIngress?.setInboundHandler?.(({ workspaceId, message }) => {
+  channelIngress?.setInboundHandler?.(({ message }) => {
     if (!admission.open) {
       throw new Error("Spark daemon channel admission is closed during startup or drain");
     }
-    channelDeliveryOutbox.enqueueInbound({ workspaceId, message });
+    channelDeliveryOutbox.enqueueInbound({ message });
   });
   const humanRequestOutboxTargets = new Set<() => void>();
   const flushHumanRequestOutbox = () => {
@@ -297,6 +298,10 @@ async function createPreparedDaemonRuntime(
   let onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
   ) => boolean | Promise<boolean> = () => false;
+  let sessionSupervisorForRepro: SessionSupervisor | undefined;
+  const sessionAskDelivery: {
+    ctx?: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">;
+  } = {};
   const { humanInteractions, registerHumanRequestOutboxTarget } = await configureHumanInteractions({
     options,
     channelIngress,
@@ -307,30 +312,26 @@ async function createPreparedDaemonRuntime(
     flushHumanRequestOutbox,
     humanRequestOutboxTargets,
     onAnswerEvidenceProjected: (event) => onAnswerEvidenceProjected(event),
+    sessionAskDelivery,
   });
   const eventHub = createInvocationEventHub(options);
   const invocationStore = new SparkInvocationStore(options.db);
   const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
+  let dshContext: SparkDaemonCordisRoot["ctx"] | undefined;
+  const requireDshContext = (): SparkDaemonCordisRoot["ctx"] => {
+    if (!dshContext) throw new Error("Spark daemon DSH root is not mounted");
+    return dshContext;
+  };
   const loopEvaluators = new SparkLoopEvaluatorRegistry({
     [GITHUB_MERGED_PRS_LOOP_EVALUATOR]: createGitHubMergedPrsLoopEvaluator({
       stateRoot: userPaths.stateRoot,
     }),
     "builtin:goal-reviewer": {
       evaluator: createGoalLoopCompletionEvaluator({
-        sparkHome: options.paths.piAgentDir,
+        sparkHome: options.paths.sessionRuntimeDir,
         controlSparkHome: userPaths.configRoot,
+        getDshContext: requireDshContext,
       }),
-      checkpoints: ["after_tick"],
-    },
-    "builtin:repro-pending-decision": {
-      evaluator: reproPendingDecisionEvaluator,
-      checkpoints: ["before_tick"],
-    },
-    "builtin:repro-reviewer": {
-      evaluator: createReproCompletionEvaluator(
-        new SparkReproFormalEvidenceReceiptStore(options.db),
-        resolveReproFormalStepState,
-      ),
       checkpoints: ["after_tick"],
     },
   });
@@ -340,12 +341,14 @@ async function createPreparedDaemonRuntime(
       return { digest: definition.digest, policy: definition.loop };
     },
   });
-  onAnswerEvidenceProjected = (event) => {
+  onAnswerEvidenceProjected = async (event) => {
     const wake = wakeHumanAnswerEvidenceOwner(loopStore, event, humanWaits);
     for (const loop of wake.woken) {
       emitLoopUpdate({ invocationStore, eventHub }, loop, loop.lastInvocationId);
     }
-    return wake.completed;
+    const reproDeps = daemonReproRuntimeDeps(options, humanWaits, sessionSupervisorForRepro);
+    const reproResumed = reproDeps ? await resumeDaemonSparkReproAnswer(reproDeps, event) : false;
+    return wake.completed || reproResumed;
   };
   await reconcileHumanAnswerEventEvidence(
     humanWaits,
@@ -353,7 +356,6 @@ async function createPreparedDaemonRuntime(
     (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
     (event) => onAnswerEvidenceProjected(event),
   );
-  const workbenchBindings = new WorkbenchArtifactBindingStore(options.db);
   const channelReplyDeliveryStore = new ChannelReplyDeliveryStore(options.db, invocationStore);
   channelReplyDeliveryStore.recoverInterrupted();
   recoverInterruptedRuntimeCommandReceipts(options.db);
@@ -399,9 +401,9 @@ async function createPreparedDaemonRuntime(
         },
         resolveWorkspaceBindingId: (workspaceId) =>
           resolveWorkspaceBindingId(options.db, workspaceId),
-        ownerExists: async (owner, session) => {
-          if (owner.kind === "driver") {
-            const loop = loopStore.get(owner.driverId);
+        originExists: async (origin, session) => {
+          if (origin.kind === "driver") {
+            const loop = loopStore.get(origin.driverId);
             return Boolean(
               loop &&
               loop.driverSessionId === session.sessionId &&
@@ -409,8 +411,8 @@ async function createPreparedDaemonRuntime(
               loop.status !== "stopped",
             );
           }
-          if (owner.kind === "driver_tick") {
-            const invocation = invocationStore.getSummary(owner.tickInvocationId);
+          if (origin.kind === "driver_tick") {
+            const invocation = invocationStore.getSummary(origin.tickInvocationId);
             return Boolean(
               invocation &&
               invocation.sessionId === session.sessionId &&
@@ -418,12 +420,12 @@ async function createPreparedDaemonRuntime(
             );
           }
           if (
-            (owner.kind === "task_run" || owner.kind === "task_revision") &&
+            (origin.kind === "task_run" || origin.kind === "task_revision") &&
             session.scope.kind === "workspace"
           ) {
             return await isTaskSessionOwnerValid(
               {
-                owner,
+                origin,
                 workspaceId: session.scope.workspaceId,
                 sessionId: session.sessionId,
               },
@@ -437,8 +439,67 @@ async function createPreparedDaemonRuntime(
         },
       })
     : null;
+  sessionSupervisorForRepro = sessionSupervisor ?? undefined;
+  sessionAskDelivery.ctx = {
+    paths: options.paths,
+    db: options.db,
+    options: {
+      ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
+      ...(sessionSupervisor ? { sessionSupervisor } : {}),
+      ...(options.modelControl ? { modelControl: options.modelControl } : {}),
+      mailStore,
+    },
+  };
   const executionAttemptStore = new ExecutionAttemptStore(options.db);
   const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
+  const sendCtx = sessionAskDelivery.ctx;
+  const subagentHost =
+    options.sessionRegistry && options.paths.sessionRuntimeDir && sendCtx
+      ? createSparkDaemonSubagentHost({
+          db: options.db,
+          registry: options.sessionRegistry,
+          sparkHome: options.paths.sessionRuntimeDir,
+          send: async (request) => {
+            const admitted = await admitSparkDaemonSessionSend(sendCtx, {
+              toSessionId: request.sessionId,
+              fromSessionId: request.parentSessionId,
+              kind: "request",
+              intent: "work.request",
+              payload: { body: request.body },
+              idempotencyKey: `subagent.start:${request.sessionId}`,
+              body: request.body,
+              origin: { surface: "local", host: "daemon" },
+              source: "tool",
+              wake: false,
+            });
+            return {
+              sessionId: request.sessionId,
+              ...(admitted.submitted?.invocationId
+                ? { invocationId: admitted.submitted.invocationId }
+                : {}),
+            };
+          },
+        })
+      : undefined;
+  const cordisRoot = await createSparkDaemonCordisRoot(
+    {
+      sparkInvocations: invocationStore,
+      sparkLoops: loopStore,
+      sparkChannelDeliveries: channelDeliveryStore,
+      sparkChannelReplyDeliveries: channelReplyDeliveryStore,
+      sparkExecutionAttempts: executionAttemptStore,
+      sparkSessionMail: mailStore,
+      sparkHumanWaits: humanWaits,
+      sparkSessionCompletions: sessionCompletionDeliveryStore,
+      sparkInvocationRegistry: invocationRegistry,
+    },
+    {
+      sessionsRoot: defaultSparkSessionsRoot(options.sparkHome),
+      ctx: cordisContext,
+      ...(subagentHost ? { subagentHost } : {}),
+    },
+  );
+  dshContext = cordisRoot.ctx;
   const scheduler = createDaemonScheduler({
     options,
     runtimeSignal,
@@ -456,8 +517,10 @@ async function createPreparedDaemonRuntime(
     mailStore,
     sessionCompletionDeliveryStore,
     sessionSupervisor,
+    humanWaits,
     executionAttemptStore,
     executionAttemptGeneration,
+    dshContext: cordisRoot.ctx,
   });
   if (scheduler) sessionSupervisor?.attachScheduler(scheduler);
   const closeRestartAdmission = () => {
@@ -481,7 +544,10 @@ async function createPreparedDaemonRuntime(
   ).toISOString();
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
-  const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
+  const stopChannelIngress = () => {
+    channelIngress?.beginDrain?.();
+    if (!channelIngress?.beginDrain) void shutdownChannelIngress("runtime-abort");
+  };
   runtimeSignal.addEventListener("abort", stopScheduler, { once: true });
   runtimeSignal.addEventListener("abort", stopDirectInvocations, { once: true });
   runtimeSignal.addEventListener("abort", stopChannelIngress, { once: true });
@@ -505,9 +571,7 @@ async function createPreparedDaemonRuntime(
     invocationStore,
     loopStore,
     loopEvaluators,
-    workbenchBindings,
     nextLoopGcAtMs: Date.now() + 60_000,
-    nextWorkbenchReconcileAtMs: Date.now(),
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
     executionAttemptStore,
@@ -523,6 +587,7 @@ async function createPreparedDaemonRuntime(
     stopScheduler,
     stopDirectInvocations,
     stopChannelIngress,
+    cordisRoot,
   };
 }
 
@@ -652,7 +717,6 @@ function createServingLoopGate(): ServingLoopGate {
 async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<void> {
   const { options, runtimeSignal, channelIngress } = runtime;
   await reconcileMainTaskClaimsBeforeAdmission(runtime);
-  await reconcileSessionRetention(runtime);
   if (!runtimeSignal.aborted) {
     await options.onReady?.({
       channelIngress,
@@ -708,10 +772,12 @@ async function runMainTaskClaimReconcileLoop(runtime: PreparedDaemonRuntime): Pr
 async function runSessionRetentionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
   const intervalMs =
     runtime.options.sessionRetentionReconcileIntervalMs ?? SESSION_RETENTION_RECONCILE_INTERVAL_MS;
+  // First pass runs immediately so the former pre-admission startup call and
+  // the 24 h loop share one implementation and one cadence.
   while (!runtime.runtimeSignal.aborted) {
-    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
-    if (runtime.runtimeSignal.aborted) return;
     await reconcileSessionRetention(runtime);
+    if (runtime.runtimeSignal.aborted) return;
+    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
   }
 }
 
@@ -746,13 +812,26 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
   // Durable execution recovery must finish before admission opens so a
   // successor generation cannot claim work that still looks live under a
   // previous generation.
+  if (runtime.options.beforeAdmission) await runtime.options.beforeAdmission;
   reconcileDaemonExecutionState(runtime, "startup");
-  await runtime.sessionSupervisor?.reconcile({
-    workspaceIds: listWorkspaces(runtime.options.db).map((workspace) => workspace.id),
-  });
+  await runtime.sessionSupervisor?.reconcile(
+    runtime.options.skipWorkspaceAdministratorEnsure
+      ? {}
+      : {
+          workspaceIds: listWorkspaces(runtime.options.db).map((workspace) => workspace.id),
+        },
+  );
+  const reproDeps = daemonReproRuntimeDeps(
+    runtime.options,
+    runtime.humanWaits,
+    runtime.sessionSupervisor ?? undefined,
+  );
+  if (reproDeps) {
+    await migrateLegacyReproV9Snapshots(reproDeps);
+    await reconcileDaemonSparkRepros(reproDeps);
+  }
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
-  await reconcileReproWorkbenches(runtime);
   runtime.scheduler?.activateAdmission();
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
@@ -761,7 +840,7 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
 
 function reconcileDaemonExecutionState(
   runtime: PreparedDaemonRuntime,
-  trigger: "startup" | "periodic_tick" | "planned_shutdown" | "daemon_crash",
+  trigger: "startup" | "planned_shutdown" | "daemon_crash",
 ): void {
   try {
     const result = reconcileExecutionState({
@@ -778,9 +857,7 @@ function reconcileDaemonExecutionState(
   } catch (error) {
     console.error("[spark-daemon] execution reconcile failed", error);
     // Startup recovery is fail-closed: admission must not open while durable
-    // execution state is unreadable. Periodic ticks run inside the scheduler
-    // loop, where rethrowing would kill the loop permanently, so they log and
-    // retry on the next tick instead.
+    // execution state is unreadable.
     if (trigger === "startup") throw error;
   }
 }
@@ -830,6 +907,12 @@ function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
       await runSessionCompletionReconcileLoop(runtime);
     });
   }
+  if (options.sessionRegistry && !options.once) {
+    loops.sessionMailQueue = servingGate.promise.then(async (committed) => {
+      if (!committed || runtimeSignal.aborted) return;
+      await runSessionMailQueueDrainLoop(runtime);
+    });
+  }
   if (channelIngress && options.sessionRegistry && !options.once) {
     loops.notification = servingGate.promise.then(async (committed) => {
       if (!committed || runtimeSignal.aborted) return;
@@ -867,16 +950,13 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
     if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
       runStorageMaintenance(runtime);
     }
-    if (runtime.admission.open) {
-      // Same durable path as startup: recover orphaned attempts/invocations
-      // without waiting for another daemon restart.
-      reconcileDaemonExecutionState(runtime, "periodic_tick");
-    }
+    // No periodic execution reconcile: the daemon lock makes this process the
+    // only writer, and every attempt is written under this process's
+    // generation, so a stale-generation row can only exist right after a
+    // crash/restart, which the startup trigger already reconciles. If a
+    // second writer is ever introduced, restore a periodic tick here.
     if (runtime.admission.open) await reconcilePendingHumanAnswerEvidence(runtime);
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
-    if (runtime.admission.open && Date.now() >= runtime.nextWorkbenchReconcileAtMs) {
-      await reconcileReproWorkbenches(runtime);
-    }
     if (runtime.admission.open) await reconcileLoopHiddenSessionGc(runtime);
     const materialized = runtime.admission.open ? await materializeLoopDue(runtime) : undefined;
     const didWork = (runtime.scheduler?.processBatch() ?? false) || Boolean(materialized);
@@ -915,7 +995,6 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   if (scheduler) {
     await reconcileLoopHiddenSessionGc(runtime, true);
     await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
-    await reconcileReproWorkbenches(runtime);
     await materializeLoopDue(runtime);
     scheduler.processBatch();
     await scheduler.wait();
@@ -934,78 +1013,39 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   await runSparkDaemonServerConnectionsOnce(daemonServerConnectionOptions(runtime));
 }
 
-async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) {
-  const repro = await readSessionReproForDaemon(cwd, ownerSessionId);
-  if (!repro) return undefined;
-  const graph = await defaultTaskGraphStore(cwd).load();
-  return {
-    reproId: repro.reproId,
-    threeLane: {
-      planRevision: repro.threeLane.planRevision,
-      formalize: {
-        orderedStepIds: [...repro.threeLane.formalize.orderedStepIds],
-        ...(repro.threeLane.formalize.currentStepId
-          ? { currentStepId: repro.threeLane.formalize.currentStepId }
-          : {}),
-        retiredStepIds: [...repro.threeLane.formalize.retiredStepIds],
-      },
-    },
-    subgoals: repro.subgoals.map((subgoal) => ({
-      id: subgoal.id,
-      planRevision: subgoal.planRevision,
-      ...(subgoal.taskRef ? { taskRef: subgoal.taskRef } : {}),
-    })),
-    taskStatusByRef: Object.fromEntries(
-      repro.subgoals.flatMap((subgoal) =>
-        subgoal.taskRef
-          ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const]
-          : [],
-      ),
-    ),
-    plan: {
-      currentRevision: repro.plan.currentRevision,
-      steps: repro.plan.steps.map((step) => ({
-        id: step.id,
-        status: step.status,
-        authority: step.authority,
-        doneWhen: [...step.doneWhen],
-        evidenceRefs: [...step.evidenceRefs],
-        ...(step.verification ? { verification: step.verification } : {}),
-      })),
-    },
-  };
-}
-
-async function reconcileReproWorkbenches(runtime: PreparedDaemonRuntime): Promise<void> {
-  runtime.nextWorkbenchReconcileAtMs = Date.now() + 1_000;
-  try {
-    const result = await reconcileReproWorkbenchArtifacts({
-      loopStore: runtime.loopStore,
-      bindings: runtime.workbenchBindings,
-      resolveWorkspaceCwd: (workspaceId) =>
-        resolveWorkspaceLocalPath(runtime.options.db, workspaceId),
-      validateFormalEvidence: async ({ cwd, ownerSessionId, work }) =>
-        await validateAcceptedFormalEvidenceAuthority(
-          cwd,
-          work,
-          new SparkReproFormalEvidenceReceiptStore(runtime.options.db),
-          await resolveReproFormalStepState(cwd, ownerSessionId),
-        ),
-    });
-    for (const failure of result.errors) {
-      console.error(
-        `[spark-daemon] Repro Workbench reconcile failed for ${failure.loopId}: ${failure.message}`,
-      );
-    }
-  } catch (error) {
-    console.error("[spark-daemon] Repro Workbench reconciliation failed", error);
-  }
-}
-
 async function runSessionCompletionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
   while (!runtime.runtimeSignal.aborted) {
     await reconcileSessionRequestCompletionBatch(runtime);
     await delayUnlessAborted(500, runtime.runtimeSignal);
+  }
+}
+
+const SESSION_MAIL_QUEUE_DRAIN_INTERVAL_MS = 1_000;
+
+async function runSessionMailQueueDrainLoop(runtime: PreparedDaemonRuntime): Promise<void> {
+  while (!runtime.runtimeSignal.aborted) {
+    await drainSessionMailQueueBatch(runtime);
+    await delayUnlessAborted(SESSION_MAIL_QUEUE_DRAIN_INTERVAL_MS, runtime.runtimeSignal);
+  }
+}
+
+async function drainSessionMailQueueBatch(runtime: PreparedDaemonRuntime): Promise<void> {
+  if (!runtime.options.sessionRegistry || !runtime.admission.open) return;
+  try {
+    await drainSessionMailRequestQueue({
+      control: {
+        paths: runtime.options.paths,
+        db: runtime.options.db,
+        sessionRegistry: runtime.options.sessionRegistry,
+        sessionSupervisor: runtime.sessionSupervisor ?? undefined,
+        modelControl: runtime.options.modelControl,
+        actor: "spark-daemon-local-rpc",
+      },
+      invocationStore: runtime.invocationStore,
+      mailStore: runtime.mailStore,
+    });
+  } catch (error) {
+    console.error("[spark-daemon] session mail queue drain failed", error);
   }
 }
 
@@ -1055,6 +1095,7 @@ function daemonServerConnectionOptions(
     respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
     channelIngress: runtime.channelIngress ?? undefined,
     sessionSupervisor: runtime.sessionSupervisor ?? undefined,
+    dshContext: runtime.cordisRoot.ctx,
     registerInvocationEventTarget: (sink) => runtime.eventHub.register(sink),
     registerHumanRequestOutboxTarget: runtime.registerHumanRequestOutboxTarget,
   };
@@ -1069,7 +1110,17 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   runtimeSignal.removeEventListener("abort", runtime.stopScheduler);
   runtimeSignal.removeEventListener("abort", runtime.stopDirectInvocations);
   runtimeSignal.removeEventListener("abort", runtime.stopChannelIngress);
-  await runtime.shutdownChannelIngress("daemon-finally");
+  const splitChannelShutdown = Boolean(
+    runtime.channelIngress?.beginDrain !== undefined &&
+    runtime.channelIngress.drain !== undefined &&
+    runtime.channelIngress.close !== undefined,
+  );
+  if (splitChannelShutdown) {
+    runtime.channelIngress?.beginDrain?.();
+    await runtime.channelIngress?.drain?.();
+  } else {
+    await runtime.shutdownChannelIngress("daemon-finally");
+  }
   runtime.scheduler?.stop();
   await runtime.scheduler?.wait();
   await runtime.restartDrain.wait();
@@ -1080,9 +1131,11 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.channelReply;
   await runtime.loops.taskClaims;
   await runtime.loops.sessionRetention;
+  if (splitChannelShutdown) await runtime.channelIngress?.close?.();
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }
+  await runtime.cordisRoot.dispose();
 }
 
 function createDaemonScheduler(input: {
@@ -1102,8 +1155,10 @@ function createDaemonScheduler(input: {
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
   sessionSupervisor: SessionSupervisor | null;
+  humanWaits: SparkDaemonHumanWaitRegistry;
   executionAttemptStore: ExecutionAttemptStore;
   executionAttemptGeneration: number;
+  dshContext: SparkDaemonCordisRoot["ctx"];
 }): SparkInvocationScheduler | null {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
@@ -1132,7 +1187,7 @@ function createDaemonScheduler(input: {
     resolveReproUsageScope: async (task) =>
       task.type === "session.run"
         ? await resolveActiveSessionReproUsageScope({
-            cwd: task.cwd ?? process.cwd(),
+            db: options.db,
             sessionId: task.sessionId,
           })
         : undefined,
@@ -1140,6 +1195,7 @@ function createDaemonScheduler(input: {
       options.executeInvocation ??
       createChannelAwareTaskExecutor({
         paths: options.paths,
+        dshContext: input.dshContext,
         cwd: process.cwd(),
         resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
         resolveSessionCwd: (request) => resolveSessionCwdForWorkspaceId(options.db, request),
@@ -1201,22 +1257,17 @@ function createDaemonScheduler(input: {
           },
         },
         channelIngress: {
-          openReplyStream: async (workspaceId, adapterId, target, streamOptions) =>
-            await input.channelIngress?.openReplyStream(
-              workspaceId,
-              adapterId,
-              target,
-              streamOptions,
-            ),
-          sendReply: async (workspaceId, adapterId, sendInput) => {
+          openReplyStream: async (adapterId, target, streamOptions) =>
+            await input.channelIngress?.openReplyStream(adapterId, target, streamOptions),
+          sendReply: async (adapterId, sendInput) => {
             if (!input.channelIngress) throw new Error("channel ingress is unavailable");
-            return await input.channelIngress.sendReply(workspaceId, adapterId, sendInput);
+            return await input.channelIngress.sendReply(adapterId, sendInput);
           },
         },
         channelReplyDelivery: input.channelReplyDeliveryStore,
-        interact: (request, task, context) =>
+        interact: (request, task, context, ownerSessionId) =>
           input.humanInteractions.interact(request, {
-            sessionId: task.sessionId,
+            sessionId: ownerSessionId,
             invocationId: context.invocationId,
             sessionSource: sessionSourceForTask(task),
             workspaceBindingId: task.workspaceBindingId,
@@ -1226,8 +1277,10 @@ function createDaemonScheduler(input: {
             ...(task.channelReply
               ? {
                   channel: {
-                    workspaceId: task.channelReply.workspaceId,
                     adapterId: task.channelReply.adapterId,
+                    ...(task.channelReply.adapterAccountIdentity
+                      ? { adapterAccountIdentity: task.channelReply.adapterAccountIdentity }
+                      : {}),
                     recipient: task.channelReply.recipient,
                     ...(task.channelContext?.senderId
                       ? { actorId: task.channelContext.senderId }
@@ -1260,8 +1313,7 @@ function completeScheduledInvocation(
   if (task.type === "loop.tick") {
     const completed = input.loopStore.completeTick(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
-    const sessionLifetime =
-      task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
+    const sessionLifetime = task.sessionLifetime;
     if (
       sessionLifetime === "driver_tick" ||
       completed.loop.status === "completed" ||
@@ -1337,6 +1389,23 @@ function completeScheduledInvocation(
     ).catch((error) => {
       console.error("[spark-daemon] session request completion notify failed", error);
     });
+  }
+  if (invocation.sessionId) {
+    const reproDeps = daemonReproRuntimeDeps(
+      input.options,
+      input.humanWaits,
+      input.sessionSupervisor ?? undefined,
+    );
+    if (reproDeps) {
+      void reconcileDaemonSparkRepros({ ...reproDeps, sessionId: invocation.sessionId }).catch(
+        (error) => {
+          console.error(
+            `[spark-daemon] Repro terminal TaskRun reconcile failed for ${invocation.invocationId}`,
+            error,
+          );
+        },
+      );
+    }
   }
   return completed;
 }
@@ -1445,6 +1514,9 @@ async function configureHumanInteractions(input: {
   onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
   ) => boolean | Promise<boolean>;
+  sessionAskDelivery: {
+    ctx?: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">;
+  };
 }): Promise<{
   humanInteractions: SparkDaemonHumanInteractionBroker;
   registerHumanRequestOutboxTarget: (flush: () => void) => () => boolean;
@@ -1470,6 +1542,23 @@ async function configureHumanInteractions(input: {
     onAnswerEvent: projectAnswerEvent,
     onRequestOpened: (request) =>
       projectChannelAskRequest(channelIngress, request, channelDeliveryOutbox),
+    deliverSessionAsk: async (delivery) => {
+      const ctx = input.sessionAskDelivery.ctx;
+      if (!ctx) throw new Error("session ask delivery is not ready");
+      await admitSparkDaemonSessionSend(ctx, {
+        toSessionId: delivery.toSessionId,
+        fromSessionId: delivery.fromSessionId,
+        kind: "request",
+        intent: "ask.session",
+        payload: {},
+        idempotencyKey: `session.ask:${delivery.humanRequestId}`,
+        body: renderSparkDaemonSessionAskDeliveryBody(delivery),
+        origin: { surface: "local", host: "daemon" },
+        wake: false,
+        source: "tool",
+        ...(delivery.parentInvocationId ? { parentInvocationId: delivery.parentInvocationId } : {}),
+      });
+    },
   });
   return { humanInteractions, registerHumanRequestOutboxTarget };
 }
@@ -1500,7 +1589,7 @@ async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntim
     (wait) =>
       resolveWorkspaceLocalPath(runtime.options.db, wait.workspaceBindingId || wait.workspaceId),
     (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
-    (event) => {
+    async (event) => {
       const wake = wakeHumanAnswerEvidenceOwner(runtime.loopStore, event, runtime.humanWaits);
       for (const loop of wake.woken) {
         emitLoopUpdate(
@@ -1509,9 +1598,31 @@ async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntim
           loop.lastInvocationId,
         );
       }
-      return wake.completed;
+      const reproDeps = daemonReproRuntimeDeps(
+        runtime.options,
+        runtime.humanWaits,
+        runtime.sessionSupervisor ?? undefined,
+      );
+      const reproResumed = reproDeps ? await resumeDaemonSparkReproAnswer(reproDeps, event) : false;
+      return wake.completed || reproResumed;
     },
   );
+}
+
+function daemonReproRuntimeDeps(
+  options: StartSparkDaemonOptions,
+  humanWaits: SparkDaemonHumanWaitRegistry,
+  sessionSupervisor?: SessionSupervisor,
+): DaemonSparkReproRuntimeDeps | undefined {
+  if (!options.sessionRegistry || !options.modelControl) return undefined;
+  return {
+    paths: options.paths,
+    db: options.db,
+    sessionRegistry: options.sessionRegistry,
+    modelControl: options.modelControl,
+    humanWaits,
+    ...(sessionSupervisor ? { sessionSupervisor } : {}),
+  };
 }
 
 async function handleChannelInteraction(
@@ -1521,7 +1632,6 @@ async function handleChannelInteraction(
   if (!input.channelIngress) return;
   try {
     await settleChannelAskInteraction(input.channelIngress, input.humanWaits, interaction, {
-      getRuntimeId: (wait) => runtimeIdForHumanWait(input, wait.workspaceBindingId),
       deliveryOutbox: input.channelDeliveryOutbox,
       onAnswerEvent: async (event, wait) => await projectHumanAnswerForInput(input, event, wait),
     });
@@ -1536,7 +1646,6 @@ async function handleChannelTextAsk(
 ): Promise<ReturnType<NonNullable<ChannelIngressHooks["onTextAskReply"]>>> {
   try {
     return await settleChannelAskTextReply(input.humanWaits, reply, {
-      getRuntimeId: (wait) => runtimeIdForHumanWait(input, wait.workspaceBindingId),
       onAnswerEvent: async (event, wait) => await projectHumanAnswerForInput(input, event, wait),
     });
   } finally {
@@ -1643,6 +1752,7 @@ async function runNotificationReconcileLoop(
 function prepareChannelIngress(
   options: StartSparkDaemonOptions,
   channelDeliveryOutbox: DaemonChannelDeliveryOutbox,
+  ctx: ReturnType<typeof openSparkDaemonCordisContext>,
 ): DaemonChannelIngressRuntime | null {
   if (options.once || options.runScheduler === false) return null;
   const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
@@ -1651,7 +1761,8 @@ function prepareChannelIngress(
     options.channelIngress ??
     createDaemonChannelIngressRuntime({
       sparkHome: userPaths.dataRoot,
-      createWorkspaceTransport: createDaemonChannelTransportFactory(options.db),
+      ctx,
+      createDaemonTransport: createDaemonChannelTransportFactory(options.db),
       ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
       hooks: {
         onRejectedReply: async (rejected) => {
@@ -1660,7 +1771,6 @@ function prepareChannelIngress(
             idempotencyKey: rejected.deliveryIdentity,
             invocationId: rejected.deliveryIdentity,
             sessionId: rejected.sessionId,
-            workspaceId: rejected.workspaceId,
             adapterId: rejected.adapterId,
             adapterAccountIdentity: rejected.adapterAccountIdentity,
             externalKey: rejected.externalKey,
@@ -1680,33 +1790,17 @@ function prepareChannelIngress(
             ? await options.modelControl.effectiveThinkingLevel(assignment.sessionId)
             : undefined;
           const session = await options.sessionRegistry?.get(assignment.sessionId);
-          if (session && session.scope.kind !== "workspace") {
-            throw new Error(`channel session ${assignment.sessionId} has no workspace scope`);
+          if (session && (session.scope.kind !== "daemon" || session.purpose !== "channel")) {
+            throw new Error(`channel session ${assignment.sessionId} is not daemon-owned`);
           }
-          const workspaceId =
-            session?.scope.kind === "workspace"
-              ? session.scope.workspaceId
-              : assignment.channelReply.workspaceId;
           const cwdCandidate =
-            session?.cwd?.trim() && session.cwd.trim() !== "/"
-              ? session.cwd.trim()
-              : resolveWorkspaceLocalPath(options.db, workspaceId);
+            session?.cwd?.trim() && session.cwd.trim() !== "/" ? session.cwd.trim() : undefined;
           const cwd = cwdCandidate?.trim();
           if (!cwd || cwd === "/") {
             throw new Error(
               `channel session ${assignment.sessionId} has no daemon-local execution directory`,
             );
           }
-          // Identity resolution is the durable admission contract: ws_* must map
-          // to a unique owning rtwb_*, while unknown/ambiguous/unregistered are
-          // permanent route failures (never retry_wait).
-          const identityAdmission = admitChannelWorkspaceIdentity(options.db, workspaceId);
-          if (isPermanentWorkspaceIdentityFailure(identityAdmission)) {
-            throw new Error(
-              `channel session ${assignment.sessionId} permanent workspace route failure: ${identityAdmission.reasonCode}`,
-            );
-          }
-          const workspaceBindingId = identityAdmission.workspaceBindingId;
           const task = {
             type: "session.run" as const,
             sessionId: assignment.sessionId,
@@ -1714,8 +1808,6 @@ function prepareChannelIngress(
             ...(model ? { model: `${model.providerName}/${model.modelId}` } : {}),
             ...(thinkingLevel ? { thinkingLevel } : {}),
             assignment: assignment.assignment,
-            workspaceId: identityAdmission.workspaceId,
-            workspaceBindingId,
             cwd,
             channelReply: {
               ...assignment.channelReply,
@@ -1723,9 +1815,6 @@ function prepareChannelIngress(
               adapterAccountIdentity: assignment.adapterAccountIdentity,
             },
             ...(assignment.channelContext ? { channelContext: assignment.channelContext } : {}),
-            ...(assignment.memoryDirectIntent
-              ? { messageMetadata: { memoryDirectIntent: assignment.memoryDirectIntent } }
-              : {}),
           };
           if (options.sessionRegistry) {
             await options.sessionRegistry.commitInvocationAdmission(assignment.sessionId, () =>
@@ -1759,6 +1848,7 @@ interface SparkDaemonServerConnectionOptions extends StartSparkDaemonOptions {
   respondHumanInteraction: SparkDaemonHumanInteractionResponder;
   channelIngress?: DaemonChannelIngressRuntime;
   sessionSupervisor?: SessionSupervisor;
+  dshContext: SparkDaemonCordisRoot["ctx"];
   registerInvocationEventTarget?: (
     sink: (event: SparkInvocationEvent) => void | Promise<void>,
   ) => () => void;
@@ -1847,7 +1937,10 @@ async function runSparkDaemonUplinkSupervisor(
   const unsubscribeReconfigure = options.uplinkControl?.subscribe((serverUrl) =>
     reconcile(serverUrl ?? ""),
   );
-  const poll = setInterval(() => reconcile(), 500);
+  // In-process park/unpark/prefer and relocation already publish
+  // requestReconfigure; this poll is only the safety net for profile
+  // changes written by another process.
+  const poll = setInterval(() => reconcile(), 5_000);
   const aborted = new Promise<void>((resolve) => {
     signal.addEventListener("abort", () => resolve(), { once: true });
   });
@@ -1900,7 +1993,7 @@ function desiredSparkDaemonUplinks(
     profiles.set(profile.serverUrl, profile);
   }
   const providedProfile = sparkDaemonServerProfileFromConfig(options.config);
-  if (providedProfile && !profiles.has(providedProfile.serverUrl)) {
+  if (providedProfile && profiles.size === 0) {
     profiles.set(providedProfile.serverUrl, providedProfile);
   }
 
@@ -1917,11 +2010,10 @@ function desiredSparkDaemonUplinks(
   }
 
   const desired = new Map<string, DesiredSparkDaemonUplink>();
-  for (const candidateUrl of listWorkspaceUplinkServerUrls(options.db)) {
-    const serverUrl = normalizeSparkDaemonServerUrl(candidateUrl);
+  for (const profile of profiles.values()) {
+    if (profile.parked) continue;
+    const serverUrl = normalizeSparkDaemonServerUrl(profile.serverUrl);
     if (desired.has(serverUrl)) continue;
-    const profile = profiles.get(serverUrl);
-    if (!profile || profile.parked) continue;
     const config = sparkDaemonConfigForServerProfile(identity, profile);
     if (!canAttemptServerConnection(config)) continue;
     desired.set(serverUrl, {
@@ -2253,7 +2345,9 @@ async function runSparkDaemonServerConnection(
         serverUrl: serverUrl ?? undefined,
         runSparkCommand: options.runSparkCommand ?? runSparkCommandBridge,
         cancelSparkInvocation: options.cancelSparkInvocation ?? cancelSparkBridgeInvocation,
+        sparkHome: userPaths.dataRoot,
         controlSparkHome: userPaths.configRoot,
+        dshContext: options.dshContext,
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),
         ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),

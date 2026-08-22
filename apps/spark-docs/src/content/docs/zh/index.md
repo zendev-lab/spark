@@ -1,9 +1,9 @@
 ---
 title: Spark 文档
-description: 面向 Spark CLI、TUI、daemon 与 Hub 的用户文档。
+description: 面向 Spark CLI、本地 Web 工作台、daemon 与 Hub 的用户文档。
 template: splash
 hero:
-  tagline: 描述目标，把它转换成可验证任务，然后从终端或 Hub Web 监督实现。
+  tagline: 描述目标，把它转换成可验证任务，然后从本地 Web 工作台或 Hub Web 监督实现。
   actions:
     - text: 快速开始
       link: /zh/getting-started/
@@ -18,19 +18,19 @@ sidebar:
 
 Spark 是一套受控的 coding-agent 工具，只有一个公开的 `spark` 命令和三个产品界面：
 
-- 用于交互工作的 **TUI**，
+- 用于交互工作的 **本地 Web 工作台**，
 - 负责持久会话与后台工作的 **daemon**，
 - 用于 Web 控制与投影的 **Hub Web**。
 
 先阅读[安装与首次运行](/zh/getting-started/)，然后
-[规划并实现一个修改](/zh/guides/plan-and-execute/)。想了解 CLI、daemon、TUI、
+[规划并实现一个修改](/zh/guides/plan-and-execute/)。想了解 CLI、daemon、本地 Web、
 Hub、工具、自动推进和协作如何组合时，查看[完整功能地图](/zh/concepts/feature-map/)。
 只有需要远程运维或诊断系统时，才需要理解[界面与所有权](/zh/concepts/surfaces/)。
 
 ## 本文档覆盖什么
 
 - 安装公开发布的 npm 产品，
-- 选择前台、后台、TUI 或 Hub Web 工作方式，
+- 选择前台、后台、本地 Web 或 Hub Web 工作方式，
 - 恢复与 workspace 绑定的会话，
 - 监督 task、自动推进、channel 与多 session 协作，
 - 查看配置与状态路径，

@@ -24,9 +24,11 @@ export type MessagePlatformFormDefaults = {
   qqbotSandbox?: boolean;
 };
 
-export type WorkspaceMessagePlatformConnection = {
+export type DaemonMessagePlatformConnection = {
   adapter: MessagePlatformAdapter;
+  adapterId: string;
   accountId: string;
+  editable: boolean;
   runtimeState?: string;
   runtimeError?: string;
 };
@@ -62,14 +64,34 @@ export function freshMessagePlatformFormValues(
  * Project configured adapter accounts for the settings UI.
  * Conversation scope and peer ids deliberately do not belong in this representation.
  */
-export function workspaceMessagePlatformConnections(
+export function daemonMessagePlatformConnections(
   editor: MessagePlatformEditorProjection,
   runtimeAdapters: ReadonlyArray<{
+    id: string;
     type: string;
     state: string;
     error?: string;
   }> = [],
-): WorkspaceMessagePlatformConnection[] {
+): DaemonMessagePlatformConnection[] {
+  const supportedRuntimeAdapters = runtimeAdapters.filter(
+    (adapter): adapter is (typeof runtimeAdapters)[number] & { type: MessagePlatformAdapter } =>
+      isMessagePlatformAdapter(adapter.type),
+  );
+  if (supportedRuntimeAdapters.length > 0) {
+    const countByType = new Map<MessagePlatformAdapter, number>();
+    for (const adapter of supportedRuntimeAdapters) {
+      countByType.set(adapter.type, (countByType.get(adapter.type) ?? 0) + 1);
+    }
+    return supportedRuntimeAdapters.map((runtime) => ({
+      adapter: runtime.type,
+      adapterId: runtime.id,
+      accountId: runtime.id,
+      editable: countByType.get(runtime.type) === 1,
+      ...(runtime.state ? { runtimeState: runtime.state } : {}),
+      ...(runtime.error ? { runtimeError: runtime.error } : {}),
+    }));
+  }
+
   const configured: Array<{ adapter: MessagePlatformAdapter; accountId: string }> = [];
   if (editor.infoflowEnabled) {
     configured.push({
@@ -84,14 +106,11 @@ export function workspaceMessagePlatformConnections(
     configured.push({ adapter: "feishu", accountId: editor.feishuAppId.trim() });
   }
 
-  return configured.map((connection) => {
-    const runtime = runtimeAdapters.find((adapter) => adapter.type === connection.adapter);
-    return {
-      ...connection,
-      ...(runtime?.state ? { runtimeState: runtime.state } : {}),
-      ...(runtime?.error ? { runtimeError: runtime.error } : {}),
-    };
-  });
+  return configured.map((connection) => ({
+    ...connection,
+    adapterId: connection.adapter,
+    editable: true,
+  }));
 }
 
 export function isMessagePlatformAdapter(value: string): value is MessagePlatformAdapter {

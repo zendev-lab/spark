@@ -11,6 +11,8 @@ import {
   type serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
 
+import { isRecord } from "./local-rpc/is-record.ts";
+
 export type RuntimeServerCommandEnvelope = ReturnType<typeof serverCommandEnvelopeSchema.parse>;
 
 export interface LocalRpcCommandRequestLike {
@@ -278,8 +280,4 @@ function localRpcRoute(method: string, params: unknown): Partial<SparkCommand["r
     };
   }
   return {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

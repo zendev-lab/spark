@@ -38,7 +38,11 @@
   let displayedSessionStatus = $derived(
     visibleSessionStatus(selected.placement === "archived" ? "archived" : (selected.activity ?? "idle")),
   );
-  let taskExecution = $derived(selected.owner.kind === "task_run" ? selected.owner : null);
+  let taskExecution = $derived(
+    selected.lineage.kind === "child" && selected.lineage.origin.kind === "task_run"
+      ? selected.lineage.origin
+      : null,
+  );
   let explicitRoleRef = $derived(
     selected.roleBinding.kind === "explicit" ? selected.roleBinding.roleRef : null,
   );

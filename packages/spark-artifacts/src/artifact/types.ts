@@ -58,6 +58,14 @@ export interface GitChangeRepository {
   commonGitDir?: string;
 }
 
+export const GIT_CHECKS_VERDICTS = ["pass", "fail", "pending", "inconclusive"] as const;
+export type GitChecksVerdict = (typeof GIT_CHECKS_VERDICTS)[number];
+
+export interface GitPullRequestCheck {
+  name: string;
+  state: string;
+}
+
 export interface GitPullRequestSnapshot {
   forge: ForgeHost;
   repo: string;
@@ -71,7 +79,11 @@ export interface GitPullRequestSnapshot {
   headRef: string;
   baseRef: string;
   draft?: boolean;
+  checks?: GitPullRequestCheck[];
   checksSummary?: string;
+  checksVerdict?: GitChecksVerdict;
+  mergeable?: boolean;
+  mergeStateStatus?: string;
   diffSummary?: string;
 }
 
@@ -95,6 +107,29 @@ export interface GitChangeStack {
   observedAt?: string;
 }
 
+export type GitRevisionMaterializationAction =
+  | "create_candidate"
+  | "prepare_layer"
+  | "refresh_candidate";
+
+/** Driver-owned receipt for exact revision materialization in one GitChange worktree. */
+export interface GitRevisionMaterializationState {
+  authority: "driver_local";
+  repository: string;
+  baselineRevision: string;
+  headRevision: string;
+  revision: number;
+  lastOperation: {
+    id: string;
+    action: GitRevisionMaterializationAction;
+    previousRevision?: string;
+    sourceBaseRevision?: string;
+    sourceRevision: string;
+    appliedRevisions: string[];
+    supersededRevisions: string[];
+  };
+}
+
 export type GitChangeLifecycle = "local" | "published" | "terminal" | "cleanup_blocked" | "cleaned";
 
 export interface GitChangeArtifactBody {
@@ -111,6 +146,7 @@ export interface GitChangeArtifactBody {
   stack: GitChangeStack;
   lifecycle: GitChangeLifecycle;
   cleanupBlockers?: string[];
+  revisionMaterialization?: GitRevisionMaterializationState;
 }
 
 export interface DocumentArtifactBody {
@@ -354,7 +390,33 @@ function isGitChangeBody(record: Record<string, unknown>): boolean {
       record.lifecycle === "terminal" ||
       record.lifecycle === "cleanup_blocked" ||
       record.lifecycle === "cleaned") &&
-    isOptionalStringArray(record.cleanupBlockers)
+    isOptionalStringArray(record.cleanupBlockers) &&
+    isOptionalGitRevisionMaterialization(record.revisionMaterialization)
+  );
+}
+
+function isOptionalGitRevisionMaterialization(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (!record.lastOperation || typeof record.lastOperation !== "object") return false;
+  const operation = record.lastOperation as Record<string, unknown>;
+  return (
+    record.authority === "driver_local" &&
+    isNonEmptyString(record.repository) &&
+    isNonEmptyString(record.baselineRevision) &&
+    isNonEmptyString(record.headRevision) &&
+    Number.isInteger(record.revision) &&
+    (record.revision as number) >= 1 &&
+    isNonEmptyString(operation.id) &&
+    (operation.action === "create_candidate" ||
+      operation.action === "prepare_layer" ||
+      operation.action === "refresh_candidate") &&
+    isOptionalString(operation.previousRevision) &&
+    isOptionalString(operation.sourceBaseRevision) &&
+    isNonEmptyString(operation.sourceRevision) &&
+    isOptionalStringArray(operation.appliedRevisions) &&
+    isOptionalStringArray(operation.supersededRevisions)
   );
 }
 
@@ -389,9 +451,27 @@ function isGitPullRequestSnapshot(value: unknown): boolean {
     isOptionalString(record.syncedAt) &&
     isOptionalString(record.bodyText) &&
     (record.draft === undefined || typeof record.draft === "boolean") &&
+    (record.checks === undefined || isGitPullRequestCheckArray(record.checks)) &&
     isOptionalString(record.checksSummary) &&
+    (record.checksVerdict === undefined || isGitChecksVerdict(record.checksVerdict)) &&
+    isOptionalBoolean(record.mergeable) &&
+    isOptionalString(record.mergeStateStatus) &&
     isOptionalString(record.diffSummary)
   );
+}
+
+function isGitChecksVerdict(value: unknown): value is GitChecksVerdict {
+  return (GIT_CHECKS_VERDICTS as readonly string[]).includes(value as string);
+}
+
+function isGitPullRequestCheckArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every(isGitPullRequestCheck);
+}
+
+function isGitPullRequestCheck(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const check = value as Record<string, unknown>;
+  return typeof check.name === "string" && typeof check.state === "string";
 }
 
 function isOptionalArtifactProgress(value: unknown): boolean {
@@ -415,6 +495,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === "boolean";
 }
 
 function isOptionalStringArray(value: unknown): boolean {

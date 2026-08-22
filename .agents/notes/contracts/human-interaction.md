@@ -66,17 +66,33 @@ async request or reviewer-timeout takeover.
 Whether an answer “counts” (option selected or non-empty custom text) is defined once by `hasSparkAskAnswerContent` / `parseSparkAskChoice` in `spark-protocol` (`ask-semantics.ts`).
 
 - TUI (`spark-ask`) re-exports those helpers for the flow controller and presents asks as an in-turn overlay.
-- Hub shows pending asks inline in the owning session (timeline `ask` tool part + composer `SessionAskPanel`); the workspace Inbox page remains the list/detail fallback. There is no global ask dialog.
+- Hub shows pending **User** asks inline in the owning session (timeline `ask` tool part + composer `SessionAskPanel`); the workspace Inbox page remains the list/detail fallback. There is no global ask dialog. Inbox remains agent→user only.
+- Session-addressed asks (`ask({ toSessionId })`) share the same delivery kernel as `session.send` and register `respondent.kind=session`. The asked Session settles them with `ask({ action: "answer" })` using provenance `session`. Session answers must not mint `spark.evidence-answer-event/v1`. They do not appear in Hub Inbox. User-addressed asks stay Hub/TUI/channel.
+- Invocation wait (`session({ action: "wait" })`) is a durable invocation predicate. Ask durable wait is a separate **reply-wait**. Do not merge mailbox SQLite with `daemon_human_waits`.
 - Approval-center builds decision payloads with the shared response status enum; it does not re-derive answer content rules.
 
-Cross-session agent-to-agent traffic is **messages** (session inspector tab), not Inbox. Inbox is only agent→user human asks.
+Cross-session agent-to-agent traffic is **messages** (session inspector tab) plus session-addressed `ask`, not Inbox. Inbox is only agent→user human asks.
 
-## Autonomous Goal/Repro evidence requests
+## Driver-aware approvals
 
-The autonomous contract is owned by
-[`autonomous-three-lane.md`](./autonomous-three-lane.md). Active Goal/Repro turns
-must persist detached asynchronous evidence requests and continue independent
-work. Their pending decision status is orthogonal to daemon scheduler activity.
+Approval classes are owned by [`tools.md`](./tools.md). Binding a Goal, Loop,
+or Repro is not consent. Interactive surfaces ask once via `askFlow`
+(`spark.driver-authority`) and persist Session `driverAuthority`. Non-interactive
+callers (CLI, API, daemon ticks) persist a silent grant and must not prompt.
+The daemon broker has no `confirmation` path, so this consent uses `askFlow`.
+Denied or unresolved consent does not fail the driver; `manual_only` then
+creates a human approval request. A `required` operation still creates a
+durable human request bound to the exact action, and the driver continues
+independent work when possible. A WorkflowRun inherits the continuation driver
+that started it only while that driver's authority remains active, and never
+creates or retains authority by itself.
+
+## Autonomous Goal and Repro evidence requests
+
+The Repro contract is owned by
+[`autonomous-three-lane.md`](./autonomous-three-lane.md). Active Goal turns and
+Repro checkpoints persist detached asynchronous evidence requests and continue
+independent work. Their pending decision status is orthogonal to daemon scheduler activity.
 A blocking human wait still occupies a scheduler slot, but a requested daemon
 restart must yield the last persistable ask-only checkpoint instead of holding
 drain forever. Mixed batches that already executed non-replayable tools fail
@@ -89,16 +105,16 @@ submitted question ids, required answers, options, and cardinalities against the
 durable canonical request, then stores only the normalized owner answer in the
 AnswerEvent. A side-question answer cannot release the bound Goal/Repro action.
 AnswerEvents retain this specification's request/response correlation and
-direct-user provenance rules. An answer accepted while the owner loop is
-`running` or `scheduled` remains wake-pending until reconciliation commits a
-later wake or observes the owner terminal; projection alone never acknowledges
-wake completion.
+direct-user provenance rules. Goal answers wake their owner Loop. Repro answers
+are consumed directly by the daemon v10 owner, which creates a new TaskRun
+attempt in the same checkpoint Session; it does not create a Loop wake or resume
+route. Projection alone never acknowledges wake completion.
 
 Ordinary non-autonomous sessions retain the existing interaction contract.
 
 ## Related
 
-- [`tools.md`](./tools.md) — `ask` is the only structured question surface; cancellation is not approval.
+- [`tools.md`](./tools.md) — `ask` is the only structured question surface; cancellation is not approval. Session-addressed asks stay out of Inbox.
 - [`turn.md`](./turn.md) — daemon is execution truth; transports are adapters.
 - [`sessions-and-channels.md`](./sessions-and-channels.md) — session mail `request` is a cross-session invocation primitive, not a tool-level human wait.
 

@@ -9,7 +9,7 @@ and pull-request expectations. Coding agents must also follow
 
 Source development requires:
 
-- Node.js `>=26 <27`;
+- Node.js `>=24`;
 - pnpm `>=11 <12`, matching the version pinned in `package.json`;
 - the Vite+ `vp` CLI used by repository formatting, lint, and type-aware checks;
 - Git.
@@ -35,10 +35,11 @@ supported packages.
 
 | Path | Responsibility |
 | --- | --- |
-| `apps/spark-cli` | Thin public `spark` command dispatcher |
-| `apps/spark-tui` | Native terminal host and interaction adapters |
+| `apps/spark-cli` | Native root parser, diagnostics, and companion process router |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
-| `apps/spark-hub` | Browser presentation and control |
+| `apps/spark-web` | Local daemon browser workbench: every workspace bound to this daemon |
+| `apps/spark-web-dsh` | DeepSeek Harness-hosted Spark product workbench |
+| `apps/spark-hub` | Multi-daemon proxy, auth, registry, and management UI |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
@@ -64,9 +65,9 @@ and keep transports and presentation layers thin.
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
 | Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
-| Product extension composition and policy | `packages/spark-extension` |
-| Terminal presentation | `apps/spark-tui` behind shared TUI boundaries |
-| Browser presentation | `apps/spark-hub` |
+| Product composition and host runtime | `apps/spark-daemon/src/product` |
+| Local daemon workbench | `apps/spark-web` via daemon-client |
+| Multi-daemon proxy and management | `apps/spark-hub` |
 
 When behavior is shared by multiple surfaces, define its schema and semantics in
 the existing protocol or owner API before adding surface-specific adapters.
@@ -107,7 +108,7 @@ the change:
 | One root test file | `pnpm test test/name.test.ts` |
 | Package-local tests or invariants | `pnpm --filter <package> run test` or `run check` |
 | Source dispatcher and daemon lifecycle | `pnpm run test:process:source` |
-| Complete Repro Golden Journey | `pnpm run test:journey:repro` (requires cue-shell IPC v2 with `session-handshake-required`) |
+| Complete Repro Golden Journey | `pnpm run test:journey:repro` (requires Cue IPC v3 with `session-handshake-required`) |
 | Hub and shared Svelte UI browser interactions | `pnpm run test:browser` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
 | Agent knowledge budgets, routing descriptions, paths, and links | `pnpm run check:agent-knowledge` |
@@ -173,9 +174,9 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. The budget permits 41 current workspaces and only
-`@zendev-lab/pi-spark` as the pre-approved forty-second package. Raising or
-replacing that budget requires an architecture rationale and inventory change.
+boundary checks. The budget is closed at 41; the machine-readable inventory
+owns the current count and rationale. Raising or replacing that budget requires
+an architecture rationale and inventory change.
 
 ## Documentation ownership
 
@@ -277,5 +278,12 @@ style, for example:
 🐛 fix(daemon): reject invalid session state
 ♻️ refactor(protocol): centralize shared semantics
 ```
+
+PR bodies are also checked by CI against `.github/pull_request_template.md`:
+the body's `##` headings must be a subset of the template's headings, appear in
+template order, and include every required heading (`动机`, `解决方案`). Do not
+invent extra `##` sections — fold content such as validation results into the
+required sections instead. Optional template headings (`说明`, `后续工作`) are
+declared with `<!-- pr-body:optional -->` in the template and may be omitted.
 
 Create a Draft PR until the change and its required validation are complete.

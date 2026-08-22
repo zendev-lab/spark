@@ -1,6 +1,5 @@
 /**
- * SparkKeybindings — host-side keybinding registry for the spark-tui native
- * pi-tui host.
+ * SparkKeybindings — host-side keybinding registry for Spark native hosts.
  *
  * Responsibilities:
  *

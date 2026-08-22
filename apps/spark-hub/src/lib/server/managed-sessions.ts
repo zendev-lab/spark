@@ -430,15 +430,5 @@ function isHubWorkspaceSession(
     options.scope?.kind === "workspace" ? options.scope.workspaceId : options.workspaceId;
   if (requestedWorkspaceId && session.scope.workspaceId !== requestedWorkspaceId) return false;
   if (!options.includeArchived && session.placement === "archived") return false;
-  if (
-    session.owner.kind === "task_run" ||
-    session.owner.kind === "task_revision" ||
-    session.owner.kind === "workflow_run" ||
-    session.owner.kind === "driver" ||
-    session.owner.kind === "driver_tick" ||
-    session.owner.kind === "invocation"
-  ) {
-    return false;
-  }
-  return session.owner.kind !== "side_thread" || options.related === true;
+  return true;
 }

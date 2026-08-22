@@ -59,17 +59,6 @@ export interface SparkLoopWidgetEntry {
   objective: string;
 }
 
-export interface SparkReproWidgetEntry {
-  status: "active" | "complete";
-  objective?: string;
-  stageName: string;
-  stageIndex: number;
-  totalStages: number;
-  phase: string;
-  acceptance: Array<{ description: string; satisfied: boolean }>;
-  gate?: { id: string; passed: boolean };
-}
-
 export interface SparkProjectWidgetEntry {
   title: string;
   ref?: string;
@@ -103,7 +92,6 @@ export interface SparkWidgetState {
   dynamicWorkflowRun?: SparkDynamicWorkflowRunWidgetEntry;
   goal?: SparkGoalWidgetEntry;
   loop?: SparkLoopWidgetEntry;
-  repro?: SparkReproWidgetEntry;
   projectKind?: SparkProjectKindWidgetEntry;
   projects?: SparkProjectWidgetEntry[];
   tasks: TaskEntry[];
@@ -199,7 +187,6 @@ function hasWidgetContent(state: SparkWidgetState | undefined): state is SparkWi
       state.dynamicWorkflowRun ||
       state.goal ||
       state.loop ||
-      state.repro ||
       (state.projectKind?.panels.length ?? 0) > 0 ||
       hasVisibleProjects(state.projects) ||
       state.tasks.length > 0 ||
@@ -219,7 +206,6 @@ function hasAnimatedWidgetContent(state: SparkWidgetState | undefined): boolean 
   return Boolean(
     state?.goal?.status === "active" ||
     state?.loop?.status === "active" ||
-    state?.repro?.status === "active" ||
     hasAnimatedRunningTask(state),
   );
 }
@@ -246,7 +232,6 @@ export function renderSparkWidgetLines(
     !state.dynamicWorkflowRun &&
     !state.goal &&
     !state.loop &&
-    !state.repro &&
     (state.projectKind?.panels.length ?? 0) === 0 &&
     !hasVisibleProjects(state.projects) &&
     state.tasks.length === 0 &&
@@ -262,7 +247,6 @@ export function renderSparkWidgetLines(
   const visibleTasks = state.tasks.filter(isVisibleTaskEntry);
 
   const goalLine = formatForegroundLoopLine(
-    state.repro,
     state.goal,
     state.loop,
     theme,
@@ -311,38 +295,13 @@ function hasSessionRunningAgent(tasks: TaskEntry[]): boolean {
 }
 
 function formatForegroundLoopLine(
-  repro: SparkReproWidgetEntry | undefined,
   goal: SparkGoalWidgetEntry | undefined,
   loop: SparkLoopWidgetEntry | undefined,
   theme: SparkWidgetTheme,
   animationFrame: number,
 ): string | undefined {
-  if (repro?.status === "active") return formatReproLine(repro, theme, animationFrame);
   if (loop) return formatLoopLine(loop, theme, animationFrame);
   return formatGoalLine(goal, theme, animationFrame);
-}
-
-function formatReproLine(
-  repro: SparkReproWidgetEntry,
-  theme: SparkWidgetTheme,
-  animationFrame: number,
-): string {
-  const satisfied = repro.acceptance.filter((condition) => condition.satisfied).length;
-  const total = repro.acceptance.length;
-  const frame = Number.isInteger(animationFrame) ? Math.max(0, animationFrame) : 0;
-  const statusContent = ACTIVE_GOAL_PULSE_FRAMES[frame % ACTIVE_GOAL_PULSE_FRAMES.length];
-  const status = theme.fg("accent", statusContent);
-  const stageLabel = `${repro.stageName} ${repro.stageIndex + 1}/${repro.totalStages}`;
-  const objectiveLabel = repro.objective ? `${repro.objective} · ` : "";
-  const gateLabel = repro.gate && !repro.gate.passed ? " gate:○" : "";
-  // Show current focus: first unsatisfied condition, or "✓ all passed" if done
-  const nextCondition = repro.acceptance.find((c) => !c.satisfied);
-  const focusLabel = nextCondition ? `○ ${nextCondition.description}` : `✓ ${satisfied}/${total}`;
-  const body = `${theme.fg("dim", "Repro(")}${status}${theme.fg(
-    "dim",
-    `): ${objectiveLabel}${stageLabel} · ${focusLabel}${gateLabel}`,
-  )}`;
-  return `${theme.fg("accent", "◆")} ${body}`;
 }
 
 function formatGoalLine(

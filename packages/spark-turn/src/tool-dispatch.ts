@@ -2,12 +2,14 @@
  * Tool policy / dispatch helpers for SparkAgentLoop.
  */
 import {
+  hasActiveDriverBinding,
   resolveToolPolicy,
   resolveToolPolicyForArgs,
   type ResolvedToolPolicy,
+  type SparkHostContext,
   type ToolConfig,
 } from "@zendev-lab/spark-core";
-import type { AssistantMessage, Tool, ToolCall, ToolResultMessage } from "@zendev-lab/spark-ai";
+import type { AssistantMessage, Tool, ToolCall, ToolResultMessage } from "@zendev-lab/spark-llm";
 import {
   compactToolResultContent,
   type SparkToolResultRawRecoveryDecision,
@@ -198,11 +200,17 @@ export function resolvedRegisteredToolPolicy(
 export function toolRequiresApproval(
   tool: SparkTurnRegisteredTool,
   args?: Readonly<Record<string, unknown>>,
+  context?: Pick<SparkHostContext, "loop" | "driverAuthority">,
 ): boolean {
-  return resolvedRegisteredToolPolicy(tool, args).approval === "required";
+  const approval = resolvedRegisteredToolPolicy(tool, args).approval;
+  if (approval === "required") return true;
+  if (approval === "manual_only") {
+    return !(hasActiveDriverBinding(context?.loop) && context?.driverAuthority === "granted");
+  }
+  return false;
 }
 
-export function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {
+function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {
   const approvalPolicy = (config as { approvalPolicy?: unknown }).approvalPolicy;
   if (approvalPolicy === true || approvalPolicy === "always") return true;
   return Boolean(
@@ -230,7 +238,7 @@ export function normalizeApprovalMethod(
   value: SparkToolApprovalMethod | undefined,
 ): SparkToolApprovalMethod {
   if (value === "skip" || value === "human" || value === "auto") return value;
-  return "auto";
+  return "human";
 }
 
 export function normalizeApprovalRejectAction(
@@ -264,8 +272,8 @@ export function errorToolResult(
   };
 }
 
-export type SparkToolFailureCertainty = "not-sent" | "unknown";
-export type SparkToolFailureRetryability = "transient" | "permanent" | "agent-decides";
+type SparkToolFailureCertainty = "not-sent" | "unknown";
+type SparkToolFailureRetryability = "transient" | "permanent" | "agent-decides";
 
 export interface SparkToolFailureDisposition {
   certainty: SparkToolFailureCertainty;
@@ -281,7 +289,7 @@ export function sparkToolFailureDisposition(error: unknown): SparkToolFailureDis
 }
 
 /** Only an explicit cross-process not-sent tag permits replay. */
-export function sparkToolFailureCertainty(error: unknown): SparkToolFailureCertainty {
+function sparkToolFailureCertainty(error: unknown): SparkToolFailureCertainty {
   const tagged = errorRecord(error);
   if (
     tagged?.certainty === "not-sent" ||
@@ -299,7 +307,7 @@ export function sparkToolFailureCertainty(error: unknown): SparkToolFailureCerta
 }
 
 /** Missing retry metadata is always delegated to the Agent rather than retried implicitly. */
-export function sparkToolFailureRetryability(error: unknown): SparkToolFailureRetryability {
+function sparkToolFailureRetryability(error: unknown): SparkToolFailureRetryability {
   const tagged = errorRecord(error);
   const payload = errorRecord(tagged?.payload);
   const data = errorRecord(tagged?.data) ?? errorRecord(payload?.data);

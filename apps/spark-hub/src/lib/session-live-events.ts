@@ -1,5 +1,8 @@
 import {
+  sessionEventCursor as protocolSessionEventCursor,
+  sessionEventCursorStorageKey as protocolSessionEventCursorStorageKey,
   SPARK_PROTOCOL_VERSION,
+  isRuntimeInvocationTerminalStatus,
   parseSparkDaemonEvent,
   sanitizeSparkDisplayError,
   type SparkDaemonEvent,
@@ -46,8 +49,7 @@ export interface SessionActivityRefreshState {
 const MAX_REPLAY_EVENT_IDS = 512;
 
 export function sessionEventCursorStorageKey(sessionId: string): string | null {
-  const normalized = sessionId.trim();
-  return normalized ? `spark-hub:session:${normalized}:events-cursor` : null;
+  return protocolSessionEventCursorStorageKey("hub", sessionId);
 }
 
 export function createSessionActivityRefreshState(): SessionActivityRefreshState {
@@ -258,7 +260,7 @@ export function settleCancelledSessionTurn(
 ): boolean {
   const normalizedTurnId = turnId.trim();
   const normalizedStatus = status.trim().toLocaleLowerCase() || "cancelled";
-  if (!normalizedTurnId || !isTerminalInvocationStatus(normalizedStatus)) return false;
+  if (!normalizedTurnId || !isRuntimeInvocationTerminalStatus(normalizedStatus)) return false;
   state.invocationIds.add(normalizedTurnId);
   const previousActiveTurnId = state.activeTurnId;
   acceptInvocationPhase(state, normalizedTurnId, normalizedStatus);
@@ -409,7 +411,7 @@ function applyInvocationCancellationTarget(
     state.activeTurnId = invocationId;
     return;
   }
-  if (!isTerminalInvocationStatus(status)) return;
+  if (!isRuntimeInvocationTerminalStatus(status)) return;
   const remaining = state.view?.pendingTurns?.filter((turn) => turn.invocationId !== invocationId);
   if (remaining && remaining.length !== (state.view?.pendingTurns?.length ?? 0)) {
     state.activeTurnId = nextPendingTurnId(remaining);
@@ -418,20 +420,6 @@ function applyInvocationCancellationTarget(
   if (state.activeTurnId === invocationId) {
     state.activeTurnId = null;
   }
-}
-
-function isTerminalInvocationStatus(status: string): boolean {
-  return [
-    "succeeded",
-    "completed",
-    "done",
-    "failed",
-    "lost",
-    "timeout",
-    "timed_out",
-    "cancelled",
-    "canceled",
-  ].includes(status);
 }
 
 function rememberEventId(eventIds: Set<string>, eventId: string) {
@@ -446,9 +434,7 @@ function rememberEventId(eventIds: Set<string>, eventId: string) {
 export function sessionEventCursor(
   event: Pick<SessionSerializedEvent, "createdAt" | "id" | "sequence">,
 ): string {
-  return event.sequence === null
-    ? `${event.createdAt}|${event.id}`
-    : `${event.sequence}|${event.createdAt}|${event.id}`;
+  return protocolSessionEventCursor(event);
 }
 
 type DaemonEventType = SparkDaemonEvent["type"];
@@ -760,7 +746,7 @@ function applyDaemonInvocationPhaseToView(
   let pendingTurns = current.pendingTurns;
   let pendingTurnsChanged = false;
   if (pendingTurns !== undefined) {
-    if (isTerminalInvocationStatus(normalized)) {
+    if (isRuntimeInvocationTerminalStatus(normalized)) {
       const remaining = pendingTurns.filter((turn) => turn.invocationId !== invocationId);
       pendingTurnsChanged = remaining.length !== pendingTurns.length;
       pendingTurns = remaining;
@@ -798,7 +784,7 @@ function applyDaemonInvocationPhaseToView(
         ? "running"
         : normalized === "queued"
           ? "queued"
-          : isTerminalInvocationStatus(normalized)
+          : isRuntimeInvocationTerminalStatus(normalized)
             ? "idle"
             : current.status;
 
@@ -820,7 +806,7 @@ function acceptInvocationPhase(
 ): boolean {
   const normalized = status.toLocaleLowerCase();
   const previous = state.invocationPhases.get(invocationId);
-  if (previous && isTerminalInvocationStatus(previous)) return false;
+  if (previous && isRuntimeInvocationTerminalStatus(previous)) return false;
   if (previous === "running" && normalized === "queued") return false;
   if (previous === normalized) return false;
   state.invocationPhases.set(invocationId, normalized);
@@ -839,7 +825,7 @@ function normalizeSnapshotAgainstInvocationPhases(
   if (view.pendingTurns === undefined) return view;
   const pendingTurns = view.pendingTurns.flatMap((turn) => {
     const knownPhase = invocationPhases.get(turn.invocationId);
-    if (isTerminalInvocationStatus(knownPhase ?? "")) return [];
+    if (isRuntimeInvocationTerminalStatus(knownPhase ?? "")) return [];
     if (knownPhase === "running" && turn.status === "queued") {
       return [{ ...turn, status: "running" as const }];
     }
@@ -1092,7 +1078,7 @@ function syncInvocationStateFromView(state: SessionLiveEventState, pruneMissing:
   const pendingInvocationIds = new Set(pendingTurns.map((turn) => turn.invocationId));
   if (pruneMissing) {
     for (const [invocationId, phase] of state.invocationPhases) {
-      if (!isTerminalInvocationStatus(phase) && !pendingInvocationIds.has(invocationId)) {
+      if (!isRuntimeInvocationTerminalStatus(phase) && !pendingInvocationIds.has(invocationId)) {
         state.invocationPhases.delete(invocationId);
       }
     }

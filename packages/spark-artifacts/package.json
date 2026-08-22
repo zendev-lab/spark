@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-artifacts",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Atomic issue/git_change/document Artifacts, Git lifecycle, and internal evidence storage for Spark hosts.",
   "license": "MIT",
@@ -15,6 +15,7 @@
     ".": "./src/index.ts",
     "./evidence-migration": "./src/evidence-migration.ts",
     "./extension": "./src/extension.ts",
+    "./daemon-extension": "./src/daemon-extension.ts",
     "./preview-renderer": "./src/artifact/preview-renderer.ts",
     "./artifact": "./src/artifact/index.ts"
   },
@@ -36,7 +37,7 @@
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "@types/node": "^26.1.1",
+    "@types/node": "^24.13.3",
     "@types/sanitize-html": "^2.16.1",
     "typescript": "catalog:",
     "vitest": "catalog:"

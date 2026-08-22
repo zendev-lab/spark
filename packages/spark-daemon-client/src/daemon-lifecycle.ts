@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,29 @@ export interface EnsureSparkDaemonRunningOptions {
   sleep?: (delayMs: number) => Promise<void>;
 }
 
+export class SparkDaemonStartupError extends Error {
+  readonly code = "DAEMON_START_FAILED";
+  readonly diagnostic: string;
+  readonly connectionDetail: string | undefined;
+  readonly serviceLogPath: string;
+
+  constructor(input: {
+    diagnostic: string;
+    connectionDetail?: string;
+    serviceLogPath: string;
+    cause?: unknown;
+  }) {
+    super(
+      `Spark daemon did not become ready: ${input.diagnostic}`,
+      input.cause === undefined ? undefined : { cause: input.cause },
+    );
+    this.name = "SparkDaemonStartupError";
+    this.diagnostic = input.diagnostic;
+    this.connectionDetail = input.connectionDetail;
+    this.serviceLogPath = input.serviceLogPath;
+  }
+}
+
 /**
  * Ensure the local daemon execution plane is reachable before a compatible
  * host commits Loop-owned state. The daemon remains the only tick owner;
@@ -58,34 +81,75 @@ export async function ensureSparkDaemonRunning(
         },
       ));
 
+  let daemonReachable = false;
+  let lastError: unknown;
   try {
-    await requestStatus(paths);
-    return;
-  } catch {
-    // Start or recover the service below, then require a real RPC response.
+    const status = await requestStatus(paths);
+    daemonReachable = true;
+    lastError = daemonReadinessError(status);
+    if (!lastError) return;
+  } catch (error) {
+    lastError = error;
   }
 
-  const service = options.serviceCommand ?? resolveSparkDaemonServiceCommand({ env });
-  await (options.startService ?? startDetachedSparkDaemon)(service, paths, env);
+  const serviceLogPath = join(paths.logDir, "service.stderr.log");
+  const serviceLogOffset = fileSize(serviceLogPath);
+  if (!daemonReachable) {
+    try {
+      const service = options.serviceCommand ?? resolveSparkDaemonServiceCommand({ env });
+      await (options.startService ?? startDetachedSparkDaemon)(service, paths, env);
+    } catch (error) {
+      throw new SparkDaemonStartupError({
+        diagnostic: errorMessage(error),
+        serviceLogPath,
+        cause: error,
+      });
+    }
+  }
 
   const now = options.now ?? Date.now;
   const sleep =
     options.sleep ??
     ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const deadline = now() + (options.startupTimeoutMs ?? 30_000);
-  let lastError: unknown;
   do {
     try {
-      await requestStatus(paths);
-      return;
+      const status = await requestStatus(paths);
+      lastError = daemonReadinessError(status);
+      if (!lastError) return;
     } catch (error) {
       lastError = error;
-      await sleep(50);
     }
+    await sleep(50);
   } while (now() <= deadline);
 
-  const detail = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Spark daemon is not reachable after service start: ${detail}`);
+  const connectionDetail = errorMessage(lastError);
+  const diagnostic = readServiceDiagnostic(serviceLogPath, serviceLogOffset) || connectionDetail;
+  throw new SparkDaemonStartupError({
+    diagnostic,
+    ...(connectionDetail && connectionDetail !== diagnostic ? { connectionDetail } : {}),
+    serviceLogPath,
+    cause: lastError,
+  });
+}
+
+function daemonReadinessError(status: unknown): Error | undefined {
+  const state = daemonLifecycleState(status);
+  if (state === "running") return undefined;
+  return new Error(
+    state
+      ? `Spark daemon lifecycle is ${state}; waiting for running.`
+      : "Spark daemon status did not report lifecycle readiness.",
+  );
+}
+
+function daemonLifecycleState(status: unknown): string | undefined {
+  if (!isRecord(status) || !isRecord(status.lifecycle)) return undefined;
+  return typeof status.lifecycle.state === "string" ? status.lifecycle.state : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export interface ResolveSparkDaemonServiceCommandOptions {
@@ -144,5 +208,70 @@ function startDetachedSparkDaemon(
   } finally {
     closeSync(stdout);
     closeSync(stderr);
+  }
+}
+
+function fileSize(path: string): number | undefined {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, "r");
+    return fstatSync(descriptor).size;
+  } catch {
+    return undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function readServiceDiagnostic(path: string, offset: number | undefined): string | undefined {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, "r");
+    const size = fstatSync(descriptor).size;
+    const start = offset !== undefined && offset <= size ? offset : Math.max(0, size - 65_536);
+    const length = Math.min(size - start, 65_536);
+    if (length <= 0) return undefined;
+    const buffer = Buffer.alloc(length);
+    const bytesRead = readSync(descriptor, buffer, 0, length, start);
+    const lines = buffer
+      .subarray(0, bytesRead)
+      .toString("utf8")
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const line of lines.reverse()) {
+      if (isStackMetadata(line)) continue;
+      return line.length > 500 ? `${line.slice(0, 499)}…` : line;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function isStackMetadata(line: string): boolean {
+  return (
+    /^at\s/u.test(line) ||
+    /^[{}]$/u.test(line) ||
+    /^(?:code|errcode|errstr):/u.test(line) ||
+    /^Node\.js v/u.test(line) ||
+    line.startsWith("[spark-daemon] channel ingress stopping")
+  );
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message.trim();
+  if (error === undefined || error === null) return "unknown startup failure";
+  if (typeof error === "string") return error.trim() || "unknown startup failure";
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint") {
+    return String(error);
+  }
+  if (typeof error === "symbol") return error.description || "unknown startup failure";
+  try {
+    return JSON.stringify(error) || "unknown startup failure";
+  } catch {
+    return "unknown startup failure";
   }
 }

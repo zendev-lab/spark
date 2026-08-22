@@ -1,5 +1,12 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant } from "@optique/core/primitives";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 import { SparkMemoryStore, sparkMemoryStorePath } from "@zendev-lab/spark-memory";
 
 import { createSparkMcpServer } from "../src/index.ts";
@@ -16,15 +23,31 @@ Environment:
 The adapter exposes read-only Memory tools and writes MCP frames only to stdout.
 `;
 
+const sparkMcpParser = or(
+  command("--help", object({ kind: constant("help" as const) })),
+  command("-h", object({ kind: constant("help" as const) })),
+  object({ kind: constant("empty" as const) }),
+);
+
 export async function runSparkMcpStdio(
   argv: readonly string[] = process.argv.slice(2),
 ): Promise<number> {
-  if (argv.includes("--help") || argv.includes("-h")) {
+  const classified = classifySparkMcpArgs(argv);
+  if (classified.kind === "help") {
     process.stdout.write(HELP);
     return 0;
   }
-  if (argv.length > 0) {
-    process.stderr.write(`Unknown spark-mcp argument: ${argv[0]}\n${HELP}`);
+  if (classified.kind === "unknown") {
+    process.stderr.write(
+      formatSparkCliError(
+        new SparkCliError({
+          code: "INVALID_ARGUMENT",
+          title: `Unknown spark-mcp argument: ${classified.argument}`,
+          hints: ['Run "spark mcp --help" to see the supported options.'],
+          exitCode: 2,
+        }),
+      ),
+    );
     return 2;
   }
 
@@ -37,4 +60,24 @@ export async function runSparkMcpStdio(
   return 0;
 }
 
-process.exitCode = await runSparkMcpStdio();
+export function classifySparkMcpArgs(argv: readonly string[]) {
+  const result = parse(sparkMcpParser, [...argv]);
+  if (result.success) {
+    return result.value.kind === "help" ? result.value : { kind: "start" as const };
+  }
+  if (argv.includes("--help") || argv.includes("-h")) return { kind: "help" as const };
+  return { kind: "unknown" as const, argument: argv[0] ?? "" };
+}
+
+function isDirectRun(moduleUrl: string, argvEntry: string | undefined): boolean {
+  if (!argvEntry) return false;
+  try {
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvEntry);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun(import.meta.url, process.argv[1])) {
+  process.exitCode = await runSparkMcpStdio();
+}

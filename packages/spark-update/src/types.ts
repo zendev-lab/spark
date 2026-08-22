@@ -1,4 +1,4 @@
-export const SPARK_UPDATE_STATE_SCHEMA_VERSION = 1;
+export const SPARK_UPDATE_STATE_SCHEMA_VERSION = 2;
 
 export type SparkUpdatePolicy = "manual" | "notify" | "auto";
 export type SparkUpdateChannel = "latest" | "next";
@@ -7,7 +7,8 @@ export type SparkDistributionPackageName =
   | "@zendev-lab/spark-cli"
   | "@zendev-lab/spark-daemon"
   | "@zendev-lab/spark-hub"
-  | "@zendev-lab/spark-tui";
+  | "@zendev-lab/spark-web"
+  | "@zendev-lab/spark-web-dsh";
 export type SparkInstallMethod =
   | "managed"
   | "vp"
@@ -37,6 +38,7 @@ export interface SparkBuildInfo {
   minimumNodeVersion: string;
   migrationHead: string;
   migrationMode: "expand-only" | "manual";
+  deploymentGeneration?: 2;
   fingerprint: string;
 }
 
@@ -80,7 +82,8 @@ export interface SparkUpdateFailure {
 }
 
 export interface SparkUpdateState {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  generation: "native";
   currentVersion?: string;
   currentFingerprint?: string;
   availableVersion?: string;
@@ -96,6 +99,7 @@ export interface SparkUpdateState {
   lastAvailableNotifiedAt?: string;
   quarantined: SparkQuarantinedVersion[];
   failure?: SparkUpdateFailure;
+  legacyBackups?: string[];
 }
 
 export interface SparkUpdatePaths {
@@ -109,10 +113,12 @@ export interface SparkUpdatePaths {
   stagingDir: string;
   launcherPath: string;
   updaterLaunchAgentPath: string;
+  backupsDir: string;
 }
 
 export interface SparkUpdateStatus {
   managed: boolean;
+  legacyState: boolean;
   installation: SparkInstallation;
   config: SparkUpdateConfig;
   state: SparkUpdateState;

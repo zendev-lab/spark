@@ -13,6 +13,8 @@ import {
   refId,
   type RoleRef,
   type RunRef,
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
   type TaskRef,
   writeJsonFileAtomic,
 } from "@zendev-lab/spark-core";
@@ -109,8 +111,13 @@ export async function readRoleRunEvidencePreview(
   cwd: string,
   evidenceRef: EvidenceRef,
   options: { maxMetadataBytes?: number } = {},
+  ctx?: SparkStateRootContext,
 ): Promise<RoleRunEvidencePreview> {
-  const metadataPath = join(cwd, ".spark", "evidence", `${refId(evidenceRef)}.json`);
+  const metadataPath = sparkWorkspaceStatePath(
+    cwd,
+    ["evidence", `${refId(evidenceRef)}.json`],
+    ctx,
+  );
   const metadataStat = await stat(metadataPath).catch((error: NodeJS.ErrnoException) => {
     if (isFileNotFoundError(error)) return undefined;
     throw error;
@@ -252,8 +259,9 @@ class RoleRunEvidenceMetadataFormatError extends Error {
 export async function collectRoleRunEvidenceRetentionPlan(
   cwd: string,
   options: { dryRun: boolean; thresholdBytes: number; tailBytes: number; exportDir?: string },
+  ctx?: SparkStateRootContext,
 ): Promise<RoleRunEvidenceRetentionPlan> {
-  const evidenceRoot = join(cwd, ".spark", "evidence");
+  const evidenceRoot = sparkWorkspaceStatePath(cwd, ["evidence"], ctx);
   const metadataFiles = await listRoleRunEvidenceMetadataFiles(evidenceRoot);
   const plan: RoleRunEvidenceRetentionPlan = {
     root: relative(cwd, evidenceRoot) || ".spark/evidence",

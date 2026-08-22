@@ -16,7 +16,7 @@ import {
   type SparkSkillResolverOptions,
 } from "./skill-resolver-entry.ts";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import { Type } from "typebox";
 import { runRole, type RoleCapability, type RoleRunRef } from "./role-runtime.ts";
 
@@ -98,18 +98,6 @@ const SKILL_AGENT_POLICY = {
   modes: ["execute"],
   approval: "none",
 } as const;
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
 
 export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = {}): ToolConfig {
   const defaultTimeoutMs = normalizeConfiguredTimeout(options.defaultTimeoutMs);

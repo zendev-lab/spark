@@ -3,9 +3,10 @@ title: Side Threads
 description: Ask read-only tangent questions and deliberately hand useful context back to the parent session.
 ---
 
-Side Threads are daemon-owned, read-only child conversations attached to a
-parent TUI session. They are useful for investigating a tangent without
-polluting the main conversation.
+Side Thread is a daemon-owned, read-only child-Session feature attached to a
+parent Session. It does not introduce another runtime entity: the child appears
+as a subsession in the normal Session tree. Use it to investigate a tangent
+without polluting the parent conversation.
 
 ## Basic flow
 

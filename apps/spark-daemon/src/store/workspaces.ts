@@ -398,7 +398,7 @@ export function ensureLocalWorkspace(
   if (!existing) {
     throw new SparkDaemonControlError(
       "workspace_not_found",
-      `Workspace is not registered: ${localPath}. Register it explicitly with spark daemon workspace register <path> --server-url <url> --token <token> --name <name>.`,
+      `Workspace is not registered: ${localPath}. Register it explicitly with spark daemon workspace register <path> --name <name>.`,
     );
   }
 

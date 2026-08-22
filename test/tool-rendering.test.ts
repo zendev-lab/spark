@@ -3,14 +3,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { visibleWidth } from "@zendev-lab/spark-text";
 
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import { registerSparkCueTools } from "@zendev-lab/spark-cue";
 import piGraftExtension from "@zendev-lab/spark-graft/extension";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
 import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
-import sparkExtension from "@zendev-lab/spark-extension/extension";
+import registerSparkProduct from "../apps/spark-daemon/src/product/policy/index.ts";
 
 interface RenderTheme {
   fg: (_color: string, text: string) => string;
@@ -40,7 +40,7 @@ const ansiTheme: RenderTheme = {
 
 const snapshotDir = join(dirname(fileURLToPath(import.meta.url)), "snapshots");
 
-test("Spark extension canonical facade tools render parameter-aware tool calls", async () => {
+test("Spark product policy canonical facade tools render parameter-aware tool calls", async () => {
   const tools = registerSparkToolsForRendering();
 
   assertAllToolsHaveCallRenderers(tools);
@@ -187,7 +187,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
     "cue_exec",
     {
       command:
-        "pnpm exec node -e \"import('@zendev-lab/spark-tui-adapter/text').then(m=>console.log(m.visibleWidth('你好'))).catch(e=>{console.error(e);process.exit(1)})\"",
+        "pnpm exec node -e \"import('@zendev-lab/spark-text').then(m=>console.log(m.visibleWidth('你好'))).catch(e=>{console.error(e);process.exit(1)})\"",
       cwd: "/workspace/spark",
     },
     80,
@@ -205,7 +205,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
       { name: "role", args: { action: "list", source: "builtin" } },
       { name: "role", args: { action: "get", role: "worker" } },
       { name: "role", args: { action: "create", id: "repo-inspector" } },
-      { name: "role", args: { action: "call", role: "worker" } },
+      { name: "role", args: { action: "model_set", role: "worker" } },
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-role.txt"));
 
@@ -266,7 +266,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
 
 function registerSparkToolsForRendering(): Map<string, RenderableToolConfig> {
   const tools = new Map<string, RenderableToolConfig>();
-  sparkExtension({
+  registerSparkProduct({
     registerCommand: () => undefined,
     registerTool: (config) => tools.set(config.name, config),
     on: () => undefined,

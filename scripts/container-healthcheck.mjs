@@ -7,14 +7,11 @@ export function createHubHealthcheckRequest(env = process.env) {
   const url = new URL(`http://${loopbackAddress}:${port}/api/v1/health`);
   const headers = {};
 
-  const trustProxy = renamedEnv(env, "SPARK_HUB_TRUST_PROXY", "SPARK_COCKPIT_TRUST_PROXY");
+  const trustProxy = env.SPARK_HUB_TRUST_PROXY?.trim();
   if (trustProxy === "loopback") {
-    const configuredOrigin =
-      renamedEnv(env, "SPARK_HUB_PUBLIC_URL", "SPARK_COCKPIT_PUBLIC_URL") ||
-      env.ORIGIN?.trim() ||
-      "auto";
+    const configuredOrigin = env.SPARK_HUB_PUBLIC_URL?.trim() || env.ORIGIN?.trim() || "auto";
     const origin = configuredOrigin === "auto" ? url : new URL(configuredOrigin);
-    const hops = Number(renamedEnv(env, "SPARK_HUB_PROXY_HOPS", "SPARK_COCKPIT_PROXY_HOPS") || "1");
+    const hops = Number(env.SPARK_HUB_PROXY_HOPS?.trim() || "1");
     if (!Number.isSafeInteger(hops) || hops < 1 || hops > 10) {
       throw new Error("SPARK_HUB_PROXY_HOPS must be an integer between 1 and 10.");
     }
@@ -34,15 +31,6 @@ export async function checkHubHealth(env = process.env, fetcher = fetch) {
 
   const body = await response.json();
   return body?.service === "spark-hub" && body.status === "ok";
-}
-
-function renamedEnv(env, canonical, legacy) {
-  const canonicalValue = env[canonical]?.trim();
-  const legacyValue = env[legacy]?.trim();
-  if (canonicalValue && legacyValue && canonicalValue !== legacyValue) {
-    throw new Error(`${canonical} conflicts with retired ${legacy}.`);
-  }
-  return canonicalValue || legacyValue || undefined;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -197,6 +197,48 @@ export class SparkChannelDeliveryStore {
     return row ? channelDeliveryRecord(row) : undefined;
   }
 
+  /**
+   * Read-only upgrade bridge for v1 inbound receipts whose key included a
+   * retired Workspace id. Claim a row only when one exact persisted adapter
+   * instance and platform message matches; ambiguity deliberately admits a new
+   * v2 receipt rather than merging provider accounts.
+   */
+  findCompatibleLegacyInbound(input: {
+    adapter: string;
+    adapterId?: string;
+    adapterAccountIdentity?: string;
+    externalKey: string;
+    messageId?: string;
+  }): SparkChannelDeliveryRecord | undefined {
+    const messageId = input.messageId?.trim();
+    const adapterId = input.adapterId?.trim();
+    const accountIdentity = input.adapterAccountIdentity?.trim();
+    if (!messageId || !adapterId || !accountIdentity) return undefined;
+    const rows = this.db
+      .prepare(
+        `${channelDeliverySelect}
+         WHERE kind = 'inbound' AND idempotency_key LIKE 'channel.inbound:v1:%'`,
+      )
+      .all() as unknown as ChannelDeliveryRow[];
+    const matches = rows.filter((row) => {
+      const record = parseJson(row.payload_json, "legacy channel inbound payload");
+      if (!record || typeof record !== "object" || Array.isArray(record)) return false;
+      const message = (record as Record<string, unknown>).message;
+      if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+      const persisted = message as Record<string, unknown>;
+      const persistedIdentity = optionalNonEmptyString(persisted.adapterAccountIdentity);
+      return (
+        persisted.adapter === input.adapter &&
+        persisted.externalKey === input.externalKey &&
+        persisted.messageId === messageId &&
+        (persistedIdentity
+          ? persistedIdentity === accountIdentity
+          : optionalNonEmptyString(persisted.adapterId) === adapterId)
+      );
+    });
+    return matches.length === 1 ? channelDeliveryRecord(matches[0]!) : undefined;
+  }
+
   summary(): SparkChannelDeliverySummary {
     const now = this.now();
     const counts = this.db
@@ -487,6 +529,10 @@ function isChannelDeliveryKind(value: string): value is SparkChannelDeliveryKind
 
 function isChannelDeliveryStatus(value: string): value is SparkChannelDeliveryStatus {
   return (sparkChannelDeliveryStatuses as readonly string[]).includes(value);
+}
+
+function optionalNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function serializeJson(value: unknown, label: string): string {

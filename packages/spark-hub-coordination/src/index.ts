@@ -7,7 +7,6 @@ export * from "./command-submission.ts";
 export * from "./events.ts";
 export * from "./hub-delegations.ts";
 export * from "./liveness.ts";
-export * from "./project-hub.ts";
 export * from "./projection-services.ts";
 export * from "./runtime-control.ts";
 export * from "./runtime-registration.ts";

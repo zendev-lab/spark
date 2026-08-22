@@ -1,5 +1,5 @@
-import { migrateLegacyCockpitLayout } from "@zendev-lab/spark-hub-db";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { formatSparkCliError } from "@zendev-lab/spark-i18n/cli";
 import { configureHubPublicUrl } from "../src/lib/server/public-url.js";
 import { closeDatabase, getDatabase, pinDatabase, unpinDatabase } from "../src/lib/server/db.js";
 import {
@@ -9,7 +9,6 @@ import {
 import { startWebPushEventDispatcher } from "../src/lib/server/web-push.js";
 import { WebSocketServer } from "ws";
 
-migrateLegacyCockpitLayout();
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "5173");
 const publicUrl = configureHubPublicUrl(process.env, { host, port });
@@ -92,7 +91,14 @@ const requestShutdown = () => {
 };
 process.once("SIGINT", requestShutdown);
 process.once("SIGTERM", requestShutdown);
-server.on("error", () => {
+server.on("error", (error) => {
+  process.stderr.write(
+    formatSparkCliError(error, {
+      code: "HUB_LISTEN_FAILED",
+      title: `Spark Hub could not listen on ${host}:${port}`,
+      hints: ["Choose a free port or stop the process already using this address."],
+    }),
+  );
   process.exitCode = 1;
   stopWebPushDispatcher();
   closeDatabase();

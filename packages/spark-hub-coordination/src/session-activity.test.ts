@@ -50,7 +50,7 @@ function projectRuntimeSession(
   db.prepare(
     `INSERT OR IGNORE INTO runtime_session_projections
       (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-       lifecycle, placement, activity, lifetime, owner_kind,
+       lifecycle, placement, activity, lifetime, lineage_origin_kind,
        record_json, projected_at)
      VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?)`,
   ).run(
@@ -66,7 +66,11 @@ function projectRuntimeSession(
       placement: "active",
       lifetime: "scoped",
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: "sess_administrator" },
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_administrator",
+        origin: { kind: "session" },
+      },
       bindings: [],
       tags: [],
       archiveHistory: [],
@@ -675,7 +679,7 @@ describe("session activity projection", () => {
     db.prepare(
       `INSERT INTO runtime_session_projections
         (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-         lifecycle, placement, activity, lifetime, owner_kind,
+         lifecycle, placement, activity, lifetime, lineage_origin_kind,
          record_json, projected_at)
        VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?)`,
     ).run(
@@ -691,7 +695,11 @@ describe("session activity projection", () => {
         placement: "active",
         lifetime: "scoped",
         roleBinding: { kind: "none" },
-        owner: { kind: "session", supervisorSessionId: "sess_administrator" },
+        lineage: {
+          kind: "child",
+          parentSessionId: "sess_administrator",
+          origin: { kind: "session" },
+        },
         bindings: [],
         tags: [],
         archiveHistory: [],

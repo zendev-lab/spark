@@ -5,7 +5,7 @@
  *
  *   Execution:
  *     cue_exec / cue_run / cue_script / script_run / script_eval
- *   Jobs:
+ *   Executions:
  *     cue_jobs
  *   Schedules:
  *     cue_schedule
@@ -43,16 +43,14 @@ export type {
   CueOperationKey,
   CueResolvedTransport,
   CueSessionOptions,
-  CancelReason,
-  JobInfo,
-  JobOutputResult,
-  JobResult,
-  JobStatus,
+  ExecutionSummary,
+  ExecutionTextOutput,
+  ExecutionResult,
   OutputEncoding,
   ResourceNeeds,
-  ScriptItemSummary,
+  SpawnAdapterHandle,
   ScriptResult,
-  StartJobResult,
+  StartExecutionResult,
 } from "./client/cue-client.ts";
 
 export {
@@ -71,6 +69,7 @@ export type {
   SparkCueNotifyLevel,
   SparkCueToolContext,
   SparkCueToolConfig,
+  SparkCueToolRegistration,
 } from "./tools/host-types.ts";
 export {
   __resetSparkCueClientForTests,
@@ -79,7 +78,6 @@ export {
 export {
   registerSparkCueTools,
   renderCueScriptResult,
-  renderCueChainStatus,
   normalizeCueTerminalOutput,
   normalizeCueStderrForDisplay,
   normalizeCueTailBytes,
@@ -89,7 +87,8 @@ export {
   resolveCueWorkingDirectory,
   normalizeCueResourceNeeds,
   resolvePythonRunner,
-  cueShellCommandSyntaxIssue,
+  cueCommandIssue,
+  cueCommandSyntaxIssue,
 } from "./tools/register.ts";
 
 export { default } from "./tools/register.ts";

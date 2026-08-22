@@ -1,0 +1,51 @@
+{
+  "name": "@zendev-lab/spark-llm",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Spark LLM provider owner: model routing, auth/catalog, and bundled LlmAdapter implementations for pi-ai, Baidu OneAPI, OpenAI Codex, and Kimi For Coding.",
+  "license": "MIT",
+  "author": "zrr1999",
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./control": "./src/control/index.ts",
+    "./baidu-oneapi-provider": "./src/baidu-oneapi-provider.ts",
+    "./openai-codex-provider": "./src/openai-codex-provider.ts",
+    "./kimi-coding-provider": "./src/kimi-coding-provider.ts",
+    "./models-extension": "./src/models-extension.ts",
+    "./pi-ai-stream": "./src/pi-ai-stream.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-attachment": "catalog:dsh",
+    "@deepseek-ai/dsh-brand": "catalog:dsh",
+    "@deepseek-ai/dsh-invariants": "catalog:dsh",
+    "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-settings": "catalog:dsh",
+    "@deepseek-ai/dsh-timeout": "catalog:dsh",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@earendil-works/pi-ai": "^0.84.0",
+    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^",
+    "@zendev-lab/spark-retry": "workspace:^",
+    "@zendev-lab/spark-system": "workspace:^",
+    "@zendev-lab/spark-text": "workspace:^",
+    "minimatch": "^10.2.5",
+    "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "jiti": "2.7.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

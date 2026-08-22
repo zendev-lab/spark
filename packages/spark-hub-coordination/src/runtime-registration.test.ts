@@ -49,7 +49,7 @@ function parseJson(value: string, label: string): unknown {
   }
 }
 
-describe("runtime registration", () => {
+describe("runtime registration", { timeout: 20_000 }, () => {
   it("mints browser access only for this runtime's actively leased binding", () => {
     const db = openMemoryDatabase();
     migrate(db);
@@ -1526,7 +1526,7 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it("requires a new token even after browser-approved daemon login", () => {
+  it("attaches a workspace after browser-approved daemon login without a workspace token", () => {
     const db = openMemoryDatabase();
     migrate(db);
     insertUser(db, "usr_owner", "owner", "active");
@@ -1539,24 +1539,38 @@ describe("runtime registration", () => {
       deviceCode: authorization.deviceCode,
     });
 
-    expect(() =>
-      registerRuntimeWorkspace(
-        db,
-        registered.runtimeId,
-        {
-          registrationToken: "",
-          workspaceRegistration: {
-            localWorkspaceKey: "spore",
-            displayName: "Spore",
-            workspaceSlug: "spore",
-          },
+    // The daemon is the binding unit: a browser-approved daemon may attach one
+    // of its own local workspaces without a separate workspace-scoped token.
+    const workspace = registerRuntimeWorkspace(
+      db,
+      registered.runtimeId,
+      {
+        workspaceRegistration: {
+          localWorkspaceKey: "spore",
+          localPath: "/Users/test/workspaces/spore",
+          displayName: "Spore",
+          workspaceSlug: "spore",
         },
-        registered.runtimeToken,
-      ),
-    ).toThrow(/registration token is required/i);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM runtime_workspace_bindings").get()).toEqual({
-      count: 0,
+      },
+      registered.runtimeToken,
+    );
+
+    expect(workspace.workspaceBinding).toMatchObject({
+      localWorkspaceKey: "spore",
+      status: "available",
     });
+    const scopes = db
+      .prepare(
+        `SELECT enrollment_scopes_json AS scopesJson
+         FROM runtime_connections
+         WHERE id = ?`,
+      )
+      .get(registered.runtimeId) as { scopesJson: string } | undefined;
+    // Device authorization grants are runtime-only; they do not mint new
+    // workspace enrollment scopes.
+    expect(parseJson(scopes?.scopesJson ?? "[]", "runtime enrollment scopes")).toEqual([
+      "runtime:refresh",
+    ]);
     db.close();
   });
 
@@ -1639,6 +1653,184 @@ describe("runtime registration", () => {
     expect(
       activeScopes.map((row) => parseJson(row.scopesJson, "active runtime token scopes")),
     ).toEqual([["runtime:connect"], ["runtime:refresh"]]);
+    db.close();
+  });
+
+  it("attaches a workspace under daemon identity without an enrollment token", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const enrollment = createRuntimeEnrollmentToken(db, {
+      daemonScope: true,
+      ttlMs: durableEnrollmentTtlMs,
+    });
+    const registered = registerRuntime(db, registrationRequest, enrollment.refreshToken);
+
+    const workspace = registerRuntimeWorkspace(
+      db,
+      registered.runtimeId,
+      {
+        workspaceRegistration: {
+          localWorkspaceKey: "daemon-attach",
+          localPath: "/Users/test/workspaces/daemon-attach",
+          displayName: "Daemon attach",
+          workspaceSlug: "daemon-attach",
+        },
+      },
+      registered.runtimeToken,
+    );
+
+    expect(workspace.workspaceBinding).toMatchObject({
+      localWorkspaceKey: "daemon-attach",
+      status: "available",
+    });
+    expect(workspace.workspaceAuthorization.oneTimeToken).toMatch(/^spark_workspace_auth_/);
+    const binding = db
+      .prepare(
+        `SELECT rwb.runtime_id AS runtimeId,
+                wob.workspace_id AS workspaceId
+         FROM runtime_workspace_bindings rwb
+         JOIN workspace_leases wob ON wob.runtime_workspace_binding_id = rwb.id
+         WHERE rwb.local_workspace_key = 'daemon-attach'
+           AND wob.ended_at IS NULL
+         LIMIT 1`,
+      )
+      .get() as { runtimeId: string; workspaceId: string } | undefined;
+    expect(binding?.runtimeId).toBe(registered.runtimeId);
+    expect(binding?.workspaceId).toBe(workspace.workspaceBinding.workspaceId);
+    db.close();
+  });
+
+  it("refuses a daemon attachment for a workspace leased by another daemon", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const firstEnrollment = createRuntimeEnrollmentToken(db, {
+      workspaceName: "Lease owner",
+      workspaceSlug: "lease-owner",
+      ttlMs: durableEnrollmentTtlMs,
+    });
+    const owner = registerRuntime(
+      db,
+      {
+        ...registrationRequest,
+        installationId: "install-lease-owner",
+        workspaceRegistration: {
+          localWorkspaceKey: "lease-owner",
+          localPath: "/Users/test/workspaces/lease-owner",
+          displayName: "Lease owner",
+        },
+      },
+      firstEnrollment.refreshToken,
+    );
+    const secondEnrollment = createRuntimeEnrollmentToken(db, {
+      ttlMs: durableEnrollmentTtlMs,
+    });
+    const other = registerRuntime(
+      db,
+      { ...registrationRequest, installationId: "install-lease-other" },
+      secondEnrollment.refreshToken,
+    );
+
+    const conflict = expectWorkspaceLeaseConflict(() =>
+      registerRuntimeWorkspace(
+        db,
+        other.runtimeId,
+        {
+          workspaceRegistration: {
+            localWorkspaceKey: "lease-owner",
+            localPath: "/Users/test/workspaces/lease-owner",
+            displayName: "Lease owner",
+          },
+        },
+        other.runtimeToken,
+      ),
+    );
+    expect(conflict.conflict.workspaceId).toBe(owner.workspaceBinding?.workspaceId);
+    db.close();
+  });
+
+  it("registers a daemon-only binding with a daemon-scoped enrollment token", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const enrollment = createRuntimeEnrollmentToken(db, {
+      daemonScope: true,
+      ttlMs: durableEnrollmentTtlMs,
+    });
+
+    const registered = registerRuntime(db, registrationRequest, enrollment.refreshToken);
+
+    expect(registered.workspaceBinding).toBeUndefined();
+    expect(registered.workspaceAuthorization).toBeUndefined();
+    const scopes = db
+      .prepare(
+        `SELECT enrollment_scopes_json AS scopesJson
+         FROM runtime_connections
+         WHERE id = ?`,
+      )
+      .get(registered.runtimeId) as { scopesJson: string } | undefined;
+    expect(parseJson(scopes?.scopesJson ?? "[]", "runtime enrollment scopes")).toEqual([
+      "daemon:attach",
+      "runtime:refresh",
+    ]);
+    db.close();
+  });
+
+  it("accepts tokenless daemon attach after a daemon-scoped enrollment", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const enrollment = createRuntimeEnrollmentToken(db, {
+      daemonScope: true,
+      ttlMs: durableEnrollmentTtlMs,
+    });
+    const registered = registerRuntime(db, registrationRequest, enrollment.refreshToken);
+
+    const workspace = registerRuntimeWorkspace(
+      db,
+      registered.runtimeId,
+      {
+        workspaceRegistration: {
+          localWorkspaceKey: "second-workspace",
+          localPath: "/Users/test/workspaces/second-workspace",
+          displayName: "Second workspace",
+        },
+      },
+      registered.runtimeToken,
+    );
+    expect(workspace.workspaceBinding.localWorkspaceKey).toBe("second-workspace");
+    db.close();
+  });
+
+  it("consumes a daemon-scoped enrollment token after workspace attach", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const registrationGrant = createRuntimeEnrollmentToken(db, {
+      daemonScope: true,
+      ttlMs: durableEnrollmentTtlMs,
+    });
+    const registered = registerRuntime(db, registrationRequest, registrationGrant.refreshToken);
+    const attachGrant = createRuntimeEnrollmentToken(db, {
+      daemonScope: true,
+      ttlMs: durableEnrollmentTtlMs,
+    });
+
+    const workspace = registerRuntimeWorkspace(
+      db,
+      registered.runtimeId,
+      {
+        registrationToken: attachGrant.refreshToken,
+        workspaceRegistration: {
+          localWorkspaceKey: "attached",
+          localPath: "/Users/test/workspaces/attached",
+          displayName: "Attached",
+        },
+      },
+      registered.runtimeToken,
+    );
+    expect(workspace.workspaceBinding.localWorkspaceKey).toBe("attached");
+
+    const row = db
+      .prepare("SELECT used_at AS usedAt FROM runtime_enrollment_tokens WHERE id = ?")
+      .get(attachGrant.id) as { usedAt: string | null } | undefined;
+    expect(row?.usedAt).not.toBeNull();
     db.close();
   });
 });

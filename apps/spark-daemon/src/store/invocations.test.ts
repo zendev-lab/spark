@@ -408,6 +408,90 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("serializes different Sessions by their durable key in FIFO order", () => {
+    const { db, store } = createStore();
+    try {
+      const driverTick = store.submit({
+        sessionId: "driver-tick-session",
+        serializationKey: "parent-session",
+        prompt: "scheduled tick",
+        now: "2026-08-19T00:00:00.000Z",
+      });
+      const manualTurn = store.submit({
+        sessionId: "parent-session",
+        serializationKey: "parent-session",
+        prompt: "manual turn",
+        now: "2026-08-19T00:00:00.000Z",
+      });
+      const independent = store.submit({
+        sessionId: "independent-session",
+        prompt: "independent turn",
+        now: "2026-08-19T00:00:00.000Z",
+      });
+
+      expect(store.blockingSessionId(driverTick)).toBeUndefined();
+      expect(store.blockingSessionId(manualTurn)).toBe("driver-tick-session");
+      expect(store.claimNext("worker-driver")?.invocationId).toBe(driverTick.invocationId);
+      expect(store.blockingSessionId(store.require(manualTurn.invocationId))).toBe(
+        "driver-tick-session",
+      );
+      expect(store.claimNext("worker-independent")?.invocationId).toBe(independent.invocationId);
+      expect(store.claimNext("worker-blocked")).toBeUndefined();
+
+      expect(store.requestCancellation(manualTurn.invocationId, "cancel only queued turn")).toBe(
+        "cancelled",
+      );
+      expect(store.require(driverTick.invocationId).status).toBe("running");
+      store.complete(driverTick.invocationId, { status: "succeeded" });
+      store.complete(independent.invocationId, { status: "succeeded" });
+
+      const laterManualTurn = store.submit({
+        sessionId: "parent-session",
+        serializationKey: "parent-session",
+        prompt: "later manual turn",
+      });
+      expect(store.claimNext("worker-later")?.invocationId).toBe(laterManualTurn.invocationId);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("preserves serialization FIFO across store restart", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-invocation-serialization-"));
+    const databasePath = join(root, "daemon.sqlite");
+    const firstDb = new DatabaseSync(databasePath);
+    migrateSparkDaemonDatabase(firstDb);
+    const firstStore = new SparkInvocationStore(firstDb);
+    const first = firstStore.submit({
+      sessionId: "parent-session",
+      serializationKey: "parent-session",
+      prompt: "manual first",
+      now: "2026-08-19T00:00:00.000Z",
+    });
+    const second = firstStore.submit({
+      sessionId: "driver-tick-session",
+      serializationKey: "parent-session",
+      prompt: "tick second",
+      now: "2026-08-19T00:00:00.000Z",
+    });
+    firstDb.close();
+
+    const reopenedDb = new DatabaseSync(databasePath);
+    try {
+      migrateSparkDaemonDatabase(reopenedDb);
+      const reopenedStore = new SparkInvocationStore(reopenedDb);
+      expect(reopenedStore.claimNext("worker-after-restart")?.invocationId).toBe(
+        first.invocationId,
+      );
+      expect(reopenedStore.claimNext("worker-still-blocked")).toBeUndefined();
+      reopenedStore.complete(first.invocationId, { status: "succeeded" });
+      expect(reopenedStore.claimNext("worker-second")?.invocationId).toBe(second.invocationId);
+    } finally {
+      reopenedDb.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("persists a durable commit fence against cancellation", () => {
     const { db, store } = createStore();
     try {
@@ -1963,17 +2047,17 @@ describe("SparkInvocationStore", () => {
     try {
       const invocation = store.submit({ sessionId: "session-large-event", prompt: "large event" });
       const event = store.appendEvent(invocation.invocationId, "daemon.view_event", {
-        version: 2,
+        version: 4,
         type: "daemon.view_event",
         source: "daemon",
         sessionId: "session-large-event",
         invocationId: invocation.invocationId,
         view: {
-          version: 2,
+          version: 4,
           type: "session.message",
           sessionId: "session-large-event",
           message: {
-            version: 2,
+            version: 4,
             id: "large-message",
             role: "assistant",
             text: "x".repeat(512 * 1024),

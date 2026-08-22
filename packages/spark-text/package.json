@@ -1,8 +1,8 @@
 {
   "name": "@zendev-lab/spark-text",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Spark-owned text layout helpers decoupled from spark-tui presentation.",
+  "description": "Spark-owned text layout helpers decoupled from presentation hosts.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -14,7 +14,15 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.84.0"
+    "get-east-asian-width": "1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

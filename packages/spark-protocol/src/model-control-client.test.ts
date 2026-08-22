@@ -4,6 +4,7 @@ import {
   parseSparkModelValue,
   sparkModelValue,
 } from "./model-control-client.ts";
+import { sparkUserInitiatedEnabledModelsIntent } from "./model-control.ts";
 
 describe("spark model control client", () => {
   it("routes catalog and session setters through one method table", async () => {
@@ -20,9 +21,12 @@ describe("spark model control client", () => {
             lifetime: "scoped",
             activity: "idle",
             roleBinding: { kind: "none" },
-            owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+            lineage: {
+              kind: "child",
+              parentSessionId: "sess_admin_ws_demo",
+              origin: { kind: "session" },
+            },
             incarnation: 1,
-            stateBinding: { kind: "session", ref: "sess_admin_ws_demo" },
             visibility: "public",
             retention: "retain",
             purpose: "interactive",
@@ -56,7 +60,10 @@ describe("spark model control client", () => {
 
     const snapshot = await client.snapshot();
     const session = await client.setSessionModel({ providerName: "openai", modelId: "gpt" });
-    const enabled = await client.setEnabledModels([{ providerName: "openai", modelId: "gpt" }]);
+    const enabled = await client.setEnabledModels(
+      [{ providerName: "openai", modelId: "gpt" }],
+      sparkUserInitiatedEnabledModelsIntent("cli"),
+    );
     const imported = await client.importPiAuth({
       sourcePath: "/tmp/pi/auth.json",
       overwrite: true,
@@ -74,7 +81,10 @@ describe("spark model control client", () => {
       },
       {
         method: "model.enabled.set",
-        params: { models: [{ providerName: "openai", modelId: "gpt" }] },
+        params: {
+          models: [{ providerName: "openai", modelId: "gpt" }],
+          intent: sparkUserInitiatedEnabledModelsIntent("cli"),
+        },
       },
       {
         method: "provider.auth.import.pi",
@@ -87,6 +97,10 @@ describe("spark model control client", () => {
     expect(parseSparkModelValue("openai/gpt-5")).toEqual({
       providerName: "openai",
       modelId: "gpt-5",
+    });
+    expect(parseSparkModelValue("provider/vendor/model")).toEqual({
+      providerName: "provider",
+      modelId: "vendor/model",
     });
     expect(sparkModelValue({ providerName: "openai", modelId: "gpt-5" })).toBe("openai/gpt-5");
   });

@@ -1,14 +1,17 @@
-import type { SparkSessionOwner } from "@zendev-lab/spark-protocol/session-assignment";
+import type { SparkSessionLineageOrigin } from "@zendev-lab/spark-protocol/session-assignment";
 import type { TaskRun } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 
 interface TaskOwnerGraph {
-  getTask(ref: string): { status: Parameters<typeof isUnfinishedTaskStatus>[0] };
+  getTask(ref: string): {
+    status: Parameters<typeof isUnfinishedTaskStatus>[0];
+    executionPolicy?: { sessionRetention?: "task_terminal" | "owner_terminal" };
+  };
   runs(projectRef?: string): TaskRun[];
 }
 
 export interface TaskSessionOwnerSubject {
-  owner: SparkSessionOwner;
+  origin: SparkSessionLineageOrigin;
   workspaceId: string;
   sessionId: string;
 }
@@ -23,29 +26,31 @@ export async function isTaskSessionOwnerValid(
   subject: TaskSessionOwnerSubject,
   options: TaskSessionOwnerValidationOptions,
 ): Promise<boolean> {
-  if (subject.owner.kind !== "task_run" && subject.owner.kind !== "task_revision") return false;
-  const owner = subject.owner;
+  if (subject.origin.kind !== "task_run" && subject.origin.kind !== "task_revision") return false;
+  const origin = subject.origin;
   const cwd = options.resolveWorkspaceCwd(subject.workspaceId)?.trim();
   if (!cwd) return false;
   const graph = await (options.loadGraph ?? loadTaskGraph)(cwd);
   if (!graph) return false;
   const run = graph
-    .runs(owner.projectRef)
+    .runs(origin.projectRef)
     .find((candidate) =>
-      owner.kind === "task_run"
-        ? candidate.ref === owner.runRef
-        : candidate.ref === owner.originatingRunRef && candidate.execution?.jobId === owner.jobId,
+      origin.kind === "task_run"
+        ? candidate.ref === origin.runRef
+        : candidate.ref === origin.originatingRunRef && candidate.execution?.jobId === origin.jobId,
     );
-  if (!run || run.taskRef !== owner.taskRef) return false;
+  if (!run || run.taskRef !== origin.taskRef) return false;
   const executionSessionId = run.execution?.sessionId ?? run.execution?.executionSessionId;
   if (executionSessionId !== subject.sessionId) return false;
-  if (owner.kind === "task_run") {
+  if (origin.kind === "task_run") {
     return run.status === "queued" || run.status === "running";
   }
   try {
+    const task = graph.getTask(run.taskRef);
     return (
       run.execution?.sessionLifetime === "task_revision" &&
-      isUnfinishedTaskStatus(graph.getTask(run.taskRef).status)
+      (task.executionPolicy?.sessionRetention === "owner_terminal" ||
+        isUnfinishedTaskStatus(task.status))
     );
   } catch {
     return false;

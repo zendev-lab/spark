@@ -6,11 +6,11 @@ import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import type { DatabaseSync } from "node:sqlite";
 
-import { createSparkProviderControl } from "@zendev-lab/spark-ai/control";
+import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
 import {
   createSparkDaemonOrpcClient,
   type SparkDaemonOrpcClientHandle,
-} from "@zendev-lab/spark-daemon-client/orpc";
+} from "@zendev-lab/spark-daemon-client";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,
@@ -103,8 +103,6 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
       resolveSparkUserPaths({ sparkHome }).configFile,
       `${JSON.stringify(
         {
-          extensionProfileVersion: 2,
-          extensions: [],
           providers: [CAPACITY_PROVIDER_URL],
           enabledModels: [`${CAPACITY_PROVIDER_ID}/*`],
           activeModelId: CAPACITY_MODEL_REF,
@@ -742,7 +740,7 @@ function gitOutput(args: string[]): string {
 }
 
 const report: DaemonOrpcCapacityReport = {
-  version: 3,
+  version: 4,
   environment: {
     platform: process.platform,
     arch: process.arch,

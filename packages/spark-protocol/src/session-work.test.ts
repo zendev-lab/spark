@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import { parseSparkSessionView } from "./index.ts";
 
 const baseSnapshot = {
@@ -13,172 +12,88 @@ const baseSnapshot = {
   evidence: [],
 };
 
+const lanes = {
+  implementation: {
+    sessionId: "session:implementation",
+    taskRef: "task:implementation",
+    roleRef: "role:spark-repro-implementation",
+  },
+  exactness: {
+    sessionId: "session:exactness",
+    taskRef: "task:exactness",
+    roleRef: "role:spark-repro-exactness",
+  },
+  formalize: {
+    sessionId: "session:formalize",
+    taskRef: "task:formalize",
+    roleRef: "role:spark-repro-formalize",
+  },
+} as const;
+
 describe("SparkSessionView work projection", () => {
-  it("keeps snapshots from older daemons compatible", () => {
+  it("keeps snapshots without work compatible", () => {
     expect(parseSparkSessionView(baseSnapshot).work).toBeUndefined();
   });
 
-  it("parses display-safe Goal and Repro work", () => {
+  it("parses the bounded Repro v10 checkpoint projection", () => {
     const parsed = parseSparkSessionView({
       ...baseSnapshot,
       work: {
-        primary: { kind: "repro", loopId: "driver-repro" },
         goal: {
           goalId: "goal-1",
           objective: "Reproduce target logits",
           status: "waiting_decision",
-          readiness: {
-            readyTaskRefs: ["task:independent"],
-            readyTaskCount: 1,
-            blockedTaskRefs: ["task:needs-answer"],
-            blockedTaskCount: 1,
-            pendingRequestCount: 1,
-          },
-          updatedAt: "2026-07-28T00:00:00.000Z",
+          updatedAt: "2026-08-19T00:00:00.000Z",
         },
         repro: {
+          version: 10,
           reproId: "repro-1",
           status: "active",
-          contractStatus: "frozen",
           objective: "Reproduce target logits",
-          successCriteria: ["20-step bitwise parity"],
-          evidenceRequired: ["Bound run output"],
-          stage: {
-            name: "target",
-            title: "Reproduce",
-            index: 2,
-            total: 5,
-            phase: "implement",
+          workItemId: "work:repro-1",
+          lanes,
+          checkpoint: {
+            checkpointId: "checkpoint:exactness",
+            kind: "exactness",
+            lane: "exactness",
+            status: "running",
+            sessionId: "session:exactness",
+            taskRef: "task:exactness",
+            runRef: "run:exactness-1",
+            attempt: 1,
+            evidenceRefs: [],
           },
-          plan: {
-            revision: 2,
-            completedSteps: 5,
-            totalSteps: 11,
-            currentStep: {
-              id: "bitwise-pass-20",
-              stage: "target",
-              goal: "Reach 20-step parity",
-              status: "blocked",
-              authority: "safe_local",
-              doneWhen: ["20 steps pass"],
-              evidenceRequired: ["Alignment result"],
-              blocker: "GPU unavailable",
-            },
-          },
-          stopGuard: { decision: "ask", stagnationCount: 3, limit: 3 },
-          latestVerification: {
-            stepId: "baseline-probe-passed",
-            proofKind: "evidence",
-            verifiedDoneWhen: ["Baseline executes"],
-            evidenceRefs: ["evidence:baseline"],
-          },
-          lanes: {
-            implementation: lane({
-              status: "active",
-              items: [
-                {
-                  workItemId: "work:rmsnorm",
-                  title: "Reach RMSNorm",
-                  status: "open",
-                  taskRef: "task:implementation",
-                  runRef: "run:probe",
-                  gitChangeRef: "artifact:candidate",
-                  evidenceRefs: ["evidence:probe"],
-                  handoffCount: 1,
-                  resolutionCount: 0,
-                },
-              ],
-              pendingHandoffCount: 1,
-            }),
-            exactness: lane({ status: "blocked", totalCount: 1, blockedCount: 1 }),
-            formalize: lane({ status: "complete", totalCount: 1, completedCount: 1 }),
-            formalizedTip: "commit:canonical",
-          },
-          updatedAt: "2026-07-28T00:00:00.000Z",
+          progress: { accepted: 1, total: 5 },
+          updatedAt: "2026-08-19T00:00:00.000Z",
         },
       },
     });
-
-    expect(parsed.work?.repro?.plan.currentStep).toMatchObject({
-      id: "bitwise-pass-20",
-      status: "blocked",
+    expect(parsed.work?.repro).toMatchObject({
+      version: 10,
+      checkpoint: { kind: "exactness", runRef: "run:exactness-1" },
+      progress: { accepted: 1, total: 5 },
     });
-    expect(parsed.work?.repro?.latestVerification?.evidenceRefs).toEqual(["evidence:baseline"]);
-    expect(parsed.work?.goal).toMatchObject({
-      status: "waiting_decision",
-      readiness: { readyTaskRefs: ["task:independent"], pendingRequestCount: 1 },
-    });
-    expect(parsed.work?.repro?.lanes?.implementation.items[0]).toMatchObject({
-      workItemId: "work:rmsnorm",
-      taskRef: "task:implementation",
-    });
-    expect(parsed.work?.repro?.lanes?.formalizedTip).toBe("commit:canonical");
   });
 
-  it("rejects unbounded lane details and view-model v1", () => {
-    const item = {
-      workItemId: "work:item",
-      title: "Bounded item",
-      status: "open" as const,
-      evidenceRefs: [],
-      handoffCount: 0,
-      resolutionCount: 0,
-    };
+  it("rejects unknown legacy fields and view-model v1", () => {
     expect(() =>
       parseSparkSessionView({
         ...baseSnapshot,
-        version: 2,
         work: {
           repro: {
+            version: 10,
             reproId: "repro-1",
             status: "active",
-            contractStatus: "frozen",
             objective: "Bound the projection",
-            successCriteria: [],
-            evidenceRequired: [],
-            stage: {
-              name: "alignment",
-              title: "Align",
-              index: 3,
-              total: 5,
-              phase: "implement",
-            },
-            plan: { revision: 1, completedSteps: 0, totalSteps: 1 },
-            stopGuard: { decision: "continue", stagnationCount: 0, limit: 3 },
-            lanes: {
-              implementation: lane({ status: "active", items: Array(7).fill(item) }),
-              exactness: lane({ status: "empty" }),
-              formalize: lane({ status: "empty" }),
-            },
-            updatedAt: "2026-07-28T00:00:00.000Z",
+            workItemId: "work:repro-1",
+            lanes,
+            progress: { accepted: 0, total: 5 },
+            stage: { name: "alignment" },
+            updatedAt: "2026-08-19T00:00:00.000Z",
           },
         },
       }),
-    ).toThrow();
+    ).toThrow(/Unrecognized key/u);
     expect(() => parseSparkSessionView({ ...baseSnapshot, version: 1 })).toThrow();
   });
 });
-
-function lane(input: {
-  status: "empty" | "active" | "blocked" | "complete";
-  totalCount?: number;
-  items?: unknown[];
-  openCount?: number;
-  blockedCount?: number;
-  completedCount?: number;
-  supersededCount?: number;
-  pendingHandoffCount?: number;
-  resolutionCount?: number;
-}) {
-  return {
-    status: input.status,
-    totalCount: input.totalCount ?? input.items?.length ?? 0,
-    openCount: input.openCount ?? input.items?.length ?? 0,
-    blockedCount: input.blockedCount ?? 0,
-    completedCount: input.completedCount ?? 0,
-    supersededCount: input.supersededCount ?? 0,
-    pendingHandoffCount: input.pendingHandoffCount ?? 0,
-    resolutionCount: input.resolutionCount ?? 0,
-    items: input.items ?? [],
-  };
-}

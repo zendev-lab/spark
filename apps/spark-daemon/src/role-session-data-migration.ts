@@ -9,6 +9,9 @@ import {
   writeTextFileAtomic,
 } from "@zendev-lab/spark-core";
 
+import { errorMessage } from "./text.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
+
 const LEGACY_ROLE_REFS = new Map([
   ["role:builtin-scout", "role:builtin-explorer"],
   ["role:builtin-researcher", "role:builtin-explorer"],
@@ -91,6 +94,12 @@ export async function migrateRoleSessionStructuredData(input: {
   onWarning?: (message: string) => void;
 }): Promise<RoleSessionDataMigrationResult> {
   const migratedAt = (input.now ?? nowIso)();
+  const migrationRoot = join(input.sparkHome, "migrations", "role-session-v6");
+  const latestPath = join(migrationRoot, "latest.json");
+  if ((await readLatestJournal(latestPath))?.status === "complete") {
+    return { changed: false, files: 0, evidenceRefs: [] };
+  }
+
   const mutations = new Map<string, FileMutation>();
   await collectJsonFileMutation(input.userRoleModelSettingsFile, "json", mutations);
 
@@ -112,9 +121,10 @@ export async function migrateRoleSessionStructuredData(input: {
   const ordered = [...mutations.values()].sort((left, right) =>
     left.targetPath.localeCompare(right.targetPath),
   );
-  if (ordered.length === 0) return { changed: false, files: 0, evidenceRefs: [] };
-
-  const migrationRoot = join(input.sparkHome, "migrations", "role-session-v6");
+  if (ordered.length === 0) {
+    await writeCompleteSentinel(migrationRoot, migratedAt);
+    return { changed: false, files: 0, evidenceRefs: [] };
+  }
   const runId = `${migratedAt.replace(/[^0-9A-Za-z]/gu, "-")}-${randomUUID()}`;
   const backupDir = join(migrationRoot, runId);
   const stagedDir = join(backupDir, "staged");
@@ -196,6 +206,42 @@ export async function migrateRoleSessionStructuredData(input: {
     files: entries.length,
     evidenceRefs: [...new Set(entries.flatMap((entry) => entry.evidenceRef ?? []))].sort(),
   };
+}
+
+async function readLatestJournal(path: string): Promise<MigrationJournal | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const status = (value as { status?: unknown }).status;
+    if (
+      status !== "staged" &&
+      status !== "switching" &&
+      status !== "complete" &&
+      status !== "rolled_back" &&
+      status !== "recovery_required"
+    ) {
+      return undefined;
+    }
+    return value as MigrationJournal;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function writeCompleteSentinel(migrationRoot: string, migratedAt: string): Promise<void> {
+  await mkdir(migrationRoot, { recursive: true });
+  const journal: MigrationJournal = {
+    version: 1,
+    migration: "role-session-v6",
+    status: "complete",
+    startedAt: migratedAt,
+    migratedAt,
+    backupDir: migrationRoot,
+    restoreCommand: "",
+    entries: [],
+  };
+  await writeJsonFileAtomic(join(migrationRoot, "latest.json"), journal);
 }
 
 async function collectJsonTreeMutations(
@@ -584,10 +630,6 @@ function deepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function safeFileName(value: string): string {
   return value.replace(/[^0-9A-Za-z._-]/gu, "_");
 }
@@ -598,8 +640,4 @@ function shellQuote(value: string): string {
 
 function errorCode(error: unknown): string | undefined {
   return isRecord(error) && typeof error.code === "string" ? error.code : undefined;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

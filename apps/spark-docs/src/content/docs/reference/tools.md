@@ -23,7 +23,7 @@ they share one owner, state, permission, rendering, and result contract.
 | Files and execution | Read, search, edit, and approved local execution | Host adapters operating in the selected workspace |
 | Work coordination | Tasks, Session `plan`/`execute`/`fleet` modes, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
 | Result ownership | User-facing outcomes and internal Evidence | Artifact and Evidence stores remain separate |
-| Agent composition | Role definitions, ephemeral Role calls, owner-derived scoped Sessions, and Skill Agents | Session/Role registry and Skill loader |
+| Agent composition | Static Role definitions, explicit Role-bound Sessions, and Skill Agents | Session/Role registry and Skill loader |
 | External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |
 
 `ask` validates the host interaction capability before async delivery or
@@ -36,7 +36,10 @@ timeouts are host policy and cannot be selected per tool call.
 
 User-facing Artifact kinds are exactly `issue | git_change | document`.
 A `git_change` owns one worktree and one native PR stack; a preview is a
-Document view, not another Artifact kind.
+Document view, not another Artifact kind. `git` submit waits for required
+GitHub PR checks on each non-terminal pull request, then records pass, fail,
+or conflict on that Artifact. Pull requests with no required checks are
+recorded as inconclusive rather than blocking the submit result.
 
 Evidence records internal claims and verification. Artifact and Evidence refs
 use separate namespaces, stores, permissions, and lifecycle rules. A tool must
@@ -59,12 +62,17 @@ a failed replacement does not write Task graph state.
 
 ## Roles, Sessions, and Skill Agents
 
+The daemon's shared and isolated-headless DSH roots mount the canonical `cue`
+Skill directly from the exact `@zendev-lab/cue` dependency through an isolated
+filesystem provider. DSH publishes it through the native Skill catalog and
+`skill` tool; the Cue repository and package remain its only source authority.
+
 - A Role defines a typed capability and responsibility overlay, including its
   semantic Model Type. It can declare up to eight ordered Skills; Spark resolves
   and preloads their complete instruction bodies before creating the child
   Session. It does not choose Session lifetime.
-- A Session is the runtime instance that owns continuity, bindings, calls, and
-  mail. Its single Owner derives `persistent | scoped | ephemeral` lifetime.
+- A Session is the runtime instance that owns continuity, bindings, and mail.
+  Its single Owner derives `persistent | scoped | ephemeral` lifetime.
 - `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })`
   resolves one to eight exact Skills and runs one fresh owned child Session with
   every selected Skill body loaded once. It receives the explicit packet, not
@@ -86,6 +94,27 @@ Evidence.
 
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.
+
+Role execution has three explicit stages: create or select a static Role,
+create a Role-bound child with `session({ action: "spawn", roleRef })` or
+`session({ action: "fork", roleRef })`, then trigger work with
+`session({ action: "send", kind: "request", toSessionId, message })`. `spawn`
+starts empty; `fork` copies the current Session's stable transcript prefix into
+an independent JSONL. Neither creation action sends mail or creates an
+Invocation.
+
+`session({ action: "send" })` is one-way. `kind=notification` persists without
+running the target; `kind=request` persists and admits one invocation. An active
+target requires explicit `onActive=queue` or `onActive=interrupt`. Optional
+`wake=true` (request only; default `false`) later wakes the sender with a
+completion summary. Poll a durable invocation with
+`session({ action: "wait", invocationId })`. Inspect a peer with
+`session({ action: "lookup", sessionId })`; lookup does not wait and is not a
+Hub snapshot.
+
+`ask({ toSessionId })` addresses structured questions to another Session.
+That Session answers with `ask({ action: "answer" })`. Session-addressed asks
+do not appear in Hub Inbox; User asks remain the Inbox / TUI / channel path.
 
 Workflow child calls accept either a `role` selector or an exact `roleRef`, not
 both. Before approval, Spark resolves a selector to one exact Role ref and
@@ -123,9 +152,29 @@ Unknown or conflicting policy fails closed.
 - Pure reads that explicitly allow parallel execution may run concurrently.
 - Writes, policy changes, mixed batches, and external side effects remain
   serialized unless their owning contract proves a safe alternative.
-- A required approval is part of execution authority, not presentation text.
+- `none` operations need no human approval.
+- `manual_only` operations are bounded, low-risk, and reversible. Manual
+  continuation asks for approval. An active Goal, Loop, or Repro driver may
+  execute them within its confirmed objective and targets without asking
+  again only after the Session has granted driver authority. Interactive
+  starts ask once; CLI and API starts grant silently. Creating, updating, and
+  synchronizing a Draft PR are examples.
+- `required` operations always need human approval. These include destructive,
+  irreversible, security-sensitive, costly, high-impact, or materially
+  scope-expanding actions, plus release, deployment, merge, and promotion of a
+  Draft PR to Ready.
+- A WorkflowRun is not a continuation driver. It inherits the approval context
+  of the driver that started it only while that authority remains active; it
+  cannot retain driver authority by itself.
+- Approval is execution authority, not presentation text. Unknown or
+  conflicting policy fails closed.
 - Compatibility and Channel profiles may expose a smaller set than the native
   TUI or Hub Session.
+
+A daemon Channel Session exposes exactly `session`, `ask`, `context`, and
+`todo`. Its `session` tool can list or send only within the same daemon scope.
+It cannot reach Workspace Sessions, GitChange, Workspace or repository Memory,
+shell, files, Git, Task, Role fan-out, assignment, or Workflow execution.
 
 Private implementation helpers are not public tools. For the commands available
 in your installed version, see [command discovery](/reference/cli/).

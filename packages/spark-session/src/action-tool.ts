@@ -2,21 +2,21 @@ import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { sessionMailStatus } from "./mail-store.ts";
 import {
+  parseSparkSessionPeerProjection,
   parseSparkSessionProjection,
   parseSparkSessionProjections,
   sparkSessionInboxResultSchema,
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
   type SparkChannelAdapter,
-  type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionMailKind,
   type SparkSessionMailMessage,
-  sparkTurnSubmitResultSchema,
+  type SparkSessionPeerProjection,
   sparkTurnResultSchema,
   sparkTurnStatusResultSchema,
+  isSparkInvocationTerminalStatus,
   type SparkSessionProjection,
-  type SparkTurnSubmitResult,
   type SparkTurnResult,
   type SparkTurnStatusResult,
 } from "@zendev-lab/spark-protocol";
@@ -31,6 +31,8 @@ const CHANNEL_ALLOWED_ACTIONS: ReadonlySet<SparkSessionAction> = new Set([
   "list",
   "get",
   "send",
+  "lookup",
+  "wait",
   "inbox",
   "read",
   "ack",
@@ -51,14 +53,16 @@ export type SparkSessionToolProjection = SparkSessionProjection & {
 export type SparkSessionAction =
   | "list"
   | "get"
-  | "create"
-  | "call"
+  | "spawn"
+  | "fork"
   | "bind"
   | "unbind"
   | "archive"
   | "restore"
   | "close"
   | "send"
+  | "lookup"
+  | "wait"
   | "inbox"
   | "read"
   | "ack";
@@ -71,7 +75,6 @@ export interface SparkSessionToolContext {
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   channelBinding?: {
-    workspaceId?: string;
     adapter: SparkChannelAdapter;
     externalKey: string;
     recipient?: string;
@@ -106,11 +109,11 @@ export async function executeSparkSessionAction(
   const { action, params, signal, ctx } = input;
   const request = deps.request ?? defaultDaemonRequest;
   assertChannelActionAllowed(action, ctx);
-  const channelWorkspaceId = await currentChannelWorkspaceId(ctx, request, signal);
+  const channelDaemonId = await currentChannelDaemonId(ctx, request, signal);
 
   switch (action) {
     case "list": {
-      const requestParams = await listRequest(params, ctx, request, signal, channelWorkspaceId);
+      const requestParams = await listRequest(params, ctx, request, signal, channelDaemonId);
       const records = parseSparkSessionProjections(
         await request("session.list", requestParams, { signal }),
       );
@@ -120,6 +123,8 @@ export async function executeSparkSessionAction(
       const adapter = normalizeChannelAdapter(params.adapter);
       const requestedWorkspaceId =
         requestParams.scope?.kind === "workspace" ? requestParams.scope.workspaceId : undefined;
+      const requestedDaemonId =
+        requestParams.scope?.kind === "daemon" ? channelDaemonId : undefined;
       const sessions = records
         .map(projectSession)
         .filter(
@@ -127,6 +132,11 @@ export async function executeSparkSessionAction(
             !requestedWorkspaceId ||
             (session.scope.kind === "workspace" &&
               session.scope.workspaceId === requestedWorkspaceId),
+        )
+        .filter(
+          (session) =>
+            !requestedDaemonId ||
+            (session.scope.kind === "daemon" && session.scope.daemonId === requestedDaemonId),
         )
         .filter((session) => !surface || session.surface === surface)
         .filter((session) => !requestedActivity || session.activity === requestedActivity)
@@ -149,24 +159,46 @@ export async function executeSparkSessionAction(
     case "get": {
       const sessionId = await targetSessionId(params.sessionId, ctx, "get");
       const record = await requestSession(request, sessionId, signal);
-      if (channelWorkspaceId) {
-        assertChannelWorkspaceTarget(record, channelWorkspaceId, "get");
+      if (channelDaemonId) {
+        assertChannelDaemonTarget(record, channelDaemonId, "get");
       }
       const session = projectSession(record);
       return sessionResult(renderSession(session), { action, session });
     }
-    case "create": {
-      const createRequest = await sessionCreateRequest(params, ctx, request, signal);
+    case "spawn":
+    case "fork": {
+      const supervisorSessionId = await requireCurrentSessionId(ctx, action);
+      const roleRef = requiredString(params.roleRef, `session ${action} requires roleRef`);
+      if (!roleRef.startsWith("role:")) {
+        throw new Error(`session ${action} roleRef must start with role:`);
+      }
+      const name = optionalString(params.name, "name");
+      const cwd = optionalString(params.cwd, "cwd");
+      const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
       const session = projectSession(
-        parseSparkSessionProjection(await request("session.create", createRequest, { signal })),
+        parseSparkSessionProjection(
+          await request(
+            `session.${action}`,
+            {
+              supervisorSessionId,
+              roleRef,
+              ...(name ? { name } : {}),
+              ...(cwd ? { cwd } : {}),
+              ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+            },
+            { signal },
+          ),
+        ),
       );
-      return sessionResult(`Created scoped Spark session.\n${renderSession(session)}`, {
-        action,
-        session,
-      });
+      return sessionResult(
+        `${action === "spawn" ? "Spawned empty" : "Forked stable context into"} Spark Session; no Invocation was created.\n${renderSession(session)}`,
+        {
+          action,
+          session,
+          executionTriggered: false,
+        },
+      );
     }
-    case "call":
-      return await executeSessionCall({ params, signal, ctx }, deps);
     case "bind":
     case "unbind": {
       const sessionId = requiredString(params.sessionId, `session ${action} requires sessionId`);
@@ -232,31 +264,12 @@ export async function executeSparkSessionAction(
       });
     }
     case "send": {
+      rejectRetiredSendWaitFields(params);
       const kind = normalizeMailKind(params.kind);
-      const wait = normalizeSendWait(params.wait);
-      const continuationInvocationId = optionalString(params.invocationId, "invocationId");
-      if (continuationInvocationId) {
-        if (kind !== "request" || wait !== "completed") {
-          throw new Error("session continuation requires kind=request and wait=completed");
-        }
-        const timeoutMs = normalizeRequestTimeoutMs(params.timeoutMs);
-        const completion = await waitForRequestResult({
-          request,
-          invocationId: continuationInvocationId,
-          timeoutMs,
-          signal,
-          sleep: deps.sleep,
-          now: deps.now,
-        });
-        return completedRequestResult({
-          action,
-          sent: undefined,
-          targetSession: undefined,
-          submitted: undefined,
-          invocationId: continuationInvocationId,
-          timeoutMs,
-          completion,
-        });
+      const onActive = normalizeSendOnActive(params.onActive);
+      const wake = optionalBooleanValue(params.wake, "wake") ?? false;
+      if (kind === "notification" && wake) {
+        throw new Error("session notification cannot set wake");
       }
       const current = await requireCurrentSessionId(ctx, action);
       const toSessionId = requiredString(
@@ -264,19 +277,6 @@ export async function executeSparkSessionAction(
         "session send requires toSessionId",
       );
       if (toSessionId === current) throw new Error("session send must target a different session");
-      if (kind === "notification" && wait === "completed") {
-        throw new Error("session notification cannot wait for completion");
-      }
-      if (kind === "notification" && params.timeoutMs !== undefined) {
-        throw new Error("session notification does not accept timeoutMs");
-      }
-      const timeoutMs =
-        kind === "request" && wait === "completed"
-          ? normalizeRequestTimeoutMs(params.timeoutMs)
-          : undefined;
-      if (kind === "request" && wait === "accepted" && params.timeoutMs !== undefined) {
-        throw new Error("session request timeoutMs requires wait=completed");
-      }
       const intent =
         optionalString(params.intent, "intent") ??
         (kind === "request" ? "work.request" : "session.notification");
@@ -294,8 +294,8 @@ export async function executeSparkSessionAction(
           ? { ...rawPayload, body: message }
           : rawPayload;
       const targetSession = await requestSession(request, toSessionId, signal);
-      if (channelWorkspaceId) {
-        assertChannelWorkspaceTarget(targetSession, channelWorkspaceId, action);
+      if (channelDaemonId) {
+        assertChannelDaemonTarget(targetSession, channelDaemonId, action);
       }
       if (
         kind === "request" &&
@@ -303,7 +303,11 @@ export async function executeSparkSessionAction(
       ) {
         throw new Error(`cannot request archived Session: ${toSessionId}`);
       }
-      if (kind === "request" && projectSession(targetSession).surface !== "local") {
+      if (
+        kind === "request" &&
+        channelDaemonId === undefined &&
+        projectSession(targetSession).surface !== "local"
+      ) {
         throw new Error("session request targets must be local sessions");
       }
       const correlationId = optionalString(params.correlationId, "correlationId");
@@ -326,8 +330,9 @@ export async function executeSparkSessionAction(
               surface: ctx.sessionSurface ?? "local",
               host: ctx.sessionSource ?? (ctx.sessionSurface === "channel" ? "channel" : "session"),
             },
-            notifyOnCompletion: kind === "request" && wait === "accepted",
+            ...(kind === "request" ? { wake } : {}),
             source: "tool",
+            ...(onActive ? { onActive } : {}),
             ...(correlationId ? { correlationId } : {}),
             ...(subject ? { subject } : {}),
             ...(kind === "request" && ctx.sessionSurface === "channel"
@@ -353,36 +358,30 @@ export async function executeSparkSessionAction(
             created: sent.created,
             executionTriggered: false,
             blocking: false,
-            wait,
+            wake: false,
             target: projectSession(targetSession),
           },
         );
       }
       const submitted = admitted.submitted;
       if (!submitted) {
-        throw new Error(
-          `Spark daemon stored ${sent.message.id} but returned no invocation admission receipt`,
+        // The caller explicitly selected the durable queue for an active
+        // target. It will be drained after the current turn completes; there
+        // is no invocation receipt to wait on.
+        return sessionResult(
+          `Queued request ${sent.message.id} for ${toSessionId}; it will execute after the target session's current work completes.`,
+          {
+            action,
+            message: withMailStatus(sent.message),
+            filePath: sent.path,
+            created: sent.created,
+            executionTriggered: false,
+            queued: true,
+            blocking: false,
+            wake,
+            target: projectSession(targetSession),
+          },
         );
-      }
-      if (wait === "completed") {
-        const invocationId = submitted.invocationId;
-        const completion = await waitForRequestResult({
-          request,
-          invocationId,
-          timeoutMs: timeoutMs!,
-          signal,
-          sleep: deps.sleep,
-          now: deps.now,
-        });
-        return completedRequestResult({
-          action,
-          sent,
-          targetSession,
-          submitted,
-          invocationId,
-          timeoutMs: timeoutMs!,
-          completion,
-        });
       }
       return sessionResult(
         `Sent asynchronous request ${sent.message.id} to ${toSessionId}; invocation ${submitted.invocationId} was accepted.`,
@@ -393,12 +392,67 @@ export async function executeSparkSessionAction(
           created: sent.created,
           executionTriggered: true,
           blocking: false,
-          wait,
+          wake,
           target: projectSession(targetSession),
           targetActivity: "running",
           submitted,
         },
       );
+    }
+    case "lookup": {
+      if (params.timeoutMs !== undefined) {
+        throw new Error("session lookup does not accept timeoutMs");
+      }
+      if (params.until !== undefined) {
+        throw new Error("session lookup does not accept until");
+      }
+      if (params.wait !== undefined) {
+        throw new Error("session lookup does not accept wait");
+      }
+      const sessionId = requiredString(params.sessionId, "session lookup requires sessionId");
+      if (channelDaemonId) {
+        const record = await requestSession(request, sessionId, signal);
+        assertChannelDaemonTarget(record, channelDaemonId, "lookup");
+      }
+      const projection = parseSparkSessionPeerProjection(
+        await request("session.lookup", { sessionId }, { signal }),
+      );
+      return sessionResult(renderPeerProjection(projection), {
+        action,
+        projection,
+      });
+    }
+    case "wait": {
+      const invocationId = requiredString(
+        params.invocationId,
+        "session wait requires invocationId",
+      );
+      const timeoutMs = normalizeRequestTimeoutMs(params.timeoutMs);
+      if (channelDaemonId) {
+        const status = sparkTurnStatusResultSchema.parse(
+          await request("turn.status", { invocationId }, { signal }),
+        );
+        const targetSessionId = status.sessionId?.trim();
+        if (!targetSessionId) {
+          throw new Error("session wait could not resolve the invocation Session");
+        }
+        const record = await requestSession(request, targetSessionId, signal);
+        assertChannelDaemonTarget(record, channelDaemonId, "wait");
+      }
+      const completion = await waitForRequestResult({
+        request,
+        invocationId,
+        timeoutMs,
+        signal,
+        sleep: deps.sleep,
+        now: deps.now,
+      });
+      return completedRequestResult({
+        action,
+        invocationId,
+        timeoutMs,
+        completion,
+      });
     }
     case "inbox": {
       const sessionId = await currentInboxSessionId(params.sessionId, ctx, "inbox");
@@ -440,67 +494,11 @@ export async function executeSparkSessionAction(
         message: result,
       });
     }
+    default: {
+      const exhaustive: never = action;
+      return exhaustive;
+    }
   }
-}
-
-export async function executeSessionCall(
-  input: {
-    params: Record<string, unknown>;
-    signal: AbortSignal;
-    ctx: SparkSessionToolContext;
-  },
-  deps: SparkSessionActionDeps = {},
-) {
-  if (input.ctx.sessionSurface === "channel") {
-    throw new Error(
-      "message-platform sessions cannot call another session directly; forward the request with session action=send",
-    );
-  }
-  const request = deps.request ?? defaultDaemonRequest;
-  const sessionId = requiredString(input.params.sessionId, "session call requires sessionId");
-  const instruction = requiredString(
-    input.params.instruction,
-    "session call instruction is required",
-  );
-  for (const field of [
-    "timeoutMs",
-    "cwd",
-    "model",
-    "role",
-    "launch",
-    "includeUser",
-    "sessionDir",
-    "piCommand",
-  ]) {
-    if (input.params[field] !== undefined) throw new Error(`session call does not accept ${field}`);
-  }
-  const reset = optionalBooleanValue(input.params.reset, "reset");
-  const session = await requestSession(request, sessionId, input.signal);
-  if (session.placement === "archived" || session.lifecycle !== "open")
-    throw new Error(`cannot call unavailable scoped session: ${sessionId}`);
-  const currentSessionId = await requireCurrentSessionId(input.ctx, "call");
-  const submitted = parseTurnSubmitResult(
-    await request(
-      "turn.submit",
-      {
-        sessionId,
-        prompt: instruction,
-        ...(reset === undefined ? {} : { reset }),
-        messageMetadata: sessionOriginMessageMetadata(input.ctx, currentSessionId),
-      },
-      { signal: input.signal },
-    ),
-  );
-  return sessionResult(
-    `Queued Spark Session call: ${sessionId}; invocation ${submitted.invocationId} was accepted.`,
-    {
-      action: "call",
-      session: projectSession(session),
-      sessionId,
-      sessionLifetime: session.lifetime,
-      submitted,
-    },
-  );
 }
 
 async function listRequest(
@@ -508,7 +506,7 @@ async function listRequest(
   ctx: SparkSessionToolContext,
   request: SparkSessionDaemonRequest,
   signal: AbortSignal,
-  channelWorkspaceId?: string,
+  channelDaemonId?: string,
 ): Promise<SparkSessionListRequest> {
   const includeArchived = optionalBoolean(params.includeArchived, false, "includeArchived");
   const query = optionalString(params.query, "query");
@@ -520,12 +518,12 @@ async function listRequest(
   };
   const workspaceId = optionalString(params.workspaceId, "workspaceId");
   const scope = optionalScope(params.scope);
-  if (channelWorkspaceId) {
-    if (scope === "daemon" || (workspaceId && workspaceId !== channelWorkspaceId)) {
-      throw new Error("message-platform sessions can list sessions in their own workspace only");
+  if (channelDaemonId) {
+    if (workspaceId || (scope && scope !== "daemon")) {
+      throw new Error("message-platform sessions can list daemon Channel Sessions only");
     }
     return {
-      scope: { kind: "workspace", workspaceId: channelWorkspaceId },
+      scope: { kind: "daemon" },
       ...filters,
     };
   }
@@ -536,48 +534,6 @@ async function listRequest(
   return {
     scope: { kind: "workspace", workspaceId: resolvedWorkspaceId },
     ...filters,
-  };
-}
-
-async function sessionCreateRequest(
-  params: Record<string, unknown>,
-  ctx: SparkSessionToolContext,
-  request: SparkSessionDaemonRequest,
-  signal: AbortSignal,
-): Promise<SparkSessionCreateRequest> {
-  const scope = optionalScope(params.scope) ?? "workspace";
-  const sessionId = optionalString(params.sessionId, "sessionId");
-  if (params.title !== undefined || params.role !== undefined || params.status !== undefined) {
-    throw new Error("session create no longer accepts title, role, or status");
-  }
-  const name = optionalString(params.name, "name");
-  const roleBinding = normalizeRoleBinding(params.roleBinding);
-  const placement = normalizeCreatePlacement(params.placement);
-  if (scope === "daemon") {
-    throw new Error("session create supports workspace scope only");
-  }
-  const supervisorSessionId =
-    optionalString(params.supervisorSessionId, "supervisorSessionId") ?? ctx.sessionId?.trim();
-  if (!supervisorSessionId) {
-    throw new Error("session create requires a supervising Session");
-  }
-  const cwd = optionalString(params.cwd, "cwd") ?? ctx.cwd;
-  const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
-  const common = {
-    ...(sessionId ? { sessionId } : {}),
-    ...(name ? { name } : {}),
-    roleBinding,
-    placement,
-    supervisorSessionId,
-    ...(cwd ? { cwd } : {}),
-    ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
-  };
-  const workspaceId =
-    optionalString(params.workspaceId, "workspaceId") ??
-    (await currentWorkspaceId(ctx, request, signal));
-  return {
-    ...common,
-    scope: { kind: "workspace", workspaceId },
   };
 }
 
@@ -615,28 +571,32 @@ function assertChannelActionAllowed(
   );
 }
 
-async function currentChannelWorkspaceId(
+async function currentChannelDaemonId(
   ctx: SparkSessionToolContext,
   request: SparkSessionDaemonRequest,
   signal: AbortSignal,
 ): Promise<string | undefined> {
   if (ctx.sessionSurface !== "channel") return undefined;
-  const sessionId = await requireCurrentSessionId(ctx, "workspace scope");
+  const sessionId = await requireCurrentSessionId(ctx, "daemon scope");
   const current = await requestSession(request, sessionId, signal);
-  if (current.scope.kind !== "workspace") {
-    throw new Error("message-platform sessions require a workspace-scoped current session");
+  if (current.scope.kind !== "daemon" || current.purpose !== "channel") {
+    throw new Error("message-platform sessions require a daemon-owned Channel Session");
   }
-  return current.scope.workspaceId;
+  return current.scope.daemonId;
 }
 
-function assertChannelWorkspaceTarget(
+function assertChannelDaemonTarget(
   target: SparkSessionProjection,
-  workspaceId: string,
-  action: "get" | "send",
+  daemonId: string,
+  action: "get" | "send" | "lookup" | "wait",
 ): void {
-  if (target.scope.kind !== "workspace" || target.scope.workspaceId !== workspaceId) {
+  if (
+    target.scope.kind !== "daemon" ||
+    target.scope.daemonId !== daemonId ||
+    target.purpose !== "channel"
+  ) {
     throw new Error(
-      `message-platform session ${action} targets must be sessions in the current workspace`,
+      `message-platform session ${action} targets must be Channel Sessions in the current daemon`,
     );
   }
 }
@@ -708,29 +668,29 @@ function normalizeMailKind(value: unknown): SparkSessionMailKind {
   return value;
 }
 
-function normalizeSendWait(value: unknown): "accepted" | "completed" {
-  if (value === undefined || value === null || value === "") return "accepted";
-  if (value !== "accepted" && value !== "completed") {
-    throw new Error("session wait must be accepted or completed");
+function rejectRetiredSendWaitFields(params: Record<string, unknown>): void {
+  if (params.wait !== undefined) {
+    throw new Error('session send no longer accepts wait; use session({ action: "wait" })');
   }
-  return value;
-}
-
-function assertContinuationParams(
-  params: Record<string, unknown>,
-  kind: SparkSessionMailKind,
-  wait: "accepted" | "completed",
-): void {
-  if (kind !== "request" || wait !== "completed") {
-    throw new Error("session continuation requires kind=request and wait=completed");
+  if (params.timeoutMs !== undefined) {
+    throw new Error('session send no longer accepts timeoutMs; use session({ action: "wait" })');
   }
-  const allowed = new Set(["invocationId", "kind", "wait", "timeoutMs"]);
-  const rejected = Object.keys(params).filter((field) => !allowed.has(field));
-  if (rejected.length > 0) {
+  if (params.invocationId !== undefined) {
     throw new Error(
-      `session continuation accepts only invocationId, kind=request, wait=completed, and timeoutMs; rejected ${rejected.join(", ")}`,
+      'session send no longer continues waits; use session({ action: "wait", invocationId })',
     );
   }
+  if (params.notifyOnCompletion !== undefined) {
+    throw new Error("session send no longer accepts notifyOnCompletion; use wake");
+  }
+}
+
+function normalizeSendOnActive(value: unknown): "queue" | "interrupt" | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value !== "queue" && value !== "interrupt") {
+    throw new Error("session onActive must be queue or interrupt");
+  }
+  return value;
 }
 
 function validatedChannelOriginBinding(
@@ -738,10 +698,6 @@ function validatedChannelOriginBinding(
 ): NonNullable<SparkSessionMailMessage["originBinding"]> {
   const binding = ctx.channelBinding;
   if (!binding) throw new Error("originating channel request is missing immutable origin binding");
-  const workspaceId = requiredString(
-    binding.workspaceId,
-    "originating channel request requires immutable workspaceId",
-  );
   const adapterId = requiredString(
     binding.adapterId,
     "originating channel request requires immutable adapterId",
@@ -755,7 +711,6 @@ function validatedChannelOriginBinding(
     "originating channel request requires immutable recipient",
   );
   return {
-    workspaceId,
     adapter: binding.adapter,
     adapterId,
     ...(binding.adapterAccountIdentity
@@ -905,29 +860,8 @@ function renderSession(session: SparkSessionToolProjection): string {
     session.roleBinding.kind === "explicit"
       ? session.roleBinding.roleRef
       : session.roleBinding.kind;
-  return `${session.sessionId} lifecycle=${session.lifecycle} placement=${session.placement} activity=${session.activity} lifetime=${session.lifetime} owner=${session.owner.kind} surface=${session.surface} channels=${channels} scope=${scope}${session.name ? ` name=${JSON.stringify(session.name)}` : ""} roleBinding=${JSON.stringify(role)}`;
-}
-
-function normalizeRoleBinding(value: unknown): SparkSessionCreateRequest["roleBinding"] {
-  if (value === undefined || value === null) return { kind: "none" };
-  if (!isRecord(value) || typeof value.kind !== "string") {
-    throw new Error("session roleBinding must be none, inherit, or explicit");
-  }
-  if (value.kind === "none" || value.kind === "inherit") return { kind: value.kind };
-  if (
-    value.kind === "explicit" &&
-    typeof value.roleRef === "string" &&
-    value.roleRef.startsWith("role:")
-  ) {
-    return { kind: "explicit", roleRef: value.roleRef };
-  }
-  throw new Error("session explicit roleBinding requires roleRef");
-}
-
-function normalizeCreatePlacement(value: unknown): "child" | "sibling" {
-  if (value === undefined || value === null) return "child";
-  if (value === "child" || value === "sibling") return value;
-  throw new Error("session placement must be child or sibling");
+  const origin = session.lineage.kind === "root" ? "root" : session.lineage.origin.kind;
+  return `${session.sessionId} lifecycle=${session.lifecycle} placement=${session.placement} activity=${session.activity} lifetime=${session.lifetime} origin=${origin} surface=${session.surface} channels=${channels} scope=${scope}${session.name ? ` name=${JSON.stringify(session.name)}` : ""} roleBinding=${JSON.stringify(role)}`;
 }
 
 function withMailStatus(message: SparkSessionMailMessage) {
@@ -971,20 +905,6 @@ function renderMailMessage(
   ].join("\n");
 }
 
-function sessionOriginMessageMetadata(
-  ctx: SparkSessionToolContext,
-  sessionId: string,
-): Record<string, unknown> {
-  return {
-    origin: {
-      kind: "session",
-      sessionId,
-      surface: ctx.sessionSurface ?? "local",
-      host: ctx.sessionSource ?? (ctx.sessionSurface === "channel" ? "channel" : "session"),
-    },
-  };
-}
-
 function normalizeRequestTimeoutMs(value: unknown): number {
   if (value === undefined || value === null) return DEFAULT_REQUEST_TIMEOUT_MS;
   if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
@@ -996,14 +916,6 @@ function normalizeRequestTimeoutMs(value: unknown): number {
     );
   }
   return value;
-}
-
-function parseTurnSubmitResult(value: unknown): SparkTurnSubmitResult {
-  const parsed = sparkTurnSubmitResultSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("Spark daemon returned an invalid turn.submit receipt");
-  }
-  return parsed.data;
 }
 
 type RequestCompletion =
@@ -1029,7 +941,7 @@ async function waitForRequestResult(input: {
         { signal: input.signal },
       ),
     );
-    if (isTerminalStatus(status.status)) {
+    if (isSparkInvocationTerminalStatus(status.status)) {
       const result = sparkTurnResultSchema.parse(
         await input.request(
           "turn.result",
@@ -1048,33 +960,21 @@ async function waitForRequestResult(input: {
 }
 
 function completedRequestResult(input: {
-  action: "send";
-  sent?: { message: SparkSessionMailMessage; path: string; created: boolean };
-  targetSession?: SparkSessionProjection;
-  submitted?: SparkTurnSubmitResult;
+  action: "wait";
   invocationId: string;
   timeoutMs: number;
   completion: RequestCompletion;
 }) {
   const common = {
     action: input.action,
-    ...(input.sent
-      ? {
-          message: withMailStatus(input.sent.message),
-          filePath: input.sent.path,
-          created: input.sent.created,
-        }
-      : {}),
-    executionTriggered: true,
+    executionTriggered: false,
     blocking: true,
-    ...(input.targetSession ? { target: projectSession(input.targetSession) } : {}),
     invocationId: input.invocationId,
     timeoutMs: input.timeoutMs,
-    ...(input.submitted ? { submitted: input.submitted } : {}),
   };
   if (input.completion.timedOut) {
     return sessionResult(
-      `Request ${input.sent?.message.id ?? input.invocationId} is still ${input.completion.status.status}; stopped waiting after ${input.timeoutMs}ms. Invocation ${input.invocationId} continues asynchronously.`,
+      `Request ${input.invocationId} is still ${input.completion.status.status}; stopped waiting after ${input.timeoutMs}ms. Invocation ${input.invocationId} continues asynchronously.`,
       {
         ...common,
         waitTimedOut: true,
@@ -1108,8 +1008,23 @@ function completedRequestResult(input: {
   });
 }
 
-function isTerminalStatus(status: SparkTurnStatusResult["status"]): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
+function renderPeerProjection(projection: SparkSessionPeerProjection): string {
+  const lines = [
+    `Session ${projection.sessionId}`,
+    `lifecycle=${projection.lifecycle} placement=${projection.placement} activity=${projection.activity}`,
+  ];
+  if (projection.latestInvocation) {
+    const latest = projection.latestInvocation;
+    lines.push(`latestInvocation ${latest.invocationId} status=${latest.status}`);
+    if (latest.summary) lines.push(latest.summary);
+  }
+  if (projection.pendingAsk) {
+    const pending = projection.pendingAsk;
+    lines.push(
+      `pendingAsk ${pending.humanRequestId} from=${pending.fromSessionId} ${pending.title}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 function previewMailBody(body: string): string {

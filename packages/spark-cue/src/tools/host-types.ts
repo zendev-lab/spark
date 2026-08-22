@@ -6,8 +6,8 @@ import type {
   ToolExecutionMode,
   ToolPolicy,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
-import type { CueClient, CueResolvedTransport } from "../client/cue-client.ts";
+import { ToolCallText } from "@zendev-lab/spark-text";
+import type { CueClient, CueResolvedTransport, SpawnAdapterHandle } from "../client/cue-client.ts";
 
 export interface SparkCueHostApi {
   registerTool(config: SparkCueToolConfig): void;
@@ -31,8 +31,19 @@ export interface SparkCueToolContext {
   cueResolvedTransport?: CueResolvedTransport;
   /** Explicit remote cwd; local session paths are never mapped onto SSH hosts. */
   cueRemoteCwd?: string;
+  /** Whether an unreachable local daemon may be auto-started. Defaults to true. */
+  cueAutoStartLocal?: boolean;
+  /** Explicit per-host override for forwarding sensitive environment variables. */
+  cueForwardSensitiveEnv?: boolean;
+  /** Opaque per-execution launch lease; policy remains owned by the host adapter. */
+  cueSpawnAdapter?: SpawnAdapterHandle;
   taskExecutionScope?: SparkTaskExecutionScope;
   ui?: { notify?: (msg: string, level: SparkCueNotifyLevel) => void };
+}
+
+export interface SparkCueToolRegistration {
+  releaseSession(ctx?: SparkCueToolContext): void;
+  dispose(): void;
 }
 
 export interface SparkCueToolConfig {
@@ -139,14 +150,4 @@ export interface ToolCallComponent {
   render(width: number): string[];
 }
 
-export class ToolCallText implements ToolCallComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
+export { ToolCallText };

@@ -7,8 +7,8 @@ export interface SparkTurnRegisteredTool {
   active: boolean;
 }
 
-/** How a session satisfies `requiresApproval` tool gates. Default: `auto`. */
+/** How a session satisfies an approval-required tool gate. Default: `human`. */
 export type SparkToolApprovalMethod = "skip" | "human" | "auto";
 
-/** When `auto` review does not approve: escalate to ask, or deny the tool call. */
+/** When `auto` review rejects: escalate to human approval, or deny the call. */
 export type SparkToolApprovalRejectAction = "ask" | "deny";

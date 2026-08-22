@@ -12,7 +12,7 @@ import type {
   SparkSessionLeaseIdentity,
   ToolEffect,
 } from "@zendev-lab/spark-core";
-import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import type { SparkDshTurnRuntime, SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import type {
   SparkReproUsageScope,
   SparkUsageExecutionKind,
@@ -68,6 +68,9 @@ export interface SparkHeadlessTokenUsageContext extends Omit<
 
 export interface SparkHeadlessSessionRunInput {
   cwd: string;
+  workspaceId?: string;
+  /** Trusted workspace-owned state root; execution cwd may be a subdir/worktree. */
+  sparkStateRoot?: string;
   sessionId: string;
   /** Daemon-authoritative native transcript path for this session generation. */
   sessionPath?: string;
@@ -78,6 +81,8 @@ export interface SparkHeadlessSessionRunInput {
   /** Internal transcript metadata for daemon-owned hidden execution. */
   sessionVisibility?: "internal";
   sessionPurpose?: "loop_tick";
+  /** Continue a turn after daemon/process interrupt using persisted session state. */
+  resumeFromInterrupt?: boolean;
   /** Exact pending tool-call continuation captured by a planned daemon restart. */
   restartCheckpoint?: SparkTurnResumeCheckpoint;
   /** Persist and yield when a restart is pending; otherwise return normally. */
@@ -92,16 +97,13 @@ export interface SparkHeadlessSessionRunInput {
   channelBinding?: {
     adapter: "feishu" | "infoflow" | "qqbot";
     externalKey: string;
-    workspaceId?: string;
     recipient?: string;
     adapterId?: string;
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
-  stateBindingSessionId?: string;
   /** @deprecated Compatibility input; normalized before host construction. */
   taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
-  stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
@@ -173,6 +175,8 @@ export type CreateSparkHeadlessSessionExecutorFn = (options?: {
   sparkHome?: string;
   /** Provider config and auth root, independent from daemon session storage. */
   controlSparkHome?: string;
+  /** Daemon-owned shared DSH composition root. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
 }) => SparkHeadlessSessionExecutor;
 
 export type SparkHeadlessSessionCompactor = (
@@ -182,11 +186,13 @@ export type SparkHeadlessSessionCompactor = (
 export type CreateSparkHeadlessSessionCompactorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
 }) => SparkHeadlessSessionCompactor;
 
 export type CreateSparkHeadlessRoleExecutorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
   tokenUsage?: SparkHeadlessTokenUsageContext;
 }) => ExtensionRoleRunner;
 

@@ -60,7 +60,7 @@ export interface ResolveSparkPathsOptions extends ResolveSparkHomeOptions {
   overrides?: SparkPathOverrides;
 }
 
-export interface SparkPaths<App extends SparkApp | "cockpit" = SparkApp> {
+export interface SparkPaths<App extends SparkApp = SparkApp> {
   app: App;
   configDir: string;
   configFile: string;
@@ -71,7 +71,8 @@ export interface SparkPaths<App extends SparkApp | "cockpit" = SparkApp> {
   databasePath: string;
   artifactCacheDir: string;
   artifactBlobsDir: string;
-  piAgentDir: string | undefined;
+  /** Daemon session runtime directory. On disk this remains `<dataDir>/pi-agent`. */
+  sessionRuntimeDir: string | undefined;
   logDir: string;
   logFile: string;
   pidFile: string;
@@ -150,14 +151,7 @@ export function resolveSparkPaths(options: ResolveSparkPathsOptions): SparkPaths
   return resolveAppPaths(options.app, appDatabaseNames[options.app], options);
 }
 
-/** Resolve the retired Cockpit layout for explicit, read-only migration probes. */
-export function resolveLegacyCockpitPaths(
-  options: ResolveSparkHomeOptions = {},
-): SparkPaths<"cockpit"> {
-  return resolveAppPaths("cockpit", "cockpit.sqlite", options);
-}
-
-function resolveAppPaths<App extends SparkApp | "cockpit">(
+function resolveAppPaths<App extends SparkApp>(
   app: App,
   databaseName: string,
   options: ResolveSparkHomeOptions & { overrides?: SparkPathOverrides },
@@ -209,7 +203,7 @@ function resolveAppPaths<App extends SparkApp | "cockpit">(
       app === "daemon"
         ? join(dataDir, "artifacts", "blobs", "sha256")
         : join(artifactCacheDir, "blobs", "sha256"),
-    piAgentDir: app === "daemon" ? join(dataDir, "pi-agent") : undefined,
+    sessionRuntimeDir: app === "daemon" ? join(dataDir, "pi-agent") : undefined,
     logDir: join(stateDir, "logs"),
     logFile: join(stateDir, "logs", `${app}.jsonl`),
     pidFile: join(runtimeDir, `${app}.pid`),

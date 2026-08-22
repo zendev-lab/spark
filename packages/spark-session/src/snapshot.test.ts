@@ -24,7 +24,6 @@ function sessionControlFields(supervisorSessionId: string) {
     incarnation: 1,
     activity: "idle" as const,
     lifetime: "scoped" as const,
-    stateBinding: { kind: "session" as const, ref: supervisorSessionId },
     visibility: "public" as const,
     retention: "retain" as const,
     purpose: "interactive",
@@ -45,7 +44,7 @@ function promptHistorySession(input: {
     lifecycle: "open",
     placement: "active",
     roleBinding: { kind: "none" },
-    owner: { kind: "session", supervisorSessionId },
+    lineage: { kind: "child", parentSessionId: supervisorSessionId, origin: { kind: "session" } },
     ...sessionControlFields(supervisorSessionId),
     sessionPath: input.sessionPath,
     bindings: [],
@@ -65,7 +64,7 @@ async function createLinearTranscript(entryCount: number, sessionId: string) {
   const lines = [
     JSON.stringify({
       type: "session",
-      version: 3,
+      version: 4,
       id: sessionId,
       timestamp: "2026-08-03T00:00:00.000Z",
       cwd: root,
@@ -92,7 +91,7 @@ async function createLinearTranscript(entryCount: number, sessionId: string) {
     lifecycle: "open",
     placement: "active",
     roleBinding: { kind: "none" },
-    owner: { kind: "session", supervisorSessionId: "sess_admin_ws_large" },
+    lineage: { kind: "child", parentSessionId: "sess_admin_ws_large", origin: { kind: "session" } },
     ...sessionControlFields("sess_admin_ws_large"),
     sessionPath: transcriptPath,
     bindings: [],
@@ -111,7 +110,7 @@ describe("loadSparkSessionSnapshot", () => {
     const lines = [
       JSON.stringify({
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -178,6 +177,145 @@ describe("loadSparkSessionSnapshot", () => {
     expect(history.truncated).toBe(true);
   });
 
+  it("projects and indexes authoritative native DSH messages without spark/record copies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-dsh-snapshot-"));
+    roots.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    const sessionId = "sess_dsh_snapshot";
+    const createdAt = Date.parse("2026-08-20T00:00:00.000Z");
+    await writeFile(
+      transcriptPath,
+      `${[
+        JSON.stringify({ version: 0, id: sessionId, createdAt, cwd: root }),
+        JSON.stringify({
+          type: "spark/meta",
+          seq: 0,
+          time: createdAt,
+          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 4 },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "turn/start",
+          seq: 1,
+          time: createdAt + 1,
+          data: { turn: 1 },
+        }),
+        JSON.stringify({
+          type: "user/message",
+          seq: 2,
+          time: createdAt + 2,
+          data: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "dsh user" }],
+            source: { kind: "user" },
+          },
+          surfaceOp: "append",
+        }),
+        JSON.stringify({
+          type: "spark/message-meta",
+          seq: 3,
+          time: createdAt + 3,
+          data: {
+            position: 0,
+            entry: {
+              id: "user-1",
+              parentId: null,
+              timestamp: "2026-08-20T00:00:01.000Z",
+            },
+            eventSeq: 2,
+            role: "user",
+            contentShape: "string",
+            messageMeta: {},
+            blockMeta: [{}],
+          },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "step/start",
+          seq: 4,
+          time: createdAt + 4,
+          data: { turn: 1, step: 1 },
+        }),
+        JSON.stringify({
+          type: "assistant/message",
+          seq: 5,
+          time: createdAt + 5,
+          data: {
+            turn: 1,
+            step: 1,
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              content: [{ type: "text", text: "dsh assistant" }],
+              source: { kind: "model", provider: "test", model: "test" },
+            },
+          },
+          surfaceOp: "append",
+        }),
+        JSON.stringify({
+          type: "step/end",
+          seq: 6,
+          time: createdAt + 6,
+          data: { turn: 1, step: 1 },
+        }),
+        JSON.stringify({
+          type: "spark/message-meta",
+          seq: 7,
+          time: createdAt + 7,
+          data: {
+            position: 1,
+            entry: {
+              id: "assistant-1",
+              parentId: "user-1",
+              timestamp: "2026-08-20T00:00:02.000Z",
+            },
+            eventSeq: 5,
+            role: "assistant",
+            contentShape: "string",
+            messageMeta: { provider: "test", model: "test" },
+            blockMeta: [{}],
+          },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "turn/end",
+          seq: 8,
+          time: createdAt + 8,
+          data: { turn: 1, reason: { kind: "completed" } },
+        }),
+      ].join("\n")}\n`,
+      "utf8",
+    );
+    const session = promptHistorySession({
+      sessionId,
+      workspaceId: "ws_dsh_snapshot",
+      sessionPath: transcriptPath,
+      createdAt: "2026-08-20T00:00:00.000Z",
+      updatedAt: "2026-08-20T00:00:02.000Z",
+    });
+    const snapshot = await loadSparkSessionSnapshot({
+      sessionsRoot: root,
+      session,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(snapshot.messages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
+    expect(snapshot.messages[0]?.text).toBe("dsh user");
+    expect(snapshot.messages[1]?.text).toBe("dsh assistant");
+    await refreshSparkSessionSnapshotIndex({ sessionPath: transcriptPath, sessionId });
+    const indexed = await loadSparkSessionSnapshotTail({
+      sessionsRoot: root,
+      session,
+      messageLimit: 2,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(indexed.snapshot.messages.map((message) => message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(indexed.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
+  });
+
   it("rebuilds an older additive index once before bounded prompt reads", async () => {
     const fixture = await createLinearTranscript(64, "sess_legacy_prompt_index");
     const refreshed = await refreshSparkSessionSnapshotIndex({
@@ -216,7 +354,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -293,7 +431,7 @@ describe("loadSparkSessionSnapshot", () => {
     const lines = [
       JSON.stringify({
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -353,7 +491,7 @@ describe("loadSparkSessionSnapshot", () => {
     const lines = [
       JSON.stringify({
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-08-12T00:00:00.000Z",
         cwd: root,
@@ -408,7 +546,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_image",
         timestamp: "2026-07-23T10:00:00.000Z",
         cwd: "/workspace/demo",
@@ -438,7 +576,11 @@ describe("loadSparkSessionSnapshot", () => {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_admin_ws_demo",
+        origin: { kind: "session" },
+      },
       ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       bindings: [],
@@ -485,7 +627,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_usage",
         timestamp: "2026-07-17T01:00:00.000Z",
         cwd: "/workspace/demo",
@@ -568,7 +710,11 @@ describe("loadSparkSessionSnapshot", () => {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_admin_ws_demo",
+        origin: { kind: "session" },
+      },
       ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       model: { providerName: "baidu-oneapi", modelId: "gpt-5.6-sol" },
@@ -623,7 +769,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_parts",
         timestamp: "2026-07-13T01:00:00.000Z",
         cwd: "/workspace/demo",
@@ -773,7 +919,11 @@ describe("loadSparkSessionSnapshot", () => {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_admin_ws_demo",
+        origin: { kind: "session" },
+      },
       ...sessionControlFields("sess_admin_ws_demo"),
       activity: "running",
       sessionPath: transcriptPath,
@@ -912,7 +1062,7 @@ describe("loadSparkSessionSnapshot", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: "sess_text_phase",
         timestamp: "2026-07-13T02:00:00.000Z",
         cwd: "/workspace/demo",
@@ -976,7 +1126,11 @@ describe("loadSparkSessionSnapshot", () => {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_admin_ws_demo",
+        origin: { kind: "session" },
+      },
       ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       bindings: [],
@@ -1017,7 +1171,7 @@ describe("loadSparkSessionSnapshot", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_provider_error",
           timestamp: "2026-07-13T03:00:00.000Z",
           cwd: "/workspace/demo",
@@ -1059,7 +1213,11 @@ describe("loadSparkSessionSnapshot", () => {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_admin_ws_demo",
+        origin: { kind: "session" },
+      },
       ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       bindings: [],
@@ -1251,7 +1409,7 @@ describe("loadSparkSessionSnapshot", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_missing_final",
           timestamp: "2026-07-13T04:00:00.000Z",
           cwd: "/workspace/demo",
@@ -1305,7 +1463,11 @@ describe("loadSparkSessionSnapshot", () => {
         placement: "active",
         ...(activity === "running" ? { activity } : {}),
         roleBinding: { kind: "none" },
-        owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+        lineage: {
+          kind: "child",
+          parentSessionId: "sess_admin_ws_demo",
+          origin: { kind: "session" },
+        },
         ...sessionControlFields("sess_admin_ws_demo"),
         sessionPath: transcriptPath,
         bindings: [],
@@ -1355,5 +1517,15 @@ describe("loadSparkSessionSnapshot", () => {
       parsedTranscriptEntries: 2,
       fullTranscriptRead: false,
     });
+  });
+
+  it("projects queued session activity as view status queued", async () => {
+    const { root, session } = await createLinearTranscript(2, "sess_queued_view");
+    const snapshot = await loadSparkSessionSnapshot({
+      sessionsRoot: root,
+      session,
+      activity: "queued",
+    });
+    expect(snapshot.status).toBe("queued");
   });
 });

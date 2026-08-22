@@ -1,0 +1,1075 @@
+import type {
+  SparkHeadlessSessionCompactInput,
+  SparkHeadlessSessionCompactResult,
+  SparkHeadlessSessionRunInput,
+  SparkHeadlessTokenUsageContext,
+} from "@zendev-lab/spark-host/headless-loader";
+import {
+  assistantMessageToText,
+  classifyProviderFailure,
+  type AssistantMessage,
+} from "@zendev-lab/spark-llm";
+import { join } from "node:path";
+import {
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
+  isRoleNativeExecutorCompatibilityError,
+  type ExtensionRoleRunInputControl,
+  type RoleRunCompletionOutcome,
+  type RoleRef,
+  type RunRef,
+  type ToolConfig,
+  type ToolEffect,
+} from "@zendev-lab/spark-core";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+
+import type {
+  SparkCliHostDiagnostic,
+  SparkCliHostServices,
+  SparkCliHostServicesFactory,
+  SparkCliHostServicesOptions,
+} from "./host/contracts.ts";
+import type { SparkAgentLoopEvent, SparkRunOutcome } from "./host/agent-loop.ts";
+import { SparkAgentSession } from "./host/agent-session.ts";
+import type { SparkActiveSelection } from "./host/provider-registry.ts";
+
+export type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
+
+export type SparkHeadlessRoleRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "not_started";
+
+export interface SparkHeadlessRoleInstructionInput {
+  role: {
+    ref: RoleRef;
+    id: string;
+    revision: string;
+    systemPrompt: string;
+    skills?: string[];
+    allowedTools?: string[];
+    allowedToolEffects?: ToolEffect[];
+  };
+  instruction: {
+    roleRef: RoleRef;
+    instruction: string;
+    inputs?: string[];
+  };
+  record: {
+    ref: RunRef;
+    roleRef: RoleRef;
+    roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
+    runName?: string;
+    instruction: string;
+    status: SparkHeadlessRoleRunStatus;
+    startedAt?: string;
+    finishedAt?: string;
+    model?: string;
+    outcome?: RoleRunCompletionOutcome;
+  };
+  cwd: string;
+  timeoutMs: number;
+  mode?: "plan" | "execute" | "fleet";
+  requireStructuredOutcome?: boolean;
+  signal?: AbortSignal;
+  sessionDir?: string;
+  runName?: string;
+  launch?: "fresh" | "forked";
+  forkFromSession?: string;
+  model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  nativeCompatibilityRecovery?: "reviewer";
+  onEvent?: (event: unknown) => void | Promise<void>;
+  inputControl?: ExtensionRoleRunInputControl;
+}
+
+export interface SparkHeadlessRoleInstructionResult {
+  record: SparkHeadlessRoleInstructionInput["record"];
+  outcome: RoleRunCompletionOutcome;
+  stdout: string;
+  stderr: string;
+  jsonEvents: unknown[];
+}
+
+export interface SparkHeadlessSessionRunResult {
+  sessionId: string;
+  sessionPath: string;
+  newMessageCount: number;
+  assistantText: string;
+  stderr: string;
+  jsonEvents: unknown[];
+  eventsStreamed?: boolean;
+  roleOutcome?: RoleRunCompletionOutcome;
+}
+
+export interface SparkHeadlessRoleExecutorOptions {
+  sparkHome?: string;
+  controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
+  createServices: SparkCliHostServicesFactory;
+  tokenUsage?: SparkHeadlessTokenUsageContext;
+}
+
+export function createSparkHeadlessRoleExecutor(
+  options: SparkHeadlessRoleExecutorOptions,
+): (input: SparkHeadlessRoleInstructionInput) => Promise<SparkHeadlessRoleInstructionResult> {
+  return async (input) => runSparkHeadlessRoleInstruction(input, options);
+}
+
+export function createSparkHeadlessSessionExecutor(
+  options: SparkHeadlessRoleExecutorOptions,
+): (input: SparkHeadlessSessionRunInput) => Promise<SparkHeadlessSessionRunResult> {
+  return async (input) => runSparkHeadlessSession(input, options);
+}
+
+export function createSparkHeadlessSessionCompactor(
+  options: SparkHeadlessRoleExecutorOptions,
+): (input: SparkHeadlessSessionCompactInput) => Promise<SparkHeadlessSessionCompactResult> {
+  return async (input) => runSparkHeadlessSessionCompaction(input, options);
+}
+
+export async function runSparkHeadlessSessionCompaction(
+  input: SparkHeadlessSessionCompactInput,
+  options: SparkHeadlessRoleExecutorOptions,
+): Promise<SparkHeadlessSessionCompactResult> {
+  throwIfHeadlessAborted(input.signal);
+  const services = await options.createServices({
+    cwd: input.cwd,
+    workspaceId: input.workspaceId,
+    sparkStateRoot: input.sparkStateRoot,
+    sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.dshContext ? { dshContext: options.dshContext } : {}),
+    ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+    ...controlPlaneServicePaths(options.controlSparkHome),
+    sessionSurface: "local",
+    sessionSource: "daemon",
+    sessionLease: input.sessionLease,
+    hasUI: false,
+    streamTimeoutMs: 0,
+    approvalMethod: "auto",
+  } satisfies SparkCliHostServicesOptions);
+  let primaryError: unknown;
+  const timeoutAbort = new AbortController();
+  const compactionSignal = input.signal
+    ? AbortSignal.any([input.signal, timeoutAbort.signal])
+    : timeoutAbort.signal;
+  let transcriptCommitStarted = false;
+  const abort = (reason?: string) => {
+    const message = reason ?? abortReason(input.signal);
+    services.agentLoop.abort(message);
+    if (!timeoutAbort.signal.aborted) {
+      const error = new Error(message);
+      error.name = "AbortError";
+      timeoutAbort.abort(error);
+    }
+  };
+  const abortFromSignal = () => {
+    if (!transcriptCommitStarted) abort();
+  };
+  try {
+    throwIfHeadlessAborted(input.signal);
+    if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
+    if (input.thinkingLevel?.trim() && isThinkingLevel(input.thinkingLevel.trim())) {
+      services.config.activeThinkingLevel =
+        input.thinkingLevel.trim() as typeof services.config.activeThinkingLevel;
+    }
+    if (input.signal?.aborted) abortFromSignal();
+    else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
+    const result = await runWithHeadlessTimeout(
+      new SparkAgentSession(services).compact({
+        sessionId: input.sessionId,
+        sessionPath: input.sessionPath,
+        operationId: input.operationId,
+        ...(input.customInstructions ? { customInstructions: input.customInstructions } : {}),
+        signal: compactionSignal,
+        beforeTranscriptCommit: () => {
+          throwIfHeadlessAborted(compactionSignal);
+          input.beforeTranscriptCommit?.();
+          throwIfHeadlessAborted(compactionSignal);
+          transcriptCommitStarted = true;
+        },
+        ...(input.commitTranscriptReplacement
+          ? { commitTranscriptReplacement: input.commitTranscriptReplacement }
+          : {}),
+      }),
+      input.timeoutMs,
+      abort,
+      () => transcriptCommitStarted,
+    );
+    const assistantText = result.succeeded
+      ? result.replayed
+        ? `Session ${result.sessionId} was already compacted for this operation.`
+        : `Compacted daemon session ${result.sessionId}.`
+      : `Nothing to compact in daemon session ${result.sessionId}.`;
+    return {
+      sessionId: result.sessionId,
+      sessionPath: result.sessionPath,
+      succeeded: result.succeeded,
+      replayed: result.replayed,
+      ...(result.compactionEntry ? { compactionEntryId: result.compactionEntry.id } : {}),
+      ...(result.tokensBefore !== undefined ? { tokensBefore: result.tokensBefore } : {}),
+      tokensAfter: result.tokensAfter,
+      assistantText,
+    };
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    input.signal?.removeEventListener("abort", abortFromSignal);
+    await shutdownHeadlessRuntime(
+      services.runtime,
+      "headless session compaction completed",
+      primaryError,
+    );
+  }
+}
+
+export async function runSparkHeadlessSession(
+  input: SparkHeadlessSessionRunInput,
+  options: SparkHeadlessRoleExecutorOptions,
+): Promise<SparkHeadlessSessionRunResult> {
+  throwIfHeadlessAborted(input.signal);
+  const jsonEvents: unknown[] = [];
+  const createServices = options.createServices;
+  const services = await createServices({
+    cwd: input.cwd,
+    workspaceId: input.workspaceId,
+    sparkStateRoot: input.sparkStateRoot,
+    sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.dshContext ? { dshContext: options.dshContext } : {}),
+    ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+    ...controlPlaneServicePaths(options.controlSparkHome),
+    // Workspace business state stays under sparkStateRoot even when cwd points
+    // at a workspace subdirectory or an attached GitChange worktree.
+    sessionSurface: input.sessionSurface,
+    sessionSource: input.sessionSource,
+    sessionLease: input.sessionLease,
+    channelBinding: input.channelBinding,
+    invocationId: input.invocationId,
+    taskExecutionScope: input.taskExecutionScope,
+    tokenUsage: input.tokenUsage,
+    loop: input.loop,
+    sessionQuestionChain: input.sessionQuestionChain,
+    allowedTools: input.roleRunRef
+      ? [...new Set([...(input.allowedTools ?? []), "role_report_outcome"])]
+      : input.allowedTools,
+    roleRunner: input.roleRunner,
+    allowedToolEffects: input.roleRunRef
+      ? [...new Set([...(input.allowedToolEffects ?? []), "control" as const])]
+      : input.allowedToolEffects,
+    sessionMode: input.mode,
+    hasUI: false,
+    ...(input.interaction
+      ? {
+          ui: {
+            interaction: input.interaction,
+            ...(input.interactionCapabilities
+              ? { interactionCapabilities: input.interactionCapabilities }
+              : {}),
+          },
+        }
+      : {}),
+    ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+    ...(input.roleRunRef ? { sessionMode: "execute" as const } : {}),
+    // Daemon scheduler owns wall-clock execution budget. Model streams use idle
+    // hang detection instead of a short hard stream deadline so long tool/model
+    // turns can finish, and interrupted work can resume after restart.
+    streamTimeoutMs: 0,
+    // A daemon-owned human interaction may wait until the user responds. Model
+    // streams and tool calls keep their normal per-operation deadlines so a
+    // genuinely wedged provider or tool cannot occupy the session forever.
+    ...(input.interaction ? { interactionTimeoutMs: 0 } : {}),
+    approvalMethod: input.approvalMethod ?? "human",
+    ...(input.approvalRejectAction ? { approvalRejectAction: input.approvalRejectAction } : {}),
+  } satisfies SparkCliHostServicesOptions);
+  let primaryError: unknown;
+  let reportedRoleOutcome: RoleRunCompletionOutcome | undefined;
+  let abortFromSignal: (() => void) | undefined;
+  let unsubscribe: () => void = () => undefined;
+  let unsubscribeDaemon: () => void = () => undefined;
+  const pendingEventDeliveries = new Set<Promise<void>>();
+  let eventDeliveryFailure: unknown;
+  let eventDeliveryFailed = false;
+  const trackEventDelivery = (delivery: void | Promise<void>) => {
+    if (!delivery) return;
+    const tracked = Promise.resolve(delivery).catch((error: unknown) => {
+      if (!eventDeliveryFailed) eventDeliveryFailure = error;
+      eventDeliveryFailed = true;
+    });
+    pendingEventDeliveries.add(tracked);
+    void tracked.then(() => pendingEventDeliveries.delete(tracked));
+  };
+  const drainEventDeliveries = async () => {
+    while (pendingEventDeliveries.size > 0) {
+      await Promise.all([...pendingEventDeliveries]);
+    }
+    if (eventDeliveryFailed) throw eventDeliveryFailure;
+  };
+  try {
+    // Service bootstrap can be asynchronous (provider discovery, extension
+    // loading, session-store setup). A cancellation that wins during bootstrap
+    // must never fall through to agentLoop.submit: abort() is intentionally a
+    // no-op while the loop is idle and therefore cannot serve as this fence.
+    throwIfHeadlessAborted(input.signal);
+    if (input.roleRunRef) {
+      registerRoleOutcomeTool(services, (outcome) => {
+        if (reportedRoleOutcome) {
+          throw new Error("role_report_outcome may only be called once per supervised Role");
+        }
+        reportedRoleOutcome = outcome;
+      });
+    }
+    if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
+    if (input.thinkingLevel?.trim()) {
+      const level = input.thinkingLevel.trim();
+      if (isThinkingLevel(level)) services.config.activeThinkingLevel = level;
+    }
+
+    const recordEvent = (event: unknown) => {
+      if (!input.onEvent) jsonEvents.push(event);
+      if (!input.onEvent) return;
+      try {
+        trackEventDelivery(input.onEvent(event));
+      } catch (error) {
+        trackEventDelivery(Promise.reject(error));
+      }
+    };
+    const observeTokenUsage = createHeadlessTokenUsageObserver(input.tokenUsage);
+    unsubscribe = services.agentLoop.onEvent((event) => {
+      const serialized = serializeLoopEvent(event);
+      recordEvent(serialized);
+      observeTokenUsage(event, serialized);
+    });
+    unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
+      recordEvent({ type: "daemon_event", event });
+    });
+    const abort = (reason?: string) =>
+      services.agentLoop.abort(reason ?? abortReason(input.signal));
+    abortFromSignal = () => abort();
+    if (input.signal?.aborted) abortFromSignal();
+    else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
+
+    const session = new SparkAgentSession(services);
+    throwIfHeadlessAborted(input.signal);
+    const result = await runWithHeadlessTimeout(
+      session.run({
+        sessionId: input.sessionId,
+        ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
+        prompt: input.prompt,
+        reset: input.reset,
+        sessionVisibility: input.sessionVisibility,
+        sessionPurpose: input.sessionPurpose,
+        ...(input.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
+        ...(input.restartCheckpoint ? { restartCheckpoint: input.restartCheckpoint } : {}),
+        ...(input.yieldForRestartIfRequested
+          ? { yieldForRestartIfRequested: input.yieldForRestartIfRequested }
+          : {}),
+        ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+      }),
+      input.timeoutMs,
+      abort,
+    );
+    await drainEventDeliveries();
+    assertSuccessfulHeadlessSessionOutcome(result.outcome, result.assistant, input.signal);
+    return {
+      sessionId: result.sessionId,
+      sessionPath: result.sessionPath,
+      newMessageCount: result.newMessageCount,
+      assistantText: result.assistantText,
+      stderr: renderDiagnostics(services.diagnostics),
+      jsonEvents,
+      ...(input.onEvent ? { eventsStreamed: true } : {}),
+      ...(reportedRoleOutcome ? { roleOutcome: reportedRoleOutcome } : {}),
+    };
+  } catch (error) {
+    primaryError = error;
+    try {
+      await drainEventDeliveries();
+    } catch {
+      // Preserve the execution failure, but do not let teardown or a scheduler
+      // terminal boundary overtake an already accepted event delivery.
+    }
+    throw error;
+  } finally {
+    if (abortFromSignal) input.signal?.removeEventListener("abort", abortFromSignal);
+    unsubscribe();
+    unsubscribeDaemon();
+    await shutdownHeadlessRuntime(services.runtime, "headless session completed", primaryError);
+  }
+}
+
+export async function runSparkHeadlessRoleInstruction(
+  input: SparkHeadlessRoleInstructionInput,
+  options: SparkHeadlessRoleExecutorOptions,
+): Promise<SparkHeadlessRoleInstructionResult> {
+  throwIfHeadlessAborted(input.signal);
+  const launch = input.launch ?? "fresh";
+  const forkFromSession = input.forkFromSession;
+  if (launch === "forked" && !forkFromSession?.trim()) {
+    throw new Error("Spark daemon-native forked role execution requires forkFromSession");
+  }
+  const startedAt = input.record.startedAt ?? new Date().toISOString();
+  const jsonEvents: unknown[] = [];
+  const createServices = options.createServices;
+  let reportedOutcome: RoleRunCompletionOutcome | undefined;
+  let services: Awaited<ReturnType<typeof createServices>>;
+  try {
+    services = await createServices({
+      cwd: input.cwd,
+      sparkHome: options.sparkHome,
+      ...(options.dshContext ? { dshContext: options.dshContext } : {}),
+      ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+      ...controlPlaneServicePaths(options.controlSparkHome),
+      hasUI: false,
+      systemPrompt: input.role.systemPrompt,
+      approvalMethod: "auto",
+      sessionMode: input.mode ?? "execute",
+      tokenUsage: options.tokenUsage,
+      allowedToolEffects: input.role.allowedToolEffects,
+      roleNativeCompatibilityRecovery: {
+        sparkHome: options.sparkHome,
+        controlSparkHome: options.controlSparkHome,
+      },
+    } satisfies SparkCliHostServicesOptions);
+  } catch (error) {
+    if (input.signal?.aborted) throwIfHeadlessAborted(input.signal);
+    if (
+      input.nativeCompatibilityRecovery !== "reviewer" ||
+      !isRoleNativeExecutorCompatibilityError(error)
+    ) {
+      throw error;
+    }
+    return incompatibleNativeRoleExecutorResult(input, { startedAt });
+  }
+  let primaryError: unknown;
+  try {
+    throwIfHeadlessAborted(input.signal);
+
+    const recordEvent = (event: unknown) => {
+      jsonEvents.push(event);
+      if (input.nativeCompatibilityRecovery !== "reviewer") void input.onEvent?.(event);
+    };
+
+    applyAllowedTools(services, input.role.allowedTools);
+    registerRoleOutcomeTool(services, (outcome) => {
+      if (reportedOutcome)
+        throw new Error("role_report_outcome may only be called once per role run");
+      reportedOutcome = outcome;
+    });
+    if (input.model?.trim()) {
+      try {
+        selectHeadlessModel(services, input.model.trim());
+      } catch (error) {
+        primaryError = error;
+        recordEvent(providerResolutionFailedEvent(input.model.trim(), error));
+        const outcome = failedRoleRunOutcome("provider_resolution_failed", errorMessage(error));
+        const result = {
+          record: {
+            ...input.record,
+            status: "failed" as const,
+            outcome,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            model: input.model.trim(),
+          },
+          outcome,
+          stdout: "",
+          stderr: [renderDiagnostics(services.diagnostics), errorMessage(error)]
+            .filter(Boolean)
+            .join("\n"),
+          jsonEvents,
+        };
+        return result;
+      }
+    }
+    if (input.thinking) services.config.activeThinkingLevel = input.thinking;
+    const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
+    const unsubscribe = services.agentLoop.onEvent((event) => {
+      const serialized = serializeLoopEvent(event);
+      recordEvent(serialized);
+      observeTokenUsage(event, serialized);
+    });
+    const unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
+      recordEvent({ type: "daemon_event", event });
+    });
+    const abort = (reason?: string) =>
+      services.agentLoop.abort(reason ?? abortReason(input.signal));
+    const abortFromSignal = () => abort();
+    if (input.signal?.aborted) abortFromSignal();
+    else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
+    const unregisterInputControl = input.inputControl?.register({
+      send: async (text) => {
+        services.runtime.sendUserMessage(text, {
+          deliverAs: "followUp",
+          streamingBehavior: "followUp",
+        });
+      },
+    });
+
+    try {
+      const session = new SparkAgentSession(services);
+      const sessionRunInput = {
+        sessionId: headlessSessionId(input),
+        lifetime: "persistent" as const,
+        prompt: input.instruction.instruction,
+        reset: true,
+        ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
+      };
+      throwIfHeadlessAborted(input.signal);
+      const result = await runWithHeadlessTimeout(
+        session.run(sessionRunInput),
+        input.timeoutMs,
+        abort,
+      );
+      const outcome = completionOutcomeForRun(
+        result.outcome,
+        result.assistant,
+        input.signal,
+        reportedOutcome,
+        input.requireStructuredOutcome === true,
+      );
+      const status = statusForCompletionOutcome(outcome);
+      return {
+        record: {
+          ...input.record,
+          status,
+          outcome,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          model: input.model,
+        },
+        outcome,
+        stdout: result.assistantText,
+        stderr: renderDiagnostics(services.diagnostics),
+        jsonEvents,
+      };
+    } catch (error) {
+      primaryError = error;
+      const aborted = Boolean(input.signal?.aborted);
+      if (
+        !aborted &&
+        input.nativeCompatibilityRecovery === "reviewer" &&
+        isRoleNativeExecutorCompatibilityError(error)
+      ) {
+        return incompatibleNativeRoleExecutorResult(input, { startedAt });
+      }
+      const outcome = aborted
+        ? cancelledRoleRunOutcome(abortReason(input.signal))
+        : failedRoleRunOutcome(errorCode(error), errorMessage(error));
+      return {
+        record: {
+          ...input.record,
+          status: aborted ? "cancelled" : "failed",
+          outcome,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          model: input.model,
+        },
+        outcome,
+        stdout: "",
+        stderr: [renderDiagnostics(services.diagnostics), errorMessage(error)]
+          .filter(Boolean)
+          .join("\n"),
+        jsonEvents,
+      };
+    } finally {
+      input.signal?.removeEventListener("abort", abortFromSignal);
+      unregisterInputControl?.();
+      unsubscribe();
+      unsubscribeDaemon();
+    }
+  } catch (error) {
+    primaryError ??= error;
+    throw error;
+  } finally {
+    await shutdownHeadlessRuntime(services.runtime, "headless role completed", primaryError);
+  }
+}
+
+async function shutdownHeadlessRuntime(
+  runtime: { shutdown(reason?: string): Promise<void> },
+  reason: string,
+  primaryError: unknown,
+): Promise<void> {
+  try {
+    await runtime.shutdown(reason);
+  } catch (shutdownError) {
+    if (primaryError === undefined) throw shutdownError;
+  }
+}
+
+export class SparkHeadlessTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Spark headless session timed out after ${timeoutMs}ms`);
+    this.name = "SparkHeadlessTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+async function runWithHeadlessTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  abort: (reason?: string) => void,
+  commitStarted: () => boolean = () => false,
+): Promise<T> {
+  const normalizedTimeoutMs = normalizeHeadlessTimeoutMs(timeoutMs);
+  if (normalizedTimeoutMs === undefined) return await promise;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          if (commitStarted()) return;
+          const error = new SparkHeadlessTimeoutError(normalizedTimeoutMs);
+          abort(error.message);
+          reject(error);
+        }, normalizedTimeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function normalizeHeadlessTimeoutMs(timeoutMs: number | undefined): number | undefined {
+  if (timeoutMs === undefined) return undefined;
+  if (!Number.isFinite(timeoutMs)) return undefined;
+  const normalized = Math.floor(timeoutMs);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function throwIfHeadlessAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Spark headless session aborted");
+}
+
+function applyAllowedTools(
+  services: SparkCliHostServices,
+  allowedTools: string[] | undefined,
+): void {
+  if (!allowedTools) return;
+  services.runtime.setActiveTools(allowedTools);
+}
+
+function selectHeadlessModel(services: SparkCliHostServices, model: string): void {
+  const selection = resolveHeadlessModelSelection(services, model);
+  services.providerRegistry.setActive(selection);
+}
+
+function controlPlaneServicePaths(
+  controlSparkHome: string | undefined,
+): Pick<SparkCliHostServicesOptions, "configPath" | "authPath"> {
+  if (!controlSparkHome) return {};
+  return {
+    configPath: join(controlSparkHome, "config.json"),
+    authPath: join(controlSparkHome, "auth.json"),
+  };
+}
+
+function resolveHeadlessModelSelection(
+  services: SparkCliHostServices,
+  model: string,
+): SparkActiveSelection {
+  const slash = model.indexOf("/");
+  if (slash > 0) {
+    const selection = { providerName: model.slice(0, slash), modelId: model.slice(slash + 1) };
+    services.providerRegistry.buildModel(selection.providerName, selection.modelId);
+    return selection;
+  }
+
+  const active = services.providerRegistry.getActive();
+  if (
+    active &&
+    services.providerRegistry
+      .listModelsFor(active.providerName)
+      .some((candidate) => candidate.id === model)
+  ) {
+    return { providerName: active.providerName, modelId: model };
+  }
+
+  const provider = services.providerRegistry
+    .listProviders()
+    .find((candidate) => candidate.models.some((candidateModel) => candidateModel.id === model));
+  if (!provider)
+    throw new Error(
+      `Spark native provider registry cannot resolve model selector '${model}'. Set a role model using an available native Spark provider/model, or compare with Pi/Codex model selectors using spark-role-run-diagnostics.`,
+    );
+  return { providerName: provider.name, modelId: model };
+}
+
+function incompatibleNativeRoleExecutorResult(
+  input: SparkHeadlessRoleInstructionInput,
+  state: {
+    startedAt: string;
+  },
+): SparkHeadlessRoleInstructionResult {
+  const outcome = failedRoleRunOutcome(
+    ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+    ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
+  );
+  return {
+    record: {
+      ...input.record,
+      status: "failed",
+      outcome,
+      startedAt: state.startedAt,
+      finishedAt: new Date().toISOString(),
+      model: input.model,
+    },
+    outcome,
+    stdout: "",
+    stderr: "",
+    jsonEvents: [],
+  };
+}
+
+function providerResolutionFailedEvent(modelSelector: string, error: unknown): unknown {
+  return {
+    type: "provider_resolution_failed",
+    modelSelector,
+    message: errorMessage(error),
+    nextAction:
+      "Check the native Spark provider registry/model selector and align role model settings with an available provider/model.",
+  };
+}
+
+function statusForCompletionOutcome(outcome: RoleRunCompletionOutcome): SparkHeadlessRoleRunStatus {
+  if (outcome.kind === "completed") return "succeeded";
+  if (outcome.kind === "cancelled") return "cancelled";
+  return "failed";
+}
+
+function completionOutcomeForRun(
+  outcome: SparkRunOutcome | undefined,
+  assistant: AssistantMessage | undefined,
+  signal: AbortSignal | undefined,
+  reportedOutcome: RoleRunCompletionOutcome | undefined,
+  requireStructuredOutcome: boolean,
+): RoleRunCompletionOutcome {
+  if (signal?.aborted) return cancelledRoleRunOutcome(abortReason(signal));
+  if (outcome?.status === "aborted") return cancelledRoleRunOutcome(outcome.reason);
+  if (outcome?.status === "failed")
+    return failedRoleRunOutcome("provider_failure", outcome.errorMessage);
+  if (!outcome && (!assistant || assistant.stopReason === "error")) {
+    return failedRoleRunOutcome(
+      "assistant_error",
+      assistant?.errorMessage?.trim() ||
+        "Spark headless role produced no successful assistant response",
+    );
+  }
+  if (assistant?.stopReason === "aborted") return cancelledRoleRunOutcome("assistant_aborted");
+  if (reportedOutcome) return reportedOutcome;
+  if (!requireStructuredOutcome) {
+    return {
+      kind: "completed",
+      code: "role_run_completed",
+      reason: "Spark headless role execution completed",
+    };
+  }
+  return failedRoleRunOutcome(
+    "missing_structured_outcome",
+    "Spark headless role ended without calling role_report_outcome",
+    "Call role_report_outcome with completed, blocked, failed, or cancelled and a machine-readable reason.",
+  );
+}
+
+function failedRoleRunOutcome(
+  code: string,
+  reason: string,
+  nextAction?: string,
+): RoleRunCompletionOutcome {
+  return {
+    kind: "failed",
+    code: code.trim() || "role_run_failed",
+    reason: reason.trim() || "Spark headless role execution failed",
+    ...(nextAction?.trim() ? { nextAction: nextAction.trim() } : {}),
+  };
+}
+
+function cancelledRoleRunOutcome(reason: string): RoleRunCompletionOutcome {
+  return {
+    kind: "cancelled",
+    code: "role_run_cancelled",
+    reason: reason.trim() || "Spark headless role execution was cancelled",
+  };
+}
+
+function registerRoleOutcomeTool(
+  services: SparkCliHostServices,
+  setOutcome: (outcome: RoleRunCompletionOutcome) => void,
+): void {
+  const tool: ToolConfig = {
+    name: "role_report_outcome",
+    description:
+      "Record the structured terminal outcome of this worker task. Call exactly once before ending the role run.",
+    parameters: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["completed", "blocked", "failed", "cancelled"] },
+        code: { type: "string" },
+        reason: { type: "string" },
+        nextAction: { type: "string" },
+      },
+      required: ["kind", "code", "reason"],
+      additionalProperties: false,
+    },
+    policy: {
+      effect: "control",
+      executionMode: "sequential",
+      modes: ["execute"],
+      approval: "none",
+    },
+    async execute(_toolCallId, params) {
+      const { kind, code, reason } = params;
+      if (
+        (kind !== "completed" && kind !== "blocked" && kind !== "failed" && kind !== "cancelled") ||
+        typeof code !== "string" ||
+        !code.trim() ||
+        typeof reason !== "string" ||
+        !reason.trim()
+      ) {
+        throw new Error("role_report_outcome requires kind, non-empty code, and non-empty reason");
+      }
+      const reported: RoleRunCompletionOutcome = {
+        kind,
+        code: code.trim(),
+        reason: reason.trim(),
+        ...(typeof params.nextAction === "string" && params.nextAction.trim()
+          ? { nextAction: params.nextAction.trim() }
+          : {}),
+      };
+      setOutcome(reported);
+      return {
+        content: [{ type: "text", text: `Recorded ${reported.kind} outcome (${reported.code}).` }],
+      };
+    },
+  };
+  services.runtime.registerTool(tool);
+  const activeTools = services.runtime.getActiveTools();
+  if (!activeTools.includes(tool.name)) {
+    services.runtime.setActiveTools([...activeTools, tool.name]);
+  }
+}
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "role_run_failed";
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code.trim().toLowerCase() : "role_run_failed";
+}
+
+function assertSuccessfulHeadlessSessionOutcome(
+  outcome: SparkRunOutcome | undefined,
+  assistant: AssistantMessage | undefined,
+  signal: AbortSignal | undefined,
+): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Spark headless session aborted");
+  }
+  if (!outcome) {
+    assertSuccessfulHeadlessSessionAssistant(assistant, signal);
+    return;
+  }
+  if (outcome.status === "completed") return;
+  const detail = outcome.status === "aborted" ? outcome.reason.trim() : outcome.errorMessage.trim();
+  throw headlessSessionFailureError(
+    outcome.status,
+    detail,
+    outcome.status === "failed" ? outcome.errorCode : undefined,
+  );
+}
+
+function assertSuccessfulHeadlessSessionAssistant(
+  assistant: AssistantMessage | undefined,
+  signal: AbortSignal | undefined,
+): asserts assistant is AssistantMessage {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Spark headless session aborted");
+  }
+  if (!assistant) throw new Error("Spark headless session produced no assistant response");
+  if (assistant.stopReason !== "error" && assistant.stopReason !== "aborted") return;
+
+  const detail = assistant.errorMessage?.trim();
+  const outcome = assistant.stopReason === "error" ? "failed" : "aborted";
+  throw headlessSessionFailureError(outcome, detail ?? "");
+}
+
+function headlessSessionFailureError(
+  status: "failed" | "aborted",
+  detail: string,
+  outcomeCode?: string,
+): Error & { code?: string } {
+  const error = new Error(
+    `Spark headless session ${status}${detail ? `: ${detail}` : ""}`,
+  ) as Error & { code?: string };
+  if (/stream idle for \d+ms/i.test(detail)) {
+    error.code = "STREAM_IDLE_TIMEOUT";
+  } else if (/stream timed out after \d+ms/i.test(detail)) {
+    error.code = "STREAM_WALL_TIMEOUT";
+  } else if (
+    classifyProviderFailure({ message: detail, ...(outcomeCode ? { code: outcomeCode } : {}) })
+      .policy.retriable
+  ) {
+    error.code = "EXECUTION_TRANSIENT";
+  }
+  return error;
+}
+
+function headlessSessionId(input: SparkHeadlessRoleInstructionInput): string {
+  const base = input.runName?.trim() || input.record.runName?.trim() || input.record.ref;
+  return `spark-daemon-${base.replace(/[^A-Za-z0-9_.:-]+/gu, "-")}`;
+}
+
+function serializeLoopEvent(event: SparkAgentLoopEvent): unknown {
+  switch (event.type) {
+    case "user_message":
+      return { type: event.type, message: event.message };
+    case "runtime_message":
+      return { type: event.type, item: event.item };
+    case "prompt_manifest":
+      return { type: event.type, manifest: event.manifest };
+    case "stream_event":
+      return { type: event.type, event: event.event };
+    case "tool_result":
+      return { type: event.type, message: event.message };
+    case "turn_complete":
+      return { type: event.type, message: event.assistant, reason: event.reason };
+    case "run_outcome":
+      return { type: event.type, outcome: event.outcome };
+    case "view_event":
+      return { type: event.type, event: event.event };
+    case "abort":
+      return { type: event.type, reason: event.reason };
+    case "error":
+      return { type: event.type, message: event.message };
+  }
+}
+
+function recordTokenUsage(
+  context: SparkHeadlessTokenUsageContext | undefined,
+  event: unknown,
+): void {
+  if (!context) return;
+  context.record({
+    event,
+    ...(context.scope ? { scope: context.scope } : {}),
+    executionId: context.executionId,
+    kind: context.kind,
+    persistence: context.persistence,
+    ...(context.parentExecutionId ? { parentExecutionId: context.parentExecutionId } : {}),
+    ...(context.detailKind ? { detailKind: context.detailKind } : {}),
+    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+    ...(context.runRef ? { runRef: context.runRef } : {}),
+  });
+}
+
+function createHeadlessTokenUsageObserver(context: SparkHeadlessTokenUsageContext | undefined) {
+  let pendingManifest:
+    | Extract<SparkAgentLoopEvent, { type: "prompt_manifest" }>["manifest"]
+    | undefined;
+  let attemptClosedBySyntheticReceipt = false;
+  return (event: SparkAgentLoopEvent, serialized: unknown): void => {
+    if (!context) return;
+    if (event.type === "prompt_manifest") {
+      pendingManifest = event.manifest;
+      attemptClosedBySyntheticReceipt = false;
+      return;
+    }
+    if (event.type === "turn_complete") {
+      pendingManifest = undefined;
+      if (attemptClosedBySyntheticReceipt) return;
+      recordTokenUsage(context, serialized);
+      return;
+    }
+    const failedModelCall =
+      event.type === "error" ||
+      event.type === "abort" ||
+      (event.type === "run_outcome" && event.outcome.status !== "completed");
+    if (!failedModelCall || !pendingManifest) return;
+    recordTokenUsage(context, missingModelCallUsageEvent(pendingManifest, event));
+    pendingManifest = undefined;
+    attemptClosedBySyntheticReceipt = true;
+  };
+}
+
+function missingModelCallUsageEvent(
+  manifest: Extract<SparkAgentLoopEvent, { type: "prompt_manifest" }>["manifest"],
+  terminal: SparkAgentLoopEvent,
+): unknown {
+  const reason = terminal.type === "abort" ? "aborted" : "error";
+  return {
+    type: "turn_complete",
+    message: {
+      role: "assistant",
+      provider: manifest.model.provider,
+      model: manifest.model.id,
+      responseId: [
+        "spark-model-call",
+        manifest.sessionFingerprint,
+        manifest.roundtrip.index,
+        manifest.model.provider,
+        manifest.model.id,
+      ].join(":"),
+      timestamp: Date.now(),
+      content: [],
+      stopReason: reason,
+    },
+    reason,
+  };
+}
+
+function renderDiagnostics(diagnostics: SparkCliHostDiagnostic[]): string {
+  return diagnostics.map((diagnostic) => `${diagnostic.type}: ${diagnostic.message}`).join("\n");
+}
+
+function abortReason(signal: AbortSignal | undefined): string {
+  const reason = signal?.reason;
+  return reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "abort";
+}
+
+function isThinkingLevel(
+  value: string,
+): value is NonNullable<SparkCliHostServices["config"]["activeThinkingLevel"]> {
+  return (
+    value === "off" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function assistantTextFromHeadlessResult(
+  result: SparkHeadlessRoleInstructionResult,
+): string {
+  if (result.stdout.trim()) return result.stdout.trim();
+  for (const event of [...result.jsonEvents].reverse()) {
+    if (!event || typeof event !== "object") continue;
+    const text = assistantMessageToText(
+      (event as { message?: { content?: unknown } }).message ?? {},
+    );
+    if (text.trim()) return text.trim();
+  }
+  return "";
+}

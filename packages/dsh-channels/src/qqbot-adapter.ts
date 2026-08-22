@@ -1,0 +1,425 @@
+import { createChannelExternalKey, createDefaultChannelExternalKey } from "./external-key.ts";
+import { normalizeChannelImage, type ChannelImage } from "./channel-images.ts";
+import type { InfoflowAttachment } from "./infoflow-content.ts";
+import type {
+  ChannelInteractionCapability,
+  ChannelInteractionEvent,
+  RoutedChannelInteractionEvent,
+} from "./interaction.ts";
+import { normalizeChannelMessageReference } from "./message-reference.ts";
+import { isQqbotInboundAllowed } from "./qqbot-policy.ts";
+import { createQqbotTransport } from "./qqbot-transport.ts";
+import type { QqbotNormalizedInbound } from "./qqbot-types.ts";
+import type {
+  ChannelAdapter,
+  ChannelImageCapability,
+  ChannelTransport,
+  IncomingMessage,
+  QqbotAdapterConfig,
+} from "./types.ts";
+import type { ChannelMessageReference } from "./message-reference.ts";
+import {
+  normalizeChannelDeliveryResult,
+  type ChannelDeliveryFacts,
+  type ChannelDeliveryResult,
+  type ChannelMessageTarget,
+  type ChannelReplyCapability,
+} from "./reply.ts";
+
+export interface QqbotAdapterOptions {
+  id: string;
+  config: QqbotAdapterConfig;
+  transport?: ChannelTransport;
+  onMessage?: (message: IncomingMessage) => void;
+  onInteraction?: (event: RoutedChannelInteractionEvent) => void | Promise<void>;
+}
+
+export class QqbotAdapter implements ChannelAdapter {
+  readonly id: string;
+  readonly type = "qqbot" as const;
+  readonly config: QqbotAdapterConfig;
+  private readonly transport: ChannelTransport;
+  private readonly onMessage?: (message: IncomingMessage) => void;
+  private readonly onInteraction?: (event: RoutedChannelInteractionEvent) => void | Promise<void>;
+  private readonly seenMessages = new Map<string, number>();
+  private running = false;
+
+  get reply(): ChannelReplyCapability | undefined {
+    return this.transport.reply;
+  }
+
+  get image(): ChannelImageCapability | undefined {
+    return this.transport.image;
+  }
+
+  get interaction(): ChannelInteractionCapability | undefined {
+    return this.transport.interaction;
+  }
+
+  constructor(options: QqbotAdapterOptions) {
+    this.id = options.id;
+    this.config = options.config;
+    this.onMessage = options.onMessage;
+    this.onInteraction = options.onInteraction;
+    this.transport = options.transport ?? createDefaultQqbotTransport(options.config);
+  }
+
+  get isRunning(): boolean {
+    return this.running;
+  }
+
+  async start(): Promise<void> {
+    if (this.running) return;
+    await this.transport.start(
+      (raw) => this.handleInbound(raw),
+      (event) => this.handleInteraction(event),
+    );
+    this.running = true;
+  }
+
+  async stop(): Promise<void> {
+    if (!this.running) return;
+    await this.transport.stop();
+    this.running = false;
+  }
+
+  messageDeliveryFacts(target: ChannelMessageTarget): ChannelDeliveryFacts {
+    return this.transport.messageDeliveryFacts?.(target) ?? { replaySafety: "unsafe" };
+  }
+
+  async send(input: {
+    recipient: string;
+    text: string;
+    deliveryId?: string;
+  }): Promise<ChannelDeliveryResult> {
+    const facts = this.messageDeliveryFacts(input);
+    const result = await this.transport.send(input.recipient, input.text, input.deliveryId);
+    return normalizeChannelDeliveryResult(result, facts);
+  }
+
+  status() {
+    const transportStatus = this.transport.status?.() ?? {
+      state: this.running ? ("connected" as const) : ("stopped" as const),
+    };
+    return {
+      id: this.id,
+      type: this.type,
+      running: this.running,
+      ...transportStatus,
+    };
+  }
+
+  parseInbound(raw: unknown): IncomingMessage | undefined {
+    const normalized = normalizeQqbotInboundEvent(raw);
+    if (!normalized) return undefined;
+    if (
+      !isQqbotInboundAllowed(this.config, {
+        chatType: normalized.chatType,
+        senderId: normalized.senderId,
+        ...(normalized.chatId ? { groupId: normalized.chatId } : {}),
+        text: normalized.text,
+        ...(normalized.eventType ? { eventType: normalized.eventType } : {}),
+        ...(typeof normalized.mentionedSelf === "boolean"
+          ? { mentionedSelf: normalized.mentionedSelf }
+          : {}),
+      })
+    ) {
+      return undefined;
+    }
+    const externalKey =
+      normalized.chatType === "group" && normalized.chatId
+        ? createChannelExternalKey("qqbot", "group", normalized.chatId)
+        : normalized.chatType === "channel" && normalized.chatId
+          ? createChannelExternalKey("qqbot", "channel", normalized.chatId)
+          : createDefaultChannelExternalKey("qqbot", normalized.senderId);
+
+    return {
+      adapter: "qqbot",
+      externalKey,
+      senderId: normalized.senderId,
+      ...(normalized.senderName ? { senderName: normalized.senderName } : {}),
+      ...(normalized.chatId ? { chatId: normalized.chatId } : {}),
+      text: normalized.text,
+      ...(normalized.messageId ? { messageId: normalized.messageId } : {}),
+      ...(normalized.messageReference ? { messageReference: normalized.messageReference } : {}),
+      ...(normalized.eventType ? { eventType: normalized.eventType } : {}),
+      contentType: normalized.attachments?.length
+        ? normalized.text.includes("[图片]") && normalized.text.trim() === "[图片]"
+          ? "image"
+          : "mixed"
+        : "text",
+      ...(normalized.attachments?.length ? { attachments: normalized.attachments } : {}),
+      ...(normalized.images?.length ? { images: normalized.images } : {}),
+      ...(normalized.mentions?.length ? { mentions: normalized.mentions } : {}),
+      ...(typeof normalized.mentionedSelf === "boolean"
+        ? { mentionedSelf: normalized.mentionedSelf }
+        : {}),
+      raw,
+    };
+  }
+
+  private handleInbound(raw: unknown): void {
+    try {
+      const message = this.parseInbound(raw);
+      if (!message) return;
+      const dedupeKey = message.messageId?.trim()
+        ? `${message.externalKey}\u0000${message.messageId.trim()}`
+        : undefined;
+      const now = Date.now();
+      pruneSeenMessages(this.seenMessages, now);
+      if (dedupeKey && this.seenMessages.has(dedupeKey)) return;
+      this.onMessage?.(message);
+      // Mark only after the daemon has synchronously persisted the durable
+      // inbound receipt. A thrown receipt error must remain redeliverable.
+      if (dedupeKey) markMessageSeen(this.seenMessages, dedupeKey, now);
+    } catch (error) {
+      console.error("[dsh-channels] qqbot inbound receipt failed", error);
+      throw error;
+    }
+  }
+
+  private async handleInteraction(event: ChannelInteractionEvent): Promise<void> {
+    // The gateway sequence is committed by the transport only after this
+    // promise resolves. Never turn settlement failures into a successful ACK.
+    await this.onInteraction?.({ ...event, adapterId: this.id });
+  }
+}
+
+function createDefaultQqbotTransport(config: QqbotAdapterConfig): ChannelTransport {
+  return createQqbotTransport(config);
+}
+
+export function normalizeQqbotInboundEvent(raw: unknown): QqbotNormalizedInbound | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+  const eventType =
+    typeof record.event_type === "string"
+      ? record.event_type.trim()
+      : typeof record.t === "string"
+        ? record.t.trim()
+        : "";
+  const payload =
+    record.d && typeof record.d === "object" && !Array.isArray(record.d)
+      ? (record.d as Record<string, unknown>)
+      : record;
+
+  if (
+    eventType === "C2C_MESSAGE_CREATE" ||
+    (!eventType && payload.author && !payload.group_openid)
+  ) {
+    const author = asRecord(payload.author);
+    const senderId =
+      stringField(author, "user_openid") ||
+      stringField(author, "union_openid") ||
+      stringField(author, "id");
+    const attachments = normalizeQqbotAttachments(payload.attachments);
+    const images = normalizeQqbotImages(payload.spark_images);
+    const text = visibleQqbotText(stringField(payload, "content") ?? "", attachments);
+    const messageId = stringField(payload, "id");
+    const messageReference = extractQqbotMessageReference(payload);
+    if (!senderId) return undefined;
+    return {
+      chatType: "c2c",
+      senderId,
+      ...(stringField(author, "username") ? { senderName: stringField(author, "username") } : {}),
+      text: stripBotMention(text),
+      ...(attachments.length ? { attachments } : {}),
+      ...(images.length ? { images } : {}),
+      ...(messageId ? { messageId } : {}),
+      ...(messageReference ? { messageReference } : {}),
+      eventType: eventType || "C2C_MESSAGE_CREATE",
+    };
+  }
+
+  if (eventType === "GROUP_AT_MESSAGE_CREATE" || eventType === "GROUP_MESSAGE_CREATE") {
+    const author = asRecord(payload.author);
+    const senderId =
+      stringField(author, "member_openid") ||
+      stringField(author, "user_openid") ||
+      stringField(author, "id");
+    const groupId = stringField(payload, "group_openid") || stringField(payload, "group_id");
+    const attachments = normalizeQqbotAttachments(payload.attachments);
+    const images = normalizeQqbotImages(payload.spark_images);
+    const text = visibleQqbotText(stringField(payload, "content") ?? "", attachments);
+    const messageId = stringField(payload, "id");
+    const messageReference = extractQqbotMessageReference(payload);
+    const mentions = extractMentions(payload.mentions);
+    const mentionedSelf =
+      eventType === "GROUP_AT_MESSAGE_CREATE" || mentions.some((entry) => entry.isYou) || undefined;
+    if (!senderId || !groupId) return undefined;
+    return {
+      chatType: "group",
+      senderId,
+      ...(stringField(author, "username") ? { senderName: stringField(author, "username") } : {}),
+      chatId: groupId,
+      text: stripBotMention(text),
+      ...(attachments.length ? { attachments } : {}),
+      ...(images.length ? { images } : {}),
+      ...(messageId ? { messageId } : {}),
+      ...(messageReference ? { messageReference } : {}),
+      eventType,
+      ...(mentions.length
+        ? { mentions: mentions.map((entry) => entry.label).filter(Boolean) }
+        : {}),
+      ...(typeof mentionedSelf === "boolean" ? { mentionedSelf } : {}),
+    };
+  }
+
+  if (eventType === "AT_MESSAGE_CREATE" || eventType === "MESSAGE_CREATE") {
+    const author = asRecord(payload.author);
+    const senderId = stringField(author, "id");
+    const channelId = stringField(payload, "channel_id");
+    const attachments = normalizeQqbotAttachments(payload.attachments);
+    const images = normalizeQqbotImages(payload.spark_images);
+    const text = visibleQqbotText(stringField(payload, "content") ?? "", attachments);
+    const messageId = stringField(payload, "id");
+    const messageReference = extractQqbotMessageReference(payload);
+    if (!senderId || !channelId) return undefined;
+    return {
+      chatType: "channel",
+      senderId,
+      ...(stringField(author, "username") ? { senderName: stringField(author, "username") } : {}),
+      chatId: channelId,
+      text: stripBotMention(text),
+      ...(attachments.length ? { attachments } : {}),
+      ...(images.length ? { images } : {}),
+      ...(messageId ? { messageId } : {}),
+      ...(messageReference ? { messageReference } : {}),
+      eventType,
+      mentionedSelf: eventType === "AT_MESSAGE_CREATE" ? true : undefined,
+    };
+  }
+
+  return undefined;
+}
+
+function extractQqbotMessageReference(
+  payload: Record<string, unknown>,
+): ChannelMessageReference | undefined {
+  const reference =
+    asRecord(payload.message_reference) ??
+    asRecord(payload.messageReference) ??
+    asRecord(payload.referenced_message) ??
+    asRecord(payload.reference);
+  if (!reference) return undefined;
+  const messageId =
+    stringField(reference, "message_id") ||
+    stringField(reference, "messageId") ||
+    stringField(reference, "id");
+  const preview =
+    stringField(reference, "content") ||
+    stringField(reference, "preview") ||
+    stringField(reference, "text");
+  const author = asRecord(reference.author);
+  const senderId =
+    stringField(author, "user_openid") ||
+    stringField(author, "member_openid") ||
+    stringField(author, "id") ||
+    stringField(reference, "sender_id") ||
+    stringField(reference, "senderId");
+  const senderName =
+    stringField(author, "username") ||
+    stringField(reference, "sender_name") ||
+    stringField(reference, "senderName");
+  return normalizeChannelMessageReference({
+    ...(messageId ? { messageId } : {}),
+    ...(preview ? { preview } : {}),
+    ...(senderId ? { senderId } : {}),
+    ...(senderName ? { senderName } : {}),
+    source:
+      reference.spark_quote_source === "fetched" ? "fetched" : preview ? "embedded" : "unknown",
+  });
+}
+
+function normalizeQqbotAttachments(value: unknown): InfoflowAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 32).flatMap((entry): InfoflowAttachment[] => {
+    const record = asRecord(entry);
+    if (!record) return [];
+    const mediaType = stringField(record, "content_type");
+    const name = stringField(record, "filename");
+    const kind = mediaType?.toLowerCase().startsWith("image/") ? "image" : "file";
+    const size =
+      typeof record.size === "number" && Number.isFinite(record.size) && record.size >= 0
+        ? record.size
+        : undefined;
+    return [
+      {
+        kind,
+        ...(name ? { name } : {}),
+        ...(mediaType ? { mediaType } : {}),
+        ...(size !== undefined ? { size } : {}),
+      },
+    ];
+  });
+}
+
+function normalizeQqbotImages(value: unknown): ChannelImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const image = normalizeChannelImage(entry);
+    return image ? [image] : [];
+  });
+}
+
+function visibleQqbotText(text: string, attachments: readonly InfoflowAttachment[]): string {
+  const normalized = stripBotMention(text);
+  if (normalized) return normalized;
+  if (attachments.some((attachment) => attachment.kind === "image")) return "[图片]";
+  const file = attachments.find((attachment) => attachment.kind === "file");
+  return file?.name ? `[文件: ${file.name}]` : attachments.length ? "[附件]" : "";
+}
+
+function extractMentions(value: unknown): Array<{ label: string; isYou: boolean }> {
+  if (!Array.isArray(value)) return [];
+  const mentions: Array<{ label: string; isYou: boolean }> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const label =
+      stringField(record, "nickname") ||
+      stringField(record, "member_openid") ||
+      stringField(record, "user_openid") ||
+      stringField(record, "id") ||
+      "";
+    mentions.push({
+      label,
+      isYou: record.is_you === true || record.bot === true,
+    });
+  }
+  return mentions;
+}
+
+function stripBotMention(text: string): string {
+  return text
+    .replace(/<@!?\d+>/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+const QQBOT_DEDUPE_CAPACITY = 2_048;
+const QQBOT_DEDUPE_TTL_MS = 10 * 60_000;
+
+function pruneSeenMessages(seen: Map<string, number>, now: number): void {
+  for (const [id, at] of seen) {
+    if (now - at < QQBOT_DEDUPE_TTL_MS) break;
+    seen.delete(id);
+  }
+}
+
+function markMessageSeen(seen: Map<string, number>, key: string, now: number): void {
+  seen.set(key, now);
+  if (seen.size <= QQBOT_DEDUPE_CAPACITY) return;
+  const oldest = seen.keys().next().value;
+  if (oldest) seen.delete(oldest);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}

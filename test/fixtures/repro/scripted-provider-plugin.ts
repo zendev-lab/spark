@@ -16,6 +16,7 @@ interface ScriptedToolCall {
 
 interface ScriptedRound {
   label: string;
+  audience?: "root" | "implementation" | "exactness" | "formalize";
   text?: string;
   toolCalls?: ScriptedToolCall[];
 }
@@ -44,6 +45,8 @@ export interface ScriptedProviderLedger {
     toolNames: string[];
   }>;
   vars?: Record<string, string>;
+  cursors?: Partial<Record<ScriptedAudience, number>>;
+  lastLabels?: Partial<Record<ScriptedAudience, string>>;
 }
 
 export default function registerScriptedJourneyProvider(api: {
@@ -61,6 +64,12 @@ export default function registerScriptedJourneyProvider(api: {
           ? (context as { tools: unknown[] }).tools
           : [];
         const serializedContext = JSON.stringify(context);
+        const latestMessage = Array.isArray((context as { messages?: unknown[] }).messages)
+          ? ((context as { messages: unknown[] }).messages.at(-1) ?? {})
+          : {};
+        const continuationSeed = JSON.stringify(latestMessage).includes(
+          "Record a bounded continuation checkpoint before Repro compaction.",
+        );
         const toolApprovalReview = serializedContext.includes(
           "Review this Spark tool-call approval request before execution.",
         );
@@ -70,7 +79,9 @@ export default function registerScriptedJourneyProvider(api: {
         const taskCompletionReview =
           !toolApprovalReview &&
           (reviewerRequest || serializedContext.includes("spark.task-finish-review-packet/v1"));
-        if (availableTools.length === 0 || toolApprovalReview || taskCompletionReview) {
+        const compactionRequest =
+          availableTools.length === 0 && !toolApprovalReview && !taskCompletionReview;
+        if (continuationSeed || compactionRequest || toolApprovalReview || taskCompletionReview) {
           const toolApprovalOutcomeRecorded = serializedContext.includes(
             "Recorded completed outcome (journey_tool_approval_approved).",
           );
@@ -91,14 +102,34 @@ export default function registerScriptedJourneyProvider(api: {
                   blockers: [],
                   confidence: "high",
                 })
-              : "The deterministic Repro Journey is active and its durable owner state remains authoritative.";
+              : compactionRequest
+                ? JSON.stringify({
+                    version: 1,
+                    objective: "Continue the daemon-owned Repro v10 checkpoint sequence",
+                    completed: ["The current lane checkpoint has terminal TaskRun Evidence"],
+                    inProgress: ["Resume from the daemon-owned current checkpoint binding"],
+                    decisions: [
+                      "Session transcript is context; Repro owner state is authoritative",
+                    ],
+                    changedFiles: [],
+                    commands: [],
+                    failures: [],
+                    preservedFacts: [
+                      "Reuse the same lane Session and reload TaskRef and RunRef from the next prompt",
+                    ],
+                    unresolved: [],
+                    memoryRefs: [],
+                  })
+                : "Continuation checkpoint recorded; daemon-owned Repro state remains authoritative.";
           const auxiliaryLabel = taskCompletionReview
             ? "auxiliary.task-review"
             : toolApprovalReview
               ? toolApprovalOutcomeRecorded
                 ? "auxiliary.tool-approval.verdict"
                 : "auxiliary.tool-approval.outcome"
-              : "auxiliary.compaction";
+              : compactionRequest
+                ? "auxiliary.compaction"
+                : "auxiliary.continuation-seed";
           const auxiliaryContent =
             toolApprovalReview && !toolApprovalOutcomeRecorded
               ? [
@@ -135,13 +166,19 @@ export default function registerScriptedJourneyProvider(api: {
           }
           return stream;
         }
-        const round = ledger.rounds[ledger.cursor];
+        const refs = collectRefs(context);
+        const audience = scriptedAudience(refs);
+        const audienceRounds = ledger.rounds.filter(
+          (candidate) => (candidate.audience ?? "root") === audience,
+        );
+        const audienceCursor = ledger.cursors?.[audience] ?? 0;
+        const round = audienceRounds[audienceCursor];
         if (!round) {
           throw new Error(
-            `Spark Repro scripted provider received unexpected request ${ledger.cursor + 1}; configured ${ledger.rounds.length} round(s)`,
+            `Spark Repro scripted provider received unexpected ${audience} request ${audienceCursor + 1}; configured ${audienceRounds.length} round(s)`,
           );
         }
-        const refs = collectRefs(context);
+        rememberPreviousRoundOutput(ledger, refs, ledger.lastLabels?.[audience]);
         const content = [
           ...(round.text
             ? [{ type: "text" as const, text: interpolate(round.text, ledger, refs) }]
@@ -168,6 +205,8 @@ export default function registerScriptedJourneyProvider(api: {
           options as Parameters<typeof provider.streamFunction>[2],
         );
         ledger.cursor += 1;
+        (ledger.cursors ??= {})[audience] = audienceCursor + 1;
+        (ledger.lastLabels ??= {})[audience] = round.label;
         const request = provider.requests[0];
         if (request) ledger.requests.push(requestRecord(request));
         return stream;
@@ -258,15 +297,64 @@ interface ContextRefs {
   artifacts: string[];
   evidence: string[];
   tasks: string[];
+  runs: string[];
+  routes: string[];
+  workItems: string[];
+  revisions: string[];
+  binding: Record<string, string>;
 }
+
+type ScriptedAudience = "root" | "implementation" | "exactness" | "formalize";
 
 function collectRefs(value: unknown): ContextRefs {
   const serialized = JSON.stringify(value);
+  const text = collectStrings(value).join("\n");
+  const binding = Object.fromEntries(
+    [
+      ["reproId", "Repro"],
+      ["workItemId", "WorkItem"],
+      ["checkpointId", "Checkpoint"],
+      ["sourceCheckpointId", "Source checkpoint"],
+      ["parentCheckpointId", "Parent checkpoint"],
+      ["sessionId", "Session"],
+      ["taskRef", "TaskRef"],
+      ["runRef", "RunRef"],
+    ].flatMap(([key, label]) => {
+      const match = [...text.matchAll(new RegExp(`^${label}: (.+)$`, "gmu"))].at(-1)?.[1]?.trim();
+      return match && match !== "none" ? [[key, match]] : [];
+    }),
+  );
+  const checkpoint = [...text.matchAll(/Execute Repro v10 checkpoint ([a-z_]+)/gu)].at(-1)?.[1];
+  if (checkpoint) {
+    binding.checkpoint = checkpoint;
+    binding.lane = checkpoint.startsWith("implementation")
+      ? "implementation"
+      : checkpoint.startsWith("exactness")
+        ? "exactness"
+        : "formalize";
+  }
   return {
     artifacts: uniqueMatches(serialized, /artifact:[a-z0-9-]+/giu),
     evidence: uniqueMatches(serialized, /evidence:[a-z0-9-]+/giu),
     tasks: uniqueMatches(serialized, /task:[a-z0-9-]+/giu),
+    runs: uniqueMatches(serialized, /run:[a-z0-9-]+/giu),
+    routes: uniqueMatches(serialized, /route:[a-z0-9._:-]+/giu),
+    workItems: uniqueMatches(serialized, /work:[a-z0-9._:-]+/giu),
+    revisions: uniqueMatches(serialized, /\b[a-f0-9]{40}\b/giu),
+    binding,
   };
+}
+
+function collectStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStrings);
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value).flatMap(collectStrings);
+}
+
+function scriptedAudience(refs: ContextRefs): ScriptedAudience {
+  const lane = refs.binding.lane;
+  return lane === "implementation" || lane === "exactness" || lane === "formalize" ? lane : "root";
 }
 
 function uniqueMatches(value: string, pattern: RegExp): string[] {
@@ -278,7 +366,9 @@ function interpolateValue(
   ledger: ScriptedProviderLedger,
   refs: ContextRefs,
 ): unknown {
-  if (typeof value === "string") return interpolate(value, ledger, refs);
+  if (typeof value === "string") {
+    return interpolate(value, ledger, refs);
+  }
   if (Array.isArray(value)) return value.map((entry) => interpolateValue(entry, ledger, refs));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
@@ -293,14 +383,69 @@ function interpolate(value: string, ledger: ScriptedProviderLedger, refs: Contex
     if (name === "LAST_ARTIFACT_REF") return refs.artifacts.at(-1) ?? missing(name);
     if (name === "LAST_EVIDENCE_REF") return refs.evidence.at(-1) ?? missing(name);
     if (name === "LAST_TASK_REF") return refs.tasks.at(-1) ?? missing(name);
+    if (name === "LAST_RUN_REF") return refs.runs.at(-1) ?? missing(name);
+    if (name === "LAST_ROUTE_ID") return refs.routes.at(-1) ?? missing(name);
+    if (name === "LAST_WORK_ITEM_ID") return refs.workItems.at(-1) ?? missing(name);
+    if (name === "LAST_REVISION") return refs.revisions.at(-1) ?? missing(name);
+    const bindingKey =
+      /^BINDING_(REPRO_ID|WORK_ITEM_ID|CHECKPOINT_ID|SOURCE_CHECKPOINT_ID|PARENT_CHECKPOINT_ID|SESSION_ID|TASK_REF|RUN_REF|LANE|CHECKPOINT)$/u.exec(
+        name,
+      )?.[1];
+    if (bindingKey) {
+      const key =
+        {
+          REPRO_ID: "reproId",
+          WORK_ITEM_ID: "workItemId",
+          CHECKPOINT_ID: "checkpointId",
+          SOURCE_CHECKPOINT_ID: "sourceCheckpointId",
+          PARENT_CHECKPOINT_ID: "parentCheckpointId",
+          SESSION_ID: "sessionId",
+          TASK_REF: "taskRef",
+          RUN_REF: "runRef",
+          LANE: "lane",
+          CHECKPOINT: "checkpoint",
+        }[bindingKey] ?? "";
+      return refs.binding[key] ?? missing(name);
+    }
     const artifactIndex = /^ARTIFACT_REF_(\d+)$/u.exec(name)?.[1];
     if (artifactIndex) return refs.artifacts[Number(artifactIndex) - 1] ?? missing(name);
     const evidenceIndex = /^EVIDENCE_REF_(\d+)$/u.exec(name)?.[1];
     if (evidenceIndex) return refs.evidence[Number(evidenceIndex) - 1] ?? missing(name);
     const taskIndex = /^TASK_REF_(\d+)$/u.exec(name)?.[1];
     if (taskIndex) return refs.tasks[Number(taskIndex) - 1] ?? missing(name);
+    const runIndex = /^RUN_REF_(\d+)$/u.exec(name)?.[1];
+    if (runIndex) return refs.runs[Number(runIndex) - 1] ?? missing(name);
+    const routeIndex = /^ROUTE_ID_(\d+)$/u.exec(name)?.[1];
+    if (routeIndex) return refs.routes[Number(routeIndex) - 1] ?? missing(name);
+    const revisionIndex = /^REVISION_(\d+)$/u.exec(name)?.[1];
+    if (revisionIndex) return refs.revisions[Number(revisionIndex) - 1] ?? missing(name);
     return missing(name);
   });
+}
+
+function rememberPreviousRoundOutput(
+  ledger: ScriptedProviderLedger,
+  refs: ContextRefs,
+  previous: string | undefined,
+): void {
+  const evidenceVariable =
+    previous &&
+    {
+      "implementation.proof": "IMPLEMENTATION_PROOF_EVIDENCE",
+      "implementation.result": "IMPLEMENTATION_RESULT_EVIDENCE",
+      "implementation-attention.proof": "IMPLEMENTATION_ATTENTION_PROOF_EVIDENCE",
+      "implementation-attention.result": "IMPLEMENTATION_ATTENTION_RESULT_EVIDENCE",
+      "exactness.proof": "EXACTNESS_PROOF_EVIDENCE",
+      "exactness.result": "EXACTNESS_RESULT_EVIDENCE",
+      "formalize.proof": "FORMALIZE_PROOF_EVIDENCE",
+      "formalize.result": "FORMALIZE_RESULT_EVIDENCE",
+      "exactness-refresh.proof": "EXACTNESS_REFRESH_PROOF_EVIDENCE",
+      "exactness-refresh.result": "EXACTNESS_REFRESH_RESULT_EVIDENCE",
+      "implementation-refresh.proof": "IMPLEMENTATION_REFRESH_PROOF_EVIDENCE",
+      "implementation-refresh.result": "IMPLEMENTATION_REFRESH_RESULT_EVIDENCE",
+    }[previous];
+  const evidenceRef = refs.evidence.at(-1);
+  if (evidenceVariable && evidenceRef) (ledger.vars ??= {})[evidenceVariable] = evidenceRef;
 }
 
 function missing(name: string): never {

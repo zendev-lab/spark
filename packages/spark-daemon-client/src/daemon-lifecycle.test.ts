@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ensureSparkDaemonRunning, resolveSparkDaemonServiceCommand } from "./daemon-lifecycle.ts";
+import {
+  ensureSparkDaemonRunning,
+  resolveSparkDaemonServiceCommand,
+  SparkDaemonStartupError,
+} from "./daemon-lifecycle.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -25,14 +29,14 @@ describe("Spark daemon lifecycle client", () => {
 
     await ensureSparkDaemonRunning({
       paths: { runtimeDir: "/tmp/runtime", logDir: "/tmp/log" },
-      requestStatus: async () => ({ ready: true }),
+      requestStatus: async () => ({ lifecycle: { state: "running" } }),
       startService,
     });
 
     expect(startService).not.toHaveBeenCalled();
   });
 
-  it("starts once and requires a real status response before returning", async () => {
+  it("starts once and waits for a running lifecycle before returning", async () => {
     let attempts = 0;
     const startService = vi.fn();
 
@@ -41,8 +45,8 @@ describe("Spark daemon lifecycle client", () => {
       serviceCommand: { command: "spark", args: ["daemon"] },
       requestStatus: async () => {
         attempts += 1;
-        if (attempts < 3) throw new Error("not ready");
-        return { ready: true };
+        if (attempts === 1) throw new Error("not reachable");
+        return { lifecycle: { state: attempts === 2 ? "starting" : "running" } };
       },
       startService,
       sleep: async () => undefined,
@@ -57,24 +61,82 @@ describe("Spark daemon lifecycle client", () => {
     expect(attempts).toBe(3);
   });
 
+  it("waits for an already starting daemon without dispatching another start", async () => {
+    let attempts = 0;
+    const startService = vi.fn();
+
+    await ensureSparkDaemonRunning({
+      paths: { runtimeDir: "/tmp/runtime", logDir: "/tmp/log" },
+      requestStatus: async () => {
+        attempts += 1;
+        return { lifecycle: { state: attempts === 1 ? "starting" : "running" } };
+      },
+      startService,
+      sleep: async () => undefined,
+    });
+
+    expect(startService).not.toHaveBeenCalled();
+    expect(attempts).toBe(2);
+  });
+
   it("fails with the last status error after the startup deadline", async () => {
     let now = 0;
 
-    await expect(
-      ensureSparkDaemonRunning({
-        paths: { runtimeDir: "/tmp/runtime", logDir: "/tmp/log" },
-        serviceCommand: { command: "spark", args: ["daemon"] },
-        requestStatus: async () => {
-          throw new Error("socket unavailable");
-        },
-        startService: async () => undefined,
-        startupTimeoutMs: 100,
-        now: () => now,
-        sleep: async (delayMs) => {
-          now += delayMs;
-        },
-      }),
-    ).rejects.toThrow("Spark daemon is not reachable after service start: socket unavailable");
+    const failure = ensureSparkDaemonRunning({
+      paths: { runtimeDir: "/tmp/runtime", logDir: "/tmp/log" },
+      serviceCommand: { command: "spark", args: ["daemon"] },
+      requestStatus: async () => {
+        throw new Error("socket unavailable");
+      },
+      startService: async () => undefined,
+      startupTimeoutMs: 100,
+      now: () => now,
+      sleep: async (delayMs) => {
+        now += delayMs;
+      },
+    });
+    await expect(failure).rejects.toThrow("Spark daemon did not become ready: socket unavailable");
+    await expect(failure).rejects.toMatchObject({
+      code: "DAEMON_START_FAILED",
+      diagnostic: "socket unavailable",
+      serviceLogPath: "/tmp/log/service.stderr.log",
+    });
+  });
+
+  it("prefers the new daemon log diagnostic over the final socket symptom", async () => {
+    const root = temporaryDirectory("spark-daemon-startup-log-");
+    const logDir = join(root, "logs");
+    mkdirSync(logDir, { recursive: true });
+    const logPath = join(logDir, "service.stderr.log");
+    writeFileSync(logPath, "previous failure\n", "utf8");
+    let now = 0;
+
+    const failure = ensureSparkDaemonRunning({
+      paths: { runtimeDir: join(root, "run"), logDir },
+      serviceCommand: { command: "spark", args: ["daemon"] },
+      requestStatus: async () => {
+        throw new Error(`connect ENOENT ${join(root, "run", "daemon.sock")}`);
+      },
+      startService: async () => {
+        writeFileSync(
+          logPath,
+          "[spark-daemon] execution reconcile failed\nno such column: serialization_key\n",
+          { flag: "a" },
+        );
+      },
+      startupTimeoutMs: 100,
+      now: () => now,
+      sleep: async (delayMs) => {
+        now += delayMs;
+      },
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(SparkDaemonStartupError);
+    await expect(failure).rejects.toMatchObject({
+      diagnostic: "no such column: serialization_key",
+      connectionDetail: expect.stringContaining("connect ENOENT"),
+      serviceLogPath: logPath,
+    });
   });
 
   it("prefers an explicit packaged entrypoint and validates source builds", () => {

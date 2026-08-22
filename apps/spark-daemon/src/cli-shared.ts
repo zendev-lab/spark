@@ -1,6 +1,11 @@
 import { createInterface } from "node:readline/promises";
 import { ensureSparkPathDirs, resolveSparkPaths } from "@zendev-lab/spark-system";
-import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
+import {
+  formatSparkCliError,
+  sparkDaemonCliStrings,
+  SparkCliError,
+  type SparkCliErrorDescriptor,
+} from "@zendev-lab/spark-i18n/cli";
 import { readSparkDaemonConfig } from "./config.js";
 import {
   listSparkDaemonServerProfiles,
@@ -50,6 +55,26 @@ export interface CliIo {
 export const defaultIo: CliIo = { stdout: process.stdout, stderr: process.stderr };
 export const STRINGS = sparkDaemonCliStrings();
 
+export function writeSparkDaemonCliError(
+  io: CliIo,
+  error: unknown,
+  fallback: Partial<SparkCliErrorDescriptor> = {},
+): void {
+  io.stderr.write(formatSparkCliError(error, fallback));
+}
+
+export function writeSparkDaemonUsageError(
+  io: CliIo,
+  title: string,
+  hints: readonly string[],
+): number {
+  writeSparkDaemonCliError(
+    io,
+    new SparkCliError({ code: "INVALID_ARGUMENT", title, hints, exitCode: 2 }),
+  );
+  return 2;
+}
+
 export class SparkDaemonUnavailableError extends Error {
   constructor(cause: unknown, options: { running?: boolean } = {}) {
     const prefix =
@@ -68,8 +93,26 @@ export function prepareSparkDaemonState(paths: ReturnType<typeof resolveSparkPat
   ensureSparkPathDirs(paths);
 }
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+export { errorMessage, stringValue } from "./text.ts";
+
+export function padColumn(value: string, width: number): string {
+  return value.length >= width ? value : `${value}${" ".repeat(width - value.length)}`;
+}
+
+export function truncateColumn(value: string, width: number): string {
+  if (value.length <= width) return value;
+  if (width <= 1) return value.slice(0, Math.max(1, width));
+  return `${value.slice(0, width - 1)}…`;
+}
+
+export function shortTimestamp(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) return "-";
+  if (Number.isNaN(Date.parse(value))) return value;
+  return value.slice(5, 16).replace("T", " ");
+}
+
+export function yesNo(value: unknown): string {
+  return value === true ? "yes" : "no";
 }
 
 export function startSparkDaemonProcess(
@@ -159,7 +202,15 @@ export async function confirmAction(
 
   const stdin = io.stdin ?? process.stdin;
   if (!stdin.isTTY) {
-    io.stderr.write(`${question} Pass --yes to confirm in non-interactive environments.\n`);
+    writeSparkDaemonCliError(
+      io,
+      new SparkCliError({
+        code: "CONFIRMATION_REQUIRED",
+        title: question,
+        hints: ["Pass --yes to confirm in non-interactive environments."],
+        exitCode: 2,
+      }),
+    );
     return false;
   }
 
@@ -200,7 +251,8 @@ Commands:
   spark daemon
   spark daemon --workspace <id>
   login --server-url <url> [--no-open] [--allow-insecure-http]
-  workspace register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
+  workspace register [path] [--name <name>] [--profile <path-or-git-url>]
+  workspace register [path] --token <workspace-registration-token|-> [--name <name>] [--server-url <url>]
   workspace relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
   workspace migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   workspace ls [--json] [--all] [--full]
@@ -211,7 +263,8 @@ Commands:
   uplink prefer --workspace <id> --server-url <origin>
   uplink status [--json]
   ws
-  status
+  doctor [--json]
+  status [--json]
   configure --invocation-concurrency <integer 1..64> [--json]
   start [--no-wait] [--json]
   stop [--yes] [--wait]
@@ -223,8 +276,9 @@ Commands:
   session <list|show|create|bind|unbind|archive|inbox> [args...]
   spark daemon session show <session-id>
   invocation <list|status|result|stream|cancel|retry|retention> [args...]
-  channel <status|reload|notify> [args...]
-  spark daemon channel status --workspace <id>
+  channel <status|configure|reload|notify> [args...]
+  spark daemon channel status [--json]
+  spark daemon channel configure --file <channels.json> [--json]
   run <list|show|cancel> [args...]
   spark daemon run cancel <run-id>
   events watch [--json]
@@ -235,7 +289,7 @@ Workspace markers use id; name is display-only.
 
 Example:
   spark daemon login --server-url http://127.0.0.1:5173
-  spark daemon workspace register . --server-url http://127.0.0.1:5173 --token <workspace-token> --name <ws>
+  spark daemon workspace register . --name <ws>
   spark daemon uplink park --server-url https://prod.example/
   spark daemon uplink prefer --workspace rtwb_… --server-url http://127.0.0.1:5173/
 `);
@@ -245,7 +299,8 @@ export function printWorkspaceHelp(io: CliIo): void {
   io.stdout.write(`Usage: spark daemon workspace <command>
 
 Commands:
-  register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
+  register [path] [--name <name>] [--profile <path-or-git-url>]
+  register [path] --token <workspace-registration-token|-> [--name <name>] [--server-url <url>]
   relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
   migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   ls [--json] [--all] [--full]
@@ -270,8 +325,8 @@ export function printLoginHelp(io: CliIo): void {
   io.stdout.write(`Usage: spark daemon login --server-url <url> [--no-open] [--allow-insecure-http]
 
 Authorize this daemon machine in Spark Hub. The stored machine credential is
-only for connectivity and refresh. Every workspace registration still consumes
-a fresh one-time workspace registration token.
+only for connectivity and refresh. Hub uplink is scheduled from this origin;
+local workspaces stay local until announced with a fresh one-time workspace token.
 Non-loopback Hub URLs require HTTPS unless --allow-insecure-http is supplied.
 `);
 }

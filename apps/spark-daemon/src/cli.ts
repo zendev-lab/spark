@@ -15,7 +15,10 @@ import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { resolvePiAuthSourcePath } from "@zendev-lab/spark-ai/control";
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
+import { resolvePiAuthSourcePath } from "@zendev-lab/spark-llm/control";
 import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
@@ -27,6 +30,7 @@ import { sparkDaemonVersion } from "./daemon.js";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
+  scheduledSparkDaemonHubOrigin,
   sparkDaemonConfigForServerProfile,
   type SparkDaemonServerProfile,
 } from "./server-profiles.js";
@@ -93,10 +97,14 @@ import {
   startSparkDaemonProcess,
   syncSparkDaemonIfConfigured,
   errorMessage,
+  padColumn,
+  truncateColumn,
   readStdinLine,
   promptSecret,
   promptWithDefault,
   resolveInvocationCwd,
+  writeSparkDaemonCliError,
+  writeSparkDaemonUsageError,
 } from "./cli-shared.ts";
 import {
   bindCliDaemonLogs,
@@ -117,39 +125,108 @@ import { runSparkDaemonControlCommand } from "./control-cli.ts";
 export type { CliIo } from "./cli-shared.ts";
 export { sparkDaemonServiceExitCode } from "./cli-daemon-lifecycle.ts";
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkDaemonCommandParser = or(
+  or(
+    command("help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("install", object({ kind: constant("install" as const), argv: remainingArgv() })),
+    command("doctor", object({ kind: constant("doctor" as const), argv: remainingArgv() })),
+    command("status", object({ kind: constant("status" as const), argv: remainingArgv() })),
+    command("logs", object({ kind: constant("logs" as const), argv: remainingArgv() })),
+    command("login", object({ kind: constant("login" as const), argv: remainingArgv() })),
+    command("auth", object({ kind: constant("auth" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("start", object({ kind: constant("start" as const), argv: remainingArgv() })),
+    command(
+      "__service-start",
+      object({ kind: constant("serviceStart" as const), argv: remainingArgv() }),
+    ),
+    command("stop", object({ kind: constant("stop" as const), argv: remainingArgv() })),
+    command("restart", object({ kind: constant("restart" as const), argv: remainingArgv() })),
+    command("sync", object({ kind: constant("sync" as const), argv: remainingArgv() })),
+    command(
+      "__restart-successor",
+      object({ kind: constant("restartSuccessor" as const), argv: remainingArgv() }),
+    ),
+    command("submit", object({ kind: constant("submit" as const), argv: remainingArgv() })),
+    command("ask", object({ kind: constant("ask" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("model", object({ kind: constant("model" as const), argv: remainingArgv() })),
+    command("invocation", object({ kind: constant("invocation" as const), argv: remainingArgv() })),
+    command("session", object({ kind: constant("session" as const), argv: remainingArgv() })),
+    command("sessions", object({ kind: constant("sessions" as const), argv: remainingArgv() })),
+    command("channel", object({ kind: constant("channel" as const), argv: remainingArgv() })),
+    command("channels", object({ kind: constant("channels" as const), argv: remainingArgv() })),
+    command("run", object({ kind: constant("run" as const), argv: remainingArgv() })),
+    command("runs", object({ kind: constant("runs" as const), argv: remainingArgv() })),
+    command("events", object({ kind: constant("events" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("workspace", object({ kind: constant("workspace" as const), argv: remainingArgv() })),
+    command("ws", object({ kind: constant("workspace" as const), argv: remainingArgv() })),
+    command("uplink", object({ kind: constant("uplink" as const), argv: remainingArgv() })),
+    command("daemon", object({ kind: constant("daemon" as const), argv: remainingArgv() })),
+  ),
+  object({ kind: constant("empty" as const) }),
+);
+
+function classifySparkDaemonCommand(argv: string[]) {
+  const result = parse(sparkDaemonCommandParser, argv);
+  if (result.success) {
+    if (result.value.kind === "empty") return result.value;
+    return { ...result.value, argv: [...result.value.argv] };
+  }
+  const first = argv[0];
+  if (first?.startsWith("--")) return { kind: "workspaceDefault" as const, argv };
+  return { kind: "unknown" as const, command: first ?? "" };
+}
+
 export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo): Promise<number> {
   const args = argv[0] === "--" ? argv.slice(1) : argv;
-  const [command, subcommand, ...rest] = args;
+  const classified = classifySparkDaemonCommand(args);
   const paths = resolveSparkPaths({ app: "daemon" });
 
   try {
-    if (command === "help" || command === "--help" || command === "-h") {
-      printHelp(io);
-      return 0;
-    }
-
-    if (command?.startsWith("--")) {
-      return await defaultWorkspace(paths, args, io);
-    }
-
-    switch (command) {
-      case undefined:
+    switch (classified.kind) {
+      case "help":
+        printHelp(io);
+        return 0;
+      case "workspaceDefault":
+        return await defaultWorkspace(paths, classified.argv, io);
+      case "empty":
         return await defaultWorkspace(paths, [], io);
+      case "unknown": {
+        const title = STRINGS.unknownCommand(classified.command);
+        writeSparkDaemonCliError(io, new Error(title), {
+          code: "UNKNOWN_COMMAND",
+          title,
+          hints: ['Run "spark daemon --help" to see the supported commands.'],
+          exitCode: 2,
+        });
+        return 2;
+      }
       case "install":
         return install(paths, io);
       case "doctor":
-        return await doctor(paths, io);
+        return await doctor(paths, args.slice(1), io);
       case "status":
-        return await status(paths, io);
+        return await status(paths, args.slice(1), io);
       case "logs":
-        return await logs(paths, args.slice(1), io);
+        return await logs(paths, classified.argv, io);
       case "login":
-        return await login(paths, args.slice(1), io);
-      case "auth":
+        return await login(paths, classified.argv, io);
+      case "auth": {
+        const [subcommand, ...rest] = classified.argv;
         return await providerAuth(paths, subcommand, rest, io);
+      }
       case "start": {
         const managed = process.env.XPC_SERVICE_NAME === "dev.spark.daemon";
-        if (!managed) return await startCommand(paths, args.slice(1), io);
+        if (!managed) return await startCommand(paths, classified.argv, io);
         return await start(paths, {
           // Plists created by older Spark versions invoked `start` directly.
           // launchd exposes the label here, so legacy managed activation must
@@ -158,7 +235,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
           managed,
         });
       }
-      case "__service-start":
+      case "serviceStart":
         // This entrypoint is shared by launchd and detached starts. Only the
         // former has a supervisor that can replace a planned restart exit.
         return await start(paths, {
@@ -167,17 +244,17 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
           expectedRestartId: process.env.SPARK_DAEMON_EXPECTED_RESTART_ID?.trim() || undefined,
         });
       case "stop":
-        return await stop(paths, args.slice(1), io);
+        return await stop(paths, classified.argv, io);
       case "restart":
-        return await restart(paths, args.slice(1), io);
+        return await restart(paths, classified.argv, io);
       case "sync":
-        return await daemonSync(paths, args.slice(1), io);
-      case "__restart-successor":
-        return await restartSuccessor(paths, args.slice(1), io);
+        return await daemonSync(paths, classified.argv, io);
+      case "restartSuccessor":
+        return await restartSuccessor(paths, classified.argv, io);
       case "submit":
-        return await daemonSubmit(paths, args.slice(1), io);
+        return await daemonSubmit(paths, classified.argv, io);
       case "ask":
-        return await daemonAsk(paths, args.slice(1), io);
+        return await daemonAsk(paths, classified.argv, io);
       case "model":
       case "invocation":
       case "session":
@@ -187,32 +264,55 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       case "run":
       case "runs":
       case "events":
-        return await runSparkDaemonControlCommand(paths, command, args.slice(1), io);
-      case "workspace":
-      case "ws":
+        return await runSparkDaemonControlCommand(paths, classified.kind, classified.argv, io);
+      case "workspace": {
+        const [subcommand, ...rest] = classified.argv;
         return await workspace(paths, subcommand, rest, io);
-      case "uplink":
+      }
+      case "uplink": {
+        const [subcommand, ...rest] = classified.argv;
         return await uplink(paths, subcommand, rest, io);
-      case "daemon":
+      }
+      case "daemon": {
+        const [subcommand, ...rest] = classified.argv;
         return await daemon(paths, subcommand, rest, io);
-      default:
-        io.stderr.write(`${STRINGS.unknownCommand(command)}\n`);
-        printHelp(io);
-        return 2;
+      }
+      default: {
+        const exhaustive: never = classified;
+        return exhaustive;
+      }
     }
   } catch (error) {
-    io.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     if (
       error instanceof WorkspacePathConflictError ||
       error instanceof WorkspacePathValidationError ||
       error instanceof RegistrationGrantRefusedError ||
       error instanceof DeviceAuthorizationError
     ) {
+      writeSparkDaemonCliError(io, error, {
+        code: "DAEMON_REQUEST_REJECTED",
+        title: "Spark daemon rejected the request",
+        hints: ['Run the selected command with "--help" and correct the reported input.'],
+        exitCode: 3,
+      });
       return 3;
     }
     if (error instanceof SparkDaemonUnavailableError || error instanceof LocalRpcUnavailableError) {
+      writeSparkDaemonCliError(io, error, {
+        code: "DAEMON_UNAVAILABLE",
+        title: "Spark daemon is unavailable",
+        hints: [
+          'Run "spark daemon status" to inspect the service.',
+          'Run "spark daemon logs --lines 100" for startup details.',
+        ],
+        exitCode: 2,
+      });
       return 2;
     }
+    writeSparkDaemonCliError(io, error, {
+      code: "DAEMON_COMMAND_FAILED",
+      title: "Spark daemon command failed",
+    });
     return 1;
   }
 }
@@ -304,7 +404,10 @@ async function providerAuth(
         )}\n`,
       );
     } else {
-      io.stderr.write(`${message}\n`);
+      writeSparkDaemonCliError(io, new Error(message), {
+        code: "AUTH_IMPORT_FAILED",
+        title: "Provider credential import failed",
+      });
     }
     return 1;
   }
@@ -493,10 +596,10 @@ function printProviderAuthHelp(io: CliIo): void {
 }
 
 function providerAuthUsageError(io: CliIo): number {
-  io.stderr.write(
-    "Usage: spark daemon auth <status|login|logout|import> (run `spark daemon auth --help`)\n",
-  );
-  return 2;
+  return writeSparkDaemonUsageError(io, "Invalid provider authentication command", [
+    "Usage: spark daemon auth <status|login|logout|import>",
+    'Run "spark daemon auth --help" to see the supported commands.',
+  ]);
 }
 
 function renderProviderAuthImportReport(
@@ -649,7 +752,28 @@ function serverProfileStatus(
   };
 }
 
-async function doctor(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): Promise<number> {
+async function doctor(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  if (args.some((arg) => arg !== "--json")) {
+    return writeSparkDaemonUsageError(io, "Invalid spark daemon doctor options", [
+      'The command accepts only the optional "--json" flag.',
+      'Run "spark daemon doctor --help" for usage.',
+    ]);
+  }
+  const report = await buildDoctorReport(paths, io);
+  io.stdout.write(
+    args.includes("--json") ? `${JSON.stringify(report, null, 2)}\n` : renderDoctorText(report),
+  );
+  return 0;
+}
+
+async function buildDoctorReport(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  io: CliIo,
+): Promise<DoctorReport> {
   prepareSparkDaemonState(paths);
   const config = readSparkDaemonConfig(paths);
   const profiles = listSparkDaemonServerProfiles(paths);
@@ -660,47 +784,119 @@ async function doctor(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
     credentialServers.length > 0 && credentialServers.every((server) => server.runnable);
   const primary = profiles[0];
   const hub = buildDoctorHubStatus();
-  io.stdout.write(
-    JSON.stringify(
-      {
-        version: sparkDaemonVersion,
-        checks: {
-          daemon: {
-            ok: daemon.running === true,
-            running: daemon.running,
-            socketPath: daemon.socketPath,
-            ...(daemon.running ? { invocations: daemon.invocations } : {}),
-            ...("unreachable" in daemon && daemon.unreachable
-              ? { unreachable: true, error: daemon.error }
-              : {}),
-          },
-          credentials: {
-            ok: credentialsOk,
-            enrolled: credentialServers.some((server) => server.enrolled),
-            servers: credentialServers,
-          },
-          workspace,
-          hub,
-        },
-        paths,
-        config: {
-          installationId: config.installationId,
-          displayName: config.displayName,
-          // Retain the single-server fields as a compatibility projection when
-          // exactly one profile exists; `servers` is authoritative.
-          serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
-          runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
-          runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
-          refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
-          enrolled: credentialServers.some((server) => server.enrolled),
-          servers: credentialServers,
-        },
+  return {
+    version: sparkDaemonVersion,
+    checks: {
+      daemon: {
+        ok: daemon.running === true,
+        running: daemon.running,
+        socketPath: daemon.socketPath,
+        ...(daemon.running ? { invocations: daemon.invocations } : {}),
+        ...("unreachable" in daemon && daemon.unreachable
+          ? { unreachable: true, error: daemon.error }
+          : {}),
       },
-      null,
-      2,
-    ) + "\n",
+      credentials: {
+        ok: credentialsOk,
+        enrolled: credentialServers.some((server) => server.enrolled),
+        servers: credentialServers,
+      },
+      workspace,
+      hub,
+    },
+    paths,
+    config: {
+      installationId: config.installationId,
+      displayName: config.displayName,
+      // Retain the single-server fields as a compatibility projection when
+      // exactly one profile exists; `servers` is authoritative.
+      serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
+      runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
+      runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
+      refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
+      enrolled: credentialServers.some((server) => server.enrolled),
+      servers: credentialServers,
+    },
+  };
+}
+
+type DoctorReport = {
+  version: string;
+  checks: {
+    daemon: {
+      ok: boolean;
+      running: boolean | undefined;
+      socketPath: string;
+      invocations?: {
+        queued: number;
+        running: number;
+        succeeded: number;
+        failed: number;
+        cancelled: number;
+      };
+      unreachable?: boolean;
+      error?: string;
+    };
+    credentials: {
+      ok: boolean;
+      enrolled: boolean;
+      servers: Array<{ runnable: boolean }>;
+    };
+    workspace: Record<string, unknown>;
+    hub: Record<string, unknown>;
+  };
+  paths: ReturnType<typeof resolveSparkPaths>;
+  config: {
+    installationId: string;
+    displayName: string;
+    serverUrl?: string;
+    runtimeId?: string;
+    runtimeTokenExpiresAt?: string;
+    refreshTokenExpiresAt?: string;
+    enrolled: boolean;
+    servers: unknown[];
+  };
+};
+
+function renderDoctorText(report: DoctorReport): string {
+  const { daemon, credentials, workspace, hub } = report.checks;
+  const daemonDetail = daemon.running
+    ? `running, socket ${daemon.socketPath}, ${daemon.invocations?.running ?? 0} running / ${daemon.invocations?.queued ?? 0} queued invocations`
+    : (daemon.error ?? `not running (socket ${daemon.socketPath})`);
+  const credentialsDetail = credentials.enrolled
+    ? `${credentials.servers.filter((server) => server.runnable).length}/${credentials.servers.length} servers runnable`
+    : "not enrolled";
+  const workspaceDetail =
+    typeof workspace.detail === "string"
+      ? workspace.detail
+      : workspace.reachable === true
+        ? `${typeof workspace.workspaces === "number" ? workspace.workspaces : 0} workspaces`
+        : typeof workspace.error === "string"
+          ? workspace.error
+          : "unreachable";
+  const hubDetail =
+    [
+      hub.packageAvailable === true ? "package available" : undefined,
+      hub.commandAvailable === true && typeof hub.command === "string"
+        ? `${hub.command} on PATH`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(", ") || (typeof hub.error === "string" ? hub.error : "unavailable");
+  return (
+    [
+      `Spark ${report.version}`,
+      checkLine("daemon", daemon.ok, daemonDetail),
+      checkLine("credentials", credentials.ok, credentialsDetail),
+      checkLine("workspace", workspace.ok === true, workspaceDetail),
+      checkLine("hub", hub.ok === true, hubDetail),
+      `config: ${report.paths.configFile} (${report.config.installationId}, ${report.config.displayName})`,
+    ].join("\n") + "\n"
   );
-  return 0;
+}
+
+function checkLine(label: string, ok: boolean, detail: string): string {
+  return `${label}: ${ok ? "ok" : "FAIL"} — ${detail}`;
 }
 
 async function buildDoctorWorkspaceStatus(
@@ -753,7 +949,27 @@ function buildDoctorHubStatus(): Record<string, unknown> {
   };
 }
 
-async function status(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): Promise<number> {
+async function status(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  if (args.some((arg) => arg !== "--json")) {
+    return writeSparkDaemonUsageError(io, "Invalid spark daemon status options", [
+      'The command accepts only the optional "--json" flag.',
+      'Run "spark daemon status --help" for usage.',
+    ]);
+  }
+  const report = await buildStatusReport(paths, io);
+  io.stdout.write(
+    args.includes("--json")
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : renderDaemonStatusText(report),
+  );
+  return 0;
+}
+
+async function buildStatusReport(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo) {
   prepareSparkDaemonState(paths);
   const config = readSparkDaemonConfig(paths);
   const profiles = listSparkDaemonServerProfiles(paths);
@@ -763,36 +979,61 @@ async function status(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
   const workspaceCount = daemon.running
     ? daemon.servers.reduce((sum, server) => sum + server.workspaceCount, 0)
     : 0;
-  io.stdout.write(
-    JSON.stringify(
-      {
-        action: "status",
-        daemon,
-        enrolled: credentialServers.some((server) => server.enrolled),
-        runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
-        serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
-        runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
-        refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
-        servers: credentialServers.map((server) => ({
-          ...server,
-          ...(daemon.running
-            ? {
-                connection:
-                  daemon.servers.find((current) => current.url === server.serverUrl) ?? null,
-              }
-            : {}),
-        })),
-        workspaceCount,
-        daemonRunning: daemon.running,
-        invocations: daemon.running ? daemon.invocations : undefined,
-        lifecycle: daemon.running ? daemon.lifecycle : undefined,
-        pidFile: paths.pidFile,
-      },
-      null,
-      2,
-    ) + "\n",
+  return {
+    action: "status" as const,
+    daemon,
+    enrolled: credentialServers.some((server) => server.enrolled),
+    runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
+    serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
+    runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
+    refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
+    servers: credentialServers.map((server) => ({
+      ...server,
+      ...(daemon.running
+        ? {
+            connection: daemon.servers.find((current) => current.url === server.serverUrl) ?? null,
+          }
+        : {}),
+    })),
+    workspaceCount,
+    daemonRunning: daemon.running,
+    invocations: daemon.running ? daemon.invocations : undefined,
+    lifecycle: daemon.running ? daemon.lifecycle : undefined,
+    pidFile: paths.pidFile,
+  };
+}
+
+type DaemonStatusReport = Awaited<ReturnType<typeof buildStatusReport>>;
+
+function renderDaemonStatusText(report: DaemonStatusReport): string {
+  const lines: string[] = [];
+  if (report.daemon.running) {
+    const daemon = report.daemon;
+    lines.push(`daemon: running (pid ${daemon.pid}, socket ${daemon.socketPath})`);
+    if (daemon.lifecycle?.state) lines.push(`lifecycle: ${daemon.lifecycle.state}`);
+    if (daemon.build.runningVersion ?? daemon.build.availableVersion) {
+      lines.push(
+        `build: ${daemon.build.runningVersion ?? daemon.build.availableVersion}${daemon.build.updateAvailable ? ` (update available: ${daemon.build.availableVersion})` : ""}`,
+      );
+    }
+  } else if ("unreachable" in report.daemon && report.daemon.unreachable) {
+    lines.push(`daemon: unreachable (pid ${report.daemon.pid}) — ${report.daemon.error}`);
+  } else {
+    lines.push(`daemon: not running (socket ${report.daemon.socketPath})`);
+  }
+  const connected = report.servers.filter(
+    (server) => server.connection?.wsConnected === true,
+  ).length;
+  lines.push(
+    `servers: ${report.servers.filter((server) => server.enrolled).length} enrolled, ${connected} connected`,
   );
-  return 0;
+  lines.push(`workspaces: ${report.workspaceCount}`);
+  if (report.invocations) {
+    lines.push(
+      `invocations: ${report.invocations.running} running, ${report.invocations.queued} queued`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 async function workspace(
@@ -865,26 +1106,30 @@ async function registerWorkspaceCommand(
   const localPath = resolveWorkspacePath(pathArg);
   assertDirectory(localPath);
 
-  const config = readSparkDaemonConfig(paths);
-  const profiles = listSparkDaemonServerProfiles(paths);
-  const registrationDefault =
-    profiles.length === 1 ? sparkDaemonConfigForServerProfile(config, profiles[0]!) : config;
-  const serverUrl = await resolveRegistrationServerUrl(flags, registrationDefault, io, {
-    interactive,
-  });
-  const registrationToken = await resolveRegistrationToken(flags, io, {
-    interactive,
-  });
-  if (!registrationToken) {
+  const wantsHubAnnounce = Boolean(registrationToken(flags) || flags.token === "-");
+  if ((flags["server-url"] || flags.server) && !wantsHubAnnounce) {
+    throw new Error(
+      "Hub origin is owned by this daemon. Run spark daemon login --server-url <url>. Pass --token to announce a Hub projection.",
+    );
+  }
+  const serverUrl = wantsHubAnnounce
+    ? await resolveWorkspaceAnnounceServerUrl(paths, flags)
+    : undefined;
+  const registrationTokenValue = wantsHubAnnounce
+    ? await resolveRegistrationToken(flags, io, {
+        interactive,
+      })
+    : undefined;
+  if (serverUrl && !registrationTokenValue) {
     throw new Error(STRINGS.workspaceTokenRequired(serverUrl));
   }
   const displayName =
     flags.name ?? (interactive ? await promptWorkspaceName(localPath, io) : undefined);
   const workspaceOptions: WorkspaceRegistrationRequest = {
-    serverUrl,
     localPath,
+    ...(serverUrl ? { serverUrl } : {}),
     ...(flags["allow-insecure-http"] === "true" ? { allowInsecureHttp: true } : {}),
-    ...(registrationToken ? { registrationToken } : {}),
+    ...(registrationTokenValue ? { registrationToken: registrationTokenValue } : {}),
     ...(flags.key || flags["local-key"]
       ? { localWorkspaceKey: flags.key ?? flags["local-key"] }
       : {}),
@@ -901,11 +1146,13 @@ async function registerWorkspaceCommand(
   io.stdout.write(
     `✓ workspace '${added.displayName}' registered\n` +
       `  path     ${formatPathForDisplay(added.localPath)}\n` +
-      `  server   ${added.serverUrl}\n` +
+      `  server   ${added.serverUrl || "—"}\n` +
       profileTextLine(added.profile) +
       `  status   ${workspaceStatusLabel(added)}\n` +
-      workspaceAuthorizationText(added, serverUrl) +
-      `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`,
+      (serverUrl ? workspaceAuthorizationText(added, serverUrl) : "") +
+      (added.serverUrl
+        ? `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`
+        : `  note     Local daemon workspace. Hub projection is scheduled by daemon login/uplink.\n`),
   );
 
   if (readRunningPid(paths) !== null) {
@@ -1146,9 +1393,7 @@ async function defaultWorkspace(
   const flags = parseFlags(args);
   const workspaces = await loadWorkspaceList(paths, io);
   if (workspaces.length === 0) {
-    io.stdout.write(
-      "no workspaces registered.\n  spark daemon workspace register . --server-url <url> --token <workspace-token> --name <ws>\n",
-    );
+    io.stdout.write("no workspaces registered.\n  spark daemon workspace register . --name <ws>\n");
     return 0;
   }
 
@@ -1160,7 +1405,7 @@ async function defaultWorkspace(
   if (!workspace) {
     io.stdout.write(
       `${cwd} is not under a registered workspace.\n` +
-        "  spark daemon workspace register . --server-url <url> --token <workspace-token> --name <ws>\n" +
+        "  spark daemon workspace register . --name <ws>\n" +
         "or cd into a registered workspace, or pass --workspace <id>.\n",
     );
     return 2;
@@ -1168,11 +1413,13 @@ async function defaultWorkspace(
 
   assertDirectory(workspace.localPath);
   const config = readSparkDaemonConfig(paths);
-  const serverConfig = configForHubServer(paths, config, workspace.serverUrl);
-  if (!hasRunnableSparkDaemonCredentialsForServer(serverConfig, workspace.serverUrl)) {
-    throw new Error(
-      `Workspace '${workspace.displayName}' is registered locally, but daemon credentials for ${workspace.serverUrl} are missing. Run spark daemon login --server-url ${shellQuote(workspace.serverUrl)}, then retry.`,
-    );
+  if (workspace.serverUrl) {
+    const serverConfig = configForHubServer(paths, config, workspace.serverUrl);
+    if (!hasRunnableSparkDaemonCredentialsForServer(serverConfig, workspace.serverUrl)) {
+      throw new Error(
+        `Workspace '${workspace.displayName}' is bound on this daemon, but Hub credentials for ${workspace.serverUrl} are missing. Run spark daemon login --server-url ${shellQuote(workspace.serverUrl)}, then retry.`,
+      );
+    }
   }
 
   const wasDetached = isUserDetachedWorkspace(workspace);
@@ -1210,26 +1457,24 @@ async function listWorkspaceCommand(
   }
 
   if (workspaces.length === 0) {
-    io.stdout.write(
-      "no workspaces registered.\n  spark daemon workspace register . --server-url <url> --token <workspace-token> --name <ws>\n",
-    );
+    io.stdout.write("no workspaces registered.\n  spark daemon workspace register . --name <ws>\n");
     return 0;
   }
 
   const idWidth = Math.max(37, ...workspaces.map((entry) => entry.id.length));
   io.stdout.write(
-    `${pad("ID", idWidth)} ${pad("NAME", 20)} ${pad("SERVER", 30)} ${pad("STATUS", 24)} ${pad("PATH", 38)} ${pad("PROJECTS", 8)} ${pad("INBOX", 5)} LAST SESSION\n`,
+    `${padColumn("ID", idWidth)} ${padColumn("NAME", 20)} ${padColumn("SERVER", 30)} ${padColumn("STATUS", 24)} ${padColumn("PATH", 38)} ${padColumn("PROJECTS", 8)} ${padColumn("INBOX", 5)} LAST SESSION\n`,
   );
   for (const workspace of workspaces) {
     const listItem = workspaceListItem(workspace, statusContext);
     io.stdout.write(
-      `${pad(workspace.id, idWidth)} ` +
-        `${pad(truncate(workspace.displayName, 20), 20)} ` +
-        `${pad(formatServerForList(workspace.serverUrl, flags.full === "true"), 30)} ` +
-        `${pad(workspaceStatusLabel(workspace, statusContext), 24)} ` +
-        `${pad(formatPathForList(workspace.localPath, flags.full === "true"), 38)} ` +
-        `${pad(countColumn(listItem.counts.projects), 8)} ` +
-        `${pad(countColumn(listItem.counts.unresolvedInbox), 5)} ` +
+      `${padColumn(workspace.id, idWidth)} ` +
+        `${padColumn(truncateColumn(workspace.displayName, 20), 20)} ` +
+        `${padColumn(formatServerForList(workspace.serverUrl, flags.full === "true"), 30)} ` +
+        `${padColumn(workspaceStatusLabel(workspace, statusContext), 24)} ` +
+        `${padColumn(formatPathForList(workspace.localPath, flags.full === "true"), 38)} ` +
+        `${padColumn(countColumn(listItem.counts.projects), 8)} ` +
+        `${padColumn(countColumn(listItem.counts.unresolvedInbox), 5)} ` +
         `${lastSessionColumn(listItem.lastSessionAt)}\n`,
     );
   }
@@ -1595,9 +1840,7 @@ function resolveWorkspaceForShow(
   }
 
   if (workspaces.length === 0) {
-    throw new Error(
-      "No workspace found. Run spark daemon workspace register . --server-url <url>.",
-    );
+    throw new Error("No workspace found. Run spark daemon workspace register . --name <ws>.");
   }
 
   const cwd = resolveInvocationCwd();
@@ -1650,9 +1893,7 @@ function resolveWorkspace(
       return workspaces[0]!;
     }
     if (workspaces.length === 0) {
-      throw new Error(
-        "No workspace found. Run spark daemon workspace register . --server-url <url>.",
-      );
+      throw new Error("No workspace found. Run spark daemon workspace register . --name <ws>.");
     }
     throw new Error(
       `Multiple workspaces are registered. Pass --workspace <id>. Available: ${workspaces
@@ -2086,22 +2327,8 @@ function normalizeLocalPath(localPath: string): string {
   }
 }
 
-function pad(value: string, width: number): string {
-  return value.length >= width ? value : value + " ".repeat(width - value.length);
-}
-
-function truncate(value: string, width: number): string {
-  if (value.length <= width) {
-    return value;
-  }
-  if (width <= 1) {
-    return value.slice(0, width);
-  }
-  return `${value.slice(0, width - 1)}…`;
-}
-
 function formatServerForList(serverUrl: string, full: boolean): string {
-  return full ? serverUrl : truncate(serverUrl, 30);
+  return full ? serverUrl : truncateColumn(serverUrl, 30);
 }
 
 function formatPathForList(localPath: string, full: boolean): string {
@@ -2109,7 +2336,7 @@ function formatPathForList(localPath: string, full: boolean): string {
     return localPath;
   }
 
-  return truncate(abbreviateHome(localPath), 38);
+  return truncateColumn(abbreviateHome(localPath), 38);
 }
 
 function formatPathForDisplay(localPath: string): string {
@@ -2202,6 +2429,28 @@ async function resolveRegistrationServerUrl(
   }
 
   throw new Error("Missing server URL. Pass --server-url <url> with the registration command.");
+}
+
+async function resolveWorkspaceAnnounceServerUrl(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  flags: Record<string, string>,
+): Promise<string> {
+  const flagged = flags["server-url"] ?? flags.server;
+  const validationOptions = {
+    allowInsecureHttp: flags["allow-insecure-http"] === "true",
+  };
+  const scheduled = scheduledSparkDaemonHubOrigin(paths, flagged);
+  if (scheduled.ambiguous) {
+    throw new Error(
+      "This daemon has multiple Hub origins. Pass --server-url to select which origin to project onto.",
+    );
+  }
+  if (!scheduled.serverUrl) {
+    throw new Error(
+      "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
+    );
+  }
+  return validateRegistrationServerUrl(scheduled.serverUrl, validationOptions);
 }
 
 function registrationToken(flags: Record<string, string>): string | undefined {

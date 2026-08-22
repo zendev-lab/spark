@@ -40,22 +40,16 @@ export function workspaceSessionRecord(input: {
     roleBinding: administrator
       ? { kind: "explicit", roleRef: "role:builtin-administrator" }
       : (input.roleBinding ?? { kind: "none" }),
-    owner: administrator
-      ? { kind: "workspace", workspaceId: input.workspaceId }
+    lineage: administrator
+      ? { kind: "root" }
       : {
-          kind: "session",
-          supervisorSessionId:
+          kind: "child",
+          parentSessionId:
             input.supervisorSessionId ??
             `sess_admin_${input.workspaceId.replace(/[^a-z0-9]+/giu, "_")}`,
+          origin: { kind: "session" },
         },
     incarnation: 1,
-    stateBinding: {
-      kind: "session",
-      ref: administrator
-        ? input.sessionId
-        : (input.supervisorSessionId ??
-          `sess_admin_${input.workspaceId.replace(/[^a-z0-9]+/giu, "_")}`),
-    },
     visibility: "public",
     retention: administrator ? "audit" : "retain",
     purpose: administrator ? "workspace_administrator" : "interactive",

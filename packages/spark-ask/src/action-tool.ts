@@ -9,7 +9,7 @@ import type {
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   createAutonomousAskInteractionRequestId,
   parseSparkMemoryApprovalBinding,
@@ -24,11 +24,18 @@ import {
 import { SparkAutonomousAsyncOnlyError } from "./autonomous-policy.ts";
 import { summarizeAskResult, type AskSummaryAnswer } from "./summary.ts";
 import { requireCanonicalAskTransport } from "./transport.ts";
+import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
 
-export type SparkAskAction = "ask" | "flow";
-export type SparkAskAutoAnswerMode = boolean;
+export type SparkAskAction = "ask" | "flow" | "answer";
+type SparkAskAutoAnswerMode = boolean;
 export const DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
 const MAX_ASK_WAIT_TIMEOUT_MS = 24 * 60 * 60_000;
+
+export type SparkAskDaemonRequest = (
+  method: string,
+  params?: unknown,
+  options?: { signal?: AbortSignal },
+) => Promise<unknown>;
 
 export interface SparkAskActionToolApi {
   registerTool(config: ToolConfig): void;
@@ -37,10 +44,9 @@ export interface SparkAskActionToolApi {
 export interface SparkAskActionToolOptions {
   resolveTool(name: "ask_user" | "ask_flow"): ToolConfig | undefined;
   autoAnswer?: SparkAskAutoAnswerResolver;
+  request?: SparkAskDaemonRequest;
 }
-
-import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
-export interface SparkAskAutoAnswerQuestion {
+interface SparkAskAutoAnswerQuestion {
   id: string;
   prompt: string;
   header?: string;
@@ -50,21 +56,21 @@ export interface SparkAskAutoAnswerQuestion {
   options?: SparkAskAutoAnswerOption[];
 }
 
-export interface SparkAskAutoAnswerOption {
+interface SparkAskAutoAnswerOption {
   value: string;
   label: string;
   description?: string;
   preview?: string;
 }
 
-export interface SparkAskAutoAnswerEntry {
+interface SparkAskAutoAnswerEntry {
   values?: string[];
   customText?: string;
   notes?: string;
   comment?: string;
 }
 
-export interface SparkAskAutoAnswerResult {
+interface SparkAskAutoAnswerResult {
   answers?: Record<string, SparkAskAutoAnswerEntry>;
   blocked?: boolean;
   reason?: string;
@@ -103,18 +109,6 @@ export function registerSparkAskAutoAnswerProvider(
   };
 }
 
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
-
 export function registerSparkAskActionTool(
   pi: SparkAskActionToolApi,
   options: SparkAskActionToolOptions,
@@ -125,10 +119,11 @@ export function registerSparkAskActionTool(
     description:
       "Canonical ask capability. Use action=ask for a structured user ask; action=flow forces the fullscreen multi-question ask_flow renderer. autoAnswer=true waits for the user first and lets the host reviewer take over only after that wait times out; ordinary asks do not auto-answer.",
     promptGuidelines: [
-      "Use ask as the canonical user-question tool instead of choosing between ask_user and ask_flow directly.",
+      "Use ask as the canonical structured-question tool instead of choosing between ask_user and ask_flow directly. Settlement may be the User or, when toSessionId is set, the asked Session.",
       "Use delivery=blocking when this turn cannot continue without the answer; delivery=async continues only after the host returns a correlated durable acknowledgement.",
       "Ask only context-specific questions whose answers change the next action, plan, dependency, priority, or success criteria.",
-      "Set recordAsEvidence=true when a later evidence gate must prove the user answered this ask.",
+      "Set recordAsEvidence=true when a later evidence gate must prove the user answered this ask. Do not combine toSessionId with recordAsEvidence, autoAnswer, or evidenceRequest.",
+      'Use ask({ action: "answer", humanRequestId, answers }) only to settle a pending ask addressed to this Session. Do not answer User-addressed asks.',
       "Use freeform questions for notes/context; do not create business options named Other or Type your own.",
       "Do not set autoAnswer unless the active host policy explicitly asks for reviewer fallback after the user wait expires.",
     ],
@@ -140,7 +135,24 @@ export function registerSparkAskActionTool(
       approval: "none",
     },
     parameters: Type.Object({
-      action: Type.Optional(Type.String({ description: "ask | flow. Defaults to ask." })),
+      action: Type.Optional(Type.String({ description: "ask | flow | answer. Defaults to ask." })),
+      toSessionId: Type.Optional(
+        Type.String({
+          description:
+            "Address the ask to this Session instead of User. Incompatible with evidenceRequest, autoAnswer, and recordAsEvidence.",
+        }),
+      ),
+      humanRequestId: Type.Optional(
+        Type.String({ description: "Pending ask id for action=answer." }),
+      ),
+      interactionRequestId: Type.Optional(
+        Type.String({ description: "Host correlation id for action=answer." }),
+      ),
+      answers: Type.Optional(
+        Type.Any({
+          description: "Answer payload for action=answer keyed by question id.",
+        }),
+      ),
       autoAnswer: Type.Optional(
         Type.Boolean({
           description:
@@ -162,25 +174,29 @@ export function registerSparkAskActionTool(
       context: Type.Optional(Type.String()),
       approvalBinding: Type.Optional(Type.Any()),
       flow: Type.Optional(Type.String({ description: "Stable flow identifier for ask_flow." })),
-      questions: Type.Array(
-        Type.Object({
-          id: Type.String(),
-          prompt: Type.String(),
-          header: Type.Optional(Type.String()),
-          type: Type.Optional(Type.String({ description: "single | multi | preview | freeform" })),
-          required: Type.Optional(Type.Boolean()),
-          defaultValues: Type.Optional(Type.Array(Type.String())),
-          options: Type.Optional(
-            Type.Array(
-              Type.Object({
-                value: Type.String(),
-                label: Type.String(),
-                description: Type.Optional(Type.String()),
-                preview: Type.Optional(Type.String()),
-              }),
+      questions: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            prompt: Type.String(),
+            header: Type.Optional(Type.String()),
+            type: Type.Optional(
+              Type.String({ description: "single | multi | preview | freeform" }),
             ),
-          ),
-        }),
+            required: Type.Optional(Type.Boolean()),
+            defaultValues: Type.Optional(Type.Array(Type.String())),
+            options: Type.Optional(
+              Type.Array(
+                Type.Object({
+                  value: Type.String(),
+                  label: Type.String(),
+                  description: Type.Optional(Type.String()),
+                  preview: Type.Optional(Type.String()),
+                }),
+              ),
+            ),
+          }),
+        ),
       ),
       behaviour: Type.Optional(
         Type.Object({
@@ -194,8 +210,11 @@ export function registerSparkAskActionTool(
       return renderAskCall(args, theme);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      params = canonicalizeMemoryApprovalAsk(params);
       const action = normalizeAskAction(params.action);
+      if (action === "answer") {
+        return await executeAskAnswer(params, ctx, options, signal);
+      }
+      params = canonicalizeMemoryApprovalAsk(params);
       const autoAnswer = normalizeAskAutoAnswerMode(
         params.autoAnswer ?? contextAutoAnswerMode(ctx),
       );
@@ -215,6 +234,19 @@ export function registerSparkAskActionTool(
       }
       if (autoAnswer && params.delivery === "async") {
         throw new Error("ask.autoAnswer cannot be combined with delivery=async");
+      }
+      const toSessionId = typeof params.toSessionId === "string" ? params.toSessionId.trim() : "";
+      if (toSessionId) {
+        if (autoAnswer) throw new Error("ask.toSessionId cannot be combined with autoAnswer");
+        if (params.recordAsEvidence === true) {
+          throw new Error("ask.toSessionId cannot be combined with recordAsEvidence");
+        }
+        if (params.evidenceRequest !== undefined) {
+          throw new Error("ask.toSessionId cannot be combined with evidenceRequest");
+        }
+        if (autonomous) {
+          throw new Error("ask.toSessionId cannot be combined with autonomous evidence binding");
+        }
       }
       const autoAnswerResolver = options.autoAnswer ?? contextAutoAnswerResolver(ctx);
       if (autoAnswer && !autoAnswerResolver && autoAnswerProviderRegistry().size === 0) {
@@ -264,6 +296,42 @@ export function registerSparkAskActionTool(
       return annotateAutoAnswerResult(result, autoAnswered, waitTimeoutMs);
     },
   });
+}
+
+async function executeAskAnswer(
+  params: Record<string, unknown>,
+  ctx: SparkHostContext,
+  options: SparkAskActionToolOptions,
+  signal: AbortSignal,
+) {
+  const request = options.request;
+  if (!request) throw new Error("ask answer requires a daemon request");
+  const sessionId = typeof ctx.sessionId === "string" ? ctx.sessionId.trim() : "";
+  if (!sessionId) throw new Error("ask answer requires a current Session");
+  const humanRequestId = optionalString(params.humanRequestId)?.trim();
+  const interactionRequestId = optionalString(params.interactionRequestId)?.trim();
+  if (!humanRequestId && !interactionRequestId) {
+    throw new Error("ask answer requires humanRequestId or interactionRequestId");
+  }
+  if (!isRecord(params.answers) || Array.isArray(params.answers)) {
+    throw new Error("ask answer requires answers");
+  }
+  const result = await request(
+    "human.interaction.respond",
+    {
+      ...(humanRequestId ? { humanRequestId } : {}),
+      ...(interactionRequestId ? { interactionRequestId } : {}),
+      respondentSessionId: sessionId,
+      status: "answered",
+      provenance: "session",
+      answers: params.answers,
+    },
+    { signal },
+  );
+  return {
+    content: [{ type: "text" as const, text: "Answered the session ask." }],
+    details: { action: "answer" as const, result },
+  };
 }
 
 function canonicalizeMemoryApprovalAsk(params: Record<string, unknown>): Record<string, unknown> {
@@ -324,7 +392,8 @@ function canonicalizeMemoryApprovalAsk(params: Record<string, unknown>): Record<
 function normalizeAskAction(value: unknown): SparkAskAction {
   if (value === undefined || value === null || value === "ask") return "ask";
   if (value === "flow") return "flow";
-  throw new Error("ask.action must be ask or flow");
+  if (value === "answer") return "answer";
+  throw new Error("ask.action must be ask, flow, or answer");
 }
 
 function normalizeAskAutoAnswerMode(value: unknown): SparkAskAutoAnswerMode | undefined {
@@ -497,7 +566,7 @@ async function resolveAutoAnswerFromProviders(
 }
 
 function selectAskTarget(
-  action: SparkAskAction,
+  action: Exclude<SparkAskAction, "answer">,
   params: Record<string, unknown>,
 ): "ask_user" | "ask_flow" {
   if (action === "flow") return "ask_flow";
@@ -558,14 +627,14 @@ async function maybeRecordAskEvidence(
   } catch (error) {
     throw new Error("ask evidence body must be JSON-serializable", { cause: error });
   }
-  const evidence = await defaultEvidenceStore(cwd).put({
+  const evidence = await defaultEvidenceStore(cwd, ctx).put({
     kind: "record",
     title: `Ask evidence: ${optionalString(params.title)?.trim() || "user decision"}`,
     format: "json",
     body: evidenceBody,
     provenance: { producer: "ask" },
   });
-  await recordCanonicalAskEvidenceReceipt(cwd, evidence);
+  await recordCanonicalAskEvidenceReceipt(cwd, evidence, ctx);
   return {
     ...result,
     details: {

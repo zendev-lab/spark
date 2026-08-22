@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-i18n",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Shared Spark localization helpers and Inlang/Paraglide message boundary.",
   "license": "MIT",
@@ -32,13 +32,10 @@
     "test:mutation": "stryker run"
   },
   "devDependencies": {
-    "@inlang/paraglide-js": "2.23.2",
+    "@inlang/paraglide-js": "2.24.1",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=26.0.0 <27"
   }
 }

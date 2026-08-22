@@ -43,7 +43,6 @@ import {
   INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
 } from "./invocation-scheduler-policy.ts";
 import { DaemonEventIngress } from "./daemon-event-ingress.ts";
-import { recoverInterruptedInvocations } from "./execution-reconciler.ts";
 
 export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
@@ -135,7 +134,8 @@ export class SparkInvocationScheduler {
   private readonly resolveReproUsageScope?: SparkInvocationSchedulerOptions["resolveReproUsageScope"];
   private readonly active = new Map<string, ActiveInvocation>();
   private readonly structuredActive = new Map<string, ActiveInvocation>();
-  private readonly activeSessions = new Set<string>();
+  private readonly activeSerializationKeys = new Set<string>();
+  private readonly activeSessionIds = new Set<string>();
   private readonly sessionIdleWaiters = new Map<string, Set<() => void>>();
   private terminalCommitTail: Promise<void> = Promise.resolve();
   private accepting: boolean;
@@ -176,21 +176,13 @@ export class SparkInvocationScheduler {
     this.accepting = options.initiallyAccepting !== false;
   }
 
-  recover(now?: string): number {
-    const recovered = recoverInterruptedInvocations({
-      invocationStore: this.store,
-      ...(now ? { now } : {}),
-    });
-    return recovered.invocationRequeues + recovered.invocationFailures;
-  }
-
   processBatch(): boolean {
     this.applyCancellationRequests();
     if (!this.accepting) return false;
     let launched = 0;
     while (this.active.size < this.concurrency) {
       const invocation = this.store.claimNext(this.workerId, new Date().toISOString(), [
-        ...this.activeSessions,
+        ...this.activeSerializationKeys,
       ]);
       if (!invocation) break;
       launched += 1;
@@ -207,7 +199,7 @@ export class SparkInvocationScheduler {
       const question = this.store.claimNext(
         this.workerId,
         new Date().toISOString(),
-        [...this.activeSessions],
+        [...this.activeSerializationKeys],
         { sourceKind: "session.question" },
       );
       if (question) {
@@ -260,7 +252,7 @@ export class SparkInvocationScheduler {
   isSessionActive(sessionId: string): boolean {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) return false;
-    if (this.activeSessions.has(normalizedSessionId)) return true;
+    if (this.activeSessionIds.has(normalizedSessionId)) return true;
     return [...this.structuredActive.values()].some(
       ({ invocation }) => invocation.sessionId === normalizedSessionId,
     );
@@ -411,8 +403,10 @@ export class SparkInvocationScheduler {
       started: this.store.hasDurableCommitStarted(invocation.invocationId),
     };
     const sessionId = getSparkDaemonTaskSessionId(task);
+    const serializationKey = invocation.serializationKey;
     let executorSettled: Promise<unknown> | undefined;
-    if (sessionId) this.activeSessions.add(sessionId);
+    this.activeSerializationKeys.add(serializationKey);
+    if (sessionId) this.activeSessionIds.add(sessionId);
     const entry: ActiveInvocation = {
       invocation,
       controller,
@@ -428,9 +422,10 @@ export class SparkInvocationScheduler {
         await this.yieldAfterInvocation();
       } finally {
         this.active.delete(invocation.invocationId);
-        if (!sessionId) return;
         const releaseSession = () => {
-          this.activeSessions.delete(sessionId);
+          this.activeSerializationKeys.delete(serializationKey);
+          if (!sessionId) return;
+          this.activeSessionIds.delete(sessionId);
           this.resolveSessionIdleWaiters(sessionId);
         };
         if (executorSettled) void executorSettled.then(releaseSession, releaseSession);
@@ -500,9 +495,7 @@ export class SparkInvocationScheduler {
           ? "anonymous"
           : task.type === "loop.tick"
             ? "anonymous"
-            : task.type === "session.run" && task.hiddenExecution
-              ? "anonymous"
-              : "persistent";
+            : "persistent";
     let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
     const pendingUsageRegistrations: Array<Omit<SparkDaemonTokenUsageObservation, "event">> = [];
     const pendingUsageObservations: SparkDaemonTokenUsageObservation[] = [];
@@ -522,10 +515,7 @@ export class SparkInvocationScheduler {
           ? { detailKind: "loop_evaluator" }
           : {}),
       persistence: rootUsagePersistence,
-      sessionId:
-        task.type === "loop.tick" || task.type === "loop.evaluate"
-          ? task.ownerSessionId
-          : task.sessionId,
+      sessionId: task.sessionId,
     });
     const registerRootUsageExecution = (scope?: SparkReproUsageScope): void => {
       if (!this.tokenUsageStore || rootUsageExecution) return;
@@ -553,11 +543,7 @@ export class SparkInvocationScheduler {
           kind: observation.kind ?? "root_session",
           ...(observation.detailKind ? { detailKind: observation.detailKind } : {}),
           persistence: observation.persistence ?? rootUsagePersistence,
-          sessionId:
-            observation.sessionId ??
-            (task.type === "loop.tick" || task.type === "loop.evaluate"
-              ? task.ownerSessionId
-              : task.sessionId),
+          sessionId: observation.sessionId ?? task.sessionId,
           ...(observation.parentExecutionId
             ? { parentExecutionId: observation.parentExecutionId }
             : {}),
@@ -588,11 +574,7 @@ export class SparkInvocationScheduler {
               ? { detailKind: "loop_evaluator" }
               : {}),
         persistence: observation.persistence ?? rootUsagePersistence,
-        sessionId:
-          observation.sessionId ??
-          (task.type === "loop.tick" || task.type === "loop.evaluate"
-            ? task.ownerSessionId
-            : task.sessionId),
+        sessionId: observation.sessionId ?? task.sessionId,
         ...(observation.parentExecutionId
           ? { parentExecutionId: observation.parentExecutionId }
           : {}),
@@ -642,7 +624,7 @@ export class SparkInvocationScheduler {
         flushPendingUsage();
         return;
       }
-      if (task.type !== "session.run" || task.hiddenExecution) return;
+      if (task.type !== "session.run") return;
       const scope = await this.resolveCurrentReproUsageScope(task);
       if (!scope) return;
       registerRootUsageExecution(scope);
@@ -654,7 +636,7 @@ export class SparkInvocationScheduler {
           ? { kind: "repro", reproId: task.binding.reproId }
           : undefined,
       );
-      if (!rootUsageExecution && task.type === "session.run" && !task.hiddenExecution) {
+      if (!rootUsageExecution && task.type === "session.run") {
         registerRootUsageExecution(await this.resolveCurrentReproUsageScope(task));
       }
     }

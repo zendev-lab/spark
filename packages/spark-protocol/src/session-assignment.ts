@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sparkInvocationIdSchema } from "./invocation-lifecycle.ts";
+import { sparkInvocationIdSchema, sparkInvocationStatusSchema } from "./invocation-lifecycle.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { isoDateTimeSchema } from "./refs.ts";
 
@@ -11,11 +11,6 @@ export const sparkSessionActivityOptions = ["idle", "queued", "running"] as cons
 export const sparkSessionActivitySchema = z.enum(sparkSessionActivityOptions);
 export const sparkSessionLifetimeOptions = ["persistent", "scoped", "ephemeral"] as const;
 export const sparkSessionLifetimeSchema = z.enum(sparkSessionLifetimeOptions);
-
-export const sparkSessionStateBindingSchema = z.object({
-  kind: z.enum(["session", "task", "workflow", "driver", "channel"]),
-  ref: z.string().trim().min(1),
-});
 
 export const sparkSessionVisibilityOptions = ["public", "owner", "internal"] as const;
 export const sparkSessionVisibilitySchema = z.enum(sparkSessionVisibilityOptions);
@@ -208,32 +203,24 @@ export const sparkFleetWorkerBindingSchema = z
   .strict()
   .superRefine(validateFleetWorkerBinding);
 
-export const sparkWorkspaceSessionOwnerSchema = z
+export const sparkRootSessionLineageSchema = z
   .object({
-    kind: z.literal("workspace"),
-    workspaceId: z.string().min(1),
+    kind: z.literal("root"),
   })
   .strict();
 
-export const sparkSupervisorSessionOwnerSchema = z
-  .object({
-    kind: z.literal("session"),
-    supervisorSessionId: z.string().min(1),
-  })
-  .strict();
+export const sparkSessionOriginSchema = z.object({ kind: z.literal("session") }).strict();
 
-export const sparkSideThreadSessionOwnerSchema = z
+export const sparkSideThreadSessionOriginSchema = z
   .object({
     kind: z.literal("side_thread"),
-    parentSessionId: z.string().min(1),
     generation: z.number().int().positive(),
   })
   .strict();
 
-export const sparkTaskRunSessionOwnerSchema = z
+export const sparkTaskRunSessionOriginSchema = z
   .object({
     kind: z.literal("task_run"),
-    supervisorSessionId: z.string().min(1),
     projectRef: z.string().regex(/^proj:.+/u),
     taskRef: z.string().regex(/^task:.+/u),
     runRef: z.string().regex(/^run:.+/u),
@@ -250,7 +237,7 @@ export const sparkTaskRunSessionOwnerSchema = z
   })
   .strict();
 
-export const sparkTaskRevisionSessionOwnerSchema = sparkTaskRunSessionOwnerSchema
+export const sparkTaskRevisionSessionOriginSchema = sparkTaskRunSessionOriginSchema
   .omit({ kind: true, runRef: true })
   .extend({
     kind: z.literal("task_revision"),
@@ -259,57 +246,51 @@ export const sparkTaskRevisionSessionOwnerSchema = sparkTaskRunSessionOwnerSchem
   })
   .strict();
 
-export const sparkWorkflowRunSessionOwnerSchema = z
+export const sparkWorkflowRunSessionOriginSchema = z
   .object({
     kind: z.literal("workflow_run"),
-    supervisorSessionId: z.string().min(1),
     workflowRef: z.string().min(1),
     runRef: z.string().min(1),
     generation: z.number().int().positive(),
   })
   .strict();
 
-export const sparkDriverSessionOwnerSchema = z
+export const sparkDriverSessionOriginSchema = z
   .object({
     kind: z.literal("driver"),
     driverId: z.string().min(1),
     generation: z.number().int().positive(),
-    supervisorSessionId: z.string().min(1),
   })
   .strict();
 
-export const sparkDriverTickSessionOwnerSchema = z
+export const sparkDriverTickSessionOriginSchema = z
   .object({
     kind: z.literal("driver_tick"),
     driverId: z.string().min(1),
     generation: z.number().int().positive(),
     tickInvocationId: z.string().min(1),
-    supervisorSessionId: z.string().min(1),
   })
   .strict();
 
-export const sparkInvocationSessionOwnerSchema = z
+export const sparkInvocationSessionOriginSchema = z
   .object({
     kind: z.literal("invocation"),
     invocationId: z.string().min(1),
-    supervisorSessionId: z.string().min(1),
   })
   .strict();
 
-export const sparkSessionOwnerSchema = z.discriminatedUnion("kind", [
-  sparkWorkspaceSessionOwnerSchema,
-  sparkSupervisorSessionOwnerSchema,
-  sparkSideThreadSessionOwnerSchema,
-  sparkTaskRunSessionOwnerSchema,
-  sparkTaskRevisionSessionOwnerSchema,
-  sparkWorkflowRunSessionOwnerSchema,
-  sparkDriverSessionOwnerSchema,
-  sparkDriverTickSessionOwnerSchema,
-  sparkInvocationSessionOwnerSchema,
+export const sparkSessionLineageOriginSchema = z.discriminatedUnion("kind", [
+  sparkSessionOriginSchema,
+  sparkSideThreadSessionOriginSchema,
+  sparkTaskRunSessionOriginSchema,
+  sparkTaskRevisionSessionOriginSchema,
+  sparkWorkflowRunSessionOriginSchema,
+  sparkDriverSessionOriginSchema,
+  sparkDriverTickSessionOriginSchema,
+  sparkInvocationSessionOriginSchema,
 ]);
 
-export const sparkSessionOwnerKindOptions = [
-  "workspace",
+export const sparkSessionLineageOriginKindOptions = [
   "session",
   "side_thread",
   "invocation",
@@ -319,14 +300,40 @@ export const sparkSessionOwnerKindOptions = [
   "driver",
   "driver_tick",
 ] as const;
-export const sparkSessionOwnerKindSchema = z.enum(sparkSessionOwnerKindOptions);
+export const sparkSessionLineageOriginKindSchema = z.enum(sparkSessionLineageOriginKindOptions);
 
-export function sparkSessionLifetimeForOwner(
-  owner: z.infer<typeof sparkSessionOwnerSchema>,
+export const sparkChildSessionLineageSchema = z
+  .object({
+    kind: z.literal("child"),
+    parentSessionId: z.string().min(1),
+    origin: sparkSessionLineageOriginSchema,
+  })
+  .strict();
+
+export const sparkSessionLineageSchema = z.discriminatedUnion("kind", [
+  sparkRootSessionLineageSchema,
+  sparkChildSessionLineageSchema,
+]);
+
+export function sparkSessionLifetimeForLineage(
+  lineage: z.infer<typeof sparkSessionLineageSchema>,
 ): z.infer<typeof sparkSessionLifetimeSchema> {
-  if (owner.kind === "workspace") return "persistent";
-  if (owner.kind === "invocation") return "ephemeral";
+  if (lineage.kind === "root") return "persistent";
+  if (lineage.origin.kind === "invocation") return "ephemeral";
   return "scoped";
+}
+
+/** Parent Session id for lineage walks. Root Sessions have no parent. */
+export function sparkSessionParentId(
+  lineage: z.infer<typeof sparkSessionLineageSchema>,
+): string | undefined {
+  return lineage.kind === "child" ? lineage.parentSessionId : undefined;
+}
+
+export function sparkSessionLineageOriginKind(
+  lineage: z.infer<typeof sparkSessionLineageSchema>,
+): "root" | z.infer<typeof sparkSessionLineageOriginKindSchema> {
+  return lineage.kind === "root" ? "root" : lineage.origin.kind;
 }
 
 const sparkSessionStateShape = {
@@ -335,16 +342,15 @@ const sparkSessionStateShape = {
   lifecycle: sparkSessionLifecycleSchema,
   placement: sparkSessionPlacementSchema,
   roleBinding: sparkSessionRoleBindingSchema,
-  owner: sparkSessionOwnerSchema,
+  lineage: sparkSessionLineageSchema,
   incarnation: z.number().int().positive(),
-  stateBinding: sparkSessionStateBindingSchema,
   visibility: sparkSessionVisibilitySchema,
   retention: sparkSessionRetentionSchema,
   purpose: z.string().trim().min(1).max(512),
   transcriptRef: z.string().trim().min(1).optional(),
   /** Side-thread behavior configuration; it is not part of ownership identity. */
   sideThreadMode: sparkSideThreadModeSchema.optional(),
-  /** Fleet lane metadata; owner remains owner.kind=session. */
+  /** Fleet lane metadata; lineage remains a normal Session child. */
   fleetWorker: sparkFleetWorkerBindingSchema.optional(),
   cwd: z.string().min(1).optional(),
   /** GitChange root that authorized a cwd outside the owning workspace tree. */
@@ -374,24 +380,14 @@ const sparkWorkspaceSessionStateSchema = sparkSessionStateBaseSchema
     scope: sparkWorkspaceSessionScopeSchema,
   })
   .superRefine((record, context) => {
-    if (
-      record.owner.kind === "workspace" &&
-      record.owner.workspaceId !== record.scope.workspaceId
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "workspace owner must match scope.workspaceId",
-        path: ["owner", "workspaceId"],
-      });
-    }
-    if (record.owner.kind === "workspace") {
+    if (record.lineage.kind === "root") {
       if (
         record.roleBinding.kind !== "explicit" ||
         record.roleBinding.roleRef !== "role:builtin-administrator"
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "workspace owner requires role:builtin-administrator",
+          message: "root lineage requires role:builtin-administrator",
           path: ["roleBinding"],
         });
       }
@@ -417,18 +413,31 @@ const sparkDaemonSessionStateSchema = sparkSessionStateBaseSchema
     scope: sparkDaemonSessionScopeSchema,
   })
   .superRefine((record, context) => {
+    if (record.lineage.kind === "root") {
+      if (
+        record.purpose !== "channel" ||
+        record.roleBinding.kind !== "none" ||
+        record.lifecycle !== "open" ||
+        record.placement !== "active" ||
+        record.retention !== "retain" ||
+        record.visibility !== "public" ||
+        !record.cwd ||
+        record.cwdArtifactRef !== undefined
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "daemon root Sessions must be open, active, public, retained Channel Sessions with a private cwd and no role or GitChange binding",
+          path: ["scope"],
+        });
+      }
+      return;
+    }
     if (record.lifecycle !== "closed") {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "daemon-scoped Sessions are closed audit records only",
         path: ["lifecycle"],
-      });
-    }
-    if (record.owner.kind === "workspace") {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "daemon-scoped Session cannot have a workspace owner",
-        path: ["owner"],
       });
     }
   });
@@ -444,7 +453,9 @@ export const sparkEphemeralSessionTombstoneSchema = z
     recordKind: z.literal("ephemeral_tombstone"),
     sessionId: z.string().min(1),
     scope: sparkSessionScopeSchema,
-    owner: sparkInvocationSessionOwnerSchema,
+    lineage: sparkChildSessionLineageSchema.extend({
+      origin: sparkInvocationSessionOriginSchema,
+    }),
     lifecycle: z.literal("closed"),
     placement: z.literal("archived"),
     closeReceipts: z
@@ -465,6 +476,15 @@ const sparkSessionProjectionBaseSchema = z
     ...sparkSessionStateShape,
     lifetime: sparkSessionLifetimeSchema,
     activity: sparkSessionActivitySchema,
+    descendantActivity: z
+      .object({
+        activity: sparkSessionActivitySchema,
+        descendantCount: z.number().int().nonnegative().max(10_000),
+        activeCount: z.number().int().nonnegative().max(10_000),
+        truncated: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -485,33 +505,23 @@ function validateSessionProjection(
   record: z.infer<typeof sparkSessionProjectionBaseSchema> & { scope: SparkSessionScope },
   context: z.RefinementCtx,
 ): void {
-  const derivedLifetime = sparkSessionLifetimeForOwner(record.owner);
+  const derivedLifetime = sparkSessionLifetimeForLineage(record.lineage);
   if (record.lifetime !== derivedLifetime) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: `lifetime must be ${derivedLifetime} for owner.kind=${record.owner.kind}`,
+      message: `lifetime must be ${derivedLifetime} for lineage=${sparkSessionLineageOriginKind(record.lineage)}`,
       path: ["lifetime"],
     });
   }
   if (record.scope.kind === "workspace") {
-    if (
-      record.owner.kind === "workspace" &&
-      record.owner.workspaceId !== record.scope.workspaceId
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "workspace owner must match scope.workspaceId",
-        path: ["owner", "workspaceId"],
-      });
-    }
-    if (record.owner.kind === "workspace") {
+    if (record.lineage.kind === "root") {
       if (
         record.roleBinding.kind !== "explicit" ||
         record.roleBinding.roleRef !== "role:builtin-administrator"
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "workspace owner requires role:builtin-administrator",
+          message: "root lineage requires role:builtin-administrator",
           path: ["roleBinding"],
         });
       }
@@ -527,10 +537,27 @@ function validateSessionProjection(
         });
       }
     }
-  } else if (record.lifecycle !== "closed" || record.owner.kind === "workspace") {
+  } else if (record.lineage.kind === "root") {
+    if (
+      record.purpose !== "channel" ||
+      record.roleBinding.kind !== "none" ||
+      record.lifecycle !== "open" ||
+      record.placement !== "active" ||
+      record.retention !== "retain" ||
+      record.visibility !== "public" ||
+      !record.cwd ||
+      record.cwdArtifactRef !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "daemon root projection must be a private-cwd Channel Session",
+        path: ["scope"],
+      });
+    }
+  } else if (record.lifecycle !== "closed") {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "daemon-scoped Sessions are closed audit records only",
+      message: "daemon-scoped child Sessions are closed audit records only",
       path: ["scope"],
     });
   }
@@ -553,16 +580,16 @@ const sparkSessionCreateRequestBaseSchema = z
       .regex(/^artifact:.+/u)
       .optional(),
     sessionPath: z.string().trim().min(1).optional(),
-    /** Internal Task scheduler binding; the daemon authors the typed Owner. */
+    /** Internal Task scheduler binding; the daemon authors the typed lineage. */
     taskExecution: z
-      .discriminatedUnion("ownerKind", [
-        sparkTaskRunSessionOwnerSchema
+      .discriminatedUnion("originKind", [
+        sparkTaskRunSessionOriginSchema
           .omit({ kind: true })
-          .extend({ ownerKind: z.literal("task_run") })
+          .extend({ originKind: z.literal("task_run") })
           .strict(),
-        sparkTaskRevisionSessionOwnerSchema
+        sparkTaskRevisionSessionOriginSchema
           .omit({ kind: true })
-          .extend({ ownerKind: z.literal("task_revision") })
+          .extend({ originKind: z.literal("task_revision") })
           .strict(),
       ])
       .optional(),
@@ -577,9 +604,33 @@ const sparkWorkspaceSessionCreateRequestSchema = sparkSessionCreateRequestBaseSc
 
 export const sparkSessionCreateRequestSchema = sparkWorkspaceSessionCreateRequestSchema;
 
+const sparkManagedChildSessionRequestSchema = z
+  .object({
+    supervisorSessionId: z.string().trim().min(1),
+    roleRef: z
+      .string()
+      .trim()
+      .regex(/^role:.+/u),
+    name: z.string().trim().min(1).optional(),
+    cwd: z.string().trim().min(1).optional(),
+    cwdArtifactRef: z
+      .string()
+      .trim()
+      .regex(/^artifact:.+/u)
+      .optional(),
+  })
+  .strict();
+
+/** Create an empty Role-bound child without admitting an Invocation. */
+export const sparkSessionSpawnRequestSchema = sparkManagedChildSessionRequestSchema;
+
+/** Copy the supervisor's stable transcript prefix into a new Role-bound child. */
+export const sparkSessionForkRequestSchema = sparkManagedChildSessionRequestSchema;
+
 const sparkSessionListRequestBaseSchema = z
   .object({
     includeArchived: z.boolean().optional(),
+    parentSessionId: z.string().trim().min(1).optional(),
     query: z.string().trim().min(1).max(256).optional(),
     tags: z.array(sparkSessionTagSchema).max(16).optional(),
     cursor: z.string().trim().min(1).optional(),
@@ -603,6 +654,40 @@ export const sparkSessionGetRequestSchema = z.object({
   sessionId: z.string().trim().min(1),
 });
 
+export const SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES = 2048;
+
+export const sparkSessionPeerPendingAskSchema = z
+  .object({
+    humanRequestId: z.string().min(1),
+    fromSessionId: z.string().min(1),
+    title: z.string(),
+    status: z.literal("pending"),
+  })
+  .strict();
+
+export const sparkSessionPeerLatestInvocationSchema = z
+  .object({
+    invocationId: z.string().min(1),
+    status: sparkInvocationStatusSchema,
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+    finishedAt: isoDateTimeSchema.optional(),
+    summary: z.string().max(SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES).optional(),
+  })
+  .strict();
+
+/** Bounded peer observation; not a Hub/TUI snapshot and not a registry `get` record. */
+export const sparkSessionPeerProjectionSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    lifecycle: sparkSessionLifecycleSchema,
+    placement: sparkSessionPlacementSchema,
+    activity: sparkSessionActivitySchema,
+    latestInvocation: sparkSessionPeerLatestInvocationSchema.optional(),
+    pendingAsk: sparkSessionPeerPendingAskSchema.optional(),
+  })
+  .strict();
+
 export const sparkSessionArchiveRequestSchema = sparkSessionGetRequestSchema.extend({
   source: sparkSessionArchiveSourceSchema.optional(),
   reason: z.string().trim().min(1).max(256).optional(),
@@ -620,8 +705,8 @@ export const sparkSessionInvocationReceiptSchema = z.object({
   invocationId: z.string().min(1),
   sessionId: z.string().min(1),
   lifetime: sparkSessionLifetimeSchema,
-  ownerKind: z.enum([
-    "workspace",
+  originKind: z.enum([
+    "root",
     "session",
     "side_thread",
     "task_run",
@@ -776,6 +861,7 @@ export const sparkSessionPendingTurnSchema = z.object({
   status: z.enum(["queued", "running"]),
   createdAt: isoDateTimeSchema,
   startedAt: isoDateTimeSchema.optional(),
+  blockedBySessionId: z.string().trim().min(1).optional(),
 });
 
 export const sparkSessionRetryTargetRequestSchema = z.object({
@@ -812,7 +898,7 @@ export const sparkSessionSetThinkingRequestSchema = sparkSessionGetRequestSchema
 });
 
 export const sparkAssignmentSourceSchema = z.object({
-  kind: z.enum(["hub", "cockpit", "channel", "cli", "internal"]),
+  kind: z.enum(["hub", "channel", "cli", "internal"]),
   channel: sparkChannelAdapterSchema.optional(),
   externalRef: z.string().min(1).optional(),
 });
@@ -841,8 +927,7 @@ export type SparkSessionLifecycle = z.infer<typeof sparkSessionLifecycleSchema>;
 export type SparkSessionPlacement = z.infer<typeof sparkSessionPlacementSchema>;
 export type SparkSessionActivity = z.infer<typeof sparkSessionActivitySchema>;
 export type SparkSessionLifetime = z.infer<typeof sparkSessionLifetimeSchema>;
-export type SparkSessionOwnerKind = z.infer<typeof sparkSessionOwnerKindSchema>;
-export type SparkSessionStateBinding = z.infer<typeof sparkSessionStateBindingSchema>;
+export type SparkSessionLineageOriginKind = z.infer<typeof sparkSessionLineageOriginKindSchema>;
 export type SparkSessionVisibility = z.infer<typeof sparkSessionVisibilitySchema>;
 export type SparkSessionRetention = z.infer<typeof sparkSessionRetentionSchema>;
 export type SparkSessionCloseCandidate = z.infer<typeof sparkSessionCloseCandidateSchema>;
@@ -854,20 +939,23 @@ export type SparkSessionChannelBinding = z.infer<typeof sparkSessionChannelBindi
 export type SparkSessionScope = z.infer<typeof sparkSessionScopeSchema>;
 export type SparkSideThreadMode = z.infer<typeof sparkSideThreadModeSchema>;
 export type SparkSessionRoleBinding = z.infer<typeof sparkSessionRoleBindingSchema>;
-export type SparkWorkspaceSessionOwner = z.infer<typeof sparkWorkspaceSessionOwnerSchema>;
-export type SparkSideThreadSessionOwner = z.infer<typeof sparkSideThreadSessionOwnerSchema>;
-export type SparkTaskRunSessionOwner = z.infer<typeof sparkTaskRunSessionOwnerSchema>;
-export type SparkTaskRevisionSessionOwner = z.infer<typeof sparkTaskRevisionSessionOwnerSchema>;
-export type SparkWorkflowRunSessionOwner = z.infer<typeof sparkWorkflowRunSessionOwnerSchema>;
-export type SparkDriverSessionOwner = z.infer<typeof sparkDriverSessionOwnerSchema>;
-export type SparkDriverTickSessionOwner = z.infer<typeof sparkDriverTickSessionOwnerSchema>;
-export type SparkSessionOwner = z.infer<typeof sparkSessionOwnerSchema>;
+export type SparkRootSessionLineage = z.infer<typeof sparkRootSessionLineageSchema>;
+export type SparkSideThreadSessionOrigin = z.infer<typeof sparkSideThreadSessionOriginSchema>;
+export type SparkTaskRunSessionOrigin = z.infer<typeof sparkTaskRunSessionOriginSchema>;
+export type SparkTaskRevisionSessionOrigin = z.infer<typeof sparkTaskRevisionSessionOriginSchema>;
+export type SparkWorkflowRunSessionOrigin = z.infer<typeof sparkWorkflowRunSessionOriginSchema>;
+export type SparkDriverSessionOrigin = z.infer<typeof sparkDriverSessionOriginSchema>;
+export type SparkDriverTickSessionOrigin = z.infer<typeof sparkDriverTickSessionOriginSchema>;
+export type SparkSessionLineageOrigin = z.infer<typeof sparkSessionLineageOriginSchema>;
+export type SparkSessionLineage = z.infer<typeof sparkSessionLineageSchema>;
 export type SparkFleetWorkerBinding = z.infer<typeof sparkFleetWorkerBindingSchema>;
 export type SparkSessionState = z.infer<typeof sparkSessionStateSchema>;
 export type SparkEphemeralSessionTombstone = z.infer<typeof sparkEphemeralSessionTombstoneSchema>;
 export type SparkSessionStoredRecord = z.infer<typeof sparkSessionStoredRecordSchema>;
 export type SparkSessionProjection = z.infer<typeof sparkSessionProjectionSchema>;
 export type SparkSessionCreateRequest = z.input<typeof sparkSessionCreateRequestSchema>;
+export type SparkSessionSpawnRequest = z.infer<typeof sparkSessionSpawnRequestSchema>;
+export type SparkSessionForkRequest = z.infer<typeof sparkSessionForkRequestSchema>;
 export type SparkSessionListRequest =
   | z.infer<typeof sparkSessionListRequestSchema>
   | {
@@ -879,6 +967,11 @@ export type SparkSessionListRequest =
       limit?: number;
     };
 export type SparkSessionGetRequest = z.infer<typeof sparkSessionGetRequestSchema>;
+export type SparkSessionPeerPendingAsk = z.infer<typeof sparkSessionPeerPendingAskSchema>;
+export type SparkSessionPeerLatestInvocation = z.infer<
+  typeof sparkSessionPeerLatestInvocationSchema
+>;
+export type SparkSessionPeerProjection = z.infer<typeof sparkSessionPeerProjectionSchema>;
 export type SparkSessionArchiveRequest = z.infer<typeof sparkSessionArchiveRequestSchema>;
 export type SparkSessionRestoreRequest = z.infer<typeof sparkSessionRestoreRequestSchema>;
 export type SparkSessionCloseRequest = z.infer<typeof sparkSessionCloseRequestSchema>;
@@ -905,6 +998,10 @@ export function parseSparkSessionProjection(value: unknown): SparkSessionProject
   return sparkSessionProjectionSchema.parse(value);
 }
 
+export function parseSparkSessionPeerProjection(value: unknown): SparkSessionPeerProjection {
+  return sparkSessionPeerProjectionSchema.parse(value);
+}
+
 export function parseSparkSessionProjections(value: unknown): SparkSessionProjection[] {
   return z.array(sparkSessionProjectionSchema).parse(value);
 }
@@ -927,7 +1024,7 @@ export function projectSparkSessionState(
 ): SparkSessionProjection {
   return sparkSessionProjectionSchema.parse({
     ...state,
-    lifetime: sparkSessionLifetimeForOwner(state.owner),
+    lifetime: sparkSessionLifetimeForLineage(state.lineage),
     activity,
   });
 }

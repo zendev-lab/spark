@@ -25,7 +25,7 @@
         {
           "targetLayer": "private-adapter",
           "allowedFromLayers": ["private-adapter"],
-          "allowedFromPackages": ["@zendev-lab/spark-hub"]
+          "allowedFromPackages": ["@zendev-lab/spark-hub", "@zendev-lab/spark-web"]
         },
         {
           "targetLayer": "experiment",
@@ -61,124 +61,63 @@
         "owner": "sessions",
         "exitTask": "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
         "nonGrowth": true
-      },
-      {
-        "from": "@zendev-lab/spark-ask",
-        "to": "@zendev-lab/spark-tui-adapter",
-        "toLayer": "adapter",
-        "reason": "Ask rendering still imports TUI primitives until the presentation port is inverted.",
-        "owner": "interaction",
-        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
-        "nonGrowth": true
       }
     ],
-
     "temporaryDependencyExceptionBudget": {
-      "current": 4,
-      "ceiling": 4,
+      "current": 3,
+      "ceiling": 3,
       "nonGrowth": true
     },
     "piOwnership": {
-      "productManifestOwner": "@zendev-lab/pi-spark",
-      "temporaryProductManifestExceptions": [
-        {
-          "manifest": "package.json",
-          "reason": "The root compatibility manifest remains frozen until Pi manifest ownership is cut over.",
-          "owner": "extension-host",
-          "exitTask": "task:3dc06113-d8d3-4f55-8cd2-a92cfadb955b",
-          "nonGrowth": true
-        }
-      ],
+      "productManifestOwner": null,
+      "temporaryProductManifestExceptions": [],
       "sdkDependencies": [
         {
           "dependency": "@earendil-works/pi-ai",
-          "owner": "@zendev-lab/spark-ai"
-        },
-        {
-          "dependency": "@earendil-works/pi-tui",
-          "owner": "@zendev-lab/spark-tui-adapter"
-        },
-        {
-          "dependency": "@earendil-works/pi-coding-agent",
-          "owner": "@zendev-lab/pi-spark"
+          "owner": "@zendev-lab/spark-llm"
         }
       ],
-      "temporaryDependencyExceptions": [
-        {
-          "package": "@zendev-lab/spark-text",
-          "dependency": "@earendil-works/pi-tui",
-          "reason": "Shared text helpers still re-export Pi width primitives until Pi manifest ownership is cut over.",
-          "owner": "presentation",
-          "exitTask": "task:3dc06113-d8d3-4f55-8cd2-a92cfadb955b",
-          "nonGrowth": true
-        }
-      ]
+      "temporaryDependencyExceptions": []
     },
     "packageBudget": {
       "current": 41,
-      "approvedNext": 42,
-      "approvedPackage": "@zendev-lab/pi-spark",
-      "approvedPath": "packages/pi-spark",
-      "reason": "The dedicated Pi composition package is the next approved hard product boundary.",
-      "exitTask": "task:9e656c39-41c1-475d-8a77-cbce4fa9b174"
+      "ceiling": 41,
+      "nonGrowth": true,
+      "reason": "The daemon now owns product composition directly; native spark-web and spark-web-dsh remain explicit applications."
     },
-    "compositionRoots": ["@zendev-lab/spark-extension"]
+    "packageNaming": {
+      "temporaryDshDependencyExceptionsNonGrowth": true
+    },
+    "compositionRoots": ["@zendev-lab/spark-daemon"]
   },
   "packages": {
-    "@zendev-lab/spark-cli": {
-      "path": "apps/spark-cli",
-      "layer": "application",
-      "owner": "cli",
+    "@zendev-lab/dsh-channels": {
+      "path": "packages/dsh-channels",
+      "layer": "adapter",
+      "owner": "channels",
       "stability": "supported",
+      "stateWriter": "none"
+    },
+    "@zendev-lab/dsh-tool-cue": {
+      "path": "packages/dsh-tool-cue",
+      "layer": "adapter",
+      "owner": "execution-adapters",
+      "stability": "internal",
       "stateWriter": "none",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-hub": {
-      "path": "apps/spark-hub",
-      "layer": "application",
-      "owner": "hub",
-      "stability": "supported",
-      "stateWriter": "hub",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-daemon": {
-      "path": "apps/spark-daemon",
-      "layer": "application",
-      "owner": "daemon",
-      "stability": "supported",
-      "stateWriter": "daemon",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-docs": {
-      "path": "apps/spark-docs",
-      "layer": "application",
-      "owner": "docs",
-      "stability": "supported",
-      "stateWriter": "none",
-      "allowedWorkspaceDependencies": [],
-      "distribution": "private"
-    },
-    "@zendev-lab/spark-tui": {
-      "path": "apps/spark-tui",
-      "layer": "application",
-      "owner": "tui",
-      "stability": "supported",
-      "stateWriter": "host",
-      "distribution": "public-npm"
+      "distribution": "private",
+      "dshIndependenceException": {
+        "dependencies": ["@zendev-lab/spark-cue"],
+        "reason": "The existing Cue tool adapter still consumes the pre-Cordis Spark Cue execution kernel.",
+        "exitCondition": "Remove when the Cue execution kernel becomes the independent dsh-cue service."
+      }
     },
     "@zendev-lab/spark-acp": {
       "path": "packages/spark-acp",
       "layer": "adapter",
       "owner": "acp",
       "stability": "supported",
-      "stateWriter": "none"
-    },
-    "@zendev-lab/spark-ai": {
-      "path": "packages/spark-ai",
-      "layer": "capability",
-      "owner": "ai",
-      "stability": "supported",
-      "stateWriter": "user"
+      "stateWriter": "none",
+      "namingRationale": "Spark ACP preserves daemon-owned durable admission because the upstream adapter drives agents directly."
     },
     "@zendev-lab/spark-artifacts": {
       "path": "packages/spark-artifacts",
@@ -194,33 +133,13 @@
       "stability": "supported",
       "stateWriter": "workspace"
     },
-    "@zendev-lab/spark-channels": {
-      "path": "packages/spark-channels",
-      "layer": "adapter",
-      "owner": "channels",
+    "@zendev-lab/spark-cli": {
+      "path": "apps/spark-cli",
+      "layer": "application",
+      "owner": "cli",
       "stability": "supported",
-      "stateWriter": "none"
-    },
-    "@zendev-lab/spark-hub-coordination": {
-      "path": "packages/spark-hub-coordination",
-      "layer": "private-adapter",
-      "owner": "hub",
-      "stability": "private",
-      "stateWriter": "hub"
-    },
-    "@zendev-lab/spark-hub-db": {
-      "path": "packages/spark-hub-db",
-      "layer": "private-adapter",
-      "owner": "hub",
-      "stability": "private",
-      "stateWriter": "hub"
-    },
-    "@zendev-lab/spark-ui": {
-      "path": "packages/spark-ui",
-      "layer": "private-adapter",
-      "owner": "presentation",
-      "stability": "private",
-      "stateWriter": "none"
+      "stateWriter": "none",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",
@@ -236,6 +155,14 @@
       "stability": "supported",
       "stateWriter": "external"
     },
+    "@zendev-lab/spark-daemon": {
+      "path": "apps/spark-daemon",
+      "layer": "composition",
+      "owner": "daemon",
+      "stability": "supported",
+      "stateWriter": "daemon",
+      "distribution": "public-npm"
+    },
     "@zendev-lab/spark-daemon-client": {
       "path": "packages/spark-daemon-client",
       "layer": "client",
@@ -243,12 +170,14 @@
       "stability": "internal",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-extension": {
-      "path": "packages/spark-extension",
-      "layer": "composition",
-      "owner": "extension-host",
+    "@zendev-lab/spark-docs": {
+      "path": "apps/spark-docs",
+      "layer": "application",
+      "owner": "docs",
       "stability": "supported",
-      "stateWriter": "host"
+      "stateWriter": "none",
+      "allowedWorkspaceDependencies": [],
+      "distribution": "private"
     },
     "@zendev-lab/spark-files": {
       "path": "packages/spark-files",
@@ -257,9 +186,9 @@
       "stability": "supported",
       "stateWriter": "workspace"
     },
-    "@zendev-lab/spark-fusion": {
-      "path": "packages/spark-fusion",
-      "layer": "capability",
+    "@zendev-lab/dsh-tool-fusion": {
+      "path": "packages/dsh-tool-fusion",
+      "layer": "adapter",
       "owner": "fusion",
       "stability": "internal",
       "stateWriter": "none"
@@ -278,6 +207,28 @@
       "stability": "supported",
       "stateWriter": "host"
     },
+    "@zendev-lab/spark-hub": {
+      "path": "apps/spark-hub",
+      "layer": "application",
+      "owner": "hub",
+      "stability": "supported",
+      "stateWriter": "hub",
+      "distribution": "public-npm"
+    },
+    "@zendev-lab/spark-hub-coordination": {
+      "path": "packages/spark-hub-coordination",
+      "layer": "private-adapter",
+      "owner": "hub",
+      "stability": "private",
+      "stateWriter": "hub"
+    },
+    "@zendev-lab/spark-hub-db": {
+      "path": "packages/spark-hub-db",
+      "layer": "private-adapter",
+      "owner": "hub",
+      "stability": "private",
+      "stateWriter": "hub"
+    },
     "@zendev-lab/spark-i18n": {
       "path": "packages/spark-i18n",
       "layer": "foundation",
@@ -285,19 +236,26 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-loop": {
-      "path": "packages/spark-loop",
-      "layer": "capability",
-      "owner": "goals",
-      "stability": "supported",
-      "stateWriter": "workspace"
-    },
     "@zendev-lab/spark-lens": {
       "path": "packages/spark-lens",
       "layer": "capability",
       "owner": "lens",
       "stability": "internal",
       "stateWriter": "none"
+    },
+    "@zendev-lab/spark-llm": {
+      "path": "packages/spark-llm",
+      "layer": "capability",
+      "owner": "llm",
+      "stability": "supported",
+      "stateWriter": "user"
+    },
+    "@zendev-lab/spark-loop": {
+      "path": "packages/spark-loop",
+      "layer": "capability",
+      "owner": "goals",
+      "stability": "supported",
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-mcp": {
       "path": "packages/spark-mcp",
@@ -385,12 +343,13 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-tui-adapter": {
-      "path": "packages/spark-tui",
-      "layer": "adapter",
-      "owner": "presentation",
+    "@zendev-lab/spark-tool-web": {
+      "path": "packages/spark-tool-web",
+      "layer": "capability",
+      "owner": "web",
       "stability": "supported",
-      "stateWriter": "none"
+      "stateWriter": "user",
+      "namingRationale": "Spark Web tools retain product cache, code search, content retrieval, and response identity contracts."
     },
     "@zendev-lab/spark-turn": {
       "path": "packages/spark-turn",
@@ -399,20 +358,41 @@
       "stability": "supported",
       "stateWriter": "none"
     },
+    "@zendev-lab/spark-ui": {
+      "path": "packages/spark-ui",
+      "layer": "private-adapter",
+      "owner": "presentation",
+      "stability": "private",
+      "stateWriter": "none"
+    },
     "@zendev-lab/spark-update": {
       "path": "packages/spark-update",
       "layer": "foundation",
       "owner": "deployment",
       "stability": "supported",
       "stateWriter": "external",
-      "allowedWorkspaceDependencies": ["@zendev-lab/spark-protocol", "@zendev-lab/spark-system"]
+      "allowedWorkspaceDependencies": [
+        "@zendev-lab/spark-i18n",
+        "@zendev-lab/spark-protocol",
+        "@zendev-lab/spark-system"
+      ]
     },
     "@zendev-lab/spark-web": {
-      "path": "packages/spark-web",
-      "layer": "capability",
+      "path": "apps/spark-web",
+      "layer": "application",
       "owner": "web",
       "stability": "supported",
-      "stateWriter": "user"
+      "stateWriter": "none",
+      "distribution": "public-npm"
+    },
+    "@zendev-lab/spark-web-dsh": {
+      "path": "apps/spark-web-dsh",
+      "layer": "application",
+      "owner": "web",
+      "stability": "supported",
+      "stateWriter": "none",
+      "distribution": "public-npm",
+      "namingRationale": "Spark Web DSH is a retained Spark application surface, not a reusable DSH tool consumer."
     },
     "@zendev-lab/spark-workflows": {
       "path": "packages/spark-workflows",

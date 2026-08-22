@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { test, vi } from "vitest";
 
 import type { ToolConfig } from "@zendev-lab/spark-core";
-import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import { SparkMemoryStore } from "@zendev-lab/spark-memory";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import { createRecallCandidateGcPlan } from "@zendev-lab/spark-memory/candidate-lifecycle";

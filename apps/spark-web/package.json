@@ -1,0 +1,44 @@
+{
+  "name": "@zendev-lab/spark-web",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Local Spark browser workbench for every workspace bound to this daemon.",
+  "license": "MIT",
+  "author": "zrr1999",
+  "bin": {
+    "spark-web": "./bin/spark-web"
+  },
+  "type": "module",
+  "exports": {
+    "./executable": "./bin/spark-web"
+  },
+  "scripts": {
+    "dev": "vp dev --host 127.0.0.1 --port 4310",
+    "build": "vp build",
+    "preview": "vp preview --host 127.0.0.1 --port 4310",
+    "start": "node build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vp test run",
+    "test:browser": "vp test run --config vitest.browser.config.ts"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-node": "^5.3.1",
+    "@sveltejs/kit": "^2.28.0",
+    "@zendev-lab/spark-daemon-client": "workspace:*",
+    "@zendev-lab/spark-i18n": "workspace:*",
+    "@zendev-lab/spark-protocol": "workspace:*",
+    "@zendev-lab/spark-system": "workspace:*",
+    "@zendev-lab/spark-ui": "workspace:*",
+    "svelte": "^5.38.8"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@vitest/browser-playwright": "4.1.10",
+    "svelte-check": "^4.3.1",
+    "tsx": "^4.20.5",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vitest-browser-svelte": "3.0.0"
+  }
+}

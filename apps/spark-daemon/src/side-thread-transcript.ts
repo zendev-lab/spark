@@ -2,10 +2,15 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { SparkSessionStore, type SparkSessionEntry } from "@zendev-lab/spark-host/session-store";
+import {
+  SparkSessionStore,
+  stableSparkSessionContextEntries,
+  type SparkSessionEntry,
+} from "@zendev-lab/spark-session/transcript";
 import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadExchangeSchema,
+  sparkViewModelStatusFromPendingTurns,
   type SparkModelRef,
   type SparkSessionState,
   type SparkSideThreadErrorCode,
@@ -23,6 +28,8 @@ import { formatSparkSideThreadHandoff } from "@zendev-lab/spark-turn/side-thread
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { SparkDaemonSessionControlOptions } from "./session-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
+
+import { errorMessage, stringValue } from "./text.ts";
 
 const DEFAULT_EXCHANGE_LIMIT = 32;
 const SIDE_THREAD_SEED_BOUNDARY = "spark.side-thread.seed-boundary";
@@ -77,7 +84,7 @@ export async function createSparkDaemonSideThreadTranscript(
   if (mode === "contextual" && parent.sessionPath) {
     try {
       const parentRecord = await store.load(parent.sessionPath);
-      record.entries = stableContextEntries(parentRecord.entries).map((entry) =>
+      record.entries = stableSparkSessionContextEntries(parentRecord.entries).map((entry) =>
         structuredClone(entry),
       );
     } catch (error) {
@@ -268,8 +275,7 @@ function hasTruncatedProjectionContent(
 function sideThreadSnapshotStatus(
   pendingTurns: ReturnType<typeof pendingSideThreadTurns>,
 ): "running" | "queued" | "idle" {
-  if (pendingTurns.some((turn) => turn.status === "running")) return "running";
-  return pendingTurns.length > 0 ? "queued" : "idle";
+  return sparkViewModelStatusFromPendingTurns(pendingTurns);
 }
 
 export async function loadSparkDaemonSideThreadExchanges(
@@ -443,8 +449,11 @@ function sideThreadTranscriptIdentity(
   sessionPath: string,
 ): SideThreadTranscriptIndex["identity"] {
   const owner = requireSideThreadOwner(child);
+  if (child.lineage.kind !== "child") {
+    throw transcriptError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
+  }
   return {
-    parentSessionId: owner.parentSessionId,
+    parentSessionId: child.lineage.parentSessionId,
     sessionId: child.sessionId,
     generation: owner.generation,
     transcriptPath: resolve(sessionPath),
@@ -725,25 +734,6 @@ function encodedBytes(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(value));
 }
 
-function stableContextEntries(entries: readonly SparkSessionEntry[]): SparkSessionEntry[] {
-  let lastStableAssistant = -1;
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index];
-    if (entry?.type !== "message" || entry.message.role !== "assistant") continue;
-    const stopReason = stringValue(entry.message.stopReason)?.toLowerCase();
-    if (
-      stopReason === "tooluse" ||
-      stopReason === "tool_use" ||
-      stopReason === "aborted" ||
-      stopReason === "error"
-    ) {
-      continue;
-    }
-    lastStableAssistant = index;
-  }
-  return lastStableAssistant < 0 ? [] : entries.slice(0, lastStableAssistant + 1);
-}
-
 function isFinalAssistantMessage(message: {
   status: string;
   metadata: Record<string, unknown>;
@@ -780,28 +770,24 @@ async function effectiveModelState(
 }
 
 function requireSideThreadOwner(child: SparkSessionState) {
-  if (child.owner?.kind !== "side_thread") {
+  if (child.lineage.kind !== "child" || child.lineage.origin.kind !== "side_thread") {
     throw transcriptError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
   }
-  return child.owner;
+  return child.lineage.origin;
 }
 
 function requireSessionsRoot(options: SparkDaemonSessionControlOptions): string {
-  if (!options.paths.piAgentDir) {
+  if (!options.paths.sessionRuntimeDir) {
     throw transcriptError(
       "side_thread_transcript_invalid",
       "Spark daemon native session storage is unavailable",
     );
   }
-  return join(options.paths.piAgentDir, "sessions");
+  return join(options.paths.sessionRuntimeDir, "sessions");
 }
 
 function transcriptError(code: SparkSideThreadErrorCode, message: string) {
   return new SparkSessionRegistryError(code, message);
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function truncate(value: string, limit: number): string {
@@ -809,8 +795,4 @@ function truncate(value: string, limit: number): string {
   return characters.length <= limit
     ? characters.join("")
     : `${characters.slice(0, limit).join("")}…`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

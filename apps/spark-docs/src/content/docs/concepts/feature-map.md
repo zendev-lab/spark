@@ -12,7 +12,7 @@ capabilities, not the product taxonomy.
 | You use | What it is for | State owner |
 | --- | --- | --- |
 | `spark` CLI | Install, dispatch, script, diagnose, and open another surface | Dispatcher only |
-| TUI | Describe work, steer one session, and inspect its local projection | Terminal presentation |
+| Local web | Describe work, steer one session, and inspect its local projection | Browser presentation |
 | Daemon | Keep sessions and work running after a frontend disconnects | Execution truth |
 | Hub | Supervise workspaces and conversations from the browser | Web presentation and coordination |
 | ACP | Connect compatible editor clients to daemon-owned sessions | Adapter only |
@@ -20,7 +20,7 @@ capabilities, not the product taxonomy.
 
 The complete installation meta package is `@zendev-lab/spark`; it pins the
 lockstep packages but contains no dispatcher implementation.
-`@zendev-lab/spark-cli` owns the real `spark` command. Daemon, TUI, and Hub are
+`@zendev-lab/spark-cli` owns the real `spark` command. Daemon, Hub, and local web are
 also independently installable app packages. Other source workspaces are private
 implementation boundaries rather than supported products. See
 [surfaces and ownership](/concepts/surfaces/) and the [CLI reference](/reference/cli/).
@@ -29,10 +29,10 @@ For contributors, the source topology stays compact by family:
 
 | Source family | Responsibility |
 | --- | --- |
-| `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
-| `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
+| `apps/spark-cli`, `spark-daemon`, `apps/spark-web`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
+| `apps/spark-daemon/src/product`, `spark-daemon-client` | Daemon-internal product composition and the shared daemon client boundary |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
-| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui-adapter` | Cross-surface contracts and dependency-light foundations |
+| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-text` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
 
 Contributors can inspect `.agents/notes/contracts/package-architecture.md` for dependency
@@ -43,22 +43,22 @@ inventory. Ordinary users do not need to learn individual workspace packages.
 
 The daemon owns durable sessions, queued and running work, event streams,
 recovery, workspace binding, channel listeners, and autonomous continuation.
-Foreground runs, background submissions, TUI prompts, and Hub Web messages all
+Foreground runs, background submissions, local web prompts, and Hub Web messages all
 reach this same execution owner.
 
 Use `spark doctor` and `spark daemon status --json` for health. Use
 [runs and sessions](/guides/runs-and-sessions/) for foreground, background,
 attach, resume, and cancellation.
 
-## 2. Interactive design: Hub Web and TUI
+## 2. Interactive design: Hub Web and local web
 
-- Use the [TUI](/guides/tui/) for fast local conversation, Plan/Implement,
-  steering, model selection, and the current session inspector.
+- Use the [local web workbench](/guides/web/) for fast local conversation,
+  steering, and the current session inspector.
 - Use [Hub Web](/guides/hub/) for workspace overview, conversations,
   Inbox, artifacts, resources, and cross-daemon supervision.
 - Use the CLI when you already know the operation and want a scriptable result.
 
-The TUI's `/inspect` panel is local to the current session. `spark hub`
+The workbench session page is local to the current session. `spark hub`
 opens the separate browser control surface.
 
 ## 3. Base agent tools
@@ -86,32 +86,37 @@ Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
 
-Repro owns three lanes: Implementation Explore, Exactness Explore, and
-Formalize. Explore work can proceed in parallel without advancing normative
-progress; only Formalize can update the accepted `formalizedTip`. Goal remains
-a single TaskGraph-derived runtime projection rather than adopting those lanes.
+Repro owns three stable child Sessions: Implementation, Exactness, and
+Formalize. The daemon advances their fixed five-checkpoint chain, and only
+Formalize can set `formalizedRevision`. Goal remains a separate
+TaskGraph-derived runtime projection.
 
 Start with [plan and implement](/guides/plan-and-execute/), then read
 [long-running automation](/guides/automation/).
 
 ## 5. Channels and multi-session collaboration
 
-Spark distinguishes reusable Roles, durable Sessions, read-only Side Threads,
-and message-platform Channels. Feishu, Infoflow, and QQ Bot conversations bind
-to daemon sessions instead of creating another execution owner. Sessions can
-send requests or notifications and receive completion summaries through their
-Inbox.
+Spark has one runtime conversation entity: Session. Roles are reusable
+static definitions bound onto a Session at runtime. subsession means any
+Session with child lineage; a child with an explicit Role bind is a
+subagent. The human operator is not a Role. Official DSH `subagent` tools
+map onto `session spawn|fork` plus `session send`. The Side Thread
+feature creates a read-only child Session. Feishu, Infoflow, and QQ Bot
+conversations resolve to daemon-global root Channel Sessions without requiring
+a Workspace or creating another execution owner. Sessions can send requests or
+notifications and receive completion summaries through their Inbox.
 
-See [collaboration and channels](/guides/collaboration/) and
-[Side Threads](/guides/side-threads/).
+See [collaboration](/guides/collaboration/), [daemon-global Channels](/guides/channels/),
+and [Side Threads](/guides/side-threads/).
 
-## 6. Models, context, extensions, and operations
+## 6. Models, context, capabilities, and operations
 
 - Providers, model selection, and reasoning effort are shared runtime controls.
 - Memory, bounded context providers, artifacts, and internal evidence
   preserve useful results with separate visibility.
-- Saved workflows extend repeatable procedures; Fusion and Graft are explicit
-  opt-in capabilities.
+- Saved workflows extend repeatable procedures. Fusion is part of the supported
+  daemon and DSH-web product composition; Graft remains a Pi-compatibility path,
+  not a discoverable Spark product extension.
 - Managed updates, backups, access keys, workspace registration, diagnostics,
   and recovery support operation beyond the first local run.
 

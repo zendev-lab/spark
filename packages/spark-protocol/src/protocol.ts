@@ -10,6 +10,7 @@ import {
   SPARK_SESSION_PROMPT_HISTORY_MAX,
   sparkSessionPendingTurnSchema,
   sparkSessionSubmittedInputTextSchema,
+  type SparkSessionActivity,
 } from "./session-assignment.ts";
 import { sparkLoopViewSchema } from "./loop.ts";
 import {
@@ -110,6 +111,43 @@ export const sparkViewModelStatusSchema = z.enum([
   "timed_out",
   "unknown",
 ]);
+
+export type SparkSessionActivityViewStatus = Extract<
+  SparkViewModelStatus,
+  "idle" | "queued" | "running"
+>;
+
+export function sparkViewModelStatusFromSessionActivity(
+  activity: SparkSessionActivity,
+): SparkSessionActivityViewStatus {
+  return activity;
+}
+
+export function sparkViewModelStatusFromPendingTurns(
+  pendingTurns: readonly { status: string }[],
+): SparkSessionActivityViewStatus {
+  if (pendingTurns.some((turn) => turn.status === "running")) return "running";
+  if (pendingTurns.length > 0) return "queued";
+  return "idle";
+}
+
+const staleBusySessionViewStatuses = new Set<SparkViewModelStatus>([
+  "running",
+  "streaming",
+  "queued",
+]);
+
+export function sparkSessionViewStatusAfterPendingTurns(
+  pendingTurns: readonly { status: string }[],
+  previousStatus?: SparkViewModelStatus,
+): SparkViewModelStatus {
+  const fromPending = sparkViewModelStatusFromPendingTurns(pendingTurns);
+  if (fromPending !== "idle") return fromPending;
+  if (previousStatus !== undefined && staleBusySessionViewStatuses.has(previousStatus)) {
+    return "idle";
+  }
+  return previousStatus ?? "idle";
+}
 
 export const sparkMessageRoleSchema = z.enum([
   "system",
@@ -581,134 +619,92 @@ export const sparkSessionGoalWorkViewSchema = z.object({
   updatedAt: sparkIsoDateTimeSchema,
 });
 
-export const sparkSessionReproCurrentStepViewSchema = z.object({
-  id: z.string().min(1),
-  stage: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
-  goal: z.string().min(1),
-  status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
-  authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
-  doneWhen: z.array(z.string().min(1)),
-  evidenceRequired: z.array(z.string().min(1)),
-  blocker: z.string().min(1).optional(),
-});
-
-export const sparkSessionVerificationReceiptViewSchema = z.object({
-  stepId: z.string().min(1),
-  proofKind: z.enum(["evidence", "decision", "approval"]),
-  verifiedDoneWhen: z.array(z.string().min(1)),
-  evidenceRefs: z.array(z.string().min(1)),
-});
-
-export const SPARK_SESSION_REPRO_LANE_ITEM_LIMIT = 6 as const;
-
-export const sparkSessionReproLaneItemViewSchema = z.object({
-  workItemId: z.string().min(1).max(128),
-  title: z.string().min(1).max(160),
-  status: z.enum(["open", "blocked", "completed", "superseded"]),
-  taskRef: z
-    .string()
-    .regex(/^task:.+/u)
-    .optional(),
-  runRef: z
-    .string()
-    .regex(/^run:.+/u)
-    .optional(),
-  gitChangeRef: z
-    .string()
-    .regex(/^artifact:.+/u)
-    .optional(),
-  evidenceRefs: z.array(z.string().regex(/^evidence:.+/u)).max(6),
-  handoffCount: z.number().int().nonnegative(),
-  resolutionCount: z.number().int().nonnegative(),
-});
-
-export const sparkSessionReproLaneSummaryViewSchema = z
+export const sparkSessionReproLaneViewSchema = z
   .object({
-    status: z.enum(["empty", "active", "blocked", "complete"]),
-    totalCount: z.number().int().nonnegative(),
-    openCount: z.number().int().nonnegative(),
-    blockedCount: z.number().int().nonnegative(),
-    completedCount: z.number().int().nonnegative(),
-    supersededCount: z.number().int().nonnegative(),
-    pendingHandoffCount: z.number().int().nonnegative(),
-    resolutionCount: z.number().int().nonnegative(),
-    items: z.array(sparkSessionReproLaneItemViewSchema).max(SPARK_SESSION_REPRO_LANE_ITEM_LIMIT),
+    sessionId: z.string().min(1).max(256),
+    taskRef: z.string().regex(/^task:.+/u),
+    roleRef: z.string().regex(/^role:.+/u),
   })
-  .superRefine((lane, context) => {
-    const counted = lane.openCount + lane.blockedCount + lane.completedCount + lane.supersededCount;
-    if (counted !== lane.totalCount) {
-      context.addIssue({ code: "custom", message: "lane status counts must equal totalCount" });
-    }
-    if (lane.items.length > lane.totalCount) {
-      context.addIssue({ code: "custom", message: "lane items cannot exceed totalCount" });
-    }
-    if (new Set(lane.items.map((item) => item.workItemId)).size !== lane.items.length) {
-      context.addIssue({ code: "custom", message: "lane workItemId values must be unique" });
-    }
-    const expectedStatus =
-      lane.totalCount === 0
-        ? "empty"
-        : lane.blockedCount > 0
-          ? "blocked"
-          : lane.openCount > 0
-            ? "active"
-            : "complete";
-    if (lane.status !== expectedStatus) {
-      context.addIssue({ code: "custom", message: "lane status does not match its counts" });
-    }
-  });
+  .strict();
 
-export const sparkSessionReproLanesViewSchema = z.object({
-  implementation: sparkSessionReproLaneSummaryViewSchema,
-  exactness: sparkSessionReproLaneSummaryViewSchema,
-  formalize: sparkSessionReproLaneSummaryViewSchema,
-  formalizedTip: z.string().min(1).max(256).optional(),
-});
+export const sparkSessionReproCheckpointViewSchema = z
+  .object({
+    checkpointId: z.string().min(1).max(256),
+    kind: z.enum([
+      "implementation",
+      "exactness",
+      "formalize",
+      "exactness_refresh",
+      "implementation_refresh",
+    ]),
+    lane: z.enum(["implementation", "exactness", "formalize"]),
+    status: z.enum(["pending", "running", "attention", "accepted"]),
+    sessionId: z.string().min(1).max(256),
+    taskRef: z.string().regex(/^task:.+/u),
+    runRef: z
+      .string()
+      .regex(/^run:.+/u)
+      .optional(),
+    attempt: z.number().int().nonnegative(),
+    evidenceRefs: z.array(z.string().regex(/^evidence:.+/u)).max(12),
+    summary: z.string().min(1).max(512).optional(),
+    attention: z
+      .object({
+        decisionKey: z.string().min(1).max(256),
+        question: z.string().min(1).max(512),
+        expectedAnswerKind: z.enum(["single", "multi", "freeform"]),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
-export const sparkSessionReproWorkViewSchema = z.object({
-  reproId: z.string().min(1),
-  status: z.enum(["active", "complete"]),
-  contractStatus: z.enum(["draft", "frozen"]),
-  objective: z.string().min(1),
-  successCriteria: z.array(z.string().min(1)),
-  evidenceRequired: z.array(z.string().min(1)),
-  stage: z.object({
-    name: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
-    title: z.string().min(1),
-    index: z.number().int().nonnegative(),
-    total: z.number().int().positive(),
-    phase: z.enum(["plan", "implement"]),
-  }),
-  plan: z.object({
-    revision: z.number().int().positive(),
-    completedSteps: z.number().int().nonnegative(),
-    totalSteps: z.number().int().nonnegative(),
-    currentStep: sparkSessionReproCurrentStepViewSchema.optional(),
-  }),
-  stopGuard: z.object({
-    decision: z.enum(["continue", "ask", "complete"]),
-    stagnationCount: z.number().int().nonnegative(),
-    limit: z.number().int().positive(),
-  }),
-  latestVerification: sparkSessionVerificationReceiptViewSchema.optional(),
-  /** Bounded, display-safe lane summaries. Full domain records remain Repro-owned. */
-  lanes: sparkSessionReproLanesViewSchema.optional(),
-  /** Daemon-owned Repro-scope ledger projection; never derived from transcript or Session totals. */
-  tokenUsage: sparkTokenUsageAggregateSchema.optional(),
-  /** Bounded diagnostic split; it exposes aggregates, never receipt bodies. */
-  tokenUsageByPersistence: sparkTokenUsageByPersistenceSchema.optional(),
-  /** Daemon-authenticated interactive binding; Artifact content remains an output projection. */
-  workbench: z
-    .object({
-      artifactRef: z.string().regex(/^artifact:.+/u),
-      revision: z.number().int().positive(),
-      lifecycle: z.enum(["live", "sealed"]),
-      loopId: z.string().min(1),
-      generation: z.number().int().positive(),
-    })
-    .optional(),
-  updatedAt: sparkIsoDateTimeSchema,
-});
+export const sparkSessionReproWorkViewSchema = z
+  .object({
+    version: z.literal(10),
+    reproId: z.string().min(1),
+    status: z.enum([
+      "provisioning",
+      "active",
+      "waiting_attention",
+      "complete",
+      "stopped",
+      "blocked",
+    ]),
+    objective: z.string().min(1),
+    workItemId: z.string().min(1).max(256),
+    lanes: z
+      .object({
+        implementation: sparkSessionReproLaneViewSchema,
+        exactness: sparkSessionReproLaneViewSchema,
+        formalize: sparkSessionReproLaneViewSchema,
+      })
+      .strict(),
+    checkpoint: sparkSessionReproCheckpointViewSchema.optional(),
+    progress: z
+      .object({
+        accepted: z.number().int().min(0).max(5),
+        total: z.literal(5),
+      })
+      .strict(),
+    formalizedRevision: z.string().min(1).max(256).optional(),
+    blockingReason: z.string().min(1).max(512).optional(),
+    /** Daemon-owned Repro-scope ledger projection; never derived from transcript or Session totals. */
+    tokenUsage: sparkTokenUsageAggregateSchema.optional(),
+    /** Bounded diagnostic split; it exposes aggregates, never receipt bodies. */
+    tokenUsageByPersistence: sparkTokenUsageByPersistenceSchema.optional(),
+    /** Daemon-authenticated interactive binding; Artifact content remains an output projection. */
+    workbench: z
+      .object({
+        artifactRef: z.string().regex(/^artifact:.+/u),
+        revision: z.number().int().positive(),
+        lifecycle: z.enum(["live", "sealed"]),
+      })
+      .strict()
+      .optional(),
+    updatedAt: sparkIsoDateTimeSchema,
+  })
+  .strict();
 
 export const sparkSessionWorkViewSchema = z.object({
   primary: sparkSessionPrimaryWorkViewSchema.optional(),
@@ -943,9 +939,18 @@ export const sparkAskFlowInteractionRequestSchema = sparkInteractionBaseRequestS
     flow: z.string().min(1).optional(),
     questions: z.array(sparkAskQuestionViewSchema).min(1),
     allowElaborate: z.boolean().optional(),
+    /** When set, the durable reply-wait is addressed to this Session instead of User. */
+    toSessionId: z.string().trim().min(1).optional(),
     evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   })
   .superRefine((request, context) => {
+    if (request.toSessionId && request.evidenceRequest) {
+      context.addIssue({
+        code: "custom",
+        path: ["toSessionId"],
+        message: "session-addressed ask cannot bind an EvidenceRequest",
+      });
+    }
     if (!request.evidenceRequest) return;
     if (request.delivery !== "async") {
       context.addIssue({
@@ -1137,7 +1142,7 @@ const sparkDaemonEventBaseSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   eventId: z.string().min(1).optional(),
   emittedAt: sparkIsoDateTimeSchema.optional(),
-  source: z.enum(["daemon", "runtime", "tui", "web", "hub", "cockpit", "test"]).default("daemon"),
+  source: z.enum(["daemon", "runtime", "tui", "web", "hub", "test"]).default("daemon"),
   workspaceId: sparkRefSchema.optional(),
   projectId: sparkRefSchema.optional(),
   sessionId: z.string().min(1).optional(),
@@ -1262,17 +1267,8 @@ export type SparkSessionMailMessageView = z.infer<typeof sparkSessionMailMessage
 export type SparkSessionUsage = z.infer<typeof sparkSessionUsageSchema>;
 export type SparkSessionPrimaryWorkView = z.infer<typeof sparkSessionPrimaryWorkViewSchema>;
 export type SparkSessionGoalWorkView = z.infer<typeof sparkSessionGoalWorkViewSchema>;
-export type SparkSessionReproCurrentStepView = z.infer<
-  typeof sparkSessionReproCurrentStepViewSchema
->;
-export type SparkSessionVerificationReceiptView = z.infer<
-  typeof sparkSessionVerificationReceiptViewSchema
->;
-export type SparkSessionReproLaneItemView = z.infer<typeof sparkSessionReproLaneItemViewSchema>;
-export type SparkSessionReproLaneSummaryView = z.infer<
-  typeof sparkSessionReproLaneSummaryViewSchema
->;
-export type SparkSessionReproLanesView = z.infer<typeof sparkSessionReproLanesViewSchema>;
+export type SparkSessionReproLaneView = z.infer<typeof sparkSessionReproLaneViewSchema>;
+export type SparkSessionReproCheckpointView = z.infer<typeof sparkSessionReproCheckpointViewSchema>;
 export type SparkSessionReproWorkView = z.infer<typeof sparkSessionReproWorkViewSchema>;
 export type SparkSessionWorkView = z.infer<typeof sparkSessionWorkViewSchema>;
 export type SparkSessionView = z.infer<typeof sparkSessionViewSchema>;

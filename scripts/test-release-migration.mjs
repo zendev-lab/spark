@@ -18,7 +18,8 @@ export function parseMigrationArguments(argv) {
       "daemon-tarball": { type: "string" },
       "hub-tarball": { type: "string" },
       tarball: { type: "string" },
-      "tui-tarball": { type: "string" },
+      "web-tarball": { type: "string" },
+      "web-dsh-tarball": { type: "string" },
     },
     strict: true,
   });
@@ -38,7 +39,8 @@ export function parseMigrationArguments(argv) {
     ...(values["cli-tarball"] ? { cliTarball: values["cli-tarball"] } : {}),
     ...(values["daemon-tarball"] ? { daemonTarball: values["daemon-tarball"] } : {}),
     ...(values["hub-tarball"] ? { hubTarball: values["hub-tarball"] } : {}),
-    ...(values["tui-tarball"] ? { tuiTarball: values["tui-tarball"] } : {}),
+    ...(values["web-tarball"] ? { webTarball: values["web-tarball"] } : {}),
+    ...(values["web-dsh-tarball"] ? { webDshTarball: values["web-dsh-tarball"] } : {}),
   };
 }
 
@@ -76,22 +78,11 @@ export function resolveReleaseMigrationExemption(sparkRelease, candidateVersion)
 
 export async function resolvePublishedHubProbe(baselineRoot, dependencies = {}) {
   const pathExists = dependencies.exists ?? exists;
-  const candidates = [
-    {
-      command: join(baselineRoot, "node_modules", ".bin", "spark-hub"),
-      listArgs: ["delegation", "list"],
-    },
-    {
-      command: join(baselineRoot, "node_modules", ".bin", "spark-cockpit"),
-      listArgs: ["access", "list"],
-    },
-  ];
-  for (const candidate of candidates) {
-    if (await pathExists(candidate.command)) return candidate;
+  const command = join(baselineRoot, "node_modules", ".bin", "spark-hub");
+  if (await pathExists(command)) {
+    return { command, listArgs: ["delegation", "list"] };
   }
-  throw new Error(
-    `Published Spark baseline under ${baselineRoot} exposes neither spark-hub nor spark-cockpit.`,
-  );
+  throw new Error(`Published Spark baseline under ${baselineRoot} does not expose spark-hub.`);
 }
 
 export async function readCandidateArtifactIdentity(
@@ -272,11 +263,12 @@ async function main() {
     cliTarball,
     daemonTarball,
     hubTarball,
-    tuiTarball,
+    webTarball,
+    webDshTarball,
   } = parseMigrationArguments(process.argv.slice(2));
   const root = process.cwd();
   const candidatePath = resolve(root, candidateTarball);
-  const companionPaths = [cliTarball, daemonTarball, hubTarball, tuiTarball]
+  const companionPaths = [cliTarball, daemonTarball, hubTarball, webTarball, webDshTarball]
     .filter((path) => typeof path === "string")
     .map((path) => resolve(root, path));
   await Promise.all([access(candidatePath), ...companionPaths.map((path) => access(path))]);

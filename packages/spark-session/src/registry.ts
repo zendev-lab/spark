@@ -1,11 +1,13 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   channelAdapterFromExternalKey,
   normalizeChannelExternalKey,
   parseSparkSessionState,
   parseSparkSessionStoredRecord,
-  sparkSessionLifetimeForOwner,
+  sparkSessionLifetimeForLineage,
+  sparkSessionLineageOriginKind,
+  sparkSessionParentId,
   sparkSessionCloseReceiptSchema,
   SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   type SparkSessionArchiveEvent,
@@ -14,14 +16,14 @@ import {
   type SparkSessionCloseReceipt,
   type SparkFleetWorkerBinding,
   type SparkSessionLifecycle,
-  type SparkSessionOwner,
+  type SparkSessionLineage,
+  type SparkSessionLineageOrigin,
   type SparkSessionPlacement,
   type SparkSessionState,
   type SparkEphemeralSessionTombstone,
   type SparkSessionRetention,
   type SparkSessionRoleBinding,
   type SparkSessionScope,
-  type SparkSessionStateBinding,
   type SparkSessionVisibility,
   type SparkSideThreadMode,
 } from "@zendev-lab/spark-protocol/session-assignment";
@@ -29,8 +31,8 @@ import type { SparkRoleModelType } from "@zendev-lab/spark-protocol/role-session
 import type { SparkSessionRegistryErrorCode } from "@zendev-lab/spark-protocol/session-errors";
 import type { SparkModelRef, SparkThinkingLevel } from "@zendev-lab/spark-protocol/model-control";
 
-const LEGACY_REGISTRY_VERSIONS = new Set([1, 2, 3, 4, 5]);
-export const SPARK_SESSION_REGISTRY_VERSION = 6 as const;
+const SUPPORTED_MIGRATION_SOURCE_VERSIONS = [6, 7] as const;
+export const SPARK_SESSION_REGISTRY_VERSION = 8 as const;
 
 export type SparkSessionUnboundPolicy = "reject" | "create";
 
@@ -44,6 +46,8 @@ export interface SparkSessionRegistryFile {
 export interface SparkSessionRegistryOptions {
   /** Directory that will contain `registry.json`. */
   rootDir: string;
+  daemonId?: string;
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }
 
 export interface CreateSparkSessionInput {
@@ -52,8 +56,7 @@ export interface CreateSparkSessionInput {
   name?: string;
   roleBinding?: SparkSessionRoleBinding;
   fleetWorker?: SparkFleetWorkerBinding;
-  owner?: SparkSessionOwner;
-  stateBinding?: SparkSessionStateBinding;
+  lineage?: SparkSessionLineage;
   visibility?: SparkSessionVisibility;
   retention?: SparkSessionRetention;
   purpose?: string;
@@ -175,6 +178,18 @@ export interface ResolveBindingInput {
   now?: Date;
 }
 
+export interface ResolveChannelSessionInput {
+  daemonId: string;
+  externalKey: string;
+  adapterId?: string;
+  adapterAccountIdentity: string;
+  allowLegacyAccountClaim?: boolean;
+  onUnbound?: SparkSessionUnboundPolicy;
+  name?: string;
+  createCwd: (sessionId: string) => Promise<string>;
+  now?: Date;
+}
+
 export class SparkSessionRegistryError extends Error {
   readonly code: SparkSessionRegistryErrorCode;
 
@@ -185,27 +200,41 @@ export class SparkSessionRegistryError extends Error {
   }
 }
 
+interface RegistryFileFingerprint {
+  mtimeMs: number;
+  size: number;
+}
+
+type RegistryFileCache =
+  | { kind: "missing" }
+  | { kind: "present"; fingerprint: RegistryFileFingerprint; file: SparkSessionRegistryFile };
+
 export class SparkSessionRegistry {
   readonly rootDir: string;
   readonly filePath: string;
   #migration: Promise<SparkSessionRegistryFile> | undefined;
+  #cache: RegistryFileCache | undefined;
+  readonly #daemonId: string | undefined;
+  readonly #resolveChannelSessionCwd: ((sessionId: string) => Promise<string>) | undefined;
 
   constructor(options: SparkSessionRegistryOptions) {
     this.rootDir = options.rootDir;
     this.filePath = join(options.rootDir, "registry.json");
+    this.#daemonId = options.daemonId?.trim() || undefined;
+    this.#resolveChannelSessionCwd = options.resolveChannelSessionCwd;
   }
 
   async create(input: CreateSparkSessionInput): Promise<SparkSessionState> {
     const file = await this.loadFile();
     const now = (input.now ?? new Date()).toISOString();
-    const sessionId = input.sessionId?.trim() || createSessionId();
+    const sessionId = input.sessionId?.trim() || createSparkSessionId();
     if (sessionIdExists(file, sessionId)) {
       throw new SparkSessionRegistryError("session_exists", `session already exists: ${sessionId}`);
     }
     const scope = createScope(input);
-    const owner = input.owner ?? requireAdministratorOwner(file.sessions, scope);
-    assertOwnerWithinScope(file.sessions, owner, scope, input.cwd, input.cwdArtifactRef);
-    if (owner.kind === "workspace") {
+    const lineage = input.lineage ?? requireAdministratorLineage(file.sessions, scope);
+    assertLineageWithinScope(file.sessions, lineage, scope, input.cwd, input.cwdArtifactRef);
+    if (lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
         "workspace-owned Sessions are created only by ensureWorkspaceAdministrator()",
@@ -213,7 +242,8 @@ export class SparkSessionRegistry {
     }
     if (
       input.fleetWorker &&
-      (owner.kind !== "session" || owner.supervisorSessionId !== input.fleetWorker.ownerSessionId)
+      (lineage.origin.kind !== "session" ||
+        lineage.parentSessionId !== input.fleetWorker.ownerSessionId)
     ) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
@@ -226,17 +256,15 @@ export class SparkSessionRegistry {
       lifecycle: input.lifecycle ?? "open",
       placement: input.placement ?? "active",
       roleBinding: input.roleBinding ?? { kind: "none" },
-      owner,
+      lineage,
       incarnation: 1,
-      stateBinding:
-        input.stateBinding ??
-        ({
-          kind: "session",
-          ref: input.fleetWorker ? sessionId : (ownerSessionId(owner) ?? sessionId),
-        } as const),
-      visibility: input.visibility ?? (owner.kind === "invocation" ? "internal" : "public"),
-      retention: input.retention ?? (owner.kind === "invocation" ? "discard_on_close" : "retain"),
-      purpose: input.purpose?.trim() || (owner.kind === "invocation" ? "role_call" : "interactive"),
+      visibility:
+        input.visibility ?? (lineage.origin.kind === "invocation" ? "internal" : "public"),
+      retention:
+        input.retention ?? (lineage.origin.kind === "invocation" ? "discard_on_close" : "retain"),
+      purpose:
+        input.purpose?.trim() ||
+        (lineage.origin.kind === "invocation" ? "role_call" : "interactive"),
       bindings: [],
       tags: [],
       archiveHistory: [],
@@ -244,7 +272,7 @@ export class SparkSessionRegistry {
       createdAt: now,
       updatedAt: now,
       ...(normalizeSessionName(input.name) ? { name: normalizeSessionName(input.name) } : {}),
-      ...inheritedSessionLocation(file.sessions, owner, input.cwd, input.cwdArtifactRef),
+      ...inheritedSessionLocation(file.sessions, lineage, input.cwd, input.cwdArtifactRef),
       ...(input.fleetWorker ? { fleetWorker: input.fleetWorker } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
       ...(input.transcriptRef ? { transcriptRef: input.transcriptRef } : {}),
@@ -260,14 +288,14 @@ export class SparkSessionRegistry {
     const existing = file.sessions
       .filter(
         (s) =>
-          s.owner.kind === "side_thread" &&
-          s.owner.parentSessionId === parent.sessionId &&
+          isSessionOrigin(s, "side_thread") &&
+          s.lineage.parentSessionId === parent.sessionId &&
           s.lifecycle === "open" &&
           s.placement === "active",
       )
       .sort((left, right) => sideThreadGeneration(right) - sideThreadGeneration(left))[0];
     if (existing) return requireChild(existing);
-    const sessionId = input.sessionId?.trim() || createSessionId();
+    const sessionId = input.sessionId?.trim() || createSparkSessionId();
     if (sessionIdExists(file, sessionId))
       throw new SparkSessionRegistryError("session_exists", `session already exists: ${sessionId}`);
     const path = input.sessionPath?.trim();
@@ -284,7 +312,6 @@ export class SparkSessionRegistry {
       placement: "active",
       roleBinding: { kind: "inherit" },
       incarnation: 1,
-      stateBinding: { kind: "session", ref: parent.sessionId },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "side_thread",
@@ -297,10 +324,10 @@ export class SparkSessionRegistry {
       ...(parent.cwd ? { cwd: parent.cwd } : {}),
       ...(parent.cwdArtifactRef ? { cwdArtifactRef: parent.cwdArtifactRef } : {}),
       ...(path ? { sessionPath: path } : {}),
-      owner: {
-        kind: "side_thread",
+      lineage: {
+        kind: "child",
         parentSessionId: parent.sessionId,
-        generation: 1,
+        origin: { kind: "side_thread", generation: 1 },
       },
       sideThreadMode: input.mode,
     };
@@ -316,10 +343,10 @@ export class SparkSessionRegistry {
     const existing = file.sessions.find((session) => session.sessionId === input.sessionId);
     if (existing) {
       if (
-        existing.owner.kind !== "driver" ||
-        existing.owner.driverId !== input.driverId ||
-        existing.owner.generation !== input.generation ||
-        existing.owner.supervisorSessionId !== input.supervisorSessionId
+        !isSessionOrigin(existing, "driver") ||
+        existing.lineage.origin.driverId !== input.driverId ||
+        existing.lineage.origin.generation !== input.generation ||
+        existing.lineage.parentSessionId !== input.supervisorSessionId
       ) {
         throw new SparkSessionRegistryError(
           "session_exists",
@@ -345,15 +372,13 @@ export class SparkSessionRegistry {
       placement: "active",
       roleBinding: { kind: "inherit" },
       incarnation: 1,
-      stateBinding: { kind: "driver", ref: input.driverId },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "driver_generation",
-      owner: {
-        kind: "driver",
-        driverId: input.driverId,
-        generation,
-        supervisorSessionId: supervisor.sessionId,
+      lineage: {
+        kind: "child",
+        parentSessionId: supervisor.sessionId,
+        origin: { kind: "driver", driverId: input.driverId, generation },
       },
       ...(supervisor.cwd ? { cwd: supervisor.cwd } : {}),
       ...(supervisor.cwdArtifactRef ? { cwdArtifactRef: supervisor.cwdArtifactRef } : {}),
@@ -384,8 +409,7 @@ export class SparkSessionRegistry {
       (session) =>
         session.scope.kind === "workspace" &&
         session.scope.workspaceId === workspaceId &&
-        session.owner.kind === "workspace" &&
-        session.owner.workspaceId === workspaceId,
+        session.lineage.kind === "root",
     );
     if (matching.length > 1) {
       throw new SparkSessionRegistryError(
@@ -396,7 +420,7 @@ export class SparkSessionRegistry {
     if (matching[0]) return matching[0];
 
     const now = (input.now ?? new Date()).toISOString();
-    const sessionId = createSessionId();
+    const sessionId = createSparkSessionId();
     const record: SparkSessionState = {
       sessionId,
       scope: { kind: "workspace", workspaceId },
@@ -404,9 +428,8 @@ export class SparkSessionRegistry {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
-      owner: { kind: "workspace", workspaceId },
+      lineage: { kind: "root" },
       incarnation: 1,
-      stateBinding: { kind: "session", ref: sessionId },
       visibility: "public",
       retention: "audit",
       purpose: "workspace_administrator",
@@ -433,7 +456,7 @@ export class SparkSessionRegistry {
       );
     const current = requireSideThreadRecord(file.sessions[index]!);
     assertGeneration(current, input.expectedGeneration);
-    const parent = requireParent(file.sessions, current.owner.parentSessionId);
+    const parent = requireParent(file.sessions, current.lineage.parentSessionId);
     if (current.lifecycle !== "closed" || current.placement !== "archived") {
       throw new SparkSessionRegistryError(
         "side_thread_busy",
@@ -467,7 +490,6 @@ export class SparkSessionRegistry {
       placement: "active",
       roleBinding: current.roleBinding,
       incarnation: 1,
-      stateBinding: current.stateBinding,
       visibility: current.visibility,
       retention: current.retention,
       purpose: current.purpose,
@@ -476,9 +498,12 @@ export class SparkSessionRegistry {
       archiveHistory: [],
       closeReceipts: [],
       sessionPath: path,
-      owner: {
-        ...current.owner,
-        generation: current.owner.generation + 1,
+      lineage: {
+        ...current.lineage,
+        origin: {
+          ...current.lineage.origin,
+          generation: current.lineage.origin.generation + 1,
+        },
       },
       ...(input.mode ? { sideThreadMode: input.mode } : {}),
       ...(current.cwd ? { cwd: current.cwd } : {}),
@@ -508,7 +533,7 @@ export class SparkSessionRegistry {
       );
     const current = requireChild(file.sessions[index]!);
     assertGeneration(current, input.expectedGeneration);
-    requireParent(file.sessions, current.owner.parentSessionId);
+    requireParent(file.sessions, current.lineage.parentSessionId);
     const updated: SparkSessionState = {
       ...current,
       updatedAt: (input.now ?? new Date()).toISOString(),
@@ -530,7 +555,6 @@ export class SparkSessionRegistry {
     options: {
       includeArchived?: boolean;
       includeClosed?: boolean;
-      includeSideThreads?: boolean;
       scope?: SparkSessionScope;
       workspaceId?: string;
       query?: string;
@@ -542,7 +566,6 @@ export class SparkSessionRegistry {
       .filter((session) => {
         if (!options.includeArchived && session.placement === "archived") return false;
         if (!options.includeClosed && session.lifecycle === "closed") return false;
-        if (!options.includeSideThreads && session.owner.kind === "side_thread") return false;
         const scope =
           options.scope ??
           (options.workspaceId
@@ -604,12 +627,6 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${input.sessionId} cannot own a channel binding`,
-      );
-    }
     assertSessionInvocable(current, "bind");
     if (current.placement === "archived") {
       throw new SparkSessionRegistryError(
@@ -685,12 +702,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${sessionId} cannot own a channel binding`,
-      );
-    }
     const normalizedAccountIdentity = adapterAccountIdentity?.trim() || undefined;
     const externalMatches = current.bindings.filter(
       (binding) => binding.externalKey === normalized,
@@ -744,13 +755,7 @@ export class SparkSessionRegistry {
       return current;
     }
     if (archiveInput.requireUnassigned && !isInactiveRetentionCandidate(current)) return current;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${sessionId} is archived only with its parent`,
-      );
-    }
-    if (current.owner.kind === "workspace") {
+    if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
         `workspace Administrator Session ${sessionId} cannot be archived`,
@@ -808,7 +813,7 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
-    if (sparkSessionLifetimeForOwner(current.owner) === "persistent") {
+    if (sparkSessionLifetimeForLineage(current.lineage) === "persistent") {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
         `managed close requires a scoped or ephemeral Session: ${input.sessionId}`,
@@ -820,7 +825,7 @@ export class SparkSessionRegistry {
       const needsTranscriptCleanup =
         discardTranscript &&
         (current.sessionPath !== undefined || current.transcriptRef !== undefined);
-      const needsEphemeralTombstone = current.owner.kind === "invocation";
+      const needsEphemeralTombstone = isSessionOrigin(current, "invocation");
       if (!needsTranscriptCleanup && !needsEphemeralTombstone) return current;
       const now = input.now ?? new Date();
       const repaired: SparkSessionState = {
@@ -831,13 +836,13 @@ export class SparkSessionRegistry {
         delete repaired.sessionPath;
         delete repaired.transcriptRef;
       }
-      if (current.owner.kind === "invocation") {
+      if (isSessionOrigin(current, "invocation")) {
         file.sessions.splice(index, 1);
         file.tombstones.push({
           recordKind: "ephemeral_tombstone",
           sessionId: current.sessionId,
           scope: current.scope,
-          owner: current.owner,
+          lineage: current.lineage,
           lifecycle: "closed",
           placement: "archived",
           closeReceipts: repaired.closeReceipts ?? [],
@@ -864,13 +869,13 @@ export class SparkSessionRegistry {
       delete updated.sessionPath;
       delete updated.transcriptRef;
     }
-    if (current.owner.kind === "invocation") {
+    if (isSessionOrigin(current, "invocation")) {
       file.sessions.splice(index, 1);
       file.tombstones.push({
         recordKind: "ephemeral_tombstone",
         sessionId: current.sessionId,
         scope: current.scope,
-        owner: current.owner,
+        lineage: current.lineage,
         lifecycle: "closed",
         placement: "archived",
         closeReceipts: updated.closeReceipts ?? [],
@@ -959,13 +964,7 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${sessionId} cannot be restored independently`,
-      );
-    }
-    if (current.owner.kind === "workspace") {
+    if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
         `workspace Administrator Session ${sessionId} cannot be restored`,
@@ -999,7 +998,7 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "workspace") {
+    if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
         `workspace Administrator Session ${input.sessionId} cannot be closed`,
@@ -1029,7 +1028,7 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "workspace") {
+    if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
         `workspace Administrator Session ${sessionId} cannot be closed`,
@@ -1070,7 +1069,7 @@ export class SparkSessionRegistry {
     const current = file.sessions[index]!;
     if (
       current.name?.trim() ||
-      current.owner.kind === "side_thread" ||
+      isSessionOrigin(current, "side_thread") ||
       current.bindings.some((binding) => binding.kind === "channel") ||
       current.placement === "archived" ||
       current.lifecycle !== "open"
@@ -1106,12 +1105,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `configure side-thread model through the side-thread control surface: ${sessionId}`,
-      );
-    }
     assertSessionInvocable(current, "change model for");
     const updated: SparkSessionState = {
       ...current,
@@ -1134,12 +1127,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `configure side-thread thinking through the side-thread control surface: ${sessionId}`,
-      );
-    }
     assertSessionInvocable(current, "change thinking level for");
     const updated: SparkSessionState = {
       ...current,
@@ -1237,12 +1224,6 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
-    if (current.owner.kind === "side_thread") {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `relocate side-thread transcript through its generation control: ${input.sessionId}`,
-      );
-    }
     const expectedPath = input.expectedSessionPath
       ? normalizedSessionPath(input.expectedSessionPath, input.sessionId)
       : undefined;
@@ -1325,14 +1306,130 @@ export class SparkSessionRegistry {
     });
   }
 
+  /** Resolve, claim, or create one daemon-global Channel Session in one registry revision. */
+  async resolveChannelSession(input: ResolveChannelSessionInput): Promise<SparkSessionState> {
+    const daemonId = input.daemonId.trim();
+    const adapterAccountIdentity = input.adapterAccountIdentity.trim();
+    if (!daemonId || !adapterAccountIdentity) {
+      throw new SparkSessionRegistryError(
+        "invalid_scope",
+        "Channel Session resolution requires daemon and adapter account identities",
+      );
+    }
+    const externalKey = normalizeChannelExternalKey(input.externalKey);
+    const adapterId = input.adapterId?.trim() || undefined;
+    const scope = { kind: "daemon", daemonId } as const;
+    const file = await this.loadFile();
+    const existingMatch = selectChannelBinding(file.sessions, {
+      externalKey,
+      adapterId,
+      adapterAccountIdentity,
+      scope,
+      allowLegacyAccountClaim: input.allowLegacyAccountClaim ?? false,
+    });
+    if (existingMatch) {
+      const current = existingMatch.session;
+      assertSessionInvocable(current, "route to");
+      if (current.lineage.kind !== "root" || current.purpose !== "channel") {
+        throw new SparkSessionRegistryError(
+          "binding_conflict",
+          `channel binding is owned by a non-Channel Session: ${current.sessionId}`,
+        );
+      }
+      const nextBinding: SparkSessionChannelBinding = {
+        ...existingMatch.binding,
+        ...(adapterId ? { adapterId } : {}),
+        adapterAccountIdentity,
+      };
+      if (
+        nextBinding.adapterId === existingMatch.binding.adapterId &&
+        nextBinding.adapterAccountIdentity === existingMatch.binding.adapterAccountIdentity
+      ) {
+        return current;
+      }
+      const sessionIndex = file.sessions.indexOf(current);
+      const bindingIndex = current.bindings.indexOf(existingMatch.binding);
+      const bindings = [...current.bindings];
+      bindings[bindingIndex] = nextBinding;
+      const updated = parseSparkSessionState({
+        ...current,
+        bindings,
+        updatedAt: (input.now ?? new Date()).toISOString(),
+      });
+      file.sessions[sessionIndex] = updated;
+      await this.saveFile(file);
+      return updated;
+    }
+
+    if ((input.onUnbound ?? "create") === "reject") {
+      throw new SparkSessionRegistryError(
+        "binding_unbound",
+        `no Channel Session bound to ${externalKey}`,
+      );
+    }
+
+    const sessionId = createSparkSessionId();
+    const now = (input.now ?? new Date()).toISOString();
+    const cwd = await input.createCwd(sessionId);
+    const record = parseSparkSessionState({
+      sessionId,
+      scope,
+      ...(normalizeSessionName(input.name) ? { name: normalizeSessionName(input.name) } : {}),
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      lineage: { kind: "root" },
+      incarnation: 1,
+      visibility: "public",
+      retention: "retain",
+      purpose: "channel",
+      cwd,
+      bindings: [
+        {
+          kind: "channel",
+          adapter: channelAdapterFromExternalKey(externalKey),
+          ...(adapterId ? { adapterId } : {}),
+          adapterAccountIdentity,
+          externalKey,
+          boundAt: now,
+        },
+      ],
+      tags: [],
+      archiveHistory: [],
+      closeReceipts: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    file.sessions.push(record);
+    await this.saveFile(file);
+    return record;
+  }
+
   private async loadFile(): Promise<SparkSessionRegistryFile> {
+    const fingerprint = await this.readFingerprint();
+    if (!fingerprint) {
+      const empty = emptyRegistryFile();
+      this.#cache = { kind: "missing" };
+      return cloneRegistryFile(empty);
+    }
+    if (
+      this.#cache?.kind === "present" &&
+      fingerprintsEqual(this.#cache.fingerprint, fingerprint)
+    ) {
+      return cloneRegistryFile(this.#cache.file);
+    }
     try {
       const source = await readFile(this.filePath, "utf8");
       const raw = JSON.parse(source) as unknown;
       if (registryVersion(raw) === SPARK_SESSION_REGISTRY_VERSION) {
         const current = parseRegistryFile(raw);
-        validateRegistryOwnership(current.sessions);
-        return current;
+        validateRegistryLineage(current.sessions);
+        this.#cache = {
+          kind: "present",
+          fingerprint: (await this.readFingerprint()) ?? fingerprint,
+          file: current,
+        };
+        return cloneRegistryFile(current);
       }
       if (!this.#migration) {
         this.#migration = migrateLegacyRegistryFile({
@@ -1340,19 +1437,25 @@ export class SparkSessionRegistry {
           filePath: this.filePath,
           source,
           raw,
+          ...(this.#daemonId ? { daemonId: this.#daemonId } : {}),
+          ...(this.#resolveChannelSessionCwd
+            ? { resolveChannelSessionCwd: this.#resolveChannelSessionCwd }
+            : {}),
         }).finally(() => {
           this.#migration = undefined;
         });
       }
-      return await this.#migration;
+      const migrated = await this.#migration;
+      this.#cache = {
+        kind: "present",
+        fingerprint: (await this.readFingerprint()) ?? fingerprint,
+        file: migrated,
+      };
+      return cloneRegistryFile(migrated);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return {
-          version: SPARK_SESSION_REGISTRY_VERSION,
-          revision: 0,
-          sessions: [],
-          tombstones: [],
-        };
+        this.#cache = { kind: "missing" };
+        return cloneRegistryFile(emptyRegistryFile());
       }
       throw error;
     }
@@ -1360,15 +1463,7 @@ export class SparkSessionRegistry {
 
   private async saveFile(file: SparkSessionRegistryFile): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    let currentRevision = 0;
-    try {
-      const current = parseRegistryFile(
-        JSON.parse(await readFile(this.filePath, "utf8")) as unknown,
-      );
-      currentRevision = current.revision;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    const currentRevision = await this.readCurrentRevision();
     if (currentRevision !== file.revision) {
       throw new SparkSessionRegistryError(
         "session_registry_conflict",
@@ -1390,17 +1485,51 @@ export class SparkSessionRegistry {
     };
     await writeFile(tempPath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
     await rename(tempPath, this.filePath);
-    const readback = parseRegistryFile(
-      JSON.parse(await readFile(this.filePath, "utf8")) as unknown,
-    );
-    const expected = parseRegistryFile(stored);
-    if (JSON.stringify(readback) !== JSON.stringify(expected)) {
+    const readbackRaw = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
+    if (JSON.stringify(readbackRaw) !== JSON.stringify(stored)) {
       throw new SparkSessionRegistryError(
         "invalid_registry",
         `session registry write readback mismatch: ${this.filePath}`,
       );
     }
+    const readback = parseRegistryFile(readbackRaw);
+    this.#cache = {
+      kind: "present",
+      fingerprint: (await this.readFingerprint()) ?? {
+        mtimeMs: 0,
+        size: 0,
+      },
+      file: readback,
+    };
     file.revision = next.revision;
+  }
+
+  private async readCurrentRevision(): Promise<number> {
+    const fingerprint = await this.readFingerprint();
+    if (!fingerprint) return 0;
+    if (
+      this.#cache?.kind === "present" &&
+      fingerprintsEqual(this.#cache.fingerprint, fingerprint)
+    ) {
+      return this.#cache.file.revision;
+    }
+    try {
+      return parseRegistryFile(JSON.parse(await readFile(this.filePath, "utf8")) as unknown)
+        .revision;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+      throw error;
+    }
+  }
+
+  private async readFingerprint(): Promise<RegistryFileFingerprint | undefined> {
+    try {
+      const stats = await stat(this.filePath);
+      return { mtimeMs: stats.mtimeMs, size: stats.size };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
   }
 }
 
@@ -1408,6 +1537,23 @@ export function defaultSparkSessionRegistryRoot(sparkHome: string): string {
   // Keep the established directory so existing installations are migrated in
   // place; registry.json carries its own independently versioned file format.
   return join(sparkHome, "session-registry", "v1");
+}
+
+function emptyRegistryFile(): SparkSessionRegistryFile {
+  return {
+    version: SPARK_SESSION_REGISTRY_VERSION,
+    revision: 0,
+    sessions: [],
+    tombstones: [],
+  };
+}
+
+function cloneRegistryFile(file: SparkSessionRegistryFile): SparkSessionRegistryFile {
+  return structuredClone(file);
+}
+
+function fingerprintsEqual(left: RegistryFileFingerprint, right: RegistryFileFingerprint): boolean {
+  return left.mtimeMs === right.mtimeMs && left.size === right.size;
 }
 
 function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
@@ -1430,7 +1576,7 @@ function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
   ) {
     throw new SparkSessionRegistryError(
       "invalid_registry",
-      "registry v6 revision must be a non-negative integer",
+      "registry v8 revision must be a non-negative integer",
     );
   }
   const storedRecords = record.sessions.map(parseSparkSessionStoredRecord);
@@ -1462,543 +1608,250 @@ async function migrateLegacyRegistryFile(input: {
   filePath: string;
   source: string;
   raw: unknown;
+  daemonId?: string;
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }): Promise<SparkSessionRegistryFile> {
   const version = registryVersion(input.raw);
-  if (version === undefined || !LEGACY_REGISTRY_VERSIONS.has(version)) {
+  if (!SUPPORTED_MIGRATION_SOURCE_VERSIONS.includes(version as 6 | 7)) {
     throw new SparkSessionRegistryError(
       "invalid_registry",
-      `session registry migration source ${input.source} received version ${String(version)}; supported legacy versions are ${[...LEGACY_REGISTRY_VERSIONS].join(", ")}; restore an eligible registry backup and restart the daemon to retry`,
+      `session registry migration source ${input.source} received version ${String(version)}; only v6 or v7 can migrate to v8. Upgrade to Spark 0.4.0 first, restart once to produce registry v6, then upgrade and retry`,
     );
   }
+  const sourceVersion = version as 6 | 7;
   if (!input.raw || typeof input.raw !== "object" || Array.isArray(input.raw)) {
     throw new SparkSessionRegistryError("invalid_registry", "registry root must be an object");
   }
-  const rawSessions = (input.raw as Record<string, unknown>).sessions;
-  if (!Array.isArray(rawSessions)) {
+  const sourceRecord = input.raw as Record<string, unknown>;
+  if (!Array.isArray(sourceRecord.sessions)) {
     throw new SparkSessionRegistryError("invalid_registry", "sessions must be an array");
   }
+  if (!Number.isInteger(sourceRecord.revision) || Number(sourceRecord.revision) < 0) {
+    throw new SparkSessionRegistryError(
+      "invalid_registry",
+      `registry v${String(version)} revision must be a non-negative integer`,
+    );
+  }
+
   const migratedAt = new Date().toISOString();
   const suffix = migratedAt.replaceAll(/[:.]/gu, "-");
-  const migrationDir = join(input.rootDir, `migration-v${version}-to-v6-${suffix}`);
+  const migrationDir = join(input.rootDir, `migration-v${String(version)}-to-v8-${suffix}`);
   const backupPath = join(migrationDir, "registry.json.backup");
   const stagedPath = join(migrationDir, "registry.json.staged");
   const journalPath = join(migrationDir, "journal.json");
   await mkdir(migrationDir, { recursive: true });
   await writeFile(backupPath, input.source, "utf8");
+  await writeMigrationJournal(journalPath, {
+    state: "staging",
+    sourceVersion,
+    sourcePath: input.filePath,
+    backupPath,
+    stagedPath,
+    migratedAt,
+  });
+
+  try {
+    const normalizedRecords = sourceRecord.sessions.map((record) =>
+      version === 6 ? migrateV6StoredRecord(record) : migrateV7StoredRecord(record),
+    );
+    const storedRecords = await migrateLegacyChannelSessions(normalizedRecords, input);
+    const migrated: SparkSessionRegistryFile = {
+      version: SPARK_SESSION_REGISTRY_VERSION,
+      revision: Number(sourceRecord.revision),
+      sessions: storedRecords.filter(
+        (entry): entry is SparkSessionState => !("recordKind" in entry),
+      ),
+      tombstones: storedRecords.filter(
+        (entry): entry is SparkEphemeralSessionTombstone => "recordKind" in entry,
+      ),
+    };
+    validateRegistryLineage(migrated.sessions);
+    const staged = {
+      version: migrated.version,
+      revision: migrated.revision,
+      sessions: [...migrated.sessions, ...migrated.tombstones],
+    };
+    await writeFile(stagedPath, `${JSON.stringify(staged, null, 2)}\n`, "utf8");
+    const readback = parseRegistryFile(JSON.parse(await readFile(stagedPath, "utf8")) as unknown);
+    validateRegistryLineage(readback.sessions);
+    await rename(stagedPath, input.filePath);
+    await writeMigrationJournal(journalPath, {
+      state: "complete",
+      sourceVersion,
+      sourcePath: input.filePath,
+      backupPath,
+      migratedAt,
+    });
+    return readback;
+  } catch (error) {
+    const recoveryCommand = `cp -- ${JSON.stringify(backupPath)} ${JSON.stringify(input.filePath)}`;
+    await writeMigrationJournal(journalPath, {
+      state: "failed",
+      sourceVersion,
+      sourcePath: input.filePath,
+      backupPath,
+      migratedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new SparkSessionRegistryError(
+      "invalid_registry",
+      `session registry v${String(version)} to v8 migration failed; daemon service is disabled. Restore with: ${recoveryCommand}. ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function writeMigrationJournal(
+  journalPath: string,
+  input: {
+    state: "staging" | "complete" | "failed";
+    sourceVersion: 6 | 7;
+    sourcePath: string;
+    backupPath: string;
+    stagedPath?: string;
+    migratedAt: string;
+    error?: string;
+  },
+): Promise<void> {
+  const recoveryCommand = `cp -- ${JSON.stringify(input.backupPath)} ${JSON.stringify(input.sourcePath)}`;
   await writeFile(
     journalPath,
     `${JSON.stringify(
       {
         version: 1,
-        state: "staging",
-        sourceVersion: version,
+        state: input.state,
+        sourceVersion: input.sourceVersion,
         targetVersion: SPARK_SESSION_REGISTRY_VERSION,
-        sourcePath: input.filePath,
-        backupPath,
-        stagedPath,
-        migratedAt,
-        recoveryCommand: `cp -- ${JSON.stringify(backupPath)} ${JSON.stringify(input.filePath)}`,
+        sourcePath: input.sourcePath,
+        backupPath: input.backupPath,
+        ...(input.stagedPath ? { stagedPath: input.stagedPath } : {}),
+        migratedAt: input.migratedAt,
+        ...(input.error ? { error: input.error } : {}),
+        recoveryCommand,
       },
       null,
       2,
     )}\n`,
     "utf8",
   );
-  try {
-    const migrated = migrateLegacyRegistryRecords(rawSessions, migratedAt);
-    validateRegistryOwnership(migrated.sessions);
-    const staged = `${JSON.stringify(
-      {
-        version: migrated.version,
-        revision: migrated.revision,
-        sessions: migrated.sessions,
-      },
-      null,
-      2,
-    )}\n`;
-    await writeFile(stagedPath, staged, "utf8");
-    const readback = parseRegistryFile(JSON.parse(await readFile(stagedPath, "utf8")) as unknown);
-    validateRegistryOwnership(readback.sessions);
-    await rename(stagedPath, input.filePath);
-    await writeFile(
-      journalPath,
-      `${JSON.stringify(
-        {
-          version: 1,
-          state: "complete",
-          sourceVersion: version,
-          targetVersion: SPARK_SESSION_REGISTRY_VERSION,
-          sourcePath: input.filePath,
-          backupPath,
-          migratedAt,
-        },
-        null,
-        2,
-      )}\n`,
-      "utf8",
-    );
-    return readback;
-  } catch (error) {
-    const recoveryCommand = `cp -- ${JSON.stringify(backupPath)} ${JSON.stringify(input.filePath)}`;
-    await writeFile(
-      journalPath,
-      `${JSON.stringify(
-        {
-          version: 1,
-          state: "failed",
-          sourceVersion: version,
-          targetVersion: SPARK_SESSION_REGISTRY_VERSION,
-          sourcePath: input.filePath,
-          backupPath,
-          migratedAt,
-          error: error instanceof Error ? error.message : String(error),
-          recoveryCommand,
-        },
-        null,
-        2,
-      )}\n`,
-      "utf8",
-    );
-    throw new SparkSessionRegistryError(
-      "invalid_registry",
-      `session registry migration failed; daemon service is disabled. Restore with: ${recoveryCommand}. ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
 }
 
-function migrateLegacyRegistryRecords(
-  rawSessions: unknown[],
-  migratedAt: string,
-): SparkSessionRegistryFile {
-  const records = rawSessions.map(requireLegacySessionRecord);
-  const workspaceIds = new Set(
-    records.flatMap((record) => {
-      const workspaceId = legacyWorkspaceId(record);
-      return workspaceId ? [workspaceId] : [];
+function migrateV6StoredRecord(value: unknown): SparkSessionState | SparkEphemeralSessionTombstone {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("registry v6 Session record must be an object");
+  }
+  const record = structuredClone(value) as Record<string, unknown>;
+  const lineage = migrateV6Lineage(record.owner);
+  delete record.owner;
+  delete record.stateBinding;
+  return parseSparkSessionStoredRecord({ ...record, lineage });
+}
+
+function migrateV6Lineage(value: unknown): SparkSessionLineage {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("registry v6 Session owner must be an object");
+  }
+  const owner = structuredClone(value) as Record<string, unknown>;
+  if (owner.kind === "workspace") {
+    return { kind: "root" };
+  }
+
+  const parentField = owner.kind === "side_thread" ? "parentSessionId" : "supervisorSessionId";
+  const parentSessionId = owner[parentField];
+  if (typeof parentSessionId !== "string" || !parentSessionId.trim()) {
+    throw new Error(`registry v6 owner.${parentField} must be a non-empty string`);
+  }
+  delete owner[parentField];
+  return {
+    kind: "child",
+    parentSessionId,
+    origin: owner as SparkSessionLineageOrigin,
+  };
+}
+
+function migrateV7StoredRecord(value: unknown): SparkSessionState | SparkEphemeralSessionTombstone {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("registry v7 Session record must be an object");
+  }
+  const record = structuredClone(value) as Record<string, unknown>;
+  if (record.lineage && typeof record.lineage === "object" && !Array.isArray(record.lineage)) {
+    const lineage = record.lineage as Record<string, unknown>;
+    if (lineage.kind === "root") delete lineage.workspaceId;
+  }
+  return parseSparkSessionStoredRecord(record);
+}
+
+async function migrateLegacyChannelSessions(
+  records: Array<SparkSessionState | SparkEphemeralSessionTombstone>,
+  options: {
+    daemonId?: string;
+    resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
+  },
+): Promise<Array<SparkSessionState | SparkEphemeralSessionTombstone>> {
+  const sessions = records.filter(
+    (record): record is SparkSessionState => !("recordKind" in record),
+  );
+  const childCounts = new Map<string, number>();
+  for (const session of sessions) {
+    const parentId = sparkSessionParentId(session.lineage);
+    if (parentId) childCounts.set(parentId, (childCounts.get(parentId) ?? 0) + 1);
+  }
+  return await Promise.all(
+    records.map(async (record) => {
+      if ("recordKind" in record || record.bindings.length === 0 || record.purpose !== "channel") {
+        return record;
+      }
+      const conflict = legacyChannelMigrationConflict(record, childCounts);
+      if (conflict || !options.daemonId || !options.resolveChannelSessionCwd) {
+        return parseSparkSessionState({
+          ...record,
+          tags: mergeSessionTags(record.tags ?? [], [
+            `channel-migration-conflict:${conflict ?? "daemon-context-unavailable"}`,
+          ]),
+        });
+      }
+      let cwd: string;
+      try {
+        cwd = await options.resolveChannelSessionCwd(record.sessionId);
+      } catch {
+        return parseSparkSessionState({
+          ...record,
+          tags: mergeSessionTags(record.tags ?? [], ["channel-migration-conflict:cwd-unavailable"]),
+        });
+      }
+      const migrated = { ...record };
+      delete migrated.cwdArtifactRef;
+      return parseSparkSessionState({
+        ...migrated,
+        scope: { kind: "daemon", daemonId: options.daemonId },
+        lineage: { kind: "root" },
+        lifecycle: "open",
+        placement: "active",
+        roleBinding: { kind: "none" },
+        visibility: "public",
+        retention: "retain",
+        purpose: "channel",
+        cwd,
+        tags: (record.tags ?? []).filter((tag) => !tag.startsWith("channel-migration-conflict:")),
+      });
     }),
   );
-  const administratorByWorkspace = new Map<string, string>();
-  for (const workspaceId of workspaceIds) {
-    const candidates = records
-      .filter(
-        (record) =>
-          legacyWorkspaceId(record) === workspaceId &&
-          (legacyRelation(record)?.kind === "workspace_main" ||
-            legacyOwner(record)?.kind === "workspace"),
-      )
-      .sort((left, right) =>
-        legacyCreatedAt(left, migratedAt).localeCompare(legacyCreatedAt(right, migratedAt)),
-      );
-    if (candidates.length > 1) {
-      throw new Error(`workspace ${workspaceId} has multiple legacy Administrator Sessions`);
-    }
-    administratorByWorkspace.set(
-      workspaceId,
-      legacyString(candidates[0]?.sessionId) ?? `administrator:${workspaceId}`,
-    );
+}
+
+function legacyChannelMigrationConflict(
+  session: SparkSessionState,
+  childCounts: Map<string, number>,
+): string | undefined {
+  if (session.roleBinding.kind !== "none") return "role-binding";
+  if (session.lineage.kind !== "child" || session.lineage.origin.kind !== "session") {
+    return "owned-lineage";
   }
-  const sessions: SparkSessionState[] = [];
-  for (const workspaceId of workspaceIds) {
-    const administratorId = administratorByWorkspace.get(workspaceId)!;
-    if (!records.some((record) => legacyString(record.sessionId) === administratorId)) {
-      sessions.push(
-        parseSparkSessionState({
-          sessionId: administratorId,
-          scope: { kind: "workspace", workspaceId },
-          name: "Administrator",
-          lifecycle: "open",
-          placement: "active",
-          roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
-          owner: { kind: "workspace", workspaceId },
-          incarnation: 1,
-          stateBinding: { kind: "session", ref: administratorId },
-          visibility: "public",
-          retention: "audit",
-          purpose: "workspace_administrator",
-          bindings: [],
-          tags: ["migration:administrator-provisioned"],
-          archiveHistory: [],
-          createdAt: migratedAt,
-          updatedAt: migratedAt,
-        }),
-      );
-    }
-  }
-  for (const record of records) {
-    const sessionId = legacyRequiredString(record.sessionId, "sessionId");
-    const workspaceId = legacyWorkspaceId(record);
-    const relation = legacyRelation(record);
-    const isFleetWorker = relation?.kind === "fleet_worker";
-    const isAdministrator =
-      workspaceId !== undefined && administratorByWorkspace.get(workspaceId) === sessionId;
-    const scope = workspaceId
-      ? { kind: "workspace" as const, workspaceId }
-      : { kind: "daemon" as const, daemonId: legacyDaemonId(record) };
-    const roleCandidate = legacyString(record.role) ?? legacyString(record.title);
-    const priorRoleBinding = legacyRoleBinding(record);
-    const mappedRoleRef =
-      mapLegacyStructuredRoleRef(legacyString(record.roleRef)) ??
-      mapLegacyStructuredRoleRef(roleCandidate) ??
-      (priorRoleBinding?.kind === "explicit"
-        ? mapLegacyStructuredRoleRef(legacyString(priorRoleBinding.roleRef))
-        : undefined);
-    const priorOwner = legacyOwner(record);
-    const owner: SparkSessionOwner = isAdministrator
-      ? { kind: "workspace", workspaceId: workspaceId! }
-      : priorOwner
-        ? migrateV5Owner(priorOwner)
-        : relation?.kind === "side_thread"
-          ? {
-              kind: "side_thread",
-              parentSessionId: legacyRequiredString(relation.parentSessionId, "parentSessionId"),
-              generation: legacyPositiveInteger(relation.generation, "generation"),
-            }
-          : relation?.kind === "task_execution"
-            ? legacyTaskRunOwner(relation)
-            : isFleetWorker
-              ? {
-                  kind: "session",
-                  supervisorSessionId: legacyRequiredString(
-                    relation.ownerSessionId,
-                    "ownerSessionId",
-                  ),
-                }
-              : workspaceId
-                ? {
-                    kind: "session",
-                    supervisorSessionId: administratorByWorkspace.get(workspaceId)!,
-                  }
-                : {
-                    kind: "invocation",
-                    invocationId: `migration:${sessionId}`,
-                    supervisorSessionId: "migration:closed-daemon-audit",
-                  };
-    const roleBinding = isAdministrator
-      ? ({ kind: "explicit", roleRef: "role:builtin-administrator" } as const)
-      : relation?.kind === "side_thread"
-        ? ({ kind: "inherit" } as const)
-        : priorRoleBinding?.kind === "inherit"
-          ? ({ kind: "inherit" } as const)
-          : mappedRoleRef === "role:builtin-administrator"
-            ? ({ kind: "none" } as const)
-            : mappedRoleRef
-              ? ({ kind: "explicit", roleRef: mappedRoleRef } as const)
-              : ({ kind: "none" } as const);
-    const naturalRoleName = roleCandidate && !mappedRoleRef ? roleCandidate : undefined;
-    const legacyTitle = legacyString(record.name) ?? legacyString(record.title);
-    const name = isAdministrator
-      ? "Administrator"
-      : (naturalRoleName ??
-        (legacyTitle && !mapLegacyStructuredRoleRef(legacyTitle) ? legacyTitle : undefined));
-    const placement =
-      (record.status === "archived" || record.placement === "archived") && !isAdministrator
-        ? "archived"
-        : scope.kind === "daemon"
-          ? "archived"
-          : "active";
-    const closeReceipts = Array.isArray(record.closeReceipts) ? record.closeReceipts : [];
-    const lifecycle =
-      scope.kind === "daemon"
-        ? "closed"
-        : record.lifecycle === "closing"
-          ? "closing"
-          : record.lifecycle === "closed"
-            ? "closed"
-            : "open";
-    const retention = isAdministrator
-      ? "audit"
-      : scope.kind === "daemon"
-        ? "audit"
-        : owner.kind === "session" && Array.isArray(record.bindings) && record.bindings.length > 0
-          ? "retain"
-          : owner.kind === "session"
-            ? "retain"
-            : "discard_on_close";
-    sessions.push(
-      parseSparkSessionState({
-        sessionId,
-        scope,
-        ...(name ? { name } : {}),
-        lifecycle,
-        placement,
-        roleBinding,
-        owner,
-        incarnation:
-          typeof record.incarnation === "number" && Number.isInteger(record.incarnation)
-            ? record.incarnation
-            : 1,
-        stateBinding: isAdministrator
-          ? { kind: "session", ref: sessionId }
-          : isFleetWorker
-            ? { kind: "session", ref: sessionId }
-            : owner.kind === "task_run" || owner.kind === "task_revision"
-              ? { kind: "task", ref: owner.taskRef }
-              : owner.kind === "driver" || owner.kind === "driver_tick"
-                ? { kind: "driver", ref: owner.driverId }
-                : { kind: "session", ref: ownerSessionId(owner) ?? sessionId },
-        visibility:
-          isAdministrator || (owner.kind === "session" && !isFleetWorker) ? "public" : "internal",
-        retention,
-        purpose: isAdministrator
-          ? "workspace_administrator"
-          : isFleetWorker
-            ? "fleet_worker"
-            : `migration_${owner.kind}`,
-        ...(owner.kind === "side_thread"
-          ? {
-              sideThreadMode:
-                record.sideThreadMode === "tangent" || relation?.mode === "tangent"
-                  ? "tangent"
-                  : "contextual",
-            }
-          : {}),
-        ...(isFleetWorker
-          ? {
-              fleetWorker: legacyFleetWorkerBinding(relation),
-            }
-          : {}),
-        ...(legacyString(record.cwd) ? { cwd: legacyString(record.cwd) } : {}),
-        ...(legacyString(record.cwdArtifactRef)
-          ? { cwdArtifactRef: legacyString(record.cwdArtifactRef) }
-          : {}),
-        ...(legacyString(record.sessionPath)
-          ? { sessionPath: legacyString(record.sessionPath) }
-          : {}),
-        ...(record.model ? { model: record.model } : {}),
-        ...(record.thinkingLevel ? { thinkingLevel: record.thinkingLevel } : {}),
-        bindings: Array.isArray(record.bindings) ? record.bindings : [],
-        tags: mergeSessionTags(Array.isArray(record.tags) ? record.tags.map(String) : [], [
-          `migration:registry-v6`,
-          `migrated-at:${migratedAt.slice(0, 10)}`,
-        ]),
-        archiveHistory: Array.isArray(record.archiveHistory) ? record.archiveHistory : [],
-        closeReceipts,
-        createdAt: legacyCreatedAt(record, migratedAt),
-        updatedAt: migratedAt,
-      }),
-    );
-  }
-  closeMigratedDescendantsOfUnavailableOwners(sessions, migratedAt);
-  return {
-    version: SPARK_SESSION_REGISTRY_VERSION,
-    revision: 0,
-    sessions,
-    tombstones: [],
-  };
+  if ((childCounts.get(session.sessionId) ?? 0) > 0) return "descendants";
+  if (session.fleetWorker || session.sideThreadMode) return "managed-session";
+  if (session.cwdArtifactRef) return "git-change-cwd";
+  return undefined;
 }
 
-function requireLegacySessionRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("legacy session record must be an object");
-  }
-  return value as Record<string, unknown>;
-}
-
-function legacyRelation(record: Record<string, unknown>): Record<string, unknown> | undefined {
-  return record.relation && typeof record.relation === "object" && !Array.isArray(record.relation)
-    ? (record.relation as Record<string, unknown>)
-    : undefined;
-}
-
-function legacyOwner(record: Record<string, unknown>): Record<string, unknown> | undefined {
-  return record.owner && typeof record.owner === "object" && !Array.isArray(record.owner)
-    ? (record.owner as Record<string, unknown>)
-    : undefined;
-}
-
-function legacyRoleBinding(record: Record<string, unknown>): Record<string, unknown> | undefined {
-  return record.roleBinding &&
-    typeof record.roleBinding === "object" &&
-    !Array.isArray(record.roleBinding)
-    ? (record.roleBinding as Record<string, unknown>)
-    : undefined;
-}
-
-function migrateV5Owner(owner: Record<string, unknown>): SparkSessionOwner {
-  switch (owner.kind) {
-    case "workspace":
-      return {
-        kind: "workspace",
-        workspaceId: legacyRequiredString(owner.workspaceId, "owner.workspaceId"),
-      };
-    case "session":
-      return {
-        kind: "session",
-        supervisorSessionId: legacyRequiredString(
-          owner.supervisorSessionId,
-          "owner.supervisorSessionId",
-        ),
-      };
-    case "side_thread":
-      return {
-        kind: "side_thread",
-        parentSessionId: legacyRequiredString(owner.parentSessionId, "owner.parentSessionId"),
-        generation: legacyPositiveInteger(owner.generation, "owner.generation"),
-      };
-    case "task_run":
-      return {
-        kind: "task_run",
-        supervisorSessionId: legacyRequiredString(
-          owner.supervisorSessionId,
-          "owner.supervisorSessionId",
-        ),
-        projectRef: legacyRequiredString(owner.projectRef, "owner.projectRef"),
-        taskRef: legacyRequiredString(owner.taskRef, "owner.taskRef"),
-        runRef: legacyRequiredString(owner.runRef, "owner.runRef"),
-        sessionGoalId: legacyRequiredString(owner.sessionGoalId, "owner.sessionGoalId"),
-        ...(legacyString(owner.subgoalRef) ? { subgoalRef: legacyString(owner.subgoalRef) } : {}),
-        roleRef: mapLegacyStructuredRoleRef(legacyRequiredString(owner.roleRef, "owner.roleRef"))!,
-        ...(typeof owner.planRevision === "number"
-          ? { planRevision: legacyPositiveInteger(owner.planRevision, "owner.planRevision") }
-          : {}),
-        ...(legacyString(owner.definitionDigest)
-          ? { definitionDigest: legacyString(owner.definitionDigest) }
-          : {}),
-        jobId: legacyRequiredString(owner.jobId, "owner.jobId"),
-        attempt: legacyPositiveInteger(owner.attempt, "owner.attempt"),
-      };
-    case "driver_generation":
-      return {
-        kind: "driver",
-        driverId: legacyRequiredString(owner.driverId, "owner.driverId"),
-        generation: legacyPositiveInteger(owner.generation, "owner.generation"),
-        supervisorSessionId: legacyRequiredString(
-          owner.supervisorSessionId,
-          "owner.supervisorSessionId",
-        ),
-      };
-    case "invocation":
-      return {
-        kind: "invocation",
-        invocationId: legacyRequiredString(owner.invocationId, "owner.invocationId"),
-        supervisorSessionId: legacyRequiredString(
-          owner.supervisorSessionId,
-          "owner.supervisorSessionId",
-        ),
-      };
-    default:
-      throw new Error(`unsupported registry v5 owner kind: ${String(owner.kind)}`);
-  }
-}
-
-function legacyWorkspaceId(record: Record<string, unknown>): string | undefined {
-  const scope =
-    record.scope && typeof record.scope === "object" && !Array.isArray(record.scope)
-      ? (record.scope as Record<string, unknown>)
-      : undefined;
-  return scope?.kind === "workspace"
-    ? legacyString(scope.workspaceId)
-    : legacyString(record.workspaceId);
-}
-
-function legacyDaemonId(record: Record<string, unknown>): string {
-  const scope =
-    record.scope && typeof record.scope === "object" && !Array.isArray(record.scope)
-      ? (record.scope as Record<string, unknown>)
-      : undefined;
-  return legacyString(scope?.daemonId) ?? "legacy-daemon";
-}
-
-function legacyTaskRunOwner(relation: Record<string, unknown>): SparkSessionOwner {
-  return {
-    kind: "task_run",
-    supervisorSessionId: legacyRequiredString(relation.ownerSessionId, "ownerSessionId"),
-    projectRef: legacyRequiredString(relation.projectRef, "projectRef"),
-    taskRef: legacyRequiredString(relation.taskRef, "taskRef"),
-    runRef: legacyRequiredString(relation.runRef, "runRef"),
-    sessionGoalId: legacyRequiredString(relation.sessionGoalId, "sessionGoalId"),
-    ...(legacyString(relation.subgoalRef) ? { subgoalRef: legacyString(relation.subgoalRef) } : {}),
-    roleRef: mapLegacyStructuredRoleRef(legacyRequiredString(relation.roleRef, "roleRef"))!,
-    ...(typeof relation.planRevision === "number"
-      ? { planRevision: legacyPositiveInteger(relation.planRevision, "planRevision") }
-      : {}),
-    ...(legacyString(relation.definitionDigest)
-      ? { definitionDigest: legacyString(relation.definitionDigest) }
-      : {}),
-    jobId: legacyRequiredString(relation.jobId, "jobId"),
-    attempt: legacyPositiveInteger(relation.attempt, "attempt"),
-  };
-}
-
-function legacyFleetWorkerBinding(relation: Record<string, unknown>): SparkFleetWorkerBinding {
-  const primaryArtifactRef = legacyRequiredString(
-    relation.primaryArtifactRef,
-    "primaryArtifactRef",
-  );
-  const writableArtifactRefs = Array.isArray(relation.writableArtifactRefs)
-    ? relation.writableArtifactRefs.map((value, index) =>
-        legacyRequiredString(value, `writableArtifactRefs[${index}]`),
-      )
-    : [];
-  return {
-    ownerSessionId: legacyRequiredString(relation.ownerSessionId, "ownerSessionId"),
-    projectRef: legacyRequiredString(relation.projectRef, "projectRef"),
-    roleRef:
-      mapLegacyStructuredRoleRef(legacyRequiredString(relation.roleRef, "roleRef")) ??
-      "role:builtin-executor",
-    laneKey: legacyRequiredString(relation.laneKey, "laneKey"),
-    primaryArtifactRef,
-    writableArtifactRefs,
-  };
-}
-
-function mapLegacyStructuredRoleRef(value: string | undefined): string | undefined {
-  if (!value?.startsWith("role:")) return undefined;
-  if (value === "role:builtin-scout" || value === "role:builtin-researcher") {
-    return "role:builtin-explorer";
-  }
-  if (value === "role:builtin-worker") return "role:builtin-executor";
-  return value;
-}
-
-function legacyCreatedAt(record: Record<string, unknown>, fallback: string): string {
-  return legacyString(record.createdAt) ?? fallback;
-}
-
-function legacyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function legacyRequiredString(value: unknown, field: string): string {
-  const result = legacyString(value);
-  if (!result) throw new Error(`legacy session ${field} is required`);
-  return result;
-}
-
-function legacyPositiveInteger(value: unknown, field: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-    throw new Error(`legacy session ${field} must be a positive integer`);
-  }
-  return value;
-}
-
-function closeMigratedDescendantsOfUnavailableOwners(
-  sessions: SparkSessionState[],
-  migratedAt: string,
-): void {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let index = 0; index < sessions.length; index += 1) {
-      const session = sessions[index]!;
-      if (session.lifecycle === "closed" || session.owner.kind === "workspace") continue;
-      const supervisorId = ownerSessionId(session.owner);
-      const supervisor = sessions.find((candidate) => candidate.sessionId === supervisorId);
-      if (!supervisor || supervisor.lifecycle !== "open" || supervisor.placement === "archived") {
-        sessions[index] = {
-          ...session,
-          lifecycle: "closed",
-          placement: "archived",
-          bindings: [],
-          updatedAt: migratedAt,
-        };
-        changed = true;
-      }
-    }
-  }
-}
-
-function validateRegistryOwnership(sessions: SparkSessionState[]): void {
+function validateRegistryLineage(sessions: SparkSessionState[]): void {
   const byId = new Map<string, SparkSessionState>();
   for (const session of sessions) {
     if (byId.has(session.sessionId)) throw new Error(`duplicate Session id: ${session.sessionId}`);
@@ -2014,46 +1867,41 @@ function validateRegistryOwnership(sessions: SparkSessionState[]): void {
       (session) =>
         session.scope.kind === "workspace" &&
         session.scope.workspaceId === workspaceId &&
-        session.owner.kind === "workspace",
+        session.lineage.kind === "root",
     );
     if (administrators.length !== 1) {
       throw new Error(`workspace ${workspaceId} must have exactly one Administrator Session`);
     }
   }
   for (const session of sessions) {
-    if (session.scope.kind === "daemon" || session.owner.kind === "workspace") continue;
+    if (session.scope.kind === "daemon" || session.lineage.kind === "root") continue;
     const seen = new Set([session.sessionId]);
     let current: SparkSessionState | undefined = session;
-    while (current && current.owner.kind !== "workspace") {
-      const supervisorId = ownerSessionId(current.owner);
-      if (!supervisorId) break;
-      if (seen.has(supervisorId)) throw new Error(`Session owner cycle: ${session.sessionId}`);
-      seen.add(supervisorId);
-      const supervisor = byId.get(supervisorId);
-      if (!supervisor) throw new Error(`Session owner is missing: ${supervisorId}`);
-      if (!sameSessionScope(session.scope, supervisor.scope)) {
-        throw new Error(`Session owner scope mismatch: ${session.sessionId}`);
+    while (current?.lineage.kind === "child") {
+      const parentSessionId = current.lineage.parentSessionId;
+      if (seen.has(parentSessionId)) throw new Error(`Session lineage cycle: ${session.sessionId}`);
+      seen.add(parentSessionId);
+      const parent = byId.get(parentSessionId);
+      if (!parent) throw new Error(`Session parent is missing: ${parentSessionId}`);
+      if (!sameSessionScope(session.scope, parent.scope)) {
+        throw new Error(`Session parent scope mismatch: ${session.sessionId}`);
       }
-      // A Workspace Administrator has no GitChange boundary, so its direct
-      // child may narrow into one. Once an ancestor establishes a boundary,
-      // every descendant must retain that exact ArtifactRef.
-      if (supervisor.cwdArtifactRef && session.cwdArtifactRef !== supervisor.cwdArtifactRef) {
+      if (parent.cwdArtifactRef && session.cwdArtifactRef !== parent.cwdArtifactRef) {
         throw new Error(`Session GitChange boundary widened: ${session.sessionId}`);
       }
       if (
         session.cwd &&
-        supervisor.cwd &&
-        !(supervisor.owner.kind === "workspace" && session.cwdArtifactRef) &&
-        !isPathWithin(resolve(session.cwd), resolve(supervisor.cwd))
+        parent.cwd &&
+        !(parent.lineage.kind === "root" && session.cwdArtifactRef) &&
+        !isPathWithin(resolve(session.cwd), resolve(parent.cwd))
       ) {
         throw new Error(`Session cwd boundary widened: ${session.sessionId}`);
       }
-      current = supervisor;
+      current = parent;
     }
   }
 }
-
-function createSessionId(): string {
+export function createSparkSessionId(): string {
   return `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -2069,10 +1917,10 @@ function createScope(
   return input.scope;
 }
 
-function requireAdministratorOwner(
+function requireAdministratorLineage(
   sessions: SparkSessionState[],
   scope: SparkSessionScope,
-): SparkSessionOwner {
+): SparkSessionLineage {
   if (scope.kind !== "workspace") {
     throw new SparkSessionRegistryError(
       "invalid_scope",
@@ -2083,7 +1931,7 @@ function requireAdministratorOwner(
     (session) =>
       session.scope.kind === "workspace" &&
       session.scope.workspaceId === scope.workspaceId &&
-      session.owner.kind === "workspace" &&
+      session.lineage.kind === "root" &&
       session.lifecycle === "open",
   );
   if (administrators.length !== 1) {
@@ -2092,28 +1940,21 @@ function requireAdministratorOwner(
       `workspace ${scope.workspaceId} requires exactly one Administrator Session`,
     );
   }
-  return { kind: "session", supervisorSessionId: administrators[0]!.sessionId };
+  return {
+    kind: "child",
+    parentSessionId: administrators[0]!.sessionId,
+    origin: { kind: "session" },
+  };
 }
 
-function ownerSessionId(owner: SparkSessionOwner): string | undefined {
-  switch (owner.kind) {
-    case "workspace":
-      return undefined;
-    case "side_thread":
-      return owner.parentSessionId;
-    default:
-      return owner.supervisorSessionId;
-  }
-}
-
-function assertOwnerWithinScope(
+function assertLineageWithinScope(
   sessions: SparkSessionState[],
-  owner: SparkSessionOwner,
+  lineage: SparkSessionLineage,
   scope: SparkSessionScope,
   cwd: string | undefined,
   cwdArtifactRef: string | undefined,
 ): void {
-  const supervisorId = ownerSessionId(owner);
+  const supervisorId = sparkSessionParentId(lineage);
   if (!supervisorId) return;
   const supervisor = sessions.find((session) => session.sessionId === supervisorId);
   if (!supervisor) {
@@ -2138,7 +1979,7 @@ function assertOwnerWithinScope(
   if (
     cwd &&
     supervisor.cwd &&
-    !(supervisor.owner.kind === "workspace" && cwdArtifactRef) &&
+    !(supervisor.lineage.kind === "root" && cwdArtifactRef) &&
     !isPathWithin(resolve(cwd), resolve(supervisor.cwd))
   ) {
     throw new SparkSessionRegistryError(
@@ -2150,11 +1991,11 @@ function assertOwnerWithinScope(
 
 function inheritedSessionLocation(
   sessions: SparkSessionState[],
-  owner: SparkSessionOwner,
+  lineage: SparkSessionLineage,
   cwd: string | undefined,
   cwdArtifactRef: string | undefined,
 ): Pick<SparkSessionState, "cwd" | "cwdArtifactRef"> {
-  const supervisorId = ownerSessionId(owner);
+  const supervisorId = sparkSessionParentId(lineage);
   const supervisor = supervisorId
     ? sessions.find((session) => session.sessionId === supervisorId)
     : undefined;
@@ -2193,7 +2034,9 @@ function beginCloseDescendants(
 ): void {
   for (let index = 0; index < sessions.length; index += 1) {
     const child = sessions[index]!;
-    if (ownerSessionId(child.owner) !== parentSessionId || child.lifecycle === "closed") continue;
+    if (sparkSessionParentId(child.lineage) !== parentSessionId || child.lifecycle === "closed") {
+      continue;
+    }
     beginCloseDescendants(sessions, child.sessionId, now, reason);
     sessions[index] = {
       ...child,
@@ -2214,7 +2057,9 @@ function finalizeCloseDescendants(
 ): void {
   for (let index = 0; index < sessions.length; index += 1) {
     const child = sessions[index]!;
-    if (ownerSessionId(child.owner) !== parentSessionId || child.lifecycle === "closed") continue;
+    if (sparkSessionParentId(child.lineage) !== parentSessionId || child.lifecycle === "closed") {
+      continue;
+    }
     finalizeCloseDescendants(sessions, child.sessionId, now);
     sessions[index] = {
       ...child,
@@ -2239,7 +2084,7 @@ function requireParent(
       "side_thread_parent_not_found",
       `unknown side-thread parent: ${sessionId}`,
     );
-  if (parent.owner.kind === "side_thread")
+  if (isSessionOrigin(parent, "side_thread"))
     throw new SparkSessionRegistryError(
       "side_thread_nesting_forbidden",
       "a side thread cannot be parented by a side thread",
@@ -2260,10 +2105,25 @@ function requireParent(
     scope: Extract<SparkSessionScope, { kind: "workspace" }>;
   };
 }
-function requireChild(session: SparkSessionState): SparkSessionState & {
-  owner: Extract<SparkSessionOwner, { kind: "side_thread" }>;
+type SideThreadSession = SparkSessionState & {
+  lineage: Extract<SparkSessionLineage, { kind: "child" }> & {
+    origin: Extract<SparkSessionLineageOrigin, { kind: "side_thread" }>;
+  };
+};
+
+function isSessionOrigin<K extends SparkSessionLineageOrigin["kind"]>(
+  session: SparkSessionState,
+  kind: K,
+): session is SparkSessionState & {
+  lineage: Extract<SparkSessionLineage, { kind: "child" }> & {
+    origin: Extract<SparkSessionLineageOrigin, { kind: K }>;
+  };
 } {
-  if (session.owner.kind !== "side_thread")
+  return session.lineage.kind === "child" && session.lineage.origin.kind === kind;
+}
+
+function requireChild(session: SparkSessionState): SideThreadSession {
+  if (!isSessionOrigin(session, "side_thread"))
     throw new SparkSessionRegistryError(
       "side_thread_not_found",
       `not a side thread: ${session.sessionId}`,
@@ -2274,37 +2134,26 @@ function requireChild(session: SparkSessionState): SparkSessionState & {
       `archived side thread: ${session.sessionId}`,
     );
   assertSessionInvocable(session, "use");
-  return session as SparkSessionState & {
-    owner: Extract<SparkSessionOwner, { kind: "side_thread" }>;
-  };
+  return session;
 }
-function requireSideThreadRecord(session: SparkSessionState): SparkSessionState & {
-  owner: Extract<SparkSessionOwner, { kind: "side_thread" }>;
-} {
-  if (session.owner.kind !== "side_thread") {
+function requireSideThreadRecord(session: SparkSessionState): SideThreadSession {
+  if (!isSessionOrigin(session, "side_thread")) {
     throw new SparkSessionRegistryError(
       "side_thread_not_found",
       `not a side thread: ${session.sessionId}`,
     );
   }
-  return session as SparkSessionState & {
-    owner: Extract<SparkSessionOwner, { kind: "side_thread" }>;
-  };
+  return session;
 }
 
 function sideThreadGeneration(session: SparkSessionState): number {
-  return session.owner.kind === "side_thread" ? session.owner.generation : 0;
+  return isSessionOrigin(session, "side_thread") ? session.lineage.origin.generation : 0;
 }
-function assertGeneration(
-  session: SparkSessionState & {
-    owner: Extract<SparkSessionOwner, { kind: "side_thread" }>;
-  },
-  expected: number,
-): void {
-  if (session.owner.generation !== expected)
+function assertGeneration(session: SideThreadSession, expected: number): void {
+  if (session.lineage.origin.generation !== expected)
     throw new SparkSessionRegistryError(
       "side_thread_generation_conflict",
-      `expected generation ${expected}, found ${session.owner.generation}`,
+      `expected generation ${expected}, found ${session.lineage.origin.generation}`,
     );
 }
 
@@ -2324,7 +2173,7 @@ function isInactiveRetentionCandidate(session: SparkSessionState): boolean {
   return (
     session.lifecycle === "open" &&
     session.placement === "active" &&
-    session.owner.kind !== "workspace" &&
+    session.lineage.kind !== "root" &&
     session.roleBinding.kind === "none" &&
     !session.name?.trim() &&
     session.bindings.length === 0
@@ -2347,7 +2196,7 @@ function createArchiveEvent(
     ...(session.roleBinding.kind === "explicit"
       ? [`role:${encodeSessionTagValue(session.roleBinding.roleRef)}`]
       : [`role:${session.roleBinding.kind}`]),
-    `owner:${session.owner.kind}`,
+    `origin:${sparkSessionLineageOriginKind(session.lineage)}`,
     ...(input.tags ?? []),
   ];
   return {
@@ -2386,7 +2235,7 @@ function sessionMatchesQuery(session: SparkSessionState, rawQuery: string): bool
     session.roleBinding.kind === "explicit"
       ? session.roleBinding.roleRef
       : session.roleBinding.kind,
-    session.owner.kind,
+    sparkSessionLineageOriginKind(session.lineage),
     session.cwd,
     session.sessionPath,
     session.scope.kind === "workspace" ? session.scope.workspaceId : session.scope.daemonId,
@@ -2443,6 +2292,7 @@ interface ChannelBindingSelector {
   adapterId?: string;
   adapterAccountIdentity?: string;
   allowLegacyAccountClaim?: boolean;
+  scope?: SparkSessionScope;
 }
 
 interface SelectedChannelBinding {
@@ -2463,9 +2313,11 @@ function selectChannelBinding(
   selector: ChannelBindingSelector,
 ): SelectedChannelBinding | undefined {
   const matches = sessions.flatMap((session) =>
-    session.bindings
-      .filter((binding) => binding.externalKey === selector.externalKey)
-      .map((binding) => ({ session, binding })),
+    selector.scope && !sameSessionScope(session.scope, selector.scope)
+      ? []
+      : session.bindings
+          .filter((binding) => binding.externalKey === selector.externalKey)
+          .map((binding) => ({ session, binding })),
   );
   if (selector.adapterAccountIdentity) {
     const exact = matches.filter(

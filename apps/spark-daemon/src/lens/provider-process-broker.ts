@@ -44,7 +44,7 @@ export interface ManagedProviderProcess {
   terminate(): Promise<void>;
 }
 
-export type ProviderProcessLauncher = (
+type ProviderProcessLauncher = (
   launch: ProviderLaunchSpec,
   marker: string,
 ) => Promise<ManagedProviderProcess>;
@@ -55,7 +55,7 @@ export interface ProviderProcessLease {
   release(): void;
 }
 
-export interface DaemonLensProcessBrokerOptions {
+interface DaemonLensProcessBrokerOptions {
   stateStore: DaemonLensStateStore;
   daemonInstanceId?: string;
   launcher?: ProviderProcessLauncher;

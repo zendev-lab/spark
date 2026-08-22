@@ -37,8 +37,9 @@ describe("daemon task claim authority", () => {
     });
   });
 
-  it("atomically preserves every requested unfinished status", async () => {
-    for (const status of ["pending", "ready", "running", "blocked"] as const) {
+  it.each(["pending", "ready", "running", "blocked"] as const)(
+    "atomically preserves the requested %s status",
+    async (status) => {
       await withTaskClaimTestContext(async (context) => {
         const lease = attachTaskClaimTestSession(context, `session:${status}`, taskClaimTestNow);
         await acquireMainTaskClaim(
@@ -52,8 +53,8 @@ describe("daemon task claim authority", () => {
           claim: { kind: "main", sessionId: `session:${status}` },
         });
       });
-    }
-  });
+    },
+  );
 
   it("lets another fresh client for the same session renew without reassigning", async () => {
     await withTaskClaimTestContext(async (context) => {

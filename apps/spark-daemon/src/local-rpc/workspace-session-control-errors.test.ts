@@ -159,7 +159,7 @@ describe("workspace and session local RPC control errors", () => {
         payload: {},
         body: "investigate",
         origin: { surface: "local", host: "session" },
-        notifyOnCompletion: true,
+        wake: true,
         source: "tool",
       } as const;
       const options = { sessionRegistry, mailStore };
@@ -208,11 +208,7 @@ describe("workspace and session local RPC control errors", () => {
         "session_mail_target_not_local",
       );
 
-      for (const method of [
-        "session.mail.read",
-        "session.mail.ack",
-        "session.notification.deliver",
-      ] as const) {
+      for (const method of ["session.mail.read", "session.mail.ack"] as const) {
         await expectCode(
           request(
             paths,

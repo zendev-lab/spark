@@ -110,6 +110,16 @@ const toolExecutionInvokers = {
       sparkLocalRpcProcedureSchemas["artifact.execute"].output,
       client.artifact.execute(input, options),
     ),
+  "artifact.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["artifact.list"].output,
+      client.artifact.list(input, options),
+    ),
+  "artifact.read": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["artifact.read"].output,
+      client.artifact.read(input, options),
+    ),
   "git.execute": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["git.execute"].output,
@@ -122,7 +132,59 @@ const toolExecutionInvokers = {
     ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
-  "file.execute" | "artifact.execute" | "git.execute" | "lens.execute"
+  | "file.execute"
+  | "artifact.execute"
+  | "artifact.list"
+  | "artifact.read"
+  | "git.execute"
+  | "lens.execute"
+>;
+
+const agentCatalogInvokers = {
+  "role.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.list"].output,
+      client.role.list(input, options),
+    ),
+  "role.create": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.create"].output,
+      client.role.create(input, options),
+    ),
+  "role.model.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.list"].output,
+      client.role.model.list(input, options),
+    ),
+  "role.model.get": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.get"].output,
+      client.role.model.get(input, options),
+    ),
+  "role.model.set": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.set"].output,
+      client.role.model.set(input, options),
+    ),
+  "role.model.delete": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.delete"].output,
+      client.role.model.delete(input, options),
+    ),
+  "skill.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["skill.list"].output,
+      client.skill.list(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  | "role.list"
+  | "role.create"
+  | "role.model.list"
+  | "role.model.get"
+  | "role.model.set"
+  | "role.model.delete"
+  | "skill.list"
 >;
 
 const daemonChannelTurnInvokers = {
@@ -228,20 +290,20 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["usage.summary"].output,
       client.usage.summary(input, options),
     ),
-  "usage.persistence": (client, input, options) =>
+  "repro.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["usage.persistence"].output,
-      client.usage.persistence(input, options),
+      sparkLocalRpcProcedureSchemas["repro.start"].output,
+      client.repro.start(input, options),
     ),
-  "usage.backfill": (client, input, options) =>
+  "repro.status": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["usage.backfill"].output,
-      client.usage.backfill(input, options),
+      sparkLocalRpcProcedureSchemas["repro.status"].output,
+      client.repro.status(input, options),
     ),
-  "repro.formal-evidence.record": (client, input, options) =>
+  "repro.stop": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["repro.formal-evidence.record"].output,
-      client.repro.formalEvidence.record(input, options),
+      sparkLocalRpcProcedureSchemas["repro.stop"].output,
+      client.repro.stop(input, options),
     ),
   "loop.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -273,11 +335,6 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["loop.schedule"].output,
       client.loop.schedule(input, options),
     ),
-  "loop.control": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["loop.control"].output,
-      client.loop.control(input, options),
-    ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "invocation.list"
@@ -285,16 +342,15 @@ const invocationLoopInvokers = {
   | "invocation.retention.preview"
   | "invocation.retention.apply"
   | "usage.summary"
-  | "usage.persistence"
-  | "usage.backfill"
-  | "repro.formal-evidence.record"
+  | "repro.start"
+  | "repro.status"
+  | "repro.stop"
   | "loop.start"
   | "loop.status"
   | "loop.stop"
   | "loop.restart"
   | "loop.wake"
   | "loop.schedule"
-  | "loop.control"
 >;
 
 const workspaceInvokers = {
@@ -302,6 +358,11 @@ const workspaceInvokers = {
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["workspace.list"].output,
       client.workspace.list(input, options),
+    ),
+  "workspace.directory.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["workspace.directory.list"].output,
+      client.workspace.directory.list(input, options),
     ),
   "workspace.register": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -371,6 +432,7 @@ const workspaceInvokers = {
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "workspace.list"
+  | "workspace.directory.list"
   | "workspace.register"
   | "workspace.relocate"
   | "workspace.ensure-local"
@@ -423,10 +485,35 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.get"].output,
       client.session.get(input, options),
     ),
+  "session.lookup": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.lookup"].output,
+      client.session.lookup(input, options),
+    ),
   "session.snapshot": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.snapshot"].output,
       client.session.snapshot(input, options),
+    ),
+  "session.search": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.search"].output,
+      client.session.search(input, options),
+    ),
+  "session.export": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.export"].output,
+      client.session.export(input, options),
+    ),
+  "session.snapshot-page": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.snapshot-page"].output,
+      client.session.snapshotPage(input, options),
+    ),
+  "session.media.read": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.media.read"].output,
+      client.session.media.read(input, options),
     ),
   "session.prompt-history": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -442,6 +529,16 @@ const sessionInvokers = {
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.create"].output,
       client.session.create(input, options),
+    ),
+  "session.spawn": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.spawn"].output,
+      client.session.spawn(input, options),
+    ),
+  "session.fork": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.fork"].output,
+      client.session.fork(input, options),
     ),
   "session.bind": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -493,11 +590,6 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.mail.ack"].output,
       client.session.mail.ack(input, options),
     ),
-  "session.notification.deliver": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["session.notification.deliver"].output,
-      client.session.notification.deliver(input, options),
-    ),
   "session.model.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.model.set"].output,
@@ -517,10 +609,17 @@ const sessionInvokers = {
   SparkDaemonOrpcProcedureInvokerMap,
   | "session.list"
   | "session.get"
+  | "session.lookup"
   | "session.snapshot"
+  | "session.search"
+  | "session.export"
+  | "session.snapshot-page"
+  | "session.media.read"
   | "session.prompt-history"
   | "session.retry-target"
   | "session.create"
+  | "session.spawn"
+  | "session.fork"
   | "session.bind"
   | "session.unbind"
   | "session.archive"
@@ -531,7 +630,6 @@ const sessionInvokers = {
   | "session.inbox"
   | "session.mail.read"
   | "session.mail.ack"
-  | "session.notification.deliver"
   | "session.model.set"
   | "session.mode.set"
   | "session.thinking.set"
@@ -684,8 +782,17 @@ const delegationInvokers = {
     ),
 } satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "delegation.execute">;
 
+const searchInvokers = {
+  "search.global": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["search.global"].output,
+      client.search.global(input, options),
+    ),
+} satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "search.global">;
+
 const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
+  ...agentCatalogInvokers,
   ...daemonChannelTurnInvokers,
   ...invocationLoopInvokers,
   ...workspaceInvokers,
@@ -694,6 +801,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...sideThreadInvokers,
   ...taskClaimInvokers,
   ...delegationInvokers,
+  ...searchInvokers,
   ...modelProviderHumanInvokers,
 } satisfies SparkDaemonOrpcProcedureInvokerMap;
 

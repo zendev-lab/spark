@@ -3,8 +3,11 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   createAutonomousAskInteractionRequestId,
   createId,
+  hasRequiredSparkAskGateSelections,
   hasNonEmptySparkHumanAnswer,
+  isSparkAskGateMode,
   matchesAutonomousAskInteractionRequestId,
+  parseSparkHumanWaitRespondent,
   sparkEvidenceAnswerEventSchema,
   type HumanRequestCreatedPayload,
   type SparkDirectAnswerProvenance,
@@ -12,11 +15,13 @@ import {
   type SparkEvidenceRequestBinding,
   type SparkHumanInteractionDeliveryOutcome,
   type SparkHumanInteractionStatus,
+  type SparkHumanWaitRespondent,
 } from "@zendev-lab/spark-protocol";
 
 type JsonObject = Record<string, unknown>;
 type HumanQuestion = HumanRequestCreatedPayload["questions"][number];
 type HumanRequestKind = HumanRequestCreatedPayload["kind"];
+type HumanRequestMode = HumanRequestCreatedPayload["mode"];
 type HumanWaitStatus = SparkHumanInteractionStatus;
 
 export type SparkDaemonHumanWaitDelivery = "blocking" | "async";
@@ -32,19 +37,23 @@ export interface SparkDaemonHumanWaitInput {
   toolCallId?: string;
   delivery?: SparkDaemonHumanWaitDelivery;
   evidenceRequest?: SparkEvidenceRequestBinding;
+  mode?: HumanRequestMode;
   kind: HumanRequestKind;
   title: string;
   prompt: string;
   questions?: HumanQuestion[];
   context?: JsonObject;
   contextArtifactRefs?: string[];
+  respondent?: SparkHumanWaitRespondent;
 }
 
 export interface SparkDaemonHumanWaitRecord extends Required<
-  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest">
+  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest" | "mode" | "respondent">
 > {
   humanRequestId: string;
   evidenceRequest?: SparkEvidenceRequestBinding;
+  mode?: HumanRequestMode;
+  respondent: SparkHumanWaitRespondent;
   status: HumanWaitStatus;
   createdAt: string;
   updatedAt: string;
@@ -103,6 +112,7 @@ export interface SparkDaemonHumanWaitOutboxRoute {
 
 export interface SparkDaemonHumanWaitInteractionLookup {
   interactionRequestId?: string;
+  humanRequestId?: string;
   toolCallId?: string;
   sessionId?: string;
   invocationId?: string;
@@ -211,6 +221,9 @@ export class SparkDaemonHumanWaitRegistry {
     if (input.evidenceRequest) {
       requireEvidenceOwnerQuestion(input.evidenceRequest, input.questions ?? []);
     }
+    if (input.evidenceRequest && input.respondent?.kind === "session") {
+      throw new Error("session-addressed human interaction cannot bind an EvidenceRequest");
+    }
     const now = new Date().toISOString();
     const wait: SparkDaemonHumanWaitRecord = {
       humanRequestId: input.humanRequestId ?? createId("hreq"),
@@ -223,12 +236,14 @@ export class SparkDaemonHumanWaitRegistry {
       toolCallId: input.toolCallId ?? "",
       delivery: input.delivery ?? "blocking",
       ...(input.evidenceRequest ? { evidenceRequest: input.evidenceRequest } : {}),
+      ...(input.mode ? { mode: input.mode } : {}),
       kind: input.kind,
       title: input.title,
       prompt: input.prompt,
       questions: input.questions ?? [],
       context: input.context ?? {},
       contextArtifactRefs: input.contextArtifactRefs ?? [],
+      respondent: input.respondent ?? { kind: "user" },
       status: "pending",
       createdAt: now,
       updatedAt: now,
@@ -332,6 +347,20 @@ export class SparkDaemonHumanWaitRegistry {
     const humanResponseId = input.humanResponseId ?? createId("hres");
     const provenance = input.provenance ?? "system";
     const acceptedAt = new Date().toISOString();
+    if (
+      existing.wait.status === "pending" &&
+      input.status === "answered" &&
+      !hasRequiredGateSelections(existing.wait, input.answers ?? {})
+    ) {
+      return {
+        outcome: "transient",
+        retryable: true,
+        returnedToTool: false,
+        message:
+          "Human answer did not select every required decision option; the wait remains pending.",
+        wait: existing.wait,
+      };
+    }
     const answerEvent = createEvidenceAnswerEvent(existing.wait, {
       humanResponseId,
       status: input.status,
@@ -500,6 +529,24 @@ export class SparkDaemonHumanWaitRegistry {
       )
       .all() as unknown as HumanWaitRow[];
     return rows.map((row) => parseHumanWaitRow(row).wait);
+  }
+
+  findPendingAskForRespondentSession(sessionId: string): SparkDaemonHumanWaitRecord | undefined {
+    const normalized = sessionId.trim();
+    if (!normalized) return undefined;
+    const row = this.db
+      .prepare(
+        `SELECT request_json AS requestJson, response_json AS responseJson,
+                accepted_response_id AS acceptedResponseId, status, updated_at AS updatedAt
+         FROM daemon_human_waits
+         WHERE status = 'pending'
+           AND json_extract(request_json, '$.respondent.kind') = 'session'
+           AND json_extract(request_json, '$.respondent.sessionId') = ?
+         ORDER BY created_at, rowid
+         LIMIT 1`,
+      )
+      .get(normalized) as HumanWaitRow | undefined;
+    return row ? parseHumanWaitRow(row).wait : undefined;
   }
 
   listEvidenceAnswerEvents(humanRequestId?: string): SparkEvidenceAnswerEvent[] {
@@ -837,23 +884,25 @@ function requireUniqueInteractionMatch(
   statusLabel: string,
 ): SparkDaemonHumanWaitRecord {
   const interactionRequestId = input.interactionRequestId?.trim();
+  const humanRequestId = input.humanRequestId?.trim();
   const toolCallId = input.toolCallId?.trim();
   const sessionId = input.sessionId?.trim();
   const invocationId = input.invocationId?.trim();
-  if (!interactionRequestId && !toolCallId) {
+  if (!interactionRequestId && !humanRequestId && !toolCallId) {
     throw new SparkDaemonHumanWaitLookupError(
       "human_interaction_not_found",
-      "A daemon-owned human interaction lookup requires interactionRequestId or toolCallId.",
+      "A daemon-owned human interaction lookup requires interactionRequestId, humanRequestId, or toolCallId.",
     );
   }
   const matches = waits.filter(
     (wait) =>
       (!interactionRequestId || wait.interactionRequestId === interactionRequestId) &&
+      (!humanRequestId || wait.humanRequestId === humanRequestId) &&
       (!toolCallId || wait.toolCallId === toolCallId) &&
       (!sessionId || wait.sessionId === sessionId) &&
       (!invocationId || wait.invocationId === invocationId),
   );
-  const lookup = interactionRequestId || toolCallId || "(empty)";
+  const lookup = interactionRequestId || humanRequestId || toolCallId || "(empty)";
   if (matches.length === 0) {
     throw new SparkDaemonHumanWaitLookupError(
       "human_interaction_not_found",
@@ -880,6 +929,7 @@ function parseHumanWaitRow(row: HumanWaitRow): {
     delivery: stored.delivery ?? "blocking",
     interactionRequestId: stored.interactionRequestId ?? "",
     sessionId: stored.sessionId ?? "",
+    respondent: parseSparkHumanWaitRespondent(stored.respondent),
     status: row.status,
     updatedAt: row.updatedAt,
   };
@@ -1004,6 +1054,7 @@ function canonicalEvidenceOwnerAnswer(
 function canonicalQuestionAnswer(
   question: HumanQuestion,
   rawAnswer: unknown,
+  allowOptionCustomText = false,
 ): JsonObject | undefined {
   const record = recordValue(rawAnswer);
   if (record?.questionId !== undefined && record.questionId !== question.id) return undefined;
@@ -1018,10 +1069,20 @@ function canonicalQuestionAnswer(
   switch (question.type) {
     case "single":
     case "preview":
-      if (values.length !== 1 || customText || !optionValues.has(values[0]!)) return undefined;
+      if (
+        values.length !== 1 ||
+        (!allowOptionCustomText && customText) ||
+        !optionValues.has(values[0]!)
+      ) {
+        return undefined;
+      }
       break;
     case "multi":
-      if (values.length === 0 || customText || values.some((value) => !optionValues.has(value))) {
+      if (
+        values.length === 0 ||
+        (!allowOptionCustomText && customText) ||
+        values.some((value) => !optionValues.has(value))
+      ) {
         return undefined;
       }
       break;
@@ -1038,6 +1099,26 @@ function canonicalQuestionAnswer(
     values,
     ...(customText ? { customText } : {}),
   };
+}
+
+function hasRequiredGateSelections(wait: SparkDaemonHumanWaitRecord, answers: JsonObject): boolean {
+  if (!isSparkAskGateMode(wait.mode)) return true;
+  const canonicalAnswers = Object.fromEntries(
+    wait.questions.flatMap((question) => {
+      const answer = canonicalQuestionAnswer(question, answers[question.id], true);
+      if (!answer) return [];
+      return [
+        [
+          question.id,
+          {
+            values: answer.values as string[],
+            ...(typeof answer.customText === "string" ? { customText: answer.customText } : {}),
+          },
+        ],
+      ];
+    }),
+  );
+  return hasRequiredSparkAskGateSelections(wait.mode, wait.questions, canonicalAnswers);
 }
 
 function evidenceAnswerValues(answer: unknown): string[] {

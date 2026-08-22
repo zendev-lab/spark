@@ -13,6 +13,8 @@ import {
   verifySparkDaemonWorkspaceConnection,
 } from "../registration.js";
 import { handleChannelRequest } from "./handlers/channel.ts";
+import { handleArtifactRequest } from "./handlers/artifact.ts";
+import { handleAgentCatalogRequest } from "./handlers/agent-catalog.ts";
 import { handleDaemonRequest } from "./handlers/daemon.ts";
 import { handleLoopRequest } from "./handlers/loop.ts";
 import { handleDelegationRequest } from "./handlers/delegation.ts";
@@ -27,6 +29,7 @@ import { handleTurnRequest } from "./handlers/turn.ts";
 import { handleUplinkRequest } from "./handlers/uplink.ts";
 import { handleUsageRequest } from "./handlers/usage.ts";
 import { handleWorkspaceRequest } from "./handlers/workspace.ts";
+import { handleWorkbenchRequest } from "./handlers/workbench.ts";
 import { isLocalRpcSafeWhileAdmissionClosed } from "./helpers.ts";
 import type { LocalRpcDispatchContext } from "./handlers/context.ts";
 import {
@@ -50,7 +53,18 @@ export interface LocalRpcServiceOptions {
  */
 export const localRpcServiceHandlerMethodGroups = {
   daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
+  workbench: ["search.global", "session.search", "session.export"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],
+  artifact: ["artifact.list", "artifact.read"],
+  agentCatalog: [
+    "role.list",
+    "role.create",
+    "role.model.list",
+    "role.model.get",
+    "role.model.set",
+    "role.model.delete",
+    "skill.list",
+  ],
   channel: ["channel.status", "channel.configure", "channel.reload", "channel.notify"],
   human: ["human.interaction.list", "human.interaction.respond"],
   turn: [
@@ -64,21 +78,14 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.preview",
     "invocation.retention.apply",
   ],
-  usage: ["usage.summary", "usage.persistence", "usage.backfill"],
-  repro: ["repro.formal-evidence.record"],
-  loop: [
-    "loop.start",
-    "loop.status",
-    "loop.stop",
-    "loop.restart",
-    "loop.wake",
-    "loop.schedule",
-    "loop.control",
-  ],
+  usage: ["usage.summary"],
+  repro: ["repro.start", "repro.status", "repro.stop"],
+  loop: ["loop.start", "loop.status", "loop.stop", "loop.restart", "loop.wake", "loop.schedule"],
   delegation: ["delegation.execute"],
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],
   workspace: [
     "workspace.list",
+    "workspace.directory.list",
     "workspace.ensure-local",
     "workspace.resolve-session-cwd",
     "workspace.relocate",
@@ -95,13 +102,17 @@ export const localRpcServiceHandlerMethodGroups = {
   ],
   taskClaim: ["task.claim.acquire", "task.claim.release", "task.claim.recover"],
   session: [
-    "session.notification.deliver",
     "session.list",
     "session.get",
+    "session.lookup",
     "session.snapshot",
+    "session.snapshot-page",
+    "session.media.read",
     "session.prompt-history",
     "session.retry-target",
     "session.create",
+    "session.spawn",
+    "session.fork",
     "session.bind",
     "session.unbind",
     "session.archive",
@@ -172,14 +183,7 @@ export async function invokeLocalRpcService<M extends SparkLocalRpcMethod>(
  * Invoke an already parsed, method-correlated request. This is the legacy
  * adapter entrypoint and keeps its NDJSON envelope out of the domain service.
  */
-export async function invokeLocalRpcServiceRequest(
-  request: LocalRpcServiceRequest,
-  serviceOptions: LocalRpcServiceOptions,
-): Promise<LocalRpcServiceOutput<LocalRpcServiceRequest>> {
-  return await invokeParsedLocalRpcService(request, serviceOptions);
-}
-
-async function invokeParsedLocalRpcService<Method extends SparkLocalRpcMethod>(
+export async function invokeParsedLocalRpcService<Method extends SparkLocalRpcMethod>(
   request: { method: Method; params: SparkLocalRpcParsedInput<Method> },
   serviceOptions: LocalRpcServiceOptions,
 ): Promise<SparkLocalRpcOutput<Method>> {
@@ -227,8 +231,17 @@ async function dispatchLocalRpcServiceRequest(
   if (requestBelongsToHandlerGroup(request, "daemon")) {
     return handleDaemonRequest(context, request);
   }
+  if (requestBelongsToHandlerGroup(request, "workbench")) {
+    return handleWorkbenchRequest(context, request);
+  }
   if (requestBelongsToHandlerGroup(request, "toolExecution")) {
     return handleToolExecutionRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "artifact")) {
+    return handleArtifactRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "agentCatalog")) {
+    return handleAgentCatalogRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "channel")) {
     return handleChannelRequest(context, request);

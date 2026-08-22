@@ -1,35 +1,24 @@
 import { Type } from "typebox";
 import {
-  sparkStateCwd,
   type SparkHostAPI,
   type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   defaultArtifactStore,
   type Artifact,
   type ArtifactRef,
   type GitChangeArtifactBody,
+  type GitChangeEntry,
+  type GitChecksVerdict,
 } from "../artifact/index.ts";
 import { GitLifecycleService, type GitLifecycleAction } from "./lifecycle.ts";
 import { gitChangeReviewState } from "./review-state.ts";
 
 export interface GitLifecycleExtensionApi {
   registerTool(config: ToolConfig): void;
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 const GIT_ACTIONS = [
@@ -55,8 +44,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       "Use one git_change Artifact and one writable worktree for the complete dependent stack.",
       "Give init a meaningful title or branch; Spark uses it for the workspace-local worktree name.",
       "gh stack is the only writable topology authority; do not emulate stack topology in Spark.",
-      "Submit or update the stack as draft while implementation, review, or validation remains. When the requested PR delivery is complete, required verification passes, and no blocker remains, submit again with ready=true; promotion to Ready and the refreshed git_change Artifact are part of completion.",
-      "A request to submit or open a PR authorizes this draft-to-Ready lifecycle; do not ask again solely for promotion unless target, scope, or external impact materially changes.",
+      "Submit or update the stack as draft while implementation, review, or validation remains. A Goal, Loop, or Repro driver may perform this bounded Draft PR lifecycle without another approval. When delivery is complete and required verification passes, submit again with ready=true; promotion to Ready remains approval-required.",
       "Do not post routine PR comments or boilerplate about stacking/testing. Report substantive state in the task or final response.",
       "cleanup is conservative: Spark ownership, a clean worktree, remote-covered commits, and terminal PRs are all required.",
     ],
@@ -84,7 +72,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           executionMode: "sequential",
           domains: ["git", "artifact"],
           modes: ["plan", "execute"],
-          approval: "required",
+          approval: action === "submit" && args.ready === true ? "required" : "manual_only",
         };
       }
       if (action === "cleanup") {
@@ -165,9 +153,8 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx);
-      const workspaceRoot = sparkStateCwd(cwd, ctx);
-      const store = defaultArtifactStore(workspaceRoot);
-      const service = new GitLifecycleService({ cwd, workspaceRoot, store });
+      const store = defaultArtifactStore(cwd, ctx);
+      const service = new GitLifecycleService({ cwd, workspaceRoot: cwd, store });
       const action = normalizeGitAction(params.action);
       params = authorizeTaskGitAction(ctx, action, params);
 
@@ -180,7 +167,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           artifactRef,
           worktreePath: stringOrUndefined(params.worktreePath),
         });
-        return gitResult(action, renderBody(body), {
+        return gitResult(action, renderGitChangeBody(body), {
           gitChange: body,
           reviewState: gitChangeReviewState(body),
         });
@@ -276,39 +263,73 @@ export function registerSparkGitLifecycleTool(pi: SparkHostAPI): void {
 
 function changedResult(action: GitLifecycleAction, artifact: Artifact<GitChangeArtifactBody>) {
   const reviewState = gitChangeReviewState(artifact.body);
-  return gitResult(action, `${artifact.ref} ${artifact.title}\n${renderBody(artifact.body)}`, {
-    changed: true,
-    reviewState,
-    refs: { artifactRef: artifact.ref },
-    artifact: {
-      ref: artifact.ref,
-      kind: artifact.kind,
-      title: artifact.title,
-      body: artifact.body,
+  return gitResult(
+    action,
+    `${artifact.ref} ${artifact.title}\n${renderGitChangeBody(artifact.body)}`,
+    {
+      changed: true,
       reviewState,
-      updatedAt: artifact.updatedAt,
+      refs: { artifactRef: artifact.ref },
+      artifact: {
+        ref: artifact.ref,
+        kind: artifact.kind,
+        title: artifact.title,
+        body: artifact.body,
+        reviewState,
+        updatedAt: artifact.updatedAt,
+      },
     },
-  });
+  );
 }
 
-function renderBody(body: GitChangeArtifactBody): string {
+export function renderGitChangeBody(body: GitChangeArtifactBody): string {
   return [
     `repository=${body.repository.repo}`,
     `worktree=${body.worktree.status}${body.worktree.path ? ` ${body.worktree.path}` : ""}`,
     `stack=${body.stack.authority} trunk=${body.trunk} layers=${body.stack.entries.length}`,
     `lifecycle=${body.lifecycle} review=${gitChangeReviewState(body)}`,
-    ...body.stack.entries.map((entry) => {
-      const pr = entry.pullRequest ? ` PR #${entry.pullRequest.number}` : "";
-      const review = entry.pullRequest
-        ? entry.pullRequest.draft === true
-          ? " draft"
-          : entry.pullRequest.draft === false
-            ? " ready"
-            : " review-unknown"
-        : "";
-      return `- ${entry.branch}${pr}${review}${entry.needsRebase ? " needs-rebase" : ""}`;
-    }),
+    ...body.stack.entries.map((entry) => renderGitChangeEntry(entry)),
   ].join("\n");
+}
+
+function renderGitChangeEntry(entry: GitChangeEntry): string {
+  const pullRequest = entry.pullRequest;
+  const parts = [`- ${entry.branch}`];
+  if (pullRequest) {
+    parts.push(` PR #${pullRequest.number}`);
+    parts.push(
+      pullRequest.draft === true
+        ? " draft"
+        : pullRequest.draft === false
+          ? " ready"
+          : " review-unknown",
+    );
+    if (pullRequest.checksVerdict) {
+      parts.push(` ${formatChecksVerdict(pullRequest.checksVerdict)}`);
+    } else if (pullRequest.checksSummary) {
+      parts.push(` checks=${pullRequest.checksSummary}`);
+    }
+  }
+  if (entry.needsRebase) parts.push(" needs-rebase");
+  if (pullRequest?.mergeable === false) parts.push(" conflict");
+  return parts.join("");
+}
+
+function formatChecksVerdict(verdict: GitChecksVerdict): string {
+  switch (verdict) {
+    case "pass":
+      return "checks=pass";
+    case "fail":
+      return "checks=fail";
+    case "pending":
+      return "checks=pending";
+    case "inconclusive":
+      return "checks=inconclusive";
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
+  }
 }
 
 function gitResult(action: GitLifecycleAction, text: string, details: Record<string, unknown>) {

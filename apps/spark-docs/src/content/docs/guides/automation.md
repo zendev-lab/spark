@@ -21,8 +21,32 @@ start work or create a fifth automation mode.
 | --- | --- | --- |
 | Continue until a defined outcome is complete | Goal | `/goal start Finish the release checklist` |
 | Repeat open-ended work | Loop | `/loop start Watch for new failures and triage them` |
-| Reproduce a model or system with evidence at each milestone | Repro | `/repro start Reproduce model X in framework Y` |
+| Reproduce a model or system with evidence at each milestone | Repro | `/repro Reproduce model X in framework Y` |
 | Execute a saved, staged procedure | Workflow | `/workflow run builtin:research Compare the two designs` |
+
+## Authority while a driver is active
+
+Starting a Goal, Loop, or Repro on an interactive session asks once whether
+that Session may use driver authority. If you grant it, the driver may perform
+`manual_only` operations without asking again while it remains active. CLI,
+API, and other non-interactive starts record the same Session grant silently
+and do not prompt. If you keep per-tool approval, `manual_only` operations
+still require human approval even while a driver is active.
+
+Those operations must be low-risk and reversible; creating, updating, and
+synchronizing a Draft PR are examples. Driver authority stays inside the
+confirmed objective, Workspace, repository, and writable targets.
+
+This does not authorize `required` operations. Destructive, irreversible,
+security-sensitive, costly, high-impact, or materially scope-expanding actions
+always need human approval, as do release, deployment, merge, and promotion of
+a Draft PR to Ready. When the driver stops, completes, or is replaced,
+that driver's authority expires. Later continuation uses manual approval
+behavior when no driver is active.
+
+A WorkflowRun is an execution mechanism, not a continuation driver. It inherits
+the approval context of the driver that started it only while that authority
+remains active, and grants or retains no authority by itself.
 
 ## Goal
 
@@ -62,25 +86,34 @@ receiving either receipt as a transcript message.
 
 ## Repro
 
-Repro organizes evidence-gated work into Implementation Explore, Exactness
-Explore, and Formalize. The two Explore lanes may proceed independently but do
-not advance normative progress. Only an accepted Formalize retirement updates
-`formalizedTip`; that value is distinct from the current Git Change stack tip.
+Repro organizes evidence-gated work into three stable child Sessions:
+Implementation, Exactness, and Formalize. It follows five daemon-owned
+checkpoints: Implementation, Exactness, Formalize, Exactness refresh, and
+Implementation refresh. Only Formalize may set the accepted
+`formalizedRevision`. Use `/inspect repro` to inspect the bounded projection.
 
-Implementation hands candidates forward to Exactness, and Exactness hands
-verified candidates to Formalize. Resolutions flow backward to retire temporary
-work. An Exactness mismatch records the first bad boundary, classification,
-confidence, and disposition; skipping a check requires both isolation and a
-resynchronization point. Repro pauses instead of guessing when a baseline,
-authority decision, or approval is missing. Use `/inspect repro` to inspect the
-bounded daemon projection in the TUI.
+`/repro <objective>` immediately reserves three stable child Sessions in the
+owning Workspace. The Workspace may contain zero, one, or many repositories;
+launch does not assume that cwd is a repository and does not preselect a Git
+Change. Each lane discovers and constructs the repository/worktree topology its
+work needs. Implementation runs first; strict terminal TaskRun Evidence
+automatically advances the remaining checkpoints. The daemon-owned v10 record,
+TaskGraph, Evidence, and Session registry are recovery truth. They do not live
+in the Root transcript.
+
+You may compact the Root or a lane Session while Repro is active. A continuation
+reloads the durable checkpoint and reuses the same lane Sessions; it must not
+replay the launch. If a lane needs attention, the Ask appears on Root and
+survives daemon restart or context compaction. Your answer creates a new attempt
+in the same checkpoint and lane Session.
 
 ```text
-/repro start <objective>
+/repro <objective>
 /repro status
 /repro stop
-/repro restart [objective]
 ```
+
+`/repro start <objective>` remains an explicit spelling of the same start.
 
 ## Workflow
 
@@ -104,11 +137,19 @@ The empty `/workflow` command opens the picker. Existing commands such as
 `/workflows`, `/workflow-runs`, and `/workflow-pause` remain executable as
 compatibility aliases but are hidden from the normal command catalog.
 
-The repository-owned `workspace:repo-change` workflow runs owner scoping,
-implementation in the current owning worktree, independent review, and delivery
-verification. Changes to `.agents` knowledge add an independent curator review.
-The workflow returns structured accepted or rejected evidence; it never creates,
-pushes, merges, or publishes a pull request.
+Spark includes three repository-owned engineering workflows:
+
+- `workspace:repo-change` runs an already-bounded change through owner scoping,
+  implementation, independent review, and delivery verification;
+- `workspace:maintainability-change` establishes the behavior baseline, reviews
+  correctness and unnecessary complexity, applies a bounded set of equivalent
+  improvements, then reruns independent review;
+- `workspace:feature-change` separates repository/external research,
+  architecture selection, planning, implementation, and independent review.
+
+Changes to `.agents` knowledge add an independent curator review. Each workflow
+returns structured accepted or rejected evidence; none creates, pushes, merges,
+or publishes a pull request.
 
 ## Supervise instead of memorizing states
 

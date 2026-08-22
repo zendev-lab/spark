@@ -78,7 +78,7 @@ describe("scripted provider protocol", () => {
     ]);
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: provider.streamFunction,
+      llm: provider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });
@@ -142,7 +142,7 @@ describe("scripted provider protocol", () => {
     ]);
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: provider.streamFunction,
+      llm: provider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
       maxParallelToolCalls: 2,
@@ -194,7 +194,7 @@ describe("scripted provider protocol", () => {
     ]);
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: provider.streamFunction,
+      llm: provider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });
@@ -225,7 +225,7 @@ describe("scripted provider protocol", () => {
     ]);
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: provider.streamFunction,
+      llm: provider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });
@@ -270,7 +270,7 @@ describe("scripted provider protocol", () => {
     ]);
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: provider.streamFunction,
+      llm: provider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });
@@ -314,7 +314,7 @@ describe("scripted provider protocol", () => {
     ]);
     const predecessor = new SparkAgentLoop({
       host: predecessorHost,
-      streamFunction: predecessorProvider.streamFunction,
+      llm: predecessorProvider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });
@@ -365,7 +365,7 @@ describe("scripted provider protocol", () => {
     ]);
     const successor = new SparkAgentLoop({
       host: successorHost,
-      streamFunction: successorProvider.streamFunction,
+      llm: successorProvider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });
@@ -406,7 +406,7 @@ describe("scripted provider protocol", () => {
     ]);
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: provider.streamFunction,
+      llm: provider.llm,
       getModel: () => SPARK_SCRIPTED_PROVIDER_MODEL,
       streamIdleTimeoutMs: 0,
     });

@@ -9,7 +9,7 @@ export interface SparkDaemonFingerprintOptions {
 }
 
 const SOURCE_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"]);
-const SOURCE_PACKAGE_DIRS = ["apps/spark-daemon", "apps/spark-tui"];
+const SOURCE_PACKAGE_DIRS = ["apps/spark-daemon"];
 
 export interface SparkDaemonBuildChange {
   previousFingerprint: string;

@@ -12,10 +12,11 @@ its normal check and mutation evaluation can exercise it.
 | App unit / integration | `apps/*/src/**/*.test.ts` | App-owned composition, persistence, process, route, and rendering behavior |
 | Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/` and `test/journey/`) | Behavior that genuinely crosses package or app ownership boundaries |
 | Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
-| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and cue-shell |
+| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and Cue |
 | Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
 | Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
 | Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
+| Repro live capability | `pnpm run test:capability:repro-live` | Credentialed real-model multi-repository discovery, Role/tool choice, Evidence, compaction, and five-checkpoint continuation |
 | Mutation CE | `pnpm run test:mutation` | Whether focused package tests detect plausible implementation faults |
 
 Do not move package unit tests into `test/` merely to share setup. Put reusable fixtures or a
@@ -41,12 +42,22 @@ and generated npm product from drifting while keeping failures attributable to d
 `pnpm run check` remains the serial local gate. Static CI runs maintained workflow validators,
 architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
 complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
-with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
-`merge_group`. CI workflows do not run on branch pushes. The core jobs are direct merge gates:
-`Pre-commit Checks`, `Project Checks`, `Documentation Checks`, both `Source Tests` jobs,
-both `Process Tests` jobs, `Repro Golden Journey (Ubuntu)`, and `Browser Tests`. They remain
-fully parallel; there is no aggregate required job or static-to-runtime dependency chain.
-Benchmark, Mutation CE, Capability CE, and Dependency Audit jobs remain advisory.
+with a pinned compatible Cue source build, plus the browser suite for pull requests and
+`merge_group`. Those source, process, journey, and browser jobs are independent because each owns
+its checkout, installation, and runtime setup. Merge-gate workflows do not run on branch pushes.
+The repository-wide benchmark workflow runs every CPU benchmark on `main`. Pull requests, merge
+groups, and `main` pushes select affected I/O benchmarks through Vitest's dependency graph, while a
+daily schedule and manual dispatch refresh the complete suite. Benchmark-harness changes force a
+full run and documentation-only pull requests skip the workflow. A regular Ubuntu selector is the
+necessary `needs` predecessor of the GitHub-hosted I/O walltime job so an unaffected change never
+starts that benchmark lane. The CPU simulation job remains independent. The dependency audit uses
+path-filtered `main` pushes and a schedule for complete scans. Related merge-gate jobs share one
+workflow so `needs` can express intra-lane order where required: `ci-static-checks.yml` runs
+`Pre-commit Checks` before `Project Checks` and `Documentation Checks`; `ci-tests.yml` runs
+Source, Process, Repro Golden Journey, and Browser jobs concurrently. There is no aggregate
+required job and no static-to-runtime dependency chain. Benchmark, Mutation CE, Capability CE,
+and Dependency Audit jobs remain advisory. Repro live capability is excluded from ordinary
+pull-request checks but its latest Nightly result is a release gate.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
 workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax
@@ -57,6 +68,11 @@ owner tests selected by the deterministic sentinel runner and preserves missing 
 drift, flakes, and duration violations as distinct failures. Mutation CE evaluates whether tests
 kill plausible source changes. Both publish reports without weakening the binary contracts used by
 pull-request verification.
+
+The daemon capacity source-process case keeps its direct-oRPC, concurrency, provider-cardinality,
+event-ordering, and persistence contracts binary. Its event-loop and RPC diagnostics remain in the
+source-process report, while CodSpeed compares the production-shaped end-to-end walltime instead
+of applying absolute latency thresholds on shared hosted runners.
 
 ## Test ownership and discovery
 
@@ -70,6 +86,23 @@ Test ownership is structural instead of ledger-driven:
 - `pnpm -r --workspace-concurrency=1 --if-present run test` discovers every app- and package-local test script directly from manifests, while `check-architecture-ratchets.mjs` fails closed when any workspace contains tests but does not expose a `test` script.
 
 Mutation CE selection is also package-owned: either a `test:mutation` script or `stryker.config.json` requires the complete command, config, and dependency set. Shared Stryker dependencies alone do not enroll a package. This keeps pnpm recursive `--if-present` discovery fail-closed without a second workspace inventory.
+
+## Concurrency and expensive boundaries
+
+The root integration suite and daemon product tests use the fork pool with at most two workers. Their
+shared hermetic setup assigns every worker an isolated HOME, Spark home, and XDG root, so files may
+run concurrently without sharing runtime state. Workspace test discovery remains serial: running
+complete workspaces concurrently makes transform-heavy Svelte suites and SQLite/process suites
+compete for the same machine without changing the contract under test.
+
+Use fake timers for retry and backoff tests when the contract is the attempt sequence, terminal
+classification, or scheduled delay rather than elapsed wall time. Keep real timers for deadline,
+cancellation, and ordering behavior whose semantics depend on actual passage of time.
+
+Use real files, SQLite databases, sockets, and child processes only when persistence, migration,
+reopen, locking, atomic replacement, argv, transport, or process lifecycle is the contract. Pure
+validation and state-transition cases should exercise their owning function or in-memory boundary
+instead of paying for an unrelated operating-system boundary.
 
 ## Tests versus static policy
 

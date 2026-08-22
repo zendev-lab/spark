@@ -19,7 +19,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
-        "pattern": "^@zendev-lab/(?:spark|pi)-[a-z0-9-]+$"
+        "pattern": "^@zendev-lab/(?:spark|dsh)-[a-z0-9-]+$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/package"
@@ -44,7 +44,7 @@
     },
     "packageName": {
       "type": "string",
-      "pattern": "^@zendev-lab/(?:spark|pi)-[a-z0-9-]+$"
+      "pattern": "^@zendev-lab/(?:spark|dsh)-[a-z0-9-]+$"
     },
     "taskRef": {
       "type": "string",
@@ -132,11 +132,7 @@
               "$ref": "#/$defs/packageName"
             },
             "dependency": {
-              "enum": [
-                "@earendil-works/pi-ai",
-                "@earendil-works/pi-tui",
-                "@earendil-works/pi-coding-agent"
-              ]
+              "enum": ["@earendil-works/pi-ai"]
             },
             "reason": true,
             "owner": true,
@@ -239,7 +235,14 @@
       ],
       "properties": {
         "productManifestOwner": {
-          "$ref": "#/$defs/packageName"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/packageName"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "temporaryProductManifestExceptions": {
           "type": "array",
@@ -249,7 +252,7 @@
         },
         "sdkDependencies": {
           "type": "array",
-          "minItems": 3,
+          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "object",
@@ -257,11 +260,7 @@
             "required": ["dependency", "owner"],
             "properties": {
               "dependency": {
-                "enum": [
-                  "@earendil-works/pi-ai",
-                  "@earendil-works/pi-tui",
-                  "@earendil-works/pi-coding-agent"
-                ]
+                "enum": ["@earendil-works/pi-ai"]
               },
               "owner": {
                 "$ref": "#/$defs/packageName"
@@ -280,36 +279,22 @@
     "packageBudget": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "current",
-        "approvedNext",
-        "approvedPackage",
-        "approvedPath",
-        "reason",
-        "exitTask"
-      ],
+      "required": ["current", "ceiling", "nonGrowth", "reason"],
       "properties": {
         "current": {
           "type": "integer",
           "minimum": 1
         },
-        "approvedNext": {
+        "ceiling": {
           "type": "integer",
-          "minimum": 2
+          "minimum": 1
         },
-        "approvedPackage": {
-          "$ref": "#/$defs/packageName"
-        },
-        "approvedPath": {
-          "type": "string",
-          "pattern": "^(?:apps|packages)/[a-z0-9-]+$"
+        "nonGrowth": {
+          "const": true
         },
         "reason": {
           "type": "string",
           "minLength": 24
-        },
-        "exitTask": {
-          "$ref": "#/$defs/taskRef"
         }
       }
     },
@@ -351,6 +336,7 @@
         "temporaryDependencyExceptionBudget",
         "piOwnership",
         "packageBudget",
+        "packageNaming",
         "compositionRoots"
       ],
       "properties": {
@@ -372,6 +358,16 @@
         },
         "packageBudget": {
           "$ref": "#/$defs/packageBudget"
+        },
+        "packageNaming": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["temporaryDshDependencyExceptionsNonGrowth"],
+          "properties": {
+            "temporaryDshDependencyExceptionsNonGrowth": {
+              "const": true
+            }
+          }
         },
         "compositionRoots": {
           "type": "array",
@@ -414,6 +410,34 @@
         },
         "distribution": {
           "enum": ["public-npm", "private"]
+        },
+        "namingRationale": {
+          "type": "string",
+          "minLength": 24
+        },
+        "dshIndependenceException": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dependencies", "reason", "exitCondition"],
+          "properties": {
+            "dependencies": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^@zendev-lab/spark-[a-z0-9-]+$"
+              }
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 24
+            },
+            "exitCondition": {
+              "type": "string",
+              "minLength": 24
+            }
+          }
         }
       }
     }

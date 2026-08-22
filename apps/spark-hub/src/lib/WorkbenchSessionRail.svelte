@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
-  import type { SparkSessionOwner } from "@zendev-lab/spark-protocol/session-assignment";
+  import type { SparkSessionLineage } from "@zendev-lab/spark-protocol/session-assignment";
   import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
   import {
     channelSessionPresentation,
@@ -18,6 +18,7 @@
     buildSessionRailTree,
     isSessionVisibleInWorkbenchRail,
     workbenchSessionScope,
+    type WorkbenchSessionRailRow,
   } from "$lib/workbench-session-scope";
   import { workspaceSessionPath, workspaceSessionsPath } from "$lib/workspace-routes";
 
@@ -31,9 +32,15 @@
     lifecycle: "open" | "closing" | "closed";
     placement: "active" | "archived";
     activity?: "idle" | "queued" | "running";
+    descendantActivity?: {
+      activity: "idle" | "queued" | "running";
+      descendantCount: number;
+      activeCount: number;
+      truncated?: boolean;
+    };
     activityUpdatedAt?: string;
     bindings?: Array<{ kind: string; adapter?: string; externalKey?: string }>;
-    owner: SparkSessionOwner;
+    lineage: SparkSessionLineage;
     createdAt: string;
     updatedAt: string;
   };
@@ -116,21 +123,21 @@
         .filter(({ session }) => sessionMatches(session, query))
         .map(({ session }) => session.sessionId),
     );
-    return railRows.filter(
-      (row) =>
-        matched.has(row.session.sessionId) ||
-        (row.parentSessionId ? matched.has(row.parentSessionId) : false) ||
-        (row.ariaLevel === 1 &&
-          railRows.some(
-            (child) =>
-              child.parentSessionId === row.session.sessionId &&
-              matched.has(child.session.sessionId),
-          )),
-    );
+    const byId = new Map(railRows.map((row) => [row.session.sessionId, row]));
+    for (const sessionId of [...matched]) {
+      let current = byId.get(sessionId);
+      const visited = new Set<string>();
+      while (current?.parentSessionId && !visited.has(current.parentSessionId)) {
+        visited.add(current.parentSessionId);
+        matched.add(current.parentSessionId);
+        current = byId.get(current.parentSessionId);
+      }
+    }
+    return railRows.filter((row) => matched.has(row.session.sessionId));
   });
   let grouped = $derived.by(() => {
     const roots = filteredRows
-      .filter((row) => row.ariaLevel === 1)
+      .filter((row) => row.ariaLevel === 1 && !row.orphaned)
       .map(({ session }) => session);
     const groups = groupWorkbenchSessionsByType(roots, {
       channelLabels: messages.channelLabels,
@@ -138,13 +145,7 @@
       labels: messages.sessionTypes,
     }).map((group) => ({
       ...group,
-      rows: group.sessions.flatMap((parent) =>
-        filteredRows.filter(
-          (row) =>
-            row.session.sessionId === parent.sessionId ||
-            row.parentSessionId === parent.sessionId,
-        ),
-      ),
+      rows: group.sessions.flatMap((parent) => subtreeRows(filteredRows, parent.sessionId)),
     }));
     const orphans = filteredRows.filter((row) => row.orphaned);
     return orphans.length > 0
@@ -212,14 +213,29 @@
     );
   }
 
-  function sideThreadRelation(session: SessionRecord) {
-    return session.owner.kind === "side_thread" ? session.owner : null;
+  function childRelation(session: SessionRecord) {
+    return session.lineage.kind === "child"
+      ? { ...session.lineage.origin, parentSessionId: session.lineage.parentSessionId }
+      : null;
   }
 
-  function sideThreadLabel(session: SessionRecord) {
-    const relation = sideThreadRelation(session);
+  function childSessionLabel(session: SessionRecord) {
+    const relation = childRelation(session);
     if (!relation) return "";
-    return `${messages.sideThreadRailLabel} • parent=${relation.parentSessionId} • generation=${relation.generation} • lifecycle=${session.lifecycle} • activity=${session.activity ?? "idle"}`;
+    const generation = "generation" in relation ? ` • generation=${relation.generation}` : "";
+    return `Subsession • origin=${relation.kind} • parent=${relation.parentSessionId}${generation} • lifecycle=${session.lifecycle} • activity=${session.activity ?? "idle"}`;
+  }
+
+  function subtreeRows(
+    rows: WorkbenchSessionRailRow<SessionRecord>[],
+    rootSessionId: string,
+  ) {
+    const start = rows.findIndex((row) => row.session.sessionId === rootSessionId);
+    if (start < 0) return [];
+    const rootLevel = rows[start]!.ariaLevel;
+    let end = start + 1;
+    while (end < rows.length && rows[end]!.ariaLevel > rootLevel) end += 1;
+    return rows.slice(start, end);
   }
 
   function toggleArchived(event: MouseEvent) {
@@ -322,24 +338,22 @@
           <div class="session-group-items" role="list">
             {#each group.rows as row (row.session.sessionId)}
               {@const session = row.session}
-              {@const relation = sideThreadRelation(session)}
+              {@const relation = childRelation(session)}
               {@const displayedStatus = displayedActivityStatus(session)}
               {@const isSelected = session.sessionId === selectedSessionId}
               {@const presentation = sessionPresentation(session)}
-              {@const destinationSessionId = relation?.parentSessionId ?? session.sessionId}
+              {@const destinationSessionId = session.sessionId}
               {@const canArchive =
                 sessionControlAvailable &&
                 isSelected &&
-                !relation &&
-                session.owner.kind !== "workspace" &&
+                session.lineage.kind !== "root" &&
                 session.lifecycle === "open" &&
                 session.placement !== "archived" &&
                 !sessionHasChannelBinding(session)}
               {@const canClose =
                 sessionControlAvailable &&
                 isSelected &&
-                !relation &&
-                session.owner.kind !== "workspace" &&
+                session.lineage.kind !== "root" &&
                 session.lifecycle === "open"}
               <div
                 class="session-item-row"
@@ -350,6 +364,7 @@
                 {#if row.orphaned}
                   <div
                     class="session-item child orphan"
+                    style={`--session-depth: ${Math.max(0, row.ariaLevel - 1)}`}
                     aria-disabled="true"
                     data-parent-session-id={row.parentSessionId}
                   >
@@ -358,16 +373,17 @@
                     </span>
                     <small class="side-thread-meta">
                       {messages.orphanedSideThreads} • parent={row.parentSessionId} •
-                      generation={relation?.generation} • lifecycle={session.lifecycle}
+                      origin={relation?.kind} • lifecycle={session.lifecycle}
                     </small>
                   </div>
                 {:else}
                   <a
                     class="session-item"
                     class:active={isSelected}
-                    class:child={row.ariaLevel === 2}
+                    class:child={row.ariaLevel > 1}
                     class:has-action={canArchive || canClose}
-                    aria-label={relation ? sideThreadLabel(session) : undefined}
+                    style={`--session-depth: ${Math.max(0, row.ariaLevel - 1)}`}
+                    aria-label={relation ? childSessionLabel(session) : undefined}
                     aria-current={isSelected ? "page" : undefined}
                     href={activeWorkspace
                       ? workspaceSessionPath(activeWorkspace, destinationSessionId)
@@ -399,7 +415,7 @@
                       {/if}
                     </span>
                     {#if relation}
-                      <small class="side-thread-meta">{sideThreadLabel(session)}</small>
+                      <small class="side-thread-meta">{childSessionLabel(session)}</small>
                     {:else}
                       <small>{relative(session.activityUpdatedAt ?? session.updatedAt)}</small>
                     {/if}
@@ -732,7 +748,7 @@
   }
 
   .session-item.child {
-    margin-left: 18px;
+    margin-left: calc(var(--session-depth, 1) * 18px);
     padding-left: 12px;
   }
 

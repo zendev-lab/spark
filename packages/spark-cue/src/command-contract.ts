@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { delimiter, isAbsolute, resolve } from "node:path";
 
-import { cueShellProcessEnvironment } from "./executable-environment.ts";
+import { cueProcessEnvironment } from "./executable-environment.ts";
 import { CueError } from "./wire/types.ts";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
@@ -10,7 +10,7 @@ const PROCESS_OUTPUT_LIMIT = 32 * 1024;
 
 export type CueCommandInstallationStatus =
   | "aggregate"
-  | "legacy-direct"
+  | "companion"
   | "foreign"
   | "incomplete-installation"
   | "missing";
@@ -21,7 +21,7 @@ export interface CueCommandSpec {
 }
 
 export interface CueCommandContract {
-  status: "aggregate" | "legacy-direct";
+  status: "aggregate" | "companion";
   version: string;
   client: CueCommandSpec;
   daemon: CueCommandSpec;
@@ -45,7 +45,7 @@ export interface CueCommandInspection {
   message: string;
 }
 
-export interface CueCommandRunOptions {
+interface CueCommandRunOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }
@@ -62,7 +62,7 @@ export interface CueCommandInspectionOptions extends CueCommandRunOptions {
 interface VersionProbe {
   result: CueProcessResult;
   version?: string;
-  identity: "cue-shell" | "foreign" | "missing" | "failed";
+  identity: "cue" | "foreign" | "missing" | "failed";
 }
 
 export async function inspectCueCommandContract(
@@ -79,7 +79,7 @@ export async function inspectCueCommandContract(
   );
   probes.push(aggregateRoot.result);
 
-  if (aggregateRoot.identity === "cue-shell") {
+  if (aggregateRoot.identity === "cue") {
     const aggregateClient = await probeVersion(
       runner,
       { command: "cue", args: ["client", "--version"] },
@@ -96,8 +96,8 @@ export async function inspectCueCommandContract(
     const aggregateVersion = aggregateRoot.version;
     if (
       aggregateVersion !== undefined &&
-      aggregateClient.identity === "cue-shell" &&
-      aggregateDaemon.identity === "cue-shell" &&
+      aggregateClient.identity === "cue" &&
+      aggregateDaemon.identity === "cue" &&
       aggregateVersion === aggregateClient.version &&
       aggregateVersion === aggregateDaemon.version
     ) {
@@ -111,13 +111,13 @@ export async function inspectCueCommandContract(
         status: "aggregate",
         contract,
         probes,
-        message: `cue-shell aggregate command is ready (version ${contract.version})`,
+        message: `Cue aggregate command is ready (version ${contract.version})`,
       };
     }
     return {
       status: "incomplete-installation",
       probes,
-      message: renderIncompleteInstallation(probes, "cue-shell aggregate namespaces disagree"),
+      message: renderIncompleteInstallation(probes, "Cue aggregate namespaces disagree"),
     };
   }
 
@@ -137,29 +137,29 @@ export async function inspectCueCommandContract(
   const directVersion = directClient.version;
   if (
     directVersion !== undefined &&
-    directClient.identity === "cue-shell" &&
-    directDaemon.identity === "cue-shell" &&
+    directClient.identity === "cue" &&
+    directDaemon.identity === "cue" &&
     directVersion === directDaemon.version
   ) {
     const contract: CueCommandContract = {
-      status: "legacy-direct",
+      status: "companion",
       version: directVersion,
       client: { command: "cue-client", args: [] },
       daemon: { command: "cued", args: [] },
     };
     const reason =
       aggregateRoot.identity === "foreign"
-        ? `using cue-shell legacy commands because ${describeProbe(aggregateRoot.result)} is not the cue-shell aggregate CLI`
-        : `using cue-shell legacy commands (version ${contract.version}); reinstall cue-shell to restore the aggregate CLI`;
+        ? `using Cue companion commands because ${describeProbe(aggregateRoot.result)} is not the Cue aggregate CLI`
+        : `using Cue companion commands (version ${contract.version}); reinstall Cue to restore the aggregate CLI`;
     return {
-      status: "legacy-direct",
+      status: "companion",
       contract,
       probes,
       message: reason,
     };
   }
 
-  const anyCueShell = [directClient, directDaemon].some((probe) => probe.identity === "cue-shell");
+  const anyCue = [directClient, directDaemon].some((probe) => probe.identity === "cue");
   if (aggregateRoot.identity === "foreign") {
     return {
       status: "foreign",
@@ -167,11 +167,11 @@ export async function inspectCueCommandContract(
       message: renderForeignInstallation(probes),
     };
   }
-  if (anyCueShell || [directClient, directDaemon].some((probe) => probe.identity === "failed")) {
+  if (anyCue || [directClient, directDaemon].some((probe) => probe.identity === "failed")) {
     return {
       status: "incomplete-installation",
       probes,
-      message: renderIncompleteInstallation(probes, "cue-shell direct commands disagree"),
+      message: renderIncompleteInstallation(probes, "Cue direct commands disagree"),
     };
   }
   return {
@@ -196,7 +196,7 @@ export async function runCueCommand(
   spec: CueCommandSpec,
   options: CueCommandRunOptions = {},
 ): Promise<CueProcessResult> {
-  const env = cueShellProcessEnvironment(options.env);
+  const env = cueProcessEnvironment(options.env);
   const executablePath = resolveExecutablePath(spec.command, env);
   return new Promise((resolveResult) => {
     const child = spawn(spec.command, spec.args, {
@@ -280,26 +280,24 @@ async function probeVersion(
   if (result.error?.code === "ENOENT") return { result, identity: "missing" };
   if (result.error || result.code !== 0) return { result, identity: "failed" };
   const match = pattern.exec(result.stdout.trim());
-  return match
-    ? { result, version: match[1], identity: "cue-shell" }
-    : { result, identity: "foreign" };
+  return match ? { result, version: match[1], identity: "cue" } : { result, identity: "foreign" };
 }
 
 function renderMissingInstallation(probes: CueProcessResult[]): string {
   return [
-    "cue-shell is required for command execution but was not found.",
+    "Cue is required for command execution but was not found.",
     renderProbeLocations(probes),
     "Install it with:",
-    "  uv tool install cue-shell",
+    "  uv tool install cue-run",
   ].join("\n");
 }
 
 function renderIncompleteInstallation(probes: CueProcessResult[], reason: string): string {
   return [
-    `cue-shell installation is incomplete: ${reason}.`,
+    `Cue installation is incomplete: ${reason}.`,
     renderProbeLocations(probes),
     "Repair the installation through its original owner. For uv installs:",
-    "  uv tool install --reinstall cue-shell",
+    "  uv tool install --reinstall cue-run",
   ].join("\n");
 }
 
@@ -307,11 +305,11 @@ function renderForeignInstallation(probes: CueProcessResult[]): string {
   const cue = probes[0];
   if (!cue) return renderMissingInstallation(probes);
   return [
-    "the `cue` command on PATH is not the cue-shell aggregate CLI, and no complete legacy cue-shell command set was found.",
+    "the `cue` command on PATH is not the Cue aggregate CLI, and no complete Cue companion command set was found.",
     `Found: ${describeProbe(cue)}`,
     renderProbeLocations(probes),
-    "Install cue-shell in a user bin directory that does not overwrite the existing command:",
-    "  uv tool install cue-shell",
+    "Install Cue in a user bin directory that does not overwrite the existing command:",
+    "  uv tool install cue-run",
   ].join("\n");
 }
 

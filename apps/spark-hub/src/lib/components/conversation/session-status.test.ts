@@ -64,7 +64,7 @@ describe("session status formatting", () => {
   it("does not add run totals already covered by the full-transcript snapshot", () => {
     const usage = sessionStatusUsage(
       {
-        version: 2,
+        version: 4,
         sessionId: "session-usage",
         status: "running",
         usage: {
@@ -80,7 +80,7 @@ describe("session status formatting", () => {
         tools: [],
         runs: [
           {
-            version: 2,
+            version: 4,
             id: "run-live",
             kind: "session",
             status: "running",
@@ -121,14 +121,14 @@ describe("session status formatting", () => {
 
   it("uses run totals only when the daemon snapshot has no cumulative usage", () => {
     const usage = sessionStatusUsage({
-      version: 2,
+      version: 4,
       sessionId: "session-run-fallback",
       status: "running",
       messages: [],
       tools: [],
       runs: [
         {
-          version: 2,
+          version: 4,
           id: "run-live",
           kind: "session",
           status: "running",
@@ -164,7 +164,7 @@ describe("session status formatting", () => {
     expect(
       sessionStatusIdentity(
         {
-          version: 2,
+          version: 4,
           sessionId: "session-identity",
           status: "idle",
           model: { providerName: "baidu-oneapi", modelId: "gpt-5.6-sol" },

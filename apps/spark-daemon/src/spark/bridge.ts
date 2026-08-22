@@ -8,6 +8,10 @@ import {
 } from "@zendev-lab/spark-roles";
 import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+
+import { errorMessage } from "../text.ts";
+
 type EvidenceRef = `evidence:${string}`;
 type ProjectRef = `proj:${string}`;
 type RunRef = `run:${string}`;
@@ -31,6 +35,7 @@ type SparkRoleInstructionExecutorLike = (
 type CreateSparkHeadlessRoleExecutorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
 }) => SparkRoleInstructionExecutorLike;
 
 type TaskGraphStoreLike = {
@@ -86,7 +91,7 @@ import {
   type serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
 import type { SparkPaths } from "@zendev-lab/spark-system";
-import { extractFinalAssistantText, extractTextDelta } from "../pi/session.ts";
+import { extractFinalAssistantText, extractTextDelta } from "./assistant-event-text.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
 import {
   commandAck,
@@ -108,6 +113,8 @@ export interface SparkDaemonBridgeInput {
   model?: string;
   /** Global provider config/auth root, separate from daemon role session files. */
   controlSparkHome?: string;
+  /** Shared daemon DSH root for native Role execution. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
   db: DatabaseSync;
   emit(message: unknown): void;
   invocationId?: string;
@@ -281,8 +288,11 @@ export async function runSparkCommandBridge(
       ...(spark
         ? {
             roleExecutor: spark.createSparkHeadlessRoleExecutor({
-              ...(input.paths.piAgentDir ? { sparkHome: input.paths.piAgentDir } : {}),
+              ...(input.paths.sessionRuntimeDir
+                ? { sparkHome: input.paths.sessionRuntimeDir }
+                : {}),
               ...(input.controlSparkHome ? { controlSparkHome: input.controlSparkHome } : {}),
+              ...(input.dshContext ? { dshContext: input.dshContext } : {}),
             }),
           }
         : {}),
@@ -648,7 +658,7 @@ function invocationStatusForRun(run: TaskRun): "succeeded" | "failed" | "cancell
 }
 
 function errorMessageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
 
 function eventTypeOf(event: unknown): string | undefined {

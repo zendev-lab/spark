@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Task, TaskRun } from "@zendev-lab/spark-core";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
-describe("Task Session owner validity", () => {
+describe("Task Session origin validity", () => {
   it("accepts only the active run bound to the exact Session", async () => {
     const run = taskRun();
     const subject = {
-      owner: {
+      origin: {
         kind: "task_run",
-        supervisorSessionId: "session-owner",
         projectRef: run.projectRef,
         taskRef: run.taskRef,
         runRef: run.ref,
@@ -39,9 +38,8 @@ describe("Task Session owner validity", () => {
   it("keeps a revision Session only while its Task remains unfinished", async () => {
     const run = taskRun({ sessionLifetime: "task_revision", status: "succeeded" });
     const subject = {
-      owner: {
+      origin: {
         kind: "task_revision",
-        supervisorSessionId: "session-owner",
         projectRef: run.projectRef,
         taskRef: run.taskRef,
         revisionRef: run.execution!.jobId,
@@ -66,6 +64,32 @@ describe("Task Session owner validity", () => {
       }),
     ).resolves.toBe(false);
   });
+
+  it("keeps an owner-terminal revision Session until its owner closes it", async () => {
+    const run = taskRun({ sessionLifetime: "task_revision", status: "succeeded" });
+    const subject = {
+      origin: {
+        kind: "task_revision",
+        projectRef: run.projectRef,
+        taskRef: run.taskRef,
+        revisionRef: run.execution!.jobId,
+        originatingRunRef: run.ref,
+        sessionGoalId: run.execution!.sessionGoalId,
+        roleRef: "role:executor",
+        jobId: run.execution!.jobId,
+        attempt: 1,
+      } as const,
+      workspaceId: "ws-test",
+      sessionId: run.execution!.sessionId!,
+    };
+
+    await expect(
+      isTaskSessionOwnerValid(subject, {
+        resolveWorkspaceCwd: () => "/workspace",
+        loadGraph: async () => graph(run, "done", "owner_terminal"),
+      }),
+    ).resolves.toBe(true);
+  });
 });
 
 function taskRun(
@@ -89,9 +113,16 @@ function taskRun(
   };
 }
 
-function graph(run: TaskRun, taskStatus: Task["status"] = "running") {
+function graph(
+  run: TaskRun,
+  taskStatus: Task["status"] = "running",
+  sessionRetention?: "task_terminal" | "owner_terminal",
+) {
   return {
     runs: () => [run],
-    getTask: () => ({ status: taskStatus }),
+    getTask: () => ({
+      status: taskStatus,
+      ...(sessionRetention ? { executionPolicy: { sessionRetention } } : {}),
+    }),
   };
 }

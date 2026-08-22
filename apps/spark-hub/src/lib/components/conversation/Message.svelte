@@ -4,6 +4,7 @@
     ApprovalPart,
     ArtifactPart,
     ErrorPart,
+    ImagePart,
     MessageActions,
     MessageShell,
     NoticePart,
@@ -16,7 +17,6 @@
     type ConversationMessageView,
     type ConversationPartLabels,
   } from "@zendev-lab/spark-ui/conversation";
-  import ImagePart from "./ImagePart.svelte";
   import RuntimeControlPart from "./RuntimeControlPart.svelte";
   import SessionRetryAction from "./SessionRetryAction.svelte";
 

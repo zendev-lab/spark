@@ -3,6 +3,7 @@ export {
   SparkSessionRegistryError,
   SPARK_SESSION_REGISTRY_VERSION,
   defaultSparkSessionRegistryRoot,
+  createSparkSessionId,
   type ArchiveSparkSessionInput,
   type BindSparkSessionInput,
   type CloseSparkSessionInput,
@@ -14,6 +15,7 @@ export {
   type RecordSparkSessionRunInput,
   type RelocateSparkSessionTranscriptInput,
   type ResolveBindingInput,
+  type ResolveChannelSessionInput,
   type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
   type SparkSessionRegistryFile,
@@ -34,7 +36,6 @@ export {
   type SparkSessionSnapshotTail,
 } from "./snapshot.ts";
 export {
-  executeSessionCall,
   executeSparkSessionAction,
   type ExecuteSparkSessionActionInput,
   type SparkSessionAction,

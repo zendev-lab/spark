@@ -1,0 +1,317 @@
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
+
+import { Type } from "typebox";
+import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
+import {
+  SPARK_ROLE_RUN_RETENTION_TAIL_BYTES,
+  collectRoleRunEvidenceRetentionPlan,
+} from "@zendev-lab/spark-runtime";
+import {
+  loadSparkGraph,
+  sanitizeStoreScope,
+  sparkSessionKey,
+  sparkSessionOwnerKey,
+  sparkStateCwd,
+  type SparkSessionContext,
+} from "./session-state.ts";
+import {
+  normalizeEvidenceBoolean,
+  normalizeEvidenceLimit,
+  normalizePositiveInteger,
+} from "./evidence-tools.ts";
+import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
+import {
+  SPARK_ROLE_RUN_RETENTION_RENDER_LIMIT,
+  appendLegacyImportOnlyLines,
+  appendRoleRunEvidenceRetentionLines,
+  appendSparkWorkflowRunPruneLines,
+  appendSparkStateCleanupPlanLines,
+  appendSparkStateDiagnosticsLines,
+  appendSparkStateHousekeepingLines,
+} from "./state-housekeeping-rendering.ts";
+import { SPARK_STATE_LARGE_EVIDENCE_THRESHOLD_BYTES } from "./state-diagnostics.ts";
+import {
+  collectSparkStateCleanupPlan,
+  collectSparkStateDiagnostics,
+  collectSparkStateHousekeeping,
+  type SparkStateSessionScopes,
+} from "./state-housekeeping.ts";
+import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
+import { migrateStoreV2 } from "./store-v2-migration.ts";
+import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+
+interface SparkStateToolDependencies {
+  ensureSparkStateForActiveWorkspace: (cwd: string, ctx?: SparkToolContext) => Promise<unknown>;
+}
+
+type SparkStateAction =
+  | "state_status"
+  | "state_doctor"
+  | "store_v2_migrate"
+  | "cache_cleanup"
+  | "workflow_run_prune"
+  | "role_run_evidence_compact";
+
+const SPARK_STATE_ACTIONS: SparkStateAction[] = [
+  "state_status",
+  "state_doctor",
+  "store_v2_migrate",
+  "cache_cleanup",
+  "workflow_run_prune",
+  "role_run_evidence_compact",
+];
+
+const SPARK_STATE_ACTION_ERROR =
+  "action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_evidence_compact";
+
+export function normalizeSparkStateAction(value: unknown): SparkStateAction {
+  if (value === undefined || value === null) return "state_status";
+  if (SPARK_STATE_ACTIONS.includes(value as SparkStateAction)) return value as SparkStateAction;
+  throw new Error(SPARK_STATE_ACTION_ERROR);
+}
+
+export function normalizeSparkStateOptionalString(
+  value: unknown,
+  field: string,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  if (!value.trim()) throw new Error(`${field} must be a non-empty string`);
+  return value;
+}
+
+export function registerSparkStateTool(
+  registerSparkTool: SparkToolRegistrar,
+  deps: SparkStateToolDependencies,
+): void {
+  registerSparkTool({
+    name: "impl_state",
+    label: "Spark State",
+    description:
+      "Inspect, doctor, migrate, or explicitly clean Spark state through domain-specific actions. action=state_status and action=state_doctor are read-only; action=store_v2_migrate previews or applies explicit V2 imports with backups; action=cache_cleanup defaults to dryRun=true and never deletes canonical stores; action=workflow_run_prune handles workflow-run retention; action=role_run_evidence_compact previews or applies historical role-run transcript blob replacement and defaults to dry-run.",
+    parameters: Type.Object({
+      action: Type.Optional(
+        Type.String({
+          default: "state_status",
+          description:
+            "state_status | state_doctor | store_v2_migrate | cache_cleanup | workflow_run_prune | role_run_evidence_compact. state_status summarizes canonical/import-only state; state_doctor reports protected-store and migration findings read-only; store_v2_migrate previews/applies explicit imports with backups; cache_cleanup previews/deletes safe cache files; workflow_run_prune previews/applies typed workflow-run retention; role_run_evidence_compact previews/applies role-run transcript blob replacement.",
+        }),
+      ),
+      dryRun: Type.Optional(
+        Type.Boolean({
+          default: true,
+          description:
+            "Preview deletions without removing files. Defaults to true for cache_cleanup, workflow_run_prune, role_run_evidence_compact, and store_v2_migrate.",
+        }),
+      ),
+      olderThanDays: Type.Optional(
+        Type.Number({
+          default: 30,
+          description: "Staleness cutoff for cleanup candidates. Defaults to 30 days.",
+        }),
+      ),
+      includeBroken: Type.Optional(
+        Type.Boolean({
+          default: false,
+          description:
+            "Also treat malformed cache JSON as cleanup candidates. Defaults to false so broken files are reported but not deleted unless explicitly requested.",
+        }),
+      ),
+      thresholdBytes: Type.Optional(
+        Type.Number({
+          default: SPARK_STATE_LARGE_EVIDENCE_THRESHOLD_BYTES,
+          description:
+            "For action=role_run_evidence_compact, only consider role-run blobs at or above this byte size.",
+        }),
+      ),
+      tailBytes: Type.Optional(
+        Type.Number({
+          default: SPARK_ROLE_RUN_RETENTION_TAIL_BYTES,
+          description:
+            "For action=role_run_evidence_compact, retain this many bytes of serialized transcript tail in replacement metadata.",
+        }),
+      ),
+      exportDir: Type.Optional(
+        Type.String({
+          description:
+            "For action=role_run_evidence_compact apply, copy each transcript blob to this directory before deleting the in-store blob.",
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          default: SPARK_ROLE_RUN_RETENTION_RENDER_LIMIT,
+          description:
+            "For action=role_run_evidence_compact, maximum candidate rows to render in text output.",
+        }),
+      ),
+      keepRecent: Type.Optional(
+        Type.Number({
+          default: 10,
+          description:
+            "For action=workflow_run_prune, retain this many newest terminal workflow runs globally.",
+        }),
+      ),
+      keepRecentPerProject: Type.Optional(
+        Type.Number({
+          default: 10,
+          description:
+            "For action=workflow_run_prune, retain this many newest terminal workflow runs per project.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
+      const action = normalizeSparkStateAction((params as { action?: unknown }).action);
+      const dryRun = normalizeEvidenceBoolean(
+        (params as { dryRun?: unknown }).dryRun,
+        true,
+        "dryRun",
+      );
+      const olderThanDays = normalizeEvidenceLimit(
+        (params as { olderThanDays?: unknown }).olderThanDays,
+        30,
+        "olderThanDays",
+      );
+      const keepRecent = normalizeEvidenceLimit(
+        (params as { keepRecent?: unknown }).keepRecent,
+        10,
+        "keepRecent",
+      );
+      const keepRecentPerProject = normalizeEvidenceLimit(
+        (params as { keepRecentPerProject?: unknown }).keepRecentPerProject,
+        10,
+        "keepRecentPerProject",
+      );
+      const thresholdBytes = normalizePositiveInteger(
+        (params as { thresholdBytes?: unknown }).thresholdBytes,
+        SPARK_STATE_LARGE_EVIDENCE_THRESHOLD_BYTES,
+        "thresholdBytes",
+      );
+      const tailBytes = normalizePositiveInteger(
+        (params as { tailBytes?: unknown }).tailBytes,
+        SPARK_ROLE_RUN_RETENTION_TAIL_BYTES,
+        "tailBytes",
+      );
+      const exportDir = normalizeSparkStateOptionalString(
+        (params as { exportDir?: unknown }).exportDir,
+        "exportDir",
+      );
+      const limit = normalizeEvidenceLimit(
+        (params as { limit?: unknown }).limit,
+        SPARK_ROLE_RUN_RETENTION_RENDER_LIMIT,
+        "limit",
+      );
+      const includeBroken = normalizeEvidenceBoolean(
+        (params as { includeBroken?: unknown }).includeBroken,
+        false,
+        "includeBroken",
+      );
+      await deps.ensureSparkStateForActiveWorkspace(stateCwd, ctx);
+      if (action === "store_v2_migrate") {
+        const migration = await migrateStoreV2(stateCwd, ctx, { dryRun });
+        const lines = [`Spark store V2 migration ${dryRun ? "dry-run" : "apply"}:`];
+        lines.push(`Actions: ${migration.actions.length}`);
+        if (migration.backupDir) lines.push(`Backup: ${migration.backupDir}`);
+        appendLegacyImportOnlyLines(lines, migration.legacyImportOnly);
+        for (const item of migration.actions.slice(0, limit)) {
+          const target = item.target ? ` -> ${item.target}` : "";
+          const imported = item.imported === undefined ? "" : ` imported=${item.imported}`;
+          const reason = item.reason ? ` (${item.reason})` : "";
+          lines.push(
+            `- ${item.status} ${item.kind}: ${item.path ?? ""}${target}${imported}${reason}`,
+          );
+        }
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { found: true, action, migration },
+        };
+      }
+      const graph = await loadSparkGraph(cwd, ctx);
+      if (!graph)
+        return {
+          content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
+          details: { found: false },
+        };
+      if (action === "state_status") {
+        const summary = await collectSparkStateHousekeeping(
+          stateCwd,
+          sparkStateSessionScopes(ctx),
+          graph,
+        );
+        const lines = ["Spark state status:"];
+        appendSparkStateHousekeepingLines(lines, summary);
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { found: true, action, state: summary },
+        };
+      }
+      if (action === "state_doctor") {
+        const diagnostics = await collectSparkStateDiagnostics(stateCwd, graph);
+        const lines = ["Spark state diagnostics (read-only):"];
+        appendSparkStateDiagnosticsLines(lines, diagnostics);
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { found: true, action, diagnostics },
+        };
+      }
+      if (action === "workflow_run_prune") {
+        const runStore = defaultSparkWorkflowRunStore(stateCwd, ctx);
+        const prune = await runStore.pruneRuns({
+          dryRun,
+          olderThanDays,
+          keepRecent,
+          keepRecentPerProject,
+          activeRunRefs: activeSparkRoleRunProcessesForCwd(cwd).map((process) => process.runRef),
+        });
+        const lines = [`Spark workflow-run prune ${dryRun ? "dry-run" : "apply"}:`];
+        appendSparkWorkflowRunPruneLines(lines, prune);
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { found: true, action, prune },
+        };
+      }
+      if (action === "role_run_evidence_compact") {
+        const retention = await collectRoleRunEvidenceRetentionPlan(stateCwd, {
+          dryRun,
+          thresholdBytes,
+          tailBytes,
+          exportDir,
+        });
+        const lines = [
+          `Spark role-run evidence retention ${dryRun ? "dry-run" : "apply"}: ${dryRun ? "would replace" : "replaced"} ${retention.candidates.length} large transcript blob(s).`,
+        ];
+        appendRoleRunEvidenceRetentionLines(lines, retention, limit);
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { found: true, action, retention },
+        };
+      }
+      const plan = await collectSparkStateCleanupPlan(
+        stateCwd,
+        sparkStateSessionScopes(ctx),
+        graph,
+        { dryRun, olderThanDays, includeBroken },
+      );
+      if (!dryRun) {
+        for (const candidate of plan.candidates)
+          await rm(join(stateCwd, candidate.path), { force: true });
+        plan.deleted = [...plan.candidates];
+      }
+      const lines: string[] = [];
+      appendSparkStateCleanupPlanLines(lines, plan);
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: { found: true, action, cleanup: plan },
+      };
+    },
+  });
+}
+
+export function sparkStateSessionScopes(ctx: SparkSessionContext): SparkStateSessionScopes {
+  return {
+    currentSessionScope: sanitizeStoreScope(sparkSessionKey(ctx)),
+    currentOwnerScope: sanitizeStoreScope(sparkSessionOwnerKey(ctx)),
+  };
+}

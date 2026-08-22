@@ -33,7 +33,9 @@ fail closed。阻塞 timeout 由 host policy 持有，工具调用方不能自�
 
 面向用户的 Artifact kind 只有 `issue | git_change | document`。一个
 `git_change` 拥有一个 worktree 和一个原生 PR stack；Preview 是 Document
-的视图，不是新的 Artifact kind。
+的视图，不是新的 Artifact kind。`git` submit 会等待每个非终态 pull request
+的 required GitHub checks，再把 pass、fail 或 conflict 记录到该 Artifact。
+没有 required checks 的 pull request 记为 inconclusive，而不是阻塞 submit 结果。
 
 Evidence 记录内部 claim 与验证。Artifact 和 Evidence ref 使用不同的命名空间、
 store、权限和生命周期。工具不能把文件路径、transcript 陈述或未验证结果静默提升为
@@ -52,10 +54,14 @@ status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Tas
 
 ## Role、Session 与 Skill Agent
 
+daemon 的共享 DSH root 与隔离 headless DSH root 会通过独立 filesystem provider，
+直接从精确版本的 `@zendev-lab/cue` 依赖挂载规范 `cue` Skill。DSH 使用原生 Skill
+目录和 `skill` 工具发布它；Cue 仓库及其发布包是唯一源码 authority。
+
 - Role 定义类型化能力与责任叠加，包括语义 Model Type。它可以声明最多八个有序
   Skill；Spark 在创建子 Session 前解析并预载完整指令正文。Role 不决定 Session
   生命周期。
-- Session 是拥有 continuity、binding、call 和 mail 的运行实例。唯一
+- Session 是拥有 continuity、binding 和 mail 的运行实例。唯一
   Owner 推导出 `persistent | scoped | ephemeral` 生命周期。
 - `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })`
   按精确名称解析一到八个 Skill，在一个全新的 owned 子 Session 中各加载一次。
@@ -74,6 +80,25 @@ Role 子 Session 通过语义 Model Type 选择模型。Skill Agent 则默认继
 Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
+
+Role 执行严格分成三个阶段：创建或选择静态 Role；通过
+`session({ action: "spawn", roleRef })` 或
+`session({ action: "fork", roleRef })` 创建 Role-bound 子 Session；最后用
+`session({ action: "send", kind: "request", toSessionId, message })` 触发工作。
+`spawn` 从空 transcript 开始，`fork` 把当前 Session 的稳定 transcript 前缀复制到
+一份独立 JSONL。两个创建 action 都不会发送 mail，也不会创建 Invocation。
+
+`session({ action: "send" })` 是单向投递。`kind=notification` 只持久化、不触发目标；
+`kind=request` 持久化并准入一次 invocation。目标忙碌时必须显式给出
+`onActive=queue` 或 `onActive=interrupt`。可选 `wake=true`（仅 request，默认
+`false`）会在目标结束后唤醒发送方。用
+`session({ action: "wait", invocationId })` 轮询持久 invocation。用
+`session({ action: "lookup", sessionId })` 查看有界 peer projection；lookup 不等待，
+也不是 Hub snapshot。
+
+`ask({ toSessionId })` 把结构化问题发给另一个 Session。被问 Session 用
+`ask({ action: "answer" })` 作答。发给 Session 的 ask 不会进入 Hub Inbox；发给 User
+的 ask 仍走 Inbox / TUI / channel。
 
 Workflow 子调用可以提供 `role` selector 或精确 `roleRef`，但不能同时提供。Spark
 会在审批前把 selector 解析为唯一的 Role ref 与 revision，并将该绑定写入审批与运行
@@ -105,8 +130,22 @@ fail closed。
 
 - 只有明确允许并行的纯读取调用可以并发。
 - 写入、策略变更、混合 batch 和外部副作用保持串行，除非所属契约证明了安全替代。
-- 必需审批属于执行权限，不是展示文本。
+- `none` 操作不需要人工批准。
+- `manual_only` 操作必须有界、低风险且可撤销。手动推进时需要请求批准。活动
+  Goal、Loop 或 Repro driver 只有在 Session 已授予 driver 权限后，才能在已确认
+  目标与 target 范围内直接执行，无需重复询问。交互启动会询问一次；CLI 与 API
+  启动会静默授权。创建、更新和同步 Draft PR 都属于这类操作。
+- `required` 操作始终需要人工批准，包括破坏性、不可逆、安全敏感、高成本、高影响或
+  实质扩大范围的操作，以及发布、部署、合并和把 Draft PR 提升为 Ready。
+- WorkflowRun 不是 continuation driver；只有启动它的 driver 权限仍然有效时，它才继承
+  该审批上下文，且自身不能保留 driver 权限。
+- 审批属于执行权限，不是展示文本。未知或冲突策略会 fail closed。
 - 兼容与 Channel profile 可以比原生 TUI 或 Hub Session 暴露更小的集合。
+
+Daemon Channel Session 只暴露 `session`、`ask`、`context` 和 `todo`。其中
+`session` 只能在同一 daemon scope 内 list/send；不能访问 Workspace Session、
+GitChange、Workspace 或 repository Memory、shell、files、Git、Task、Role fan-out、
+assignment 或 Workflow execution。
 
 私有实现 helper 不是公开工具。要查看当前安装版本的命令，请阅读
 [命令发现](/zh/reference/cli/)。

@@ -23,6 +23,7 @@ import {
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
   sparkTurnSubmitResultSchema,
+  isSparkInvocationTerminalStatus,
   type SparkDaemonEvent,
   type SparkInvocationStatus,
   type SparkLocalRpcInput,
@@ -226,7 +227,7 @@ async function forwardTurn(input: {
     input.session.cursor = page.nextCursor;
     if (page.hasMore) continue;
     const status = await input.daemon.statusTurn({ invocationId });
-    if (isTerminal(status.status)) {
+    if (isSparkInvocationTerminalStatus(status.status)) {
       const result = await input.daemon.resultTurn({ invocationId });
       if (result.assistantText && !input.session.emittedAssistantText) {
         await emitTextDelta(input.client, input.session, "spark-result", result.assistantText);
@@ -405,10 +406,6 @@ function strictPromptText(blocks: ReadonlyArray<{ type?: string; text?: string }
   return text;
 }
 
-function isTerminal(status: SparkInvocationStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
-}
-
 function stopReason(status: SparkInvocationStatus): StopReason {
   if (status === "cancelled") return "cancelled";
   if (status === "failed") return "refusal";
@@ -462,7 +459,7 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
         scope: { kind: "workspace", workspaceId: input.workspaceId },
         includeArchived: true,
       });
-      const administrator = sessions.find((candidate) => candidate.owner.kind === "workspace");
+      const administrator = sessions.find((candidate) => candidate.lineage.kind === "root");
       if (!administrator) {
         throw new Error(`Spark workspace ${input.workspaceId} has no Administrator Session`);
       }

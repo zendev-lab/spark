@@ -1,17 +1,15 @@
 import { createWorkspaceWithLease } from "@zendev-lab/spark-hub-coordination/projection-services";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { parseSparkSessionView, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { controlReproWorkbenchForHub, loadProjectedReproWorkbench } from "./repro-workbench.ts";
+import { loadProjectedReproWorkbench } from "./repro-workbench.ts";
 import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 type FixtureBinding = {
   artifactRef: `artifact:${string}`;
   revision: number;
   lifecycle: "live";
-  loopId: string;
-  generation: number;
 };
 
 describe("trusted Repro Workbench projection", () => {
@@ -41,62 +39,6 @@ describe("trusted Repro Workbench projection", () => {
       fixture.db.close();
     }
   });
-
-  it("rejects a stale generation before dispatching remote Loop control", async () => {
-    const fixture = setup();
-    const client = {
-      controlWorkbench: vi.fn(),
-      snapshot: vi.fn(),
-    };
-    try {
-      const action = workbenchAction(fixture.binding);
-      action.action.context.generation += 1;
-      await expect(
-        controlReproWorkbenchForHub(
-          { db: fixture.db, sessionId: fixture.sessionId, action },
-          client,
-        ),
-      ).rejects.toMatchObject({ code: "workbench_stale" });
-      expect(client.controlWorkbench).not.toHaveBeenCalled();
-    } finally {
-      fixture.db.close();
-    }
-  });
-
-  it("forwards the exact official action envelope and refreshes the Session projection", async () => {
-    const fixture = setup();
-    const result = {
-      loop: {
-        loopId: fixture.binding.loopId,
-        ownerSessionId: fixture.sessionId,
-        status: "paused" as const,
-        continuity: "session" as const,
-        generation: 4,
-        binding: { reproId: "repro-1" },
-        policy: {},
-        counters: {},
-        attempt: 0,
-      },
-      observedAt: "2026-08-04T00:00:01.000Z",
-    };
-    const client = {
-      controlWorkbench: vi.fn().mockResolvedValue(result),
-      snapshot: vi.fn().mockResolvedValue({ snapshot: {}, history: {} }),
-    };
-    const action = workbenchAction(fixture.binding);
-    try {
-      await expect(
-        controlReproWorkbenchForHub(
-          { db: fixture.db, sessionId: fixture.sessionId, action },
-          client,
-        ),
-      ).resolves.toEqual(result);
-      expect(client.controlWorkbench).toHaveBeenCalledWith(fixture.sessionId, action);
-      expect(client.snapshot).toHaveBeenCalledWith(fixture.sessionId, { timeoutMs: 5_000 });
-    } finally {
-      fixture.db.close();
-    }
-  });
 });
 
 function setup() {
@@ -110,8 +52,6 @@ function setup() {
     artifactRef: "artifact:repro-workbench" as const,
     revision: 3,
     lifecycle: "live" as const,
-    loopId: "loop-repro",
-    generation: 3,
   };
   db.prepare(
     `INSERT INTO runtime_connections
@@ -149,17 +89,30 @@ function setup() {
     artifacts: [],
     evidence: [],
     work: {
-      primary: { loopId: binding.loopId },
       repro: {
+        version: 10,
         reproId: "repro-1",
         status: "active",
-        contractStatus: "frozen",
         objective: "Reproduce the target",
-        successCriteria: ["alignment"],
-        evidenceRequired: ["receipt"],
-        stage: { name: "alignment", title: "Alignment", index: 3, total: 5, phase: "implement" },
-        plan: { revision: 1, completedSteps: 3, totalSteps: 5 },
-        stopGuard: { decision: "continue", stagnationCount: 0, limit: 3 },
+        workItemId: "work:repro-1",
+        lanes: {
+          implementation: {
+            sessionId: "session:implementation",
+            taskRef: "task:implementation",
+            roleRef: "role:implementation",
+          },
+          exactness: {
+            sessionId: "session:exactness",
+            taskRef: "task:exactness",
+            roleRef: "role:exactness",
+          },
+          formalize: {
+            sessionId: "session:formalize",
+            taskRef: "task:formalize",
+            roleRef: "role:formalize",
+          },
+        },
+        progress: { accepted: 0, total: 5 },
         workbench: binding,
         updatedAt: now,
       },
@@ -168,7 +121,7 @@ function setup() {
   db.prepare(
     `INSERT INTO runtime_session_projections
       (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-       lifecycle, placement, activity, lifetime, owner_kind,
+       lifecycle, placement, activity, lifetime, lineage_origin_kind,
        record_json, snapshot_json, projected_at)
      VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?, ?)`,
   ).run(
@@ -228,7 +181,7 @@ function workbenchContent(binding: FixtureBinding): string {
           surfaceId: "spark-repro-repro-1",
           path: "/",
           value: {
-            schema: "spark.repro.workbench/v1",
+            schema: "spark.repro.workbench/v2",
             reproId: "repro-1",
             ...binding,
           },
@@ -236,24 +189,4 @@ function workbenchContent(binding: FixtureBinding): string {
       },
     ],
   });
-}
-
-function workbenchAction(binding: FixtureBinding) {
-  return {
-    version: "v0.9.1" as const,
-    action: {
-      name: "spark.loop.control" as const,
-      surfaceId: "spark-repro-repro-1",
-      sourceComponentId: "control-pause",
-      timestamp: "2026-08-04T00:00:00.000Z",
-      context: {
-        actionId: "pause" as const,
-        artifactRef: binding.artifactRef,
-        revision: binding.revision,
-        loopId: binding.loopId,
-        generation: binding.generation,
-        idempotencyKey: "workbench-pause-3",
-      },
-    },
-  };
 }

@@ -7,7 +7,7 @@ import { constants as sqliteConstants, type DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
-import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/spark-channels";
+import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/dsh-channels";
 import {
   SparkSessionMailStore,
   type SparkSessionMailDeliveryReceipt,
@@ -16,17 +16,18 @@ import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   requestSparkDaemonLocalRpcWire,
   SparkDaemonLocalRpcUnavailableError,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+} from "@zendev-lab/spark-daemon-client";
 import {
   createDaemonSessionRegistry,
   createSparkDaemonLocalEventBus,
-  handleLocalRpcLine,
-  parseSparkDaemonLifecycleSnapshot,
   requestDaemonStatus,
   requestDaemonRestart,
   requestWorkspaceEnsureLocal,
   startLocalRpcServer,
 } from "./local-rpc.js";
+import { handleLocalRpcLine } from "./local-rpc/dispatch.ts";
+import { parseSparkDaemonLifecycleSnapshot } from "./local-rpc/results.ts";
+import { upsertSparkDaemonServerProfile } from "./server-profiles.js";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -952,6 +953,133 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
+  it("registers a local workspace without contacting Hub", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
+    const workspacePath = join(root, "workspace");
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      mkdirSync(workspacePath);
+      const ensureRegistration = vi.fn();
+      const response = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_register_local",
+          method: "workspace.register",
+          params: {
+            localPath: realpathSync(workspacePath),
+            displayName: "Local",
+          },
+        }),
+        paths,
+        db,
+        undefined,
+        { ensureSparkDaemonRegistrationForWorkspace: ensureRegistration },
+      );
+      expect(response).toMatchObject({
+        id: "rpc_register_local",
+        ok: true,
+        result: {
+          displayName: "Local",
+          serverUrl: "",
+          localPath: realpathSync(workspacePath),
+        },
+      });
+      expect(ensureRegistration).not.toHaveBeenCalled();
+      expect(listWorkspaces(db)).toHaveLength(1);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("announces a Hub projection from daemon login when workspace register has only a token", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
+    const workspacePath = join(root, "workspace");
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      mkdirSync(workspacePath);
+      await upsertSparkDaemonServerProfile(paths, {
+        serverUrl: "http://127.0.0.1:5173/",
+        runtimeId: "rt_11111111111141111111111111111111",
+        runtimeToken: "spark_rt_token_00000000000000000000000000000000",
+      });
+      const ensureRegistration = vi.fn(async () => ({
+        config: {
+          installationId: "install-test",
+          displayName: "Test Spark daemon",
+          serverUrl: "http://127.0.0.1:5173/",
+          runtimeId: "rt_11111111111141111111111111111111",
+          runtimeToken: "spark_rt_token_00000000000000000000000000000000",
+          refreshToken: "spark_rt_refresh_000000000000000000000000000000",
+          webSocketUrl:
+            "ws://127.0.0.1:5173/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
+        },
+        workspaceBinding: {
+          workspaceId: "ws_22222222222241112222222222222222",
+          bindingId: "rtwb_33333333333341113333333333333333",
+          localWorkspaceKey: "local",
+          displayName: "Local",
+          status: "indexing" as const,
+        },
+      }));
+      const response = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_register_token_only",
+          method: "workspace.register",
+          params: {
+            localPath: realpathSync(workspacePath),
+            displayName: "Local",
+            registrationToken: "spark_wsreg_local_rpc",
+          },
+        }),
+        paths,
+        db,
+        undefined,
+        {
+          ensureSparkDaemonRegistrationForWorkspace: ensureRegistration,
+          verifySparkDaemonWorkspaceConnection: vi.fn(async () => undefined),
+        },
+      );
+      expect(response).toMatchObject({
+        id: "rpc_register_token_only",
+        ok: true,
+        result: {
+          displayName: "Local",
+          serverUrl: "http://127.0.0.1:5173/",
+        },
+      });
+      expect(ensureRegistration).toHaveBeenCalledWith(
+        paths,
+        expect.objectContaining({
+          serverUrl: "http://127.0.0.1:5173/",
+          registrationToken: "spark_wsreg_local_rpc",
+        }),
+      );
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rolls back workspace registration when websocket verification fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
     const workspacePath = join(root, "workspace");
@@ -1202,6 +1330,28 @@ describe("Spark daemon local RPC", () => {
       expect(gap).toMatchObject({
         ok: false,
         error: { message: expect.stringContaining("CURSOR_GAP") },
+      });
+
+      const largeText = "x".repeat(300 * 1024);
+      store.appendEvent(result.invocationId, "large-delta", { text: largeText });
+      const largePage = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "turn_stream_large_event",
+          method: "turn.stream",
+          params: { invocationId: result.invocationId, after: 2, limit: 100 },
+        }),
+        paths,
+        db,
+        undefined,
+      );
+      expect(largePage).toMatchObject({
+        ok: true,
+        result: {
+          invocationId: result.invocationId,
+          events: [{ sequence: 3, kind: "large-delta", payload: { text: largeText } }],
+          nextCursor: 3,
+          hasMore: false,
+        },
       });
 
       const removed = await handleLocalRpcLine(
@@ -2060,8 +2210,7 @@ describe("Spark daemon local RPC", () => {
     const runningStatus = {
       plane: "daemon" as const,
       resource: "channel" as const,
-      workspaceId: "ws_demo",
-      configPath: join(root, ".spark", "workspaces", "ws_demo", "channels", "config.json"),
+      configPath: join(root, ".spark", "channels.json"),
       available: true as const,
       configured: true,
       ingressEnabled: true,
@@ -2069,7 +2218,7 @@ describe("Spark daemon local RPC", () => {
       adapters: [{ id: "feishu", type: "feishu", running: true, state: "connected" as const }],
       routes: [{ name: "ops", adapter: "feishu", recipient: "oc_ops" }],
       observedAt: "2026-07-10T00:00:00.000Z",
-      text: "channels workspace=ws_demo running adapters=1/1 routes=1 ingress=on\n",
+      text: "channels daemon running adapters=1/1 routes=1 ingress=on\n",
     };
     const channelIngress = {
       status: vi.fn(() => runningStatus),
@@ -2083,7 +2232,7 @@ describe("Spark daemon local RPC", () => {
         JSON.stringify({
           id: "channel_status",
           method: "channel.status",
-          params: { workspaceId: "ws_demo" },
+          params: {},
         }),
         paths,
         db,
@@ -2091,7 +2240,7 @@ describe("Spark daemon local RPC", () => {
         { channelIngress },
       );
       expect(status).toEqual({ id: "channel_status", ok: true, result: runningStatus });
-      expect(channelIngress.status).toHaveBeenCalledWith("ws_demo");
+      expect(channelIngress.status).toHaveBeenCalledWith();
 
       const config = {
         adapters: {
@@ -2109,7 +2258,7 @@ describe("Spark daemon local RPC", () => {
         JSON.stringify({
           id: "channel_configure",
           method: "channel.configure",
-          params: { workspaceId: "ws_demo", config },
+          params: { config },
         }),
         paths,
         db,
@@ -2117,13 +2266,13 @@ describe("Spark daemon local RPC", () => {
         { channelIngress },
       );
       expect(configured).toEqual({ id: "channel_configure", ok: true, result: runningStatus });
-      expect(channelIngress.configure).toHaveBeenCalledWith("ws_demo", config);
+      expect(channelIngress.configure).toHaveBeenCalledWith(config);
 
       const reloaded = await handleLocalRpcLine(
         JSON.stringify({
           id: "channel_reload",
           method: "channel.reload",
-          params: { workspaceId: "ws_demo" },
+          params: {},
         }),
         paths,
         db,
@@ -2131,14 +2280,13 @@ describe("Spark daemon local RPC", () => {
         { channelIngress },
       );
       expect(reloaded).toEqual({ id: "channel_reload", ok: true, result: runningStatus });
-      expect(channelIngress.reload).toHaveBeenCalledWith("ws_demo");
+      expect(channelIngress.reload).toHaveBeenCalledWith();
 
       const invalidConfigure = await handleLocalRpcLine(
         JSON.stringify({
           id: "channel_configure_bad",
           method: "channel.configure",
           params: {
-            workspaceId: "ws_demo",
             config: {
               adapters: {},
               routes: {},
@@ -2568,7 +2716,7 @@ describe("Spark daemon local RPC", () => {
         idempotencyKey: "session.send:sess_origin:tool-1",
         body: "investigate",
         origin: { surface: "local", host: "session" },
-        notifyOnCompletion: true,
+        wake: true,
         source: "tool",
       };
       const send = async (id: string) =>
@@ -2642,296 +2790,6 @@ describe("Spark daemon local RPC", () => {
         ok: true,
         result: { message: { id: firstResult.result.message.id, readAt: expect.any(String) } },
       });
-    } finally {
-      db.close();
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("delivers durable user notifications and skips already delivered targets", async () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-notification-"));
-    const workspacePath = join(root, "workspace");
-    mkdirSync(workspacePath);
-    const paths = resolveSparkPaths({
-      app: "daemon",
-      env: { HOME: root },
-      overrides: {
-        dataDir: join(root, "data"),
-        cacheDir: join(root, "cache"),
-        stateDir: join(root, "state"),
-        runtimeDir: join(root, "run"),
-      },
-    });
-    const db = openSparkDaemonDatabase(paths);
-    const sparkHome = join(root, ".spark");
-    const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
-      daemonId: "notification-test",
-      daemonCwd: root,
-      resolveWorkspaceCwd: (workspaceId) =>
-        workspaceId === "ws_delivery" ? workspacePath : undefined,
-    });
-    const mailStore = new SparkSessionMailStore({ sparkHome });
-    const status = notificationChannelStatus("ws_delivery", [
-      { id: "info-main", type: "infoflow" },
-      { id: "qq-main", type: "qqbot" },
-    ]);
-    const notify = vi.fn(
-      async (_workspaceId: string, input: ChannelNotifyInput): Promise<ChannelNotifyResult> => {
-        if (!input.adapter || !input.recipient) throw new Error("missing delivery target");
-        return {
-          action: "send",
-          adapter: input.adapter,
-          recipient: input.recipient,
-          text: input.text ?? "",
-        };
-      },
-    );
-    const channelIngress = {
-      status: vi.fn(() => status),
-      configure: vi.fn(async () => status),
-      reload: vi.fn(async () => status),
-      notify,
-    } satisfies Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload" | "notify">;
-
-    try {
-      await createDaemonWorkspaceSession(sessionRegistry, {
-        sessionId: "sess_delivery",
-        workspaceId: "ws_delivery",
-      });
-      await sessionRegistry.bind({
-        sessionId: "sess_delivery",
-        externalKey: "infoflow:group:group-1",
-      });
-      await sessionRegistry.bind({
-        sessionId: "sess_delivery",
-        externalKey: "qqbot:c2c:user-1",
-      });
-      const sent = await mailStore.send({
-        toSessionId: "sess_delivery",
-        fromSessionId: "sess_sender",
-        kind: "notification",
-        visibility: "user",
-        delivery: "channel",
-        deliveryTargets: [
-          { adapter: "infoflow", externalKey: "infoflow:group:group-1" },
-          { adapter: "qqbot", externalKey: "qqbot:c2c:user-1" },
-        ],
-        body: "Deployment complete",
-        source: "tool",
-      });
-      const request = async (id: string) =>
-        await handleLocalRpcLine(
-          JSON.stringify({
-            id,
-            method: "session.notification.deliver",
-            params: { sessionId: "sess_delivery", messageId: sent.message.id },
-          }),
-          paths,
-          db,
-          undefined,
-          { sessionRegistry, mailStore, channelIngress },
-        );
-
-      const delivered = await request("deliver_notification");
-      expect(delivered).toMatchObject({
-        id: "deliver_notification",
-        ok: true,
-        result: {
-          deliveries: [
-            {
-              adapter: "infoflow",
-              externalKey: "infoflow:group:group-1",
-              status: "delivered",
-              attemptCount: 1,
-              receipt: { adapter: "info-main", recipient: "group:group-1" },
-            },
-            {
-              adapter: "qqbot",
-              externalKey: "qqbot:c2c:user-1",
-              status: "delivered",
-              attemptCount: 1,
-              receipt: { adapter: "qq-main", recipient: "c2c:user-1" },
-            },
-          ],
-        },
-      });
-      expect(notify.mock.calls).toEqual([
-        [
-          "ws_delivery",
-          {
-            action: "send",
-            adapter: "info-main",
-            recipient: "group:group-1",
-            text: "Deployment complete",
-          },
-        ],
-        [
-          "ws_delivery",
-          {
-            action: "send",
-            adapter: "qq-main",
-            recipient: "c2c:user-1",
-            text: "Deployment complete",
-          },
-        ],
-      ]);
-
-      const repeated = await request("deliver_notification_again");
-      expect(repeated).toMatchObject({
-        ok: true,
-        result: {
-          deliveries: [
-            { status: "delivered", attemptCount: 1 },
-            { status: "delivered", attemptCount: 1 },
-          ],
-        },
-      });
-      expect(notify).toHaveBeenCalledTimes(2);
-      expect(await mailStore.get("sess_delivery", sent.message.id)).toMatchObject({
-        deliveries: [
-          { status: "delivered", attemptCount: 1, lastError: null },
-          { status: "delivered", attemptCount: 1, lastError: null },
-        ],
-      });
-    } finally {
-      db.close();
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps failed notification receipts retryable and rejects internal mail before notify", async () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-notification-retry-"));
-    const workspacePath = join(root, "workspace");
-    mkdirSync(workspacePath);
-    const paths = resolveSparkPaths({
-      app: "daemon",
-      env: { HOME: root },
-      overrides: {
-        dataDir: join(root, "data"),
-        cacheDir: join(root, "cache"),
-        stateDir: join(root, "state"),
-        runtimeDir: join(root, "run"),
-      },
-    });
-    const db = openSparkDaemonDatabase(paths);
-    const sparkHome = join(root, ".spark");
-    const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
-      daemonId: "notification-retry-test",
-      daemonCwd: root,
-      resolveWorkspaceCwd: (workspaceId) =>
-        workspaceId === "ws_retry" ? workspacePath : undefined,
-    });
-    const mailStore = new SparkSessionMailStore({ sparkHome });
-    const status = notificationChannelStatus("ws_retry", [{ id: "info-main", type: "infoflow" }]);
-    let attempt = 0;
-    const notify = vi.fn(
-      async (_workspaceId: string, input: ChannelNotifyInput): Promise<ChannelNotifyResult> => {
-        attempt += 1;
-        if (attempt === 1) throw new Error("channel temporarily unavailable");
-        if (!input.adapter || !input.recipient) throw new Error("missing delivery target");
-        return {
-          action: "send",
-          adapter: input.adapter,
-          recipient: input.recipient,
-          text: input.text ?? "",
-        };
-      },
-    );
-    const channelIngress = {
-      status: vi.fn(() => status),
-      configure: vi.fn(async () => status),
-      reload: vi.fn(async () => status),
-      notify,
-    } satisfies Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload" | "notify">;
-
-    try {
-      await createDaemonWorkspaceSession(sessionRegistry, {
-        sessionId: "sess_retry",
-        workspaceId: "ws_retry",
-      });
-      await sessionRegistry.bind({
-        sessionId: "sess_retry",
-        externalKey: "infoflow:user:user-1",
-      });
-      const sent = await mailStore.send({
-        toSessionId: "sess_retry",
-        fromSessionId: "sess_sender",
-        kind: "notification",
-        visibility: "user",
-        delivery: "channel",
-        deliveryTargets: [{ adapter: "infoflow", externalKey: "infoflow:user:user-1" }],
-        body: "Please review",
-        source: "tool",
-      });
-      const request = async (id: string, messageId: string) =>
-        await handleLocalRpcLine(
-          JSON.stringify({
-            id,
-            method: "session.notification.deliver",
-            params: { sessionId: "sess_retry", messageId },
-          }),
-          paths,
-          db,
-          undefined,
-          { sessionRegistry, mailStore, channelIngress },
-        );
-
-      const failed = await request("deliver_failed", sent.message.id);
-      expect(failed).toMatchObject({
-        ok: true,
-        result: {
-          deliveries: [
-            {
-              adapter: "infoflow",
-              externalKey: "infoflow:user:user-1",
-              status: "failed",
-              attemptCount: 1,
-              error: "channel temporarily unavailable",
-            },
-          ],
-        },
-      });
-      expect(await mailStore.get("sess_retry", sent.message.id)).toMatchObject({
-        deliveries: [
-          {
-            status: "failed",
-            attemptCount: 1,
-            lastError: "channel temporarily unavailable",
-          },
-        ],
-      });
-
-      const retried = await request("deliver_retried", sent.message.id);
-      expect(retried).toMatchObject({
-        ok: true,
-        result: {
-          deliveries: [
-            {
-              status: "delivered",
-              attemptCount: 2,
-              receipt: { adapter: "info-main", recipient: "user-1" },
-            },
-          ],
-        },
-      });
-      expect(JSON.stringify(retried)).not.toContain("channel temporarily unavailable");
-      expect(notify).toHaveBeenCalledTimes(2);
-
-      await expect(
-        Promise.resolve().then(() =>
-          mailStore.send({
-            toSessionId: "sess_retry",
-            fromSessionId: "sess_sender",
-            kind: "notification",
-            visibility: "internal",
-            delivery: "channel",
-            deliveryTargets: [{ adapter: "infoflow", externalKey: "infoflow:user:user-1" }],
-            body: "Internal only",
-            source: "tool",
-          }),
-        ),
-      ).rejects.toThrow("channel delivery requires explicit user visibility");
-      expect(notify).toHaveBeenCalledTimes(2);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });
@@ -3126,18 +2984,18 @@ describe("Spark daemon local RPC", () => {
       });
 
       const fallbackPath = join(
-        paths.piAgentDir!,
+        paths.sessionRuntimeDir!,
         "sessions",
         "workspace-hash",
         "2026-07-10T08-00-00-000Z_sess_view.jsonl",
       );
-      mkdirSync(join(paths.piAgentDir!, "sessions", "workspace-hash"), { recursive: true });
+      mkdirSync(join(paths.sessionRuntimeDir!, "sessions", "workspace-hash"), { recursive: true });
       writeFileSync(
         fallbackPath,
         `${[
           {
             type: "session",
-            version: 3,
+            version: 4,
             id: "sess_view",
             timestamp: "2026-07-10T08:00:00.000Z",
             cwd: "/workspace/view",
@@ -3269,17 +3127,17 @@ describe("Spark daemon local RPC", () => {
       });
 
       const preferredPath = join(
-        paths.piAgentDir!,
+        paths.sessionRuntimeDir!,
         "sessions",
         "preferred",
         "2026-07-10T09-00-00-000Z_sess_view.jsonl",
       );
-      mkdirSync(join(paths.piAgentDir!, "sessions", "preferred"), { recursive: true });
+      mkdirSync(join(paths.sessionRuntimeDir!, "sessions", "preferred"), { recursive: true });
       writeFileSync(
         preferredPath,
         `${JSON.stringify({
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_view",
           timestamp: "2026-07-10T09:00:00.000Z",
           cwd: "/workspace/view",
@@ -3819,8 +3677,7 @@ function notificationChannelStatus(
   return {
     plane: "daemon",
     resource: "channel",
-    workspaceId,
-    configPath: `/tmp/${workspaceId}/channels/config.json`,
+    configPath: `/tmp/channels/${workspaceId}.json`,
     available: true,
     configured: true,
     ingressEnabled: true,
@@ -3832,6 +3689,6 @@ function notificationChannelStatus(
     })),
     routes: [],
     observedAt: "2026-07-15T00:00:00.000Z",
-    text: `channels workspace=${workspaceId} running`,
+    text: "channels daemon running",
   };
 }

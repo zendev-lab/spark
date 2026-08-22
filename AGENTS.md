@@ -42,16 +42,18 @@ for interpreting this file.
 - Hub owns cross-workspace registry, delegation, delivery, idempotency, audit,
   and bounded receipts. It does not own target execution, repositories, local
   artifacts, or internal evidence.
-- TUI, the Hub Web UI, channels, ACP, RPC, and compatibility transports are
-  presentations or adapters. They must translate through owner APIs and must
-  not infer execution state from prompts, transcript text, elapsed time, or
+- Local web presents every workspace bound to this daemon. Hub proxies many
+  daemons and adds auth, registry, audit, and remote access. Channels, ACP, RPC,
+  and other transports are adapters. They must translate through owner APIs and
+  must not infer execution state from prompts, transcript text, elapsed time, or
   frontend timers.
 - Dependencies point inward: applications may depend on composition, clients,
   capabilities, runtimes, contracts, and foundations; lower layers must not
   import application internals or product-private adapters.
-- `packages/spark-extension` is the single Spark product composition root.
-  Retain the Pi SDK kernel behind Spark boundaries; do not recreate a separate
-  Pi product facade or duplicate extension implementation.
+- The daemon's internal product modules are the single Spark product
+  composition root. Retain the Pi SDK kernel behind Spark boundaries; do not
+  create a second composition package, a Spark extension discovery path, or a
+  Spark-owned `package.json#pi` discovery path.
 - Cross-surface schemas and semantics belong in `spark-protocol`. Transports
   validate and translate them; they do not define competing behavior.
 - Public tools use canonical `tool({ action })` surfaces when actions share one
@@ -91,6 +93,9 @@ for interpreting this file.
    [`CONTRIBUTING.md`](./CONTRIBUTING.md#validation) and report exactly what ran.
 8. Review the final diff for unrelated edits, generated output, secrets,
    runtime state, and accidental package-boundary changes.
+9. For a PR, follow the title and body checks documented in
+   [`CONTRIBUTING.md`](./CONTRIBUTING.md#pull-requests); the body's `##`
+   headings must match the template exactly (CI enforces it).
 
 ## Architecture discipline
 

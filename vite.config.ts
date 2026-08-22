@@ -2,7 +2,13 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["**/*.md", "packages/spark-i18n/src/paraglide/**", "prek.toml", "_typos.toml"],
+    ignorePatterns: [
+      "**/*.md",
+      "packages/spark-i18n/src/paraglide/**",
+      "apps/spark-web-dsh/presets/upstream-package/**",
+      "prek.toml",
+      "_typos.toml",
+    ],
   },
   lint: {
     plugins: ["typescript"],
@@ -20,12 +26,7 @@ export default defineConfig({
     // only those two rules through CLI overrides for an advisory hotspot scan.
     overrides: [
       {
-        files: [
-          "packages/**/*.ts",
-          "apps/spark-cli/**/*.ts",
-          "apps/spark-tui/**/*.ts",
-          "test/**/*.ts",
-        ],
+        files: ["packages/**/*.ts", "apps/spark-cli/**/*.ts", "test/**/*.ts"],
         env: { node: true },
       },
       {

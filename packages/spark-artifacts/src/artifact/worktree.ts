@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { sparkWorkspaceStatePath, type SparkStateRootContext } from "@zendev-lab/spark-core";
 import type { ForgeHost, PrArtifactBody, WorktreeStatus } from "./types.ts";
 
 export interface AttachPrWorktreeInput {
@@ -32,9 +33,10 @@ export function prWorktreePath(
   forge: ForgeHost,
   repo: string,
   number: number,
+  ctx?: SparkStateRootContext,
 ): string {
   const safeRepo = repo.replaceAll("/", "-").replace(/[^a-zA-Z0-9._-]/gu, "_");
-  return join(cwd, ".spark", "worktrees", `pr-${forge}-${safeRepo}-${number}`);
+  return sparkWorkspaceStatePath(cwd, ["worktrees", `pr-${forge}-${safeRepo}-${number}`], ctx);
 }
 
 export async function attachPrWorktree(
@@ -43,7 +45,7 @@ export async function attachPrWorktree(
   const run = input.runner ?? defaultRunner;
   const worktreePath = prWorktreePath(input.cwd, input.forge, input.repo, input.number);
   const worktreeBranch = input.headRef;
-  await mkdir(join(input.cwd, ".spark", "worktrees"), { recursive: true });
+  await mkdir(sparkWorkspaceStatePath(input.cwd, ["worktrees"]), { recursive: true });
 
   if (await pathExists(worktreePath)) {
     const head = await run(

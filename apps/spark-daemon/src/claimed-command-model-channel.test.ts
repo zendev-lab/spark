@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,7 +20,6 @@ vi.mock("./model-channel-control.ts", async (importOriginal) => ({
 import { executeClaimedCommand } from "./claimed-command.ts";
 import type { MessageContext, ServerSocket } from "./daemon.ts";
 import { openSparkDaemonDatabase } from "./store/schema.ts";
-import { registerWorkspace } from "./store/workspaces.ts";
 
 const roots: string[] = [];
 
@@ -38,7 +37,7 @@ class CapturingSocket implements ServerSocket {
 }
 
 describe("claimed runtime model/channel commands", () => {
-  it("maps Hub workspace ids to the daemon-owned binding for QQ QR auth", async () => {
+  it("keeps QQ QR auth on the daemon command route", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-claimed-model-channel-"));
     roots.push(root);
     const paths = resolveSparkPaths({
@@ -52,23 +51,12 @@ describe("claimed runtime model/channel commands", () => {
       },
     });
     const db = openSparkDaemonDatabase(paths);
-    const localPath = join(root, "workspace");
-    mkdirSync(localPath);
-    const workspace = registerWorkspace(db, {
-      serverUrl: "https://hub.example.test/",
-      serverWorkspaceId: "ws_22222222222222222222222222222222",
-      serverBindingId: "rtwb_22222222222222222222222222222222",
-      localWorkspaceKey: "qq-workspace",
-      displayName: "QQ workspace",
-      workspaceName: "QQ workspace",
-      workspaceSlug: "qq-workspace",
-      localPath,
-    });
     const context: MessageContext = {
       paths,
       config: { installationId: "claimed-model-channel-test", displayName: "Test daemon" },
       db,
       runtimeId: "rt_11111111111111111111111111111111",
+      sparkHome: root,
       runtimeSessionId: undefined,
       setRuntimeSessionId() {},
       ensureHeartbeat() {},
@@ -86,7 +74,6 @@ describe("claimed runtime model/channel commands", () => {
       result: {
         flow: {
           id: "qrauth_11111111111111111111111111111111",
-          workspaceId: workspace.id,
           status: "pending",
           createdAt: "2026-08-03T00:00:00.000Z",
           updatedAt: "2026-08-03T00:00:00.000Z",
@@ -94,7 +81,7 @@ describe("claimed runtime model/channel commands", () => {
       },
       projection: {
         kind: "channel.status",
-        data: { workspaceId: workspace.id, state: "running" },
+        data: { state: "running" },
       },
     });
 
@@ -106,12 +93,10 @@ describe("claimed runtime model/channel commands", () => {
         type: "server.command",
         sentAt: "2026-08-03T00:00:00.000Z",
         runtimeId: context.runtimeId,
-        workspaceBindingId: workspace.serverBindingId,
-        workspaceId: workspace.serverWorkspaceId,
         commandId: createId("cmd"),
         payload: {
           kind: "channel.qqbot.auth.start.request",
-          payload: { workspaceId: workspace.serverWorkspaceId },
+          payload: {},
         },
       }),
       context,
@@ -119,9 +104,8 @@ describe("claimed runtime model/channel commands", () => {
 
     expect(mocks.modelChannelControl).toHaveBeenCalledWith(expect.anything(), {
       kind: "channel.qqbot.auth.start.request",
-      scope: "workspace",
-      workspaceId: workspace.id,
-      payload: { workspaceId: workspace.id },
+      scope: "daemon",
+      payload: {},
     });
     expect(ws.sent).toHaveLength(2);
     expect(ws.sent[0]).toMatchObject({ type: "runtime.command.ack" });
@@ -129,10 +113,10 @@ describe("claimed runtime model/channel commands", () => {
       type: "runtime.command.result",
       payload: {
         status: "succeeded",
-        result: { flow: { workspaceId: workspace.serverWorkspaceId } },
+        result: { flow: { status: "pending" } },
         projection: {
           kind: "channel.status",
-          data: { workspaceId: workspace.serverWorkspaceId },
+          data: { state: "running" },
         },
       },
     });

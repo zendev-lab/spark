@@ -88,6 +88,20 @@ export class SparkDaemonProtocolMismatchError extends SparkDaemonLocalRpcError {
 }
 
 /**
+ * The typed socket failed after a procedure was dispatched. Callers must not
+ * replay mutations, but read-only lifecycle waiters may reconnect and retry.
+ */
+export class SparkDaemonConnectedTransportError extends SparkDaemonLocalRpcError {
+  override readonly name = "SparkDaemonConnectedTransportError";
+  readonly method: SparkLocalRpcMethod;
+
+  constructor(method: SparkLocalRpcMethod, message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.method = method;
+  }
+}
+
+/**
  * Create the single protocol-aware daemon client facade.
  *
  * oRPC is always attempted first. Legacy is attempted only when the oRPC
@@ -183,7 +197,8 @@ async function invokeConnected<M extends SparkLocalRpcMethod>(
       return;
     }
     responseTimer = setTimeout(() => {
-      const error = new SparkDaemonLocalRpcError(
+      const error = new SparkDaemonConnectedTransportError(
+        method,
         `Timed out waiting for daemon oRPC response after ${responseTimeoutMs} ms.`,
       );
       reject(error);
@@ -258,9 +273,11 @@ function normalizeConnectedError(
   }
 
   const detail = boundedErrorDetail(error);
-  return new SparkDaemonLocalRpcError(`Spark daemon oRPC transport failed: ${detail}`, {
-    cause: error,
-  });
+  return new SparkDaemonConnectedTransportError(
+    method,
+    `Spark daemon oRPC transport failed: ${detail}`,
+    error,
+  );
 }
 
 function isProtocolSchemaError(error: unknown): boolean {

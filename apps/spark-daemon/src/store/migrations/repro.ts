@@ -1,18 +1,15 @@
-import {
-  ensureReproFormalEvidenceSchema,
-  migrateWorkbenchCheckpointKey,
-} from "./current-schema.js";
+import { ensureReproV10Schema, removeLegacyReproRuntimeSchema } from "./current-schema.js";
 import type { Migration } from "./types.js";
 
 export const reproMigrations = [
   {
-    id: "repro.formal-evidence-receipts",
+    id: "repro.v10-owner-store",
     owner: "repro",
-    up: ensureReproFormalEvidenceSchema,
+    up: ensureReproV10Schema,
   },
   {
-    id: "repro.workbench-checkpoint-binding-key",
+    id: "repro.v10-remove-legacy-runtime",
     owner: "repro",
-    up: migrateWorkbenchCheckpointKey,
+    up: removeLegacyReproRuntimeSchema,
   },
 ] satisfies Migration[];

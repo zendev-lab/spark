@@ -17,7 +17,7 @@ provides:
 Inside a conversation, the inspector separates Summary, Artifacts, Changes,
 Tasks, and Lanes. For an active Repro, Lanes renders three bounded cards for
 Implementation, Exactness, and Formalize, plus forward handoffs, backward
-resolutions, and `formalizedTip`. The document comes from the daemon's existing
+checkpoint receipts, and `formalizedRevision`. The document comes from the daemon's existing
 A2UI projection; Hub does not keep a second Repro store or schedule lane work.
 Summary shows status and counts first; working directory, model, session ID,
 and timestamps remain under Technical details.
@@ -34,13 +34,6 @@ spark hub
 
 Open the URL printed by the command. Hub Web is a control and projection
 surface; durable execution remains owned by Spark daemons.
-
-If this installation previously ran Spark Cockpit, stop it before starting Hub.
-The first Hub database open migrates the retired XDG or `SPARK_HOME` app tree,
-including `cockpit.toml` and `cockpit.sqlite`. Migration refuses live legacy
-locks and source/target conflicts instead of overwriting state. See
-[Configuration and paths](/reference/configuration-and-paths/) for the complete
-mapping and environment-variable compatibility window.
 
 If the page cannot load session data, check both processes separately:
 
@@ -61,6 +54,15 @@ refresh, and labels a provider as connected only when credentials are present.
 Use **Quick test** to send one bounded, tool-free request to the selected model
 and verify that it can actually answer. Invocation diagnostics use the same
 runtime connection and do not require a daemon socket on the Hub host.
+
+Channels are daemon-global rather than Workspace settings. Open
+`/settings/channels` and select the installation/runtime explicitly when Hub
+knows more than one daemon. The page shows all configured accounts by adapter
+ID and lists daemon Channel Sessions separately from Workspace conversations.
+Its remote projection is deliberately narrow: it never exposes credentials,
+full cwd, external conversation keys, account identities, or transcripts. See
+[daemon-global Channels](/guides/channels/) for configuration and failure
+behavior.
 
 **Hub updates** reports only the Hub installation. Each connected daemon is
 updated independently on the machine where it runs.
@@ -112,18 +114,21 @@ forwarding chain. `SPARK_HUB_PUBLIC_URL=auto` is only appropriate behind the
 same trusted loopback proxy. Changing the public origin changes daemon server
 identity, so re-register affected workspaces deliberately.
 
-## Register a remote workspace
+## Connect a daemon and attach workspaces
 
-Authorize the daemon machine, then register each workspace with its own fresh
-registration token:
+Workspace identity is local to the daemon. Authorize the daemon machine first;
+Hub projection is daemon-scheduled, not a workspace property:
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark daemon workspace register . \
-  --server-url https://hub.example \
-  --token <workspace-token> \
-  --name <workspace-name>
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <workspace-token>
 ```
 
-Machine connectivity credentials and one-time workspace registration tokens
-have different scopes; do not reuse one as the other.
+`spark daemon login` binds the daemon installation (one per machine) to the
+Hub; the first `workspace register` records the workspace locally, and the
+token form announces its Hub projection through the same daemon binding.
+Hub treats the daemon installation as the binding unit: workspaces run on
+that daemon and are presented as its session organizations. An enrollment
+token is still required to announce a Hub projection; without it the
+workspace stays daemon-local until the account attaches it.

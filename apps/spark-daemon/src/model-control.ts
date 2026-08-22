@@ -2,13 +2,15 @@ import type {
   SparkProviderControl,
   SparkProviderControlAuthSnapshot,
   SparkProviderControlSnapshot,
-} from "@zendev-lab/spark-ai/control";
+} from "@zendev-lab/spark-llm/control";
 import {
   DEFAULT_SPARK_THINKING_LEVEL,
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+  requireSparkEnabledModelsWriteIntent,
   type SparkAuthImportReport,
   type SparkAuthFlow,
+  type SparkEnabledModelsWriteIntent,
   type SparkModelCatalogEntry,
   type SparkModelCatalogProvider,
   type SparkModelConnectivityTestResult,
@@ -18,14 +20,30 @@ import {
   type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
-import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-ai/control";
+import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-llm/control";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
+
+function requireEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): SparkEnabledModelsWriteIntent {
+  try {
+    return requireSparkEnabledModelsWriteIntent(intent);
+  } catch {
+    throw new SparkDaemonControlError(
+      "enabled_models_intent_required",
+      "enabledModels writes require explicit user-initiated intent",
+    );
+  }
+}
 
 export interface SparkDaemonModelControl {
   snapshot(sessionId?: string): Promise<SparkModelControlSnapshot>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
-  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot>;
   setSessionModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setSessionThinkingLevel(
     sessionId: string,
@@ -78,10 +96,14 @@ class DaemonModelControl implements SparkDaemonModelControl {
     return await this.snapshot();
   }
 
-  async setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot> {
+  async setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot> {
+    const explicitIntent = requireEnabledModelsWriteIntent(intent);
     const snapshot = await this.snapshot();
     const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
-    await this.#providerControl.setEnabledModels(canonical.map(modelValue));
+    await this.#providerControl.setEnabledModels(canonical.map(modelValue), explicitIntent);
     return await this.snapshot();
   }
 
@@ -399,24 +421,22 @@ function providerProjection(
     auth: authProjection(provider.id, provider.auth),
     models: control.models
       .filter((model) => model.providerId === provider.id)
-      .map(
-        (model): SparkModelCatalogEntry => ({
-          model: {
-            providerName: provider.id,
-            modelId: model.modelId,
-            providerLabel: provider.name,
-            modelLabel: model.name,
-          },
-          reasoning: model.reasoning,
-          input: [...model.input],
-          contextWindow: model.contextWindow,
-          maxTokens: model.maxTokens,
-          available: model.available,
-          ...(model.available
-            ? {}
-            : { unavailableReason: `Configure ${provider.name} before selecting this model.` }),
-        }),
-      ),
+      .map((model): SparkModelCatalogEntry => ({
+        model: {
+          providerName: provider.id,
+          modelId: model.modelId,
+          providerLabel: provider.name,
+          modelLabel: model.name,
+        },
+        reasoning: model.reasoning,
+        input: [...model.input],
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+        available: model.available,
+        ...(model.available
+          ? {}
+          : { unavailableReason: `Configure ${provider.name} before selecting this model.` }),
+      })),
   };
 }
 

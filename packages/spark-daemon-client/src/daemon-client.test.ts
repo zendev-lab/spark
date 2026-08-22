@@ -21,6 +21,7 @@ vi.mock("./daemon-local-rpc-orpc.js", () => ({
 import {
   createSparkDaemonClient,
   requestSparkDaemon,
+  SparkDaemonConnectedTransportError,
   SparkDaemonPreDispatchUnavailableError,
   SparkDaemonProtocolMismatchError,
   SparkDaemonRemoteError,
@@ -205,6 +206,7 @@ describe("protocol-aware Spark daemon client", () => {
       { maxResponseBytes: 64 },
     ).catch((error: unknown) => error);
     expect(normalized).toBeInstanceOf(SparkDaemonRpcError);
+    expect(normalized).toBeInstanceOf(SparkDaemonConnectedTransportError);
     expect(normalized).toMatchObject({
       message: `Spark daemon oRPC transport failed: ${failure.message}`,
       cause: failure,
@@ -264,6 +266,7 @@ describe("protocol-aware Spark daemon client", () => {
     await vi.advanceTimersByTimeAsync(25);
 
     await expect(failure).resolves.toBeInstanceOf(SparkDaemonRpcError);
+    await expect(failure).resolves.toBeInstanceOf(SparkDaemonConnectedTransportError);
     await expect(failure).resolves.toMatchObject({
       message: "Timed out waiting for daemon oRPC response after 25 ms.",
     });

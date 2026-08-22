@@ -1,8 +1,8 @@
 {
   "name": "@zendev-lab/spark-cue",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Spark extension package that adds cue-shell as a durable, observable execution backend.",
+  "description": "Host-neutral Cue capability that adds a durable, observable execution backend.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -14,7 +14,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./extension": "./src/extension/index.ts"
+    "./extension": "./src/extension/index.ts",
+    "./operations": "./src/operations/index.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -24,7 +25,7 @@
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
-    "@zendev-lab/spark-tui-adapter": "workspace:^",
+    "@zendev-lab/spark-text": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {

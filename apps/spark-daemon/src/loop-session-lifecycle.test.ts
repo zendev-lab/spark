@@ -132,14 +132,16 @@ describe("Loop and Session lifecycle integration", () => {
     const child = await harness.registry.createSupervised({
       sessionId: invocation.sessionId,
       scope: harness.session.scope,
-      owner: {
-        kind: "driver_tick",
-        driverId: "driver-generation-loop",
-        generation: 1,
-        tickInvocationId: invocation.invocationId,
-        supervisorSessionId: harness.session.sessionId,
+      lineage: {
+        kind: "child",
+        parentSessionId: harness.session.sessionId,
+        origin: {
+          kind: "driver_tick",
+          driverId: "driver-generation-loop",
+          generation: 1,
+          tickInvocationId: invocation.invocationId,
+        },
       },
-      stateBinding: { kind: "session", ref: harness.session.sessionId },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "driver_tick",
@@ -185,13 +187,15 @@ describe("Loop and Session lifecycle integration", () => {
     const driver = await harness.registry.createSupervised({
       sessionId: generationOne.driverSessionId,
       scope: harness.session.scope,
-      owner: {
-        kind: "driver",
-        driverId: generationOne.loopId,
-        generation: generationOne.generation,
-        supervisorSessionId: harness.session.sessionId,
+      lineage: {
+        kind: "child",
+        parentSessionId: harness.session.sessionId,
+        origin: {
+          kind: "driver",
+          driverId: generationOne.loopId,
+          generation: generationOne.generation,
+        },
       },
-      stateBinding: { kind: "session", ref: harness.session.sessionId },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "driver",
@@ -225,7 +229,7 @@ describe("Loop and Session lifecycle integration", () => {
     const supervisor = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
     const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => ({
       sessionId: input.sessionId,
@@ -288,11 +292,14 @@ describe("Loop and Session lifecycle integration", () => {
     expect(executeSession).toHaveBeenCalledTimes(2);
     await expect(harness.registry.get(firstTask.sessionId)).resolves.toMatchObject({
       lifecycle: "open",
-      owner: {
-        kind: "driver",
-        driverId: firstTask.loopId,
-        generation: 1,
-        supervisorSessionId: harness.session.sessionId,
+      lineage: {
+        kind: "child",
+        parentSessionId: harness.session.sessionId,
+        origin: {
+          kind: "driver",
+          driverId: firstTask.loopId,
+          generation: 1,
+        },
       },
     });
   });
@@ -310,13 +317,15 @@ describe("Loop and Session lifecycle integration", () => {
     const oldDriver = await harness.registry.createSupervised({
       sessionId: first.driverSessionId,
       scope: harness.session.scope,
-      owner: {
-        kind: "driver",
-        driverId: first.loopId,
-        generation: first.generation,
-        supervisorSessionId: harness.session.sessionId,
+      lineage: {
+        kind: "child",
+        parentSessionId: harness.session.sessionId,
+        origin: {
+          kind: "driver",
+          driverId: first.loopId,
+          generation: first.generation,
+        },
       },
-      stateBinding: { kind: "session", ref: harness.session.sessionId },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "driver",

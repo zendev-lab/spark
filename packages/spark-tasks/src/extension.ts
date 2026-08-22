@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 
 export type SparkTaskReadAction =
   | "task_status"
@@ -76,18 +76,6 @@ export interface SparkTaskToolOptions {
 /** The `todo` tool routes every action through one session-bound handler. */
 export interface SparkTodoToolOptions {
   handler: SparkTaskActionHandler;
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 const TASK_READ_ACTIONS: readonly SparkTaskReadAction[] = [

@@ -2,7 +2,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { sparkStateCwd } from "@zendev-lab/spark-core";
+import { sparkStateCwd, sparkWorkspaceStatePath } from "@zendev-lab/spark-core";
 
 import {
   emptyReflectionScanCursor,
@@ -139,11 +139,13 @@ export async function runReflectionOnce(
   ctx: Pick<ReflectionCommandContext, "cwd" | "sparkStateRoot">,
   options: ReflectionRunOptions = {},
 ): Promise<ReflectionRunSummary> {
-  const stateCwd = sparkStateCwd(ctx.cwd, ctx);
-  const cursorPath = options.cursorPath ?? reflectionScanCursorPath(stateCwd);
-  const candidateStorePath = options.candidateStorePath ?? reflectionCandidateStorePath(stateCwd);
+  const cursorPath =
+    options.cursorPath ?? reflectionScanCursorPath(ctx.cwd, "session-scan-cursor", ctx);
+  const candidateStorePath =
+    options.candidateStorePath ?? reflectionCandidateStorePath(ctx.cwd, "candidates", ctx);
   const reportPath =
-    options.reportPath ?? join(stateCwd, ".spark", "memory", "reflections", "latest-report.md");
+    options.reportPath ??
+    sparkWorkspaceStatePath(ctx.cwd, ["memory", "reflections", "latest-report.md"], ctx);
   const sessionRoot = options.sessionRoot ?? resolveSparkUserPaths().sessionsDir;
   const key = reflectionSessionKey(ctx);
   if (activeReflectionRuns.has(key)) {

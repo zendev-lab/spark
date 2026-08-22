@@ -14,10 +14,11 @@ over copied prose.
 - One stateful domain has one canonical action tool and one authoritative owner.
   Hosts may narrow a surface, but must not create aliases that become competing
   state or policy implementations.
-- `ask` is the only structured human-question surface; cancellation is not
-  approval.
-- `task_read`, `task_write`, and `assign` operate on Task/Project work. Direct
-  role/session calls do not create task attribution.
+- `ask` is the only structured question surface; cancellation is not
+  approval. User-addressed asks remain Hub Inbox / TUI / channel. Session-addressed
+  asks use `toSessionId` and `ask({ action: "answer" })` and must not enter Inbox.
+- `task_read`, `task_write`, and `assign` operate on Task/Project work.
+  Role-bound Session requests do not create task attribution.
 - `todo` owns the session-bound standalone checklist. TODO state is independent
   from Project Tasks.
 - `artifact` owns product-facing `issue | git_change | document` deliverables.
@@ -26,12 +27,12 @@ over copied prose.
 - `memory` owns durable memory, learnings, candidates, and reflection state.
   `context` only exposes registered bounded providers; it accepts no arbitrary
   provider prompt.
-- `role` owns reusable definitions and semantic Model Type settings. Calls
-  instantiate owner-bound child Sessions; `RoleRun` is a compatibility query
-  projection only.
-  `session` owns identity, lifecycle, bindings, calls, and mail.
-  `skill_agent` instantiates one owned child Session and does not create a
-  parallel Agent lifecycle.
+- `role` owns reusable static definitions and semantic Model Type settings.
+  `session spawn|fork` creates Role-bound children (subagents);
+  `session send(kind=request)` triggers their Invocations. `RoleRun` is a
+  compatibility query projection only. `session` owns identity, lifecycle,
+  bindings, continuity, and mail. `skill_agent` instantiates one owned child
+  Session and does not create a parallel Agent lifecycle.
 - `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
   daemon-owned continuation. `workflow` also owns public WorkflowRun inspection
   and control. They do not create another executor or timer.
@@ -89,6 +90,32 @@ An owner may refine that conservative registration envelope with argument-aware
 `resolvePolicy`. Unknown, malformed, or conflicting policy fails closed to an
 unknown effect, sequential execution, and required approval.
 
+Approval requirements have three canonical values:
+
+- `none` needs no human approval;
+- `manual_only` covers bounded, low-risk, reversible external operations. A
+  manual continuation needs human approval for the exact operation. An active
+  Goal, Loop, or Repro driver may dispatch it without another approval only
+  after the owning Session has persisted `driverAuthority: "granted"`, and only
+  when the call remains within the driver's confirmed objective and targets. A
+  live loop binding without that fact is not a grant. Denied consent degrades
+  `manual_only` to per-tool approval for that Session;
+- `required` needs human approval under every continuation driver.
+
+Creating, updating, and synchronizing a Draft PR are canonical `manual_only`
+operations. Destructive, irreversible, security-sensitive, costly,
+high-impact, materially scope-expanding, release, deployment, merge, and Ready
+promotion operations are `required`. A WorkflowRun is not a driver and inherits
+the approval context of the continuation driver that started it only while that
+authority remains active.
+
+The host resolves driver-aware approval from authoritative continuation state
+and the Session consent fact immediately before dispatch. Prompt or transcript
+text, a tool name, Workflow metadata, and automated review cannot grant or
+widen authority. Driver stop, completion, or replacement expires that driver's
+authority. Each later dispatch re-resolves the current driver and uses manual
+approval behavior when none is active or consent is not `granted`.
+
 A batch executes concurrently only when every concrete call resolves to an
 active, approval-free read tool with `executionMode=parallel`. Mixed, unknown,
 write-capable, policy-changing, or external-effect batches remain sequential.
@@ -143,7 +170,7 @@ when optional fields are absent, and a target with multiple `in_progress`
 items fails before mutation. Event-style checklist verbs are decoder-only
 compatibility and are absent from the model schema.
 
-Direct Role Invocations and Session calls do not create Task attribution.
+Role-bound Session requests do not create Task attribution.
 
 Task execution policy may constrain continuity, isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded
@@ -183,7 +210,11 @@ remain within one authorized canonical worktree; traversal, symlink escape,
 unlisted secondary repositories, remote Cue targets, missing/moved worktrees,
 and cross-Workspace refs fail closed. `readonly` admits only read effects.
 `isolated_results` writes only below `.spark/task-results/<jobId>` in the owning
-Workspace. Model arguments cannot widen this scope.
+Workspace. `workspace` is reserved for owner-created autonomous Tasks whose
+repository topology is not known at dispatch time; the Session inherits the
+registered owning Workspace and must discover or create GitChanges explicitly
+instead of treating cwd as a repository. Model arguments cannot widen any of
+these scopes.
 
 Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize
@@ -237,8 +268,8 @@ write paths expose revision, lease, or equivalent conflict validation.
 ## Role and Session invariants
 
 - `role` manages reusable definitions/model settings. A call instantiates an explicit-Role ephemeral Session, invokes it once, closes it, and retains only its receipt. It does not accept Session lifecycle, persistence, mail, or identity inputs.
-- `session` manages Owner-derived scoped lifecycle, role binding, calls, bindings, and mail. List/get expose Owner, lifetime, lifecycle, placement, Invocation activity, adapters, and external keys. The Workspace Administrator is provisioned separately and is protected from lifecycle mutation.
-- `send kind=request` asynchronously submits the exact body to an unarchived local session. Default `wait=accepted` returns after acceptance; when the target reaches a terminal status the daemon submits one completion-summary turn on the sender so it can synthesize immediately. `wait=completed` polls for a bounded terminal result without a second wake and without cancelling execution on wait timeout.
+- `session` manages lineage-derived scoped lifecycle, Role binding, calls, channel bindings, and mail. List/get expose lineage, lifetime, lifecycle, placement, self/descendant Invocation activity, adapters, and external keys. The Workspace Administrator root is provisioned separately and is protected from lifecycle mutation.
+- `send kind=request` asynchronously submits the exact body to an unarchived local session and returns a one-way admission receipt. Optional `wake=true` later wakes the sender with a completion summary; the default is `wake=false`. `session({ action: "wait", invocationId })` polls for a bounded terminal result without cancelling execution on wait timeout. `session({ action: "lookup", sessionId })` returns a bounded peer projection and must not wait or alias `get`.
 
 Both call paths share `SessionRuntime.instantiate -> invoke -> close`; only lifetime and continuity differ. Full policy is in [`sessions-and-channels.md`](./sessions-and-channels.md).
 
@@ -281,6 +312,15 @@ not parse Markdown or A2UI back into Repro state, progress, evidence, or gates.
 Workspace paths, `evidence:*` refs, and `artifact:*` refs remain separate typed
 fields.
 
+`/repro <objective>` is the canonical three-lane launch. The extension forwards
+`start | status | stop` to the daemon-owned v10 owner, which reserves stable
+Implementation, Exactness, and Formalize child Sessions. Normal progress is
+driven only by strict terminal TaskRun Evidence envelopes; there is no public
+lane-result action. Transcript text, compact summaries, and lifecycle hooks are
+not checkpoint inputs. Context compaction and daemon restart reload the same
+v10 checkpoint, Task, Run, Session, and Evidence state and must not create
+replacement Tasks, Sessions, repositories, commits, PRs, or Asks.
+
 ## Role, Skill Worker, and Session invariants
 
 `role` must not accept lifecycle, mail, or a `sessionId`; the daemon
@@ -299,9 +339,10 @@ self-contained delegation packet rather than the parent transcript. Its direct
 work profile is bounded and cannot recurse into Roles/Skills, manage Sessions,
 mutate Tasks, or publish Git/Artifact/Evidence state.
 
-Side Threads are daemon-owned Sessions with a read-only effect boundary. TUI and
-Hub may control/project them but do not own their lifecycle, generation,
-transcript, isolation, or handoff semantics.
+The Side Thread feature creates daemon-owned child Sessions with a read-only
+effect boundary. It is not another runtime entity. TUI and Hub may control and
+project those Sessions but do not own their lifecycle, generation, transcript,
+isolation, or handoff semantics.
 
 ## Files, execution, and external data
 

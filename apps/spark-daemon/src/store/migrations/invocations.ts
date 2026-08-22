@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
+  addInvocationSerializationKey,
   addMissingInvocationColumns,
   addMissingUsageExecutionColumns,
   backfillInvocationEventDeliveryConsumers,
@@ -37,6 +38,11 @@ export const invocationSchemaMigrations = [
     up: addMissingInvocationColumns,
   },
   {
+    id: "invocations.serialization-key-v1",
+    owner: "invocations",
+    up: addInvocationSerializationKey,
+  },
+  {
     id: "invocations.workspace-projection-index",
     owner: "invocations",
     up: prepareWorkspaceInvocationProjectionIndex,
@@ -67,6 +73,7 @@ export const invocationPostLoopMigrations = [
   {
     id: "migration.retire-daemon-error-outbox-v1",
     owner: "invocations",
+    everyOpen: true,
     up: retireLegacyDaemonErrorOutbox,
   },
 ] satisfies Migration[];

@@ -26,7 +26,7 @@ import {
   type ChannelImage,
   type ChannelMessageReference,
   type InfoflowAttachment,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
@@ -74,14 +74,8 @@ export interface SparkDaemonLoopTickTask extends Omit<
   binding: SparkLoopBinding;
   ownerSessionId: string;
   generation: number;
-  sessionLifetime?: SparkLoopSessionLifetime;
+  sessionLifetime: SparkLoopSessionLifetime;
   cwd: string;
-  /** @deprecated Decode-only alias; runtime uses sessionId. */
-  executionSessionId?: string;
-  /** @deprecated Decode-only projection; runtime uses ownerSessionId/stateBinding. */
-  stateOwnerSessionId?: string;
-  /** @deprecated Decode-only alias; runtime uses sessionLifetime. */
-  continuity?: "session" | "fresh";
   reset?: boolean;
   resumeFromInterrupt?: boolean;
 }
@@ -133,16 +127,6 @@ export interface SparkDaemonChannelContext {
 export interface SparkDaemonSessionRunTask {
   type: "session.run";
   sessionId: string;
-  /** @deprecated Decode-only alias for old private Loop tasks. */
-  executionSessionId?: string;
-  /** Canonical Session state binding resolved before host construction. */
-  stateBindingSessionId?: string;
-  /** @deprecated Decode-only alias for stateBindingSessionId. */
-  stateOwnerSessionId?: string;
-  /** @deprecated Compatibility execution path for persisted pre-Supervisor tasks. */
-  hiddenExecution?: boolean;
-  /** Optional presentation owner for internal child Session events. */
-  presentationSessionId?: string;
   prompt: string;
   /** Compatibility RoleRun projection identity; lifecycle remains Session-owned. */
   roleRunRef?: string;
@@ -171,7 +155,6 @@ export interface SparkDaemonSessionRunTask {
   attachments?: SparkTurnAttachment[];
   /** Complete immutable channel origin. Channel-origin tasks fail closed when this is incomplete. */
   channelReply?: {
-    workspaceId: string;
     adapter?: ChannelAdapterType;
     adapterId: string;
     /** Rename-stable provider account identity frozen with the inbound turn. */
@@ -280,21 +263,14 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
   }
   const restartCheckpoint = parseRestartCheckpoint(task.restartCheckpoint);
   const channelReply = parseChannelReply(task.channelReply);
-  if (
-    restartCheckpoint &&
-    (task.reset === true || task.hiddenExecution === true || channelReply !== undefined)
-  ) {
+  if (restartCheckpoint && (task.reset === true || channelReply !== undefined)) {
     throw new Error(
       "session.run restartCheckpoint requires a persistent non-reset local/web session",
     );
   }
   return {
     type: "session.run",
-    sessionId: nonEmptyString(task.executionSessionId) ?? task.sessionId.trim(),
-    stateBindingSessionId:
-      nonEmptyString(task.stateBindingSessionId) ?? nonEmptyString(task.stateOwnerSessionId),
-    hiddenExecution: typeof task.hiddenExecution === "boolean" ? task.hiddenExecution : undefined,
-    presentationSessionId: nonEmptyString(task.presentationSessionId),
+    sessionId: task.sessionId.trim(),
     prompt: task.prompt,
     roleRunRef: nonEmptyString(task.roleRunRef),
     requireStructuredOutcome:
@@ -421,21 +397,15 @@ function validateSparkDaemonLoopTickTask(
   if (!ownerSessionId) throw new Error("loop.tick task requires ownerSessionId");
   if (!prompt) throw new Error("loop.tick task requires prompt");
   if (!cwd) throw new Error("loop.tick task requires cwd");
-  const legacyStateOwnerSessionId = nonEmptyString(task.stateOwnerSessionId);
-  if (legacyStateOwnerSessionId && legacyStateOwnerSessionId !== ownerSessionId) {
-    throw new Error("loop.tick task stateOwnerSessionId must match ownerSessionId");
-  }
   const binding = parseLoopBinding(task.binding);
-  const sessionLifetime =
-    task.sessionLifetime === "driver" || task.sessionLifetime === "driver_tick"
-      ? task.sessionLifetime
-      : task.continuity === "fresh"
-        ? "driver_tick"
-        : "driver";
+  const sessionLifetime = task.sessionLifetime;
+  if (sessionLifetime !== "driver" && sessionLifetime !== "driver_tick") {
+    throw new Error("loop.tick task requires sessionLifetime");
+  }
   if (!Number.isInteger(task.generation) || Number(task.generation) <= 0) {
     throw new Error("loop.tick task requires a positive generation");
   }
-  const sessionId = nonEmptyString(task.executionSessionId) ?? nonEmptyString(task.sessionId);
+  const sessionId = nonEmptyString(task.sessionId);
   if (!sessionId) throw new Error("loop.tick task requires a child sessionId");
   return {
     type: "loop.tick",
@@ -478,15 +448,13 @@ function parseLoopBinding(value: unknown): SparkLoopBinding {
 function parseChannelReply(value: unknown): SparkDaemonSessionRunTask["channelReply"] | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  const workspaceId = nonEmptyString(record.workspaceId);
   const adapter = channelAdapterType(record.adapter);
   const adapterId = nonEmptyString(record.adapterId);
   const adapterAccountIdentity = nonEmptyString(record.adapterAccountIdentity);
   const externalKey = nonEmptyString(record.externalKey);
   const recipient = nonEmptyString(record.recipient);
-  if (!workspaceId || !adapterId || !recipient) return undefined;
+  if (!adapterId || !recipient) return undefined;
   return {
-    workspaceId,
     ...(adapter ? { adapter } : {}),
     adapterId,
     ...(adapterAccountIdentity ? { adapterAccountIdentity } : {}),

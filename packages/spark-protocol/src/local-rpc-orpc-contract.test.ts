@@ -15,6 +15,7 @@ import {
   sparkLocalRpcOrpcOnlyMethods,
   sparkLocalRpcProcedureSchemas,
   sparkLocalRpcReadinessOrpcErrors,
+  sparkLocalRpcRoleModelOrpcErrors,
   sparkLocalRpcSessionOrpcErrors,
   sparkLocalRpcSideThreadOrpcErrors,
   sparkLocalRpcTaskClaimOrpcErrors,
@@ -124,13 +125,39 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session",
       "promptHistory",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.snapshot-page"]).toEqual([
+      "session",
+      "snapshotPage",
+    ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.media.read"]).toEqual([
+      "session",
+      "media",
+      "read",
+    ]);
     expect(sparkLocalRpcOrpcMethodPaths["session.retry-target"]).toEqual([
       "session",
       "retryTarget",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.mode.set"]).toEqual(["session", "mode", "set"]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "artifact.list",
+      "artifact.read",
+      "role.list",
+      "role.create",
+      "role.model.list",
+      "role.model.get",
+      "role.model.set",
+      "role.model.delete",
+      "skill.list",
+      "workspace.directory.list",
+      "search.global",
+      "session.search",
+      "session.export",
+      "session.snapshot-page",
+      "session.media.read",
       "session.prompt-history",
       "session.retry-target",
+      "session.mode.set",
     ]);
   });
 
@@ -410,12 +437,19 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const declaredCases = [
       ["session.create", "daemon_identity_unavailable"],
       ["session.create", "daemon_cwd_unavailable"],
+      ["session.spawn", "invalid_session_role"],
+      ["session.fork", "session_transcript_changed"],
       ["session.bind", "side_thread_mutation_forbidden"],
       ["session.snapshot", "invalid_session_snapshot"],
       ["session.snapshot", "session_snapshot_mismatch"],
       ["session.snapshot", "session_snapshot_cursor_not_found"],
+      ["session.export", "session_transcript_changed"],
       ["session.prompt-history", "invalid_session_snapshot"],
       ["session.retry-target", "session_not_found"],
+      ["session.mode.set", "invalid_scope"],
+      ["session.mode.set", "session_archived"],
+      ["session.mode.set", "session_not_found"],
+      ["session.mode.set", "workspace_cwd_unavailable"],
       ["turn.submit", "side_thread_direct_submit_forbidden"],
       ["turn.submit", "session_cwd_unavailable"],
     ] as const;
@@ -428,10 +462,46 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
         "session_snapshot_cursor_not_found",
       ),
     ).toBe(false);
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("session.mode.set", "side_thread_mutation_forbidden"),
+    ).toBe(false);
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("session.mode.set", "session_scope_mismatch"),
+    ).toBe(false);
 
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "session_not_found")).toBe(false);
     expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.create", "relocation_source_not_found"),
+    ).toBe(false);
+  });
+
+  it("keeps managed child inputs exact and rejects arbitrary fork sources", () => {
+    const valid = {
+      supervisorSessionId: "session:supervisor",
+      roleRef: "role:project-verifier",
+      name: "Verifier",
+      cwd: "/workspace/verifier",
+      cwdArtifactRef: "artifact:git-change-verifier",
+    };
+    expect(sparkLocalRpcProcedureSchemas["session.spawn"].input.parse(valid)).toEqual(valid);
+    expect(sparkLocalRpcProcedureSchemas["session.fork"].input.parse(valid)).toEqual(valid);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.spawn"].input.safeParse({
+        ...valid,
+        roleRef: "verifier",
+      }).success,
+    ).toBe(false);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.fork"].input.safeParse({
+        ...valid,
+        sourceSessionId: "session:arbitrary",
+      }).success,
+    ).toBe(false);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.fork"].input.safeParse({
+        ...valid,
+        instruction: "run immediately",
+      }).success,
     ).toBe(false);
   });
 
@@ -450,6 +520,12 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     for (const [errorMap, options] of families) {
       expect(Object.keys(errorMap).sort()).toEqual([...options].sort());
     }
+    expect(Object.keys(sparkLocalRpcRoleModelOrpcErrors).sort()).toEqual([
+      "model_control_unavailable",
+      "model_not_found",
+      "model_unavailable",
+      "role_not_found",
+    ]);
 
     const declaredCases = [
       ["daemon.restart", "daemon_restart_conflict"],
@@ -469,10 +545,15 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["task.claim.recover", "task_claim_recovery_refused"],
       ["uplink.prefer", "uplink_transfer_rejected"],
       ["human.interaction.respond", "human_wait_registry_unavailable"],
-      ["session.notification.deliver", "channel_delivery_not_sent"],
       ["session.model.set", "model_control_unavailable"],
       ["session.model.set", "model_not_enabled"],
       ["model.default.set", "model_not_enabled"],
+      ["model.enabled.set", "enabled_models_intent_required"],
+      ["role.model.delete", "role_not_found"],
+      ["role.model.set", "model_control_unavailable"],
+      ["role.model.set", "role_not_found"],
+      ["role.model.set", "model_not_found"],
+      ["role.model.set", "model_unavailable"],
     ] as const;
     for (const [method, code] of declaredCases) {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);
@@ -480,6 +561,19 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
 
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "workspace_not_found")).toBe(false);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("model.catalog", "loop_not_found")).toBe(false);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.model.set", "role_not_found")).toBe(
+      false,
+    );
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("role.model.get", "role_not_found")).toBe(false);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("role.model.delete", "model_not_found")).toBe(
+      false,
+    );
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("role.model.delete", "model_control_unavailable"),
+    ).toBe(false);
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("role.model.set", "role_model_type_unconfigured"),
+    ).toBe(false);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.status", "loop_not_found")).toBe(false);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("turn.status", "invocation_not_retryable")).toBe(
       false,

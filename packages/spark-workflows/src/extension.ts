@@ -6,7 +6,7 @@ import {
   type ToolRenderComponent,
   type ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import { listSavedWorkflows, readSavedWorkflow, type WorkflowDescriptor } from "./index.ts";
 
 export type SparkWorkflowAction = "list" | "read" | "run" | "runs" | "tick";
@@ -44,18 +44,6 @@ export interface SparkWorkflowToolDeps {
     details?: Record<string, unknown>;
     isError?: boolean;
   }>;
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 export function registerSparkWorkflowTool(

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   parseSparkAuthFlow,
+  parseSparkEnabledModelsSetRequest,
   parseSparkModelControlSnapshot,
   parseSparkModelConnectivityTestResult,
   sparkDefaultModelSetRequestSchema,
   sparkEnabledModelsSetRequestSchema,
+  sparkUserInitiatedEnabledModelsIntent,
 } from "./model-control.ts";
 import {
   parseSparkSessionProjection,
@@ -81,8 +83,14 @@ describe("Spark model-control protocol", () => {
 
   it("uses the same model ref for default and session set requests and records", () => {
     expect(sparkDefaultModelSetRequestSchema.parse({ model })).toEqual({ model });
-    expect(sparkEnabledModelsSetRequestSchema.parse({ models: [model] })).toEqual({
+    expect(
+      sparkEnabledModelsSetRequestSchema.parse({
+        models: [model],
+        intent: sparkUserInitiatedEnabledModelsIntent("cli"),
+      }),
+    ).toEqual({
       models: [model],
+      intent: sparkUserInitiatedEnabledModelsIntent("cli"),
     });
     expect(parseSparkSessionSetModelRequest({ sessionId: "sess_demo", model })).toEqual({
       sessionId: "sess_demo",
@@ -97,9 +105,12 @@ describe("Spark model-control protocol", () => {
         lifetime: "scoped",
         activity: "idle",
         roleBinding: { kind: "none" },
-        owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+        lineage: {
+          kind: "child",
+          parentSessionId: "sess_admin_ws_demo",
+          origin: { kind: "session" },
+        },
         incarnation: 1,
-        stateBinding: { kind: "session", ref: "sess_admin_ws_demo" },
         visibility: "public",
         retention: "retain",
         purpose: "interactive",
@@ -109,6 +120,12 @@ describe("Spark model-control protocol", () => {
         updatedAt: "2026-07-10T06:00:00.000Z",
       }).model,
     ).toEqual(model);
+  });
+
+  it("fails closed when model.enabled.set has no explicit user-initiated intent", () => {
+    expect(() => parseSparkEnabledModelsSetRequest({ models: [model] })).toThrow(
+      /enabledModels writes require explicit user-initiated intent/u,
+    );
   });
 
   it("keeps quick-test results credential-free and reason-coded", () => {

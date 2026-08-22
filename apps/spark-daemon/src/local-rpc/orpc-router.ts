@@ -83,6 +83,29 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       execute: os.artifact.execute.handler(async ({ input: params }) =>
         invoke("artifact.execute", params),
       ),
+      list: os.artifact.list.handler(async ({ input: params }) => invoke("artifact.list", params)),
+      read: os.artifact.read.handler(async ({ input: params }) => invoke("artifact.read", params)),
+    },
+    role: {
+      list: os.role.list.handler(async ({ input: params }) => invoke("role.list", params)),
+      create: os.role.create.handler(async ({ input: params }) => invoke("role.create", params)),
+      model: {
+        list: os.role.model.list.handler(async ({ input: params }) =>
+          invoke("role.model.list", params),
+        ),
+        get: os.role.model.get.handler(async ({ input: params }) =>
+          invoke("role.model.get", params),
+        ),
+        set: os.role.model.set.handler(async ({ input: params }) =>
+          invoke("role.model.set", params),
+        ),
+        delete: os.role.model.delete.handler(async ({ input: params }) =>
+          invoke("role.model.delete", params),
+        ),
+      },
+    },
+    skill: {
+      list: os.skill.list.handler(async ({ input: params }) => invoke("skill.list", params)),
     },
     git: {
       execute: os.git.execute.handler(async ({ input: params }) => invoke("git.execute", params)),
@@ -131,19 +154,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       summary: os.usage.summary.handler(async ({ input: params }) =>
         invoke("usage.summary", params),
       ),
-      persistence: os.usage.persistence.handler(async ({ input: params }) =>
-        invoke("usage.persistence", params),
-      ),
-      backfill: os.usage.backfill.handler(async ({ input: params }) =>
-        invoke("usage.backfill", params),
-      ),
     },
     repro: {
-      formalEvidence: {
-        record: os.repro.formalEvidence.record.handler(async ({ input: params }) =>
-          invoke("repro.formal-evidence.record", params),
-        ),
-      },
+      start: os.repro.start.handler(async ({ input: params }) => invoke("repro.start", params)),
+      status: os.repro.status.handler(async ({ input: params }) => invoke("repro.status", params)),
+      stop: os.repro.stop.handler(async ({ input: params }) => invoke("repro.stop", params)),
     },
     loop: {
       start: os.loop.start.handler(async ({ input: params }) => invoke("loop.start", params)),
@@ -154,12 +169,16 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       schedule: os.loop.schedule.handler(async ({ input: params }) =>
         invoke("loop.schedule", params),
       ),
-      control: os.loop.control.handler(async ({ input: params }) => invoke("loop.control", params)),
     },
     workspace: {
       list: os.workspace.list.handler(async ({ input: params }) =>
         invoke("workspace.list", params),
       ),
+      directory: {
+        list: os.workspace.directory.list.handler(async ({ input: params }) =>
+          invoke("workspace.directory.list", params),
+        ),
+      },
       register: os.workspace.register.handler(async ({ input: params }) =>
         invoke("workspace.register", params),
       ),
@@ -206,6 +225,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         ),
       },
     },
+    search: {
+      global: os.search.global.handler(async ({ input: params }) =>
+        invoke("search.global", params),
+      ),
+    },
     delegation: {
       execute: os.delegation.execute.handler(async ({ input: params }) =>
         invoke("delegation.execute", params),
@@ -237,9 +261,26 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     session: {
       list: os.session.list.handler(async ({ input: params }) => invoke("session.list", params)),
       get: os.session.get.handler(async ({ input: params }) => invoke("session.get", params)),
+      lookup: os.session.lookup.handler(async ({ input: params }) =>
+        invoke("session.lookup", params),
+      ),
       snapshot: os.session.snapshot.handler(async ({ input: params }) =>
         invoke("session.snapshot", params),
       ),
+      search: os.session.search.handler(async ({ input: params }) =>
+        invoke("session.search", params),
+      ),
+      export: os.session.export.handler(async ({ input: params }) =>
+        invoke("session.export", params),
+      ),
+      snapshotPage: os.session.snapshotPage.handler(async ({ input: params }) =>
+        invoke("session.snapshot-page", params),
+      ),
+      media: {
+        read: os.session.media.read.handler(async ({ input: params }) =>
+          invoke("session.media.read", params),
+        ),
+      },
       promptHistory: os.session.promptHistory.handler(async ({ input: params }) =>
         invoke("session.prompt-history", params),
       ),
@@ -249,6 +290,8 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       create: os.session.create.handler(async ({ input: params }) =>
         invoke("session.create", params),
       ),
+      spawn: os.session.spawn.handler(async ({ input: params }) => invoke("session.spawn", params)),
+      fork: os.session.fork.handler(async ({ input: params }) => invoke("session.fork", params)),
       bind: os.session.bind.handler(async ({ input: params }) => invoke("session.bind", params)),
       unbind: os.session.unbind.handler(async ({ input: params }) =>
         invoke("session.unbind", params),
@@ -271,11 +314,6 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         ),
         ack: os.session.mail.ack.handler(async ({ input: params }) =>
           invoke("session.mail.ack", params),
-        ),
-      },
-      notification: {
-        deliver: os.session.notification.deliver.handler(async ({ input: params }) =>
-          invoke("session.notification.deliver", params),
         ),
       },
       model: {

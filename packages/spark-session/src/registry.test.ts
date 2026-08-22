@@ -1,12 +1,16 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import {
-  sparkSessionLifetimeForOwner,
+  sparkSessionLifetimeForLineage,
   type SparkSessionCloseReceipt,
 } from "@zendev-lab/spark-protocol/session-assignment";
-import { SparkSessionRegistry, SparkSessionRegistryError } from "./registry.ts";
+import {
+  SparkSessionRegistry,
+  SparkSessionRegistryError,
+  type SparkSessionRegistryOptions,
+} from "./registry.ts";
 
 const roots: string[] = [];
 
@@ -14,10 +18,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function tempRegistry(): Promise<SparkSessionRegistry> {
+async function tempRegistry(
+  options: Omit<SparkSessionRegistryOptions, "rootDir"> = {},
+): Promise<SparkSessionRegistry> {
   const root = await mkdtemp(join(tmpdir(), "spark-session-registry-"));
   roots.push(root);
-  return new SparkSessionRegistry({ rootDir: root });
+  return new SparkSessionRegistry({ rootDir: root, ...options });
 }
 
 async function administrator(
@@ -47,13 +53,13 @@ describe("SparkSessionRegistry v6 ownership", () => {
     expect(first).toMatchObject({
       name: "Administrator",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      owner: { kind: "workspace", workspaceId: "ws_demo" },
+      lineage: { kind: "root" },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
       lifecycle: "open",
       placement: "active",
       retention: "audit",
     });
-    expect(sparkSessionLifetimeForOwner(first.owner)).toBe("persistent");
+    expect(sparkSessionLifetimeForLineage(first.lineage)).toBe("persistent");
     await expect(registry.archive(first.sessionId)).rejects.toMatchObject({
       code: "workspace_administrator_session_mutation_forbidden",
     });
@@ -71,18 +77,18 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const child = await registry.create({
       sessionId: "sess_child",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       name: "Implementation lane",
       roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
       cwd: "/repo/packages/demo",
     });
     expect(child).toMatchObject({
       name: "Implementation lane",
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
       cwd: "/repo/packages/demo",
     });
-    expect(sparkSessionLifetimeForOwner(child.owner)).toBe("scoped");
+    expect(sparkSessionLifetimeForLineage(child.lineage)).toBe("scoped");
     expect(child).not.toHaveProperty("role");
     expect(child).not.toHaveProperty("status");
     expect(child).not.toHaveProperty("relation");
@@ -96,14 +102,14 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const child = await registry.create({
       sessionId: "sess_git_change",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       cwd: "/repo/.agents/worktrees/change",
       cwdArtifactRef: artifactRef,
     });
     const attachedWorktree = await registry.create({
       sessionId: "sess_attached_worktree",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       cwd: "/Users/agent/.agents/worktrees/change",
       cwdArtifactRef: "artifact:attached-worktree",
     });
@@ -123,7 +129,7 @@ describe("SparkSessionRegistry v6 ownership", () => {
     await expect(
       registry.create({
         scope: admin.scope,
-        owner: { kind: "session", supervisorSessionId: child.sessionId },
+        lineage: { kind: "child", parentSessionId: child.sessionId, origin: { kind: "session" } },
         cwd: "/repo/.agents/worktrees/change/nested",
         cwdArtifactRef: "artifact:other-change",
       }),
@@ -137,13 +143,17 @@ describe("SparkSessionRegistry v6 ownership", () => {
     await expect(
       registry.create({
         scope: admin.scope,
-        owner: { kind: "session", supervisorSessionId: otherAdmin.sessionId },
+        lineage: {
+          kind: "child",
+          parentSessionId: otherAdmin.sessionId,
+          origin: { kind: "session" },
+        },
       }),
     ).rejects.toMatchObject({ code: "session_owner_scope_mismatch" });
     await expect(
       registry.create({
         scope: admin.scope,
-        owner: { kind: "session", supervisorSessionId: admin.sessionId },
+        lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
         cwd: "/outside",
       }),
     ).rejects.toMatchObject({ code: "session_owner_scope_mismatch" });
@@ -155,14 +165,14 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const parent = await registry.create({
       sessionId: "sess_parent",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       sessionPath: "/workspace/.spark/sessions/sess_parent.jsonl",
       transcriptRef: "/workspace/.spark/sessions/sess_parent.jsonl",
     });
     const child = await registry.create({
       sessionId: "sess_descendant",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: parent.sessionId },
+      lineage: { kind: "child", parentSessionId: parent.sessionId, origin: { kind: "session" } },
     });
 
     const archived = await registry.archive(parent.sessionId);
@@ -185,7 +195,7 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const session = await registry.create({
       sessionId: "sess_close",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
     });
     await expect(registry.close({ sessionId: session.sessionId })).resolves.toMatchObject({
       lifecycle: "closing",
@@ -211,7 +221,7 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const session = await registry.create({
       sessionId: "sess_legacy_closed_content",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       retention: "discard_on_close",
       sessionPath: "/tmp/sessions/legacy-closed.jsonl",
       transcriptRef: "/tmp/sessions/legacy-closed.jsonl",
@@ -244,7 +254,7 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const session = await registry.create({
       sessionId: "sess_transcript_fence",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
     });
 
     await registry.archive(session.sessionId);
@@ -289,18 +299,64 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const admin = await administrator(registry);
     const session = await registry.create({
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       name: "Channel",
     });
     const bound = await registry.bind({
       sessionId: session.sessionId,
       externalKey: "feishu:chat:oc_demo",
     });
-    expect(bound.owner).toEqual(session.owner);
+    expect(bound.lineage).toEqual(session.lineage);
     expect(bound.bindings[0]).toMatchObject({ externalKey: "feishu:chat:oc_demo" });
     await expect(registry.archive(session.sessionId)).rejects.toMatchObject({
       code: "session_channel_bound",
     });
+  });
+
+  it("atomically resolves daemon Channel Session identity, cwd, and binding", async () => {
+    const registry = await tempRegistry();
+    const first = await registry.resolveChannelSession({
+      daemonId: "installation-demo",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+      adapterId: "feishu-primary",
+      externalKey: "feishu:chat:oc_demo",
+      createCwd: async (sessionId) => `/private/channels/${sessionId}/workspace`,
+      now: new Date("2026-08-21T00:00:00.000Z"),
+    });
+    const persistedAfterCreate = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      revision: number;
+    };
+    const replay = await registry.resolveChannelSession({
+      daemonId: "installation-demo",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+      adapterId: "feishu-renamed",
+      externalKey: "feishu:chat:oc_demo",
+      createCwd: async () => {
+        throw new Error("must not create a second cwd");
+      },
+    });
+
+    expect(first).toMatchObject({
+      scope: { kind: "daemon", daemonId: "installation-demo" },
+      lineage: { kind: "root" },
+      roleBinding: { kind: "none" },
+      purpose: "channel",
+      cwd: `/private/channels/${first.sessionId}/workspace`,
+    });
+    expect(replay.sessionId).toBe(first.sessionId);
+    expect(replay.bindings[0]).toMatchObject({
+      adapterId: "feishu-renamed",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+    });
+    expect(persistedAfterCreate.revision).toBe(1);
+    const otherAccount = await registry.resolveChannelSession({
+      daemonId: "installation-demo",
+      adapterAccountIdentity: "feishu:tenant-other:app-other",
+      externalKey: "feishu:chat:oc_demo",
+      createCwd: async (sessionId) => `/private/channels/${sessionId}/workspace`,
+    });
+    expect(otherAccount.sessionId).not.toBe(first.sessionId);
+    expect(otherAccount.cwd).not.toBe(first.cwd);
   });
 
   it("keeps Fleet lane metadata separate from scoped Session ownership", async () => {
@@ -317,7 +373,7 @@ describe("SparkSessionRegistry v6 ownership", () => {
     const session = await registry.create({
       sessionId: "sess_fleet_worker",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
       visibility: "internal",
       retention: "retain",
@@ -326,155 +382,253 @@ describe("SparkSessionRegistry v6 ownership", () => {
     });
 
     expect(session).toMatchObject({
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
       fleetWorker,
     });
-    expect(sparkSessionLifetimeForOwner(session.owner)).toBe("scoped");
+    expect(sparkSessionLifetimeForLineage(session.lineage)).toBe("scoped");
     expect(session).not.toHaveProperty("relation");
     expect(session).not.toHaveProperty("roleRef");
   });
 });
 
-describe("SparkSessionRegistry v6 migration", () => {
-  it("rejects derived and retired fields injected into canonical v6 storage", async () => {
+describe("SparkSessionRegistry v8 migration", () => {
+  it("backs up, journals, validates, and idempotently migrates v6", async () => {
     const registry = await tempRegistry();
-    await administrator(registry);
-    const stored = JSON.parse(await readFile(registry.filePath, "utf8")) as {
-      sessions: Array<Record<string, unknown>>;
-    };
-    Object.assign(stored.sessions[0]!, {
-      activity: "running",
-      lifetime: "persistent",
-      authority: "administrator",
-    });
-    await writeFile(registry.filePath, `${JSON.stringify(stored)}\n`, "utf8");
-
-    const reloaded = new SparkSessionRegistry({ rootDir: registry.rootDir });
-    await expect(reloaded.list()).rejects.toThrow();
-  });
-
-  it("backs up, journals, validates, and hard-maps legacy structured roles", async () => {
-    const registry = await tempRegistry();
+    const timestamp = "2026-08-01T00:00:00.000Z";
     await writeFile(
       registry.filePath,
-      `${JSON.stringify({
-        version: 4,
-        sessions: [
-          {
-            sessionId: "sess_main",
-            scope: { kind: "workspace", workspaceId: "ws_legacy" },
-            role: "Workspace Coordinator",
-            status: "ready",
-            relation: { kind: "workspace_main", generation: 7 },
-            bindings: [],
-            createdAt: "2026-07-01T00:00:00.000Z",
-            updatedAt: "2026-07-01T00:00:00.000Z",
-          },
-          {
-            sessionId: "sess_worker",
-            scope: { kind: "workspace", workspaceId: "ws_legacy" },
-            role: "role:builtin-worker",
-            title: "role:builtin-worker",
-            status: "archived",
-            bindings: [],
-            createdAt: "2026-07-02T00:00:00.000Z",
-            updatedAt: "2026-07-02T00:00:00.000Z",
-          },
-        ],
-      })}\n`,
+      `${JSON.stringify(
+        {
+          version: 6,
+          revision: 9,
+          sessions: [
+            {
+              sessionId: "sess_admin_v6",
+              scope: { kind: "workspace", workspaceId: "ws_v6" },
+              name: "Administrator",
+              lifecycle: "open",
+              placement: "active",
+              roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
+              owner: { kind: "workspace", workspaceId: "ws_v6" },
+              incarnation: 1,
+              stateBinding: { kind: "session", ref: "sess_admin_v6" },
+              visibility: "public",
+              retention: "audit",
+              purpose: "workspace_administrator",
+              bindings: [],
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+            {
+              sessionId: "sess_driver_v6",
+              scope: { kind: "workspace", workspaceId: "ws_v6" },
+              lifecycle: "closed",
+              placement: "archived",
+              roleBinding: { kind: "inherit" },
+              owner: {
+                kind: "driver",
+                driverId: "loop:v6",
+                generation: 3,
+                supervisorSessionId: "sess_admin_v6",
+              },
+              incarnation: 1,
+              stateBinding: { kind: "driver", ref: "loop:v6" },
+              visibility: "internal",
+              retention: "discard_on_close",
+              purpose: "driver_generation",
+              bindings: [],
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
       "utf8",
     );
 
-    const migrated = await registry.get("sess_worker");
-    expect(migrated).toMatchObject({
-      placement: "archived",
-      roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-      owner: { kind: "session", supervisorSessionId: "sess_main" },
+    await expect(registry.get("sess_admin_v6")).resolves.toMatchObject({
+      lineage: { kind: "root" },
     });
-    expect(migrated).not.toHaveProperty("role");
-    expect(await registry.get("sess_main")).toMatchObject({
-      owner: { kind: "workspace", workspaceId: "ws_legacy" },
-      roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
+    await expect(registry.get("sess_driver_v6")).resolves.toMatchObject({
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_admin_v6",
+        origin: { kind: "driver", driverId: "loop:v6", generation: 3 },
+      },
     });
 
     const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
       version: number;
+      revision: number;
+      sessions: unknown[];
     };
-    expect(persisted.version).toBe(6);
+    expect(persisted).toMatchObject({ version: 8, revision: 9 });
+    expect(JSON.stringify(persisted.sessions)).not.toMatch(/"owner"|"stateBinding"/u);
     const migrationDirs = (await readdir(registry.rootDir)).filter((entry) =>
-      entry.startsWith("migration-v4-to-v6-"),
+      entry.startsWith("migration-v6-to-v8-"),
     );
     expect(migrationDirs).toHaveLength(1);
-    const migrationFiles = await readdir(join(registry.rootDir, migrationDirs[0]!));
-    expect(migrationFiles).toEqual(
+    expect(await readdir(join(registry.rootDir, migrationDirs[0]!))).toEqual(
       expect.arrayContaining(["journal.json", "registry.json.backup"]),
     );
 
-    const replay = await registry.get("sess_worker");
-    expect(replay).toEqual(migrated);
+    const replay = await registry.get("sess_driver_v6");
+    expect(replay?.lineage).toMatchObject({ kind: "child", parentSessionId: "sess_admin_v6" });
     expect(
       (await readdir(registry.rootDir)).filter((entry) => entry.startsWith("migration-")),
     ).toHaveLength(1);
   });
 
-  it("preserves canonical v5 owners while enriching records for v6", async () => {
-    const registry = await tempRegistry();
+  it("migrates an eligible v7 Channel child to a daemon root without changing its id", async () => {
+    const registry = await tempRegistry({
+      daemonId: "installation-v8",
+      resolveChannelSessionCwd: async (sessionId) => `/private/channels/${sessionId}/workspace`,
+    });
+    const timestamp = "2026-08-20T00:00:00.000Z";
+    const base = {
+      incarnation: 1,
+      tags: [],
+      archiveHistory: [],
+      closeReceipts: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
     await writeFile(
       registry.filePath,
       `${JSON.stringify({
-        version: 5,
+        version: 7,
+        revision: 4,
         sessions: [
           {
-            sessionId: "sess_admin_v5",
-            scope: { kind: "workspace", workspaceId: "ws_v5" },
-            name: "Administrator",
+            ...base,
+            sessionId: "sess_admin_v7",
+            scope: { kind: "workspace", workspaceId: "ws_v7" },
             lifecycle: "open",
             placement: "active",
             roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
-            owner: { kind: "workspace", workspaceId: "ws_v5" },
+            lineage: { kind: "root", workspaceId: "ws_v7" },
+            visibility: "public",
+            retention: "audit",
+            purpose: "workspace_administrator",
+            cwd: "/legacy/workspace",
             bindings: [],
-            createdAt: "2026-08-01T00:00:00.000Z",
-            updatedAt: "2026-08-01T00:00:00.000Z",
           },
           {
-            sessionId: "sess_driver_v5",
-            scope: { kind: "workspace", workspaceId: "ws_v5" },
-            lifecycle: "closed",
-            placement: "archived",
-            roleBinding: { kind: "explicit", roleRef: "role:builtin-worker" },
-            owner: {
-              kind: "driver_generation",
-              driverId: "loop:v5",
-              generation: 3,
-              supervisorSessionId: "sess_admin_v5",
+            ...base,
+            sessionId: "sess_channel_v7",
+            scope: { kind: "workspace", workspaceId: "ws_v7" },
+            lifecycle: "open",
+            placement: "active",
+            roleBinding: { kind: "none" },
+            lineage: {
+              kind: "child",
+              parentSessionId: "sess_admin_v7",
+              origin: { kind: "session" },
             },
-            bindings: [],
-            createdAt: "2026-08-02T00:00:00.000Z",
-            updatedAt: "2026-08-02T00:00:00.000Z",
+            visibility: "public",
+            retention: "retain",
+            purpose: "channel",
+            cwd: "/legacy/workspace",
+            bindings: [
+              {
+                kind: "channel",
+                adapter: "feishu",
+                adapterAccountIdentity: "feishu:tenant:app",
+                externalKey: "feishu:chat:oc_v7",
+              },
+            ],
           },
         ],
       })}\n`,
       "utf8",
     );
 
-    await expect(registry.get("sess_admin_v5")).resolves.toMatchObject({
-      owner: { kind: "workspace", workspaceId: "ws_v5" },
-      retention: "audit",
-    });
-    await expect(registry.get("sess_driver_v5")).resolves.toMatchObject({
-      lifecycle: "closed",
-      placement: "archived",
-      roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-      owner: { kind: "driver", driverId: "loop:v5", generation: 3 },
-      retention: "discard_on_close",
+    await expect(registry.get("sess_channel_v7")).resolves.toMatchObject({
+      sessionId: "sess_channel_v7",
+      scope: { kind: "daemon", daemonId: "installation-v8" },
+      lineage: { kind: "root" },
+      cwd: "/private/channels/sess_channel_v7/workspace",
     });
     const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
       version: number;
-      sessions: unknown[];
+      revision: number;
     };
-    expect(persisted.version).toBe(6);
-    expect(persisted.sessions).toHaveLength(2);
-    expect(JSON.stringify(persisted.sessions)).not.toMatch(/"authority"|"activity"|"lifetime"/u);
+    expect(persisted).toMatchObject({ version: 8, revision: 4 });
+  });
+
+  it("fails closed for pre-v6 registries with the explicit upgrade path", async () => {
+    const registry = await tempRegistry();
+    await writeFile(registry.filePath, `${JSON.stringify({ version: 5, sessions: [] })}\n`, "utf8");
+
+    await expect(registry.list()).rejects.toMatchObject({
+      code: "invalid_registry",
+      message: expect.stringMatching(/only v6 or v7 can migrate to v8.*Spark 0\.4\.0/u),
+    });
+    await expect(readdir(registry.rootDir)).resolves.not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^migration-/u)]),
+    );
+  });
+});
+describe("SparkSessionRegistry file cache", () => {
+  it("reuses one on-disk parse across repeated reads", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    await chmod(registry.filePath, 0);
+
+    try {
+      await expect(registry.get(admin.sessionId)).resolves.toMatchObject({
+        sessionId: admin.sessionId,
+        name: "Administrator",
+      });
+      await expect(registry.list()).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ sessionId: admin.sessionId })]),
+      );
+    } finally {
+      await chmod(registry.filePath, 0o600);
+    }
+  });
+
+  it("exposes the persisted revision after a save", async () => {
+    const registry = await tempRegistry();
+    const first = await administrator(registry);
+    const child = await registry.create({
+      sessionId: "sess_cached_child",
+      scope: first.scope,
+      lineage: { kind: "child", parentSessionId: first.sessionId, origin: { kind: "session" } },
+      cwd: "/repo",
+    });
+
+    await expect(registry.get(child.sessionId)).resolves.toMatchObject({
+      sessionId: child.sessionId,
+      lineage: { kind: "child", parentSessionId: first.sessionId, origin: { kind: "session" } },
+    });
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      revision: number;
+    };
+    expect(persisted.revision).toBeGreaterThan(0);
+  });
+
+  it("reloads when another writer changes the registry file", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      version: number;
+      revision: number;
+      sessions: Array<Record<string, unknown>>;
+    };
+    persisted.sessions = persisted.sessions.map((session) =>
+      session.sessionId === admin.sessionId
+        ? { ...session, name: "Reloaded Administrator" }
+        : session,
+    );
+    await writeFile(registry.filePath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+
+    await expect(registry.get(admin.sessionId)).resolves.toMatchObject({
+      sessionId: admin.sessionId,
+      name: "Reloaded Administrator",
+    });
   });
 });

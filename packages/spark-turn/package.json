@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-turn",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Host-neutral Spark model/tool turn loop.",
   "license": "MIT",
@@ -13,10 +13,8 @@
   "type": "module",
   "exports": {
     ".": "./src/agent-loop.ts",
-    "./behavior-eval": "./src/behavior-eval.ts",
-    "./behavior-ce": "./src/behavior-ce.ts",
-    "./prompt-manifest": "./src/prompt-manifest.ts",
     "./side-thread": "./src/side-thread.ts",
+    "./testing/dsh-runtime": "./src/testing/dsh-runtime.ts",
     "./testing/scripted-provider": "./src/testing/scripted-provider.ts"
   },
   "scripts": {
@@ -24,8 +22,20 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@zendev-lab/spark-ai": "workspace:^",
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "catalog:dsh",
+    "@deepseek-ai/dsh-agent-loop": "catalog:dsh",
+    "@deepseek-ai/dsh-invariants": "catalog:dsh",
+    "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-scope": "catalog:dsh",
+    "@deepseek-ai/dsh-session": "catalog:dsh",
+    "@deepseek-ai/dsh-session-persistence": "catalog:dsh",
+    "@deepseek-ai/dsh-settings": "catalog:dsh",
+    "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
+    "@deepseek-ai/dsh-timeout": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-llm": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^"
   },
   "devDependencies": {

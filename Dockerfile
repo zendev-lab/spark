@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26.7.0-bookworm-slim AS base
+FROM node:24.19.0-bookworm-slim AS base
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
@@ -25,7 +25,7 @@ RUN pnpm fetch --frozen-lockfile --ignore-scripts
 COPY . .
 
 RUN pnpm install --offline --frozen-lockfile --ignore-scripts
-RUN pnpm run release:pack
+RUN SPARK_CONTAINER_PRODUCT_ONLY=1 pnpm run release:pack
 
 FROM base AS runtime
 

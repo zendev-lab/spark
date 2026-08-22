@@ -1,18 +1,8 @@
 import type { SparkPaths } from "@zendev-lab/spark-system";
-import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-channels";
 import {
-  type SparkLocalRpcOutput,
-  type SparkSessionView,
-  type SparkLoopListResult,
-  type SparkLoopControlRequest,
-  type SparkLoopMutationRequest,
-  type SparkLoopMutationResult,
-  type SparkLoopScheduleRequest,
-  type SparkLoopStartRequest,
-  type SparkLoopStatusRequest,
-  type SparkLoopWakeRequest,
   type SparkAuthImportReport,
   type SparkAuthFlow,
+  type SparkLocalRpcOutput,
   type SparkModelControlSnapshot,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -23,16 +13,8 @@ import {
   type LocalHumanInteractionListResult,
   type LocalHumanInteractionRespondParams,
   type LocalHumanInteractionRespondResult,
-  type LocalTurnCancelParams,
-  type LocalTurnCancelResult,
-  type LocalTurnStatusResult,
-  type LocalTurnStreamResult,
   type LocalTurnSubmitResult,
-  type LocalWorkspaceClientAttachRequest,
-  type LocalWorkspaceClientHeartbeatRequest,
-  type LocalWorkspaceClientResult,
   type LocalWorkspaceEnsureLocalRequest,
-  type LocalWorkspaceExecutorEnsureRequest,
   type LocalWorkspaceRegisterRequest,
   type LocalWorkspaceRelocateRequest,
   type LocalWorkspaceRelocateResult,
@@ -41,27 +23,20 @@ import {
   type WorkspaceListResult,
 } from "./types.ts";
 import {
-  channelIngressStatus,
   daemonRestart,
   daemonStatus,
   daemonStop,
-  localWorkspaceClientResult,
   sparkDaemonWorkspace,
   turnSubmit,
   workspaceList,
 } from "./results.ts";
 import {
-  localTurnCancelParams,
   localTurnSubmitParams,
-  localWorkspaceClientAttachParams,
-  localWorkspaceClientHeartbeatParams,
   localWorkspaceEnsureLocalParams,
-  localWorkspaceExecutorEnsureParams,
   localWorkspaceRegisterParams,
   relocationResult,
 } from "./parse.ts";
 import type { LocalTurnSubmitParams } from "./types.ts";
-import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
 import { localRpcRequest } from "./client-transport.ts";
 
@@ -155,112 +130,11 @@ export async function requestHumanInteractionRespond(
   return localRpcRequest(paths, "human.interaction.respond", params);
 }
 
-export async function requestLoopStart(
-  paths: SparkPaths,
-  params: SparkLoopStartRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.start", params);
-}
-
-export async function requestLoopStatus(
-  paths: SparkPaths,
-  params: SparkLoopStatusRequest = { includeTerminal: false },
-): Promise<SparkLoopListResult> {
-  return localRpcRequest(paths, "loop.status", params);
-}
-
-export async function requestLoopStop(
-  paths: SparkPaths,
-  params: SparkLoopMutationRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.stop", params);
-}
-
-export async function requestLoopRestart(
-  paths: SparkPaths,
-  params: SparkLoopMutationRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.restart", params);
-}
-
-export async function requestLoopWake(
-  paths: SparkPaths,
-  params: SparkLoopWakeRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.wake", params);
-}
-
-export async function requestLoopSchedule(
-  paths: SparkPaths,
-  params: SparkLoopScheduleRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.schedule", params);
-}
-
-export async function requestLoopControl(
-  paths: SparkPaths,
-  params: SparkLoopControlRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.control", params);
-}
-
-export async function requestChannelStatus(
-  paths: SparkPaths,
-  workspaceId: string,
-): Promise<DaemonChannelIngressStatus> {
-  return channelIngressStatus(await localRpcRequest(paths, "channel.status", { workspaceId }));
-}
-
-export async function requestChannelConfigure(
-  paths: SparkPaths,
-  workspaceId: string,
-  config: ChannelsConfig,
-): Promise<DaemonChannelIngressStatus> {
-  return channelIngressStatus(
-    await localRpcRequest(paths, "channel.configure", { workspaceId, config }),
-  );
-}
-
-export async function requestChannelReload(
-  paths: SparkPaths,
-  workspaceId: string,
-): Promise<DaemonChannelIngressStatus> {
-  return channelIngressStatus(await localRpcRequest(paths, "channel.reload", { workspaceId }));
-}
-
-export async function requestChannelNotify(
-  paths: SparkPaths,
-  params: ChannelNotifyInput & { workspaceId: string },
-): Promise<SparkLocalRpcOutput<"channel.notify">> {
-  return localRpcRequest(paths, "channel.notify", params);
-}
-
 export async function requestTurnSubmit(
   paths: SparkPaths,
   params: LocalTurnSubmitParams,
 ): Promise<LocalTurnSubmitResult> {
   return turnSubmit(await localRpcRequest(paths, "turn.submit", localTurnSubmitParams(params)));
-}
-
-export async function requestTurnStatus(
-  paths: SparkPaths,
-  invocationId: string,
-): Promise<LocalTurnStatusResult> {
-  return localRpcRequest(paths, "turn.status", { invocationId });
-}
-
-export async function requestTurnStream(
-  paths: SparkPaths,
-  params: { invocationId: string; after?: number; limit?: number },
-): Promise<LocalTurnStreamResult> {
-  return localRpcRequest(paths, "turn.stream", params);
-}
-
-export async function requestTurnCancel(
-  paths: SparkPaths,
-  params: LocalTurnCancelParams,
-): Promise<LocalTurnCancelResult> {
-  return localRpcRequest(paths, "turn.cancel", localTurnCancelParams(params));
 }
 
 export async function requestWorkspaceRegister(
@@ -335,59 +209,4 @@ export async function requestWorkspaceLifecycle(
   mutation: LocalWorkspaceLifecycleMutation,
 ): Promise<LocalWorkspaceLifecycleMutationResult> {
   return localRpcRequest(paths, "workspace.lifecycle", mutation);
-}
-
-export async function requestWorkspaceClientAttach(
-  paths: SparkPaths,
-  params: LocalWorkspaceClientAttachRequest,
-): Promise<LocalWorkspaceClientResult> {
-  return localWorkspaceClientResult(
-    await localRpcRequest(
-      paths,
-      "workspace.client.attach",
-      localWorkspaceClientAttachParams(params),
-    ),
-  );
-}
-
-export async function requestWorkspaceClientHeartbeat(
-  paths: SparkPaths,
-  params: LocalWorkspaceClientHeartbeatRequest,
-): Promise<LocalWorkspaceClientResult> {
-  return localWorkspaceClientResult(
-    await localRpcRequest(
-      paths,
-      "workspace.client.heartbeat",
-      localWorkspaceClientHeartbeatParams(params),
-    ),
-  );
-}
-
-export async function requestWorkspaceClientRelease(
-  paths: SparkPaths,
-  clientId: string,
-): Promise<LocalWorkspaceClientResult> {
-  return localWorkspaceClientResult(
-    await localRpcRequest(paths, "workspace.client.release", { clientId }),
-  );
-}
-
-export async function requestWorkspaceExecutorEnsure(
-  paths: SparkPaths,
-  params: LocalWorkspaceExecutorEnsureRequest,
-): Promise<LocalWorkspaceClientResult> {
-  return localWorkspaceClientResult(
-    await localRpcRequest(
-      paths,
-      "workspace.executor.ensure",
-      localWorkspaceExecutorEnsureParams(params),
-    ),
-  );
-}
-
-export async function requestSessionSnapshot(
-  paths: SparkPaths,
-  sessionId: string,
-): Promise<SparkSessionView> {
-  return localRpcRequest(paths, "session.snapshot", { sessionId });
 }

@@ -1,11 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  resolveLegacyCockpitPaths,
-  resolveSparkHome,
-  resolveSparkPaths,
-  resolveSparkUserPaths,
-} from "./paths.js";
+import { resolveSparkHome, resolveSparkPaths, resolveSparkUserPaths } from "./paths.js";
 
 const home = "/Users/example";
 
@@ -45,18 +40,6 @@ describe("Spark path resolution", () => {
     expect(hub.runtimeDir).toBe(join(home, ".local", "state", "spark", "hub", "run"));
   });
 
-  it("resolves the retired Cockpit tree only for explicit migrations", () => {
-    const legacy = resolveLegacyCockpitPaths({ env: { HOME: home }, cwd: "/" });
-
-    expect(legacy.configFile).toBe(join(home, ".config", "spark", "cockpit.toml"));
-    expect(legacy.databasePath).toBe(
-      join(home, ".local", "share", "spark", "cockpit", "cockpit.sqlite"),
-    );
-    expect(legacy.cacheDir).toBe(join(home, ".cache", "spark", "cockpit"));
-    expect(legacy.stateDir).toBe(join(home, ".local", "state", "spark", "cockpit"));
-    expect(legacy.runtimeDir).toBe(join(home, ".local", "state", "spark", "cockpit", "run"));
-  });
-
   it("honors every XDG directory independently", () => {
     const env = {
       HOME: home,
@@ -78,11 +61,11 @@ describe("Spark path resolution", () => {
     expect(daemon.stateDir).toBe("/xdg/state/spark/daemon");
     expect(daemon.runtimeDir).toBe("/xdg/runtime/spark/daemon");
     expect(daemon.artifactBlobsDir).toBe("/xdg/data/spark/daemon/artifacts/blobs/sha256");
-    expect(daemon.piAgentDir).toBe("/xdg/data/spark/daemon/pi-agent");
+    expect(daemon.sessionRuntimeDir).toBe("/xdg/data/spark/daemon/pi-agent");
 
     const hub = resolveSparkPaths({ app: "hub", env, cwd: "/" });
     expect(hub.artifactBlobsDir).toBe("/xdg/cache/spark/hub/artifacts/blobs/sha256");
-    expect(hub.piAgentDir).toBeUndefined();
+    expect(hub.sessionRuntimeDir).toBeUndefined();
   });
 
   it("trims SPARK_HOME and empty XDG overrides", () => {

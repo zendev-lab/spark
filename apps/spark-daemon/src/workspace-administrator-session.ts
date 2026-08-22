@@ -3,6 +3,8 @@ import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
+import { errorMessage } from "./text.ts";
+
 export interface WorkspaceAdministratorSessionBinding {
   workspaceId: string;
   sessionId: string;
@@ -113,15 +115,14 @@ export function assertWorkspaceAdministratorSession(
   sessionId: string,
 ): asserts session is SparkSessionState & {
   scope: { kind: "workspace"; workspaceId: string };
-  owner: { kind: "workspace"; workspaceId: string };
+  lineage: { kind: "root" };
   roleBinding: { kind: "explicit"; roleRef: "role:builtin-administrator" };
 } {
   if (
     !session ||
     session.sessionId !== sessionId ||
     session.scope.kind !== "workspace" ||
-    session.owner.kind !== "workspace" ||
-    session.owner.workspaceId !== session.scope.workspaceId ||
+    session.lineage.kind !== "root" ||
     session.roleBinding.kind !== "explicit" ||
     session.roleBinding.roleRef !== "role:builtin-administrator"
   ) {
@@ -155,8 +156,4 @@ function markWorkspaceAdministratorProvisioning(
      ON CONFLICT(workspace_id) DO UPDATE SET
        state = 'provisioning', error = NULL, updated_at = excluded.updated_at`,
   ).run(workspaceId, now);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

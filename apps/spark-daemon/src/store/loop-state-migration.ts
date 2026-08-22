@@ -2,11 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { stableId } from "@zendev-lab/spark-core";
-import {
-  sessionGoalStorePathV2,
-  sessionLoopStorePathV2,
-  sessionReproStorePathV2,
-} from "@zendev-lab/spark-loop";
+import { sessionGoalStorePathV2, sessionLoopStorePathV2 } from "@zendev-lab/spark-loop";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
@@ -16,7 +12,7 @@ const MIGRATION_KEY = "migration.daemon-autonomous-loops-v1";
 
 export interface LoopStateMigrationReport {
   sessions: number;
-  imported: Record<"goal" | "loop" | "repro" | "workflow", number>;
+  imported: Record<"goal" | "loop" | "workflow", number>;
   strippedLegacyRuntimeFields: number;
 }
 
@@ -33,12 +29,12 @@ export async function migrateLegacyLoopState(input: {
   now?: string;
 }): Promise<LoopStateMigrationReport | undefined> {
   if (!input.sessionRegistry) return undefined;
-  const migrateRuntimeFields = !migrationComplete(input.db);
+  if (migrationComplete(input.db)) return undefined;
   const now = input.now ?? new Date().toISOString();
   const sessions = await input.sessionRegistry.list({ includeArchived: false });
   const report: LoopStateMigrationReport = {
     sessions: sessions.length,
-    imported: { goal: 0, loop: 0, repro: 0, workflow: 0 },
+    imported: { goal: 0, loop: 0, workflow: 0 },
     strippedLegacyRuntimeFields: 0,
   };
   const migratedWorkflowCwds = new Set<string>();
@@ -49,13 +45,10 @@ export async function migrateLegacyLoopState(input: {
     const ctx = { sessionId: session.sessionId };
     const goalPath = sessionGoalStorePathV2(cwd, ctx);
     const loopPath = sessionLoopStorePathV2(cwd, ctx);
-    const reproPath = sessionReproStorePathV2(cwd, ctx);
     const goalSnapshot = await readObject(goalPath);
     const loopSnapshot = await readObject(loopPath);
-    const reproSnapshot = await readObject(reproPath);
     const goal = objectField(goalSnapshot, "goal");
     const loop = objectField(loopSnapshot, "loop");
-    const repro = objectField(reproSnapshot, "repro");
 
     // Plan and implement phases are lifecycle-hook owned. Only autonomous,
     // genuinely tick-based legacy state is materialized into daemon loops.
@@ -92,41 +85,8 @@ export async function migrateLegacyLoopState(input: {
       )
         report.imported.goal += 1;
     }
-    if (repro?.status === "active" && stringField(repro, "reproId")) {
-      const retry = legacyRetryState(repro, now, 30_000);
-      if (
-        importLegacyLoop(input.loopStore, {
-          loopId: stringField(repro, "reproId")!,
-          binding: { reproId: stringField(repro, "reproId")! },
-          ownerSessionId: session.sessionId,
-          cwd,
-          prompt: renderReproPrompt(stringField(repro, "objective")),
-          dueAt: retry.dueAt,
-          initialStatus: retry.status,
-          initialAttempt: retry.attempt,
-          reason: "migrated active repro",
-        })
-      )
-        report.imported.repro += 1;
-    }
-
-    if (migrateRuntimeFields) {
-      report.strippedLegacyRuntimeFields += await stripRuntimeFields(
-        goalPath,
-        goalSnapshot,
-        "goal",
-      );
-      report.strippedLegacyRuntimeFields += await stripRuntimeFields(
-        loopPath,
-        loopSnapshot,
-        "loop",
-      );
-      report.strippedLegacyRuntimeFields += await stripRuntimeFields(
-        reproPath,
-        reproSnapshot,
-        "repro",
-      );
-    }
+    report.strippedLegacyRuntimeFields += await stripRuntimeFields(goalPath, goalSnapshot, "goal");
+    report.strippedLegacyRuntimeFields += await stripRuntimeFields(loopPath, loopSnapshot, "loop");
 
     if (!migratedWorkflowCwds.has(cwd)) {
       const control = await defaultWorkflowRunStore(cwd).loadControl();
@@ -148,11 +108,8 @@ export async function migrateLegacyLoopState(input: {
     }
   }
 
-  if (migrateRuntimeFields) {
-    writeMigrationReport(input.db, report, now);
-    return report;
-  }
-  return undefined;
+  writeMigrationReport(input.db, report, now);
+  return report;
 }
 
 function importLegacyLoop(
@@ -167,7 +124,7 @@ function importLegacyLoop(
 async function stripRuntimeFields(
   path: string,
   snapshot: Record<string, unknown> | undefined,
-  field: "goal" | "loop" | "repro",
+  field: "goal" | "loop",
 ): Promise<number> {
   const state = objectField(snapshot, field);
   if (!snapshot || !state) return 0;
@@ -233,16 +190,6 @@ function renderLoopPrompt(objective: string): string {
     `Loop objective: ${objective}`,
     'Before ending, call loop({ action: "schedule", delayMs, reason }); otherwise the loop becomes dormant.',
   ].join("\n");
-}
-
-function renderReproPrompt(objective: string | undefined): string {
-  return [
-    "Advance the daemon-owned Spark reproduction contract by one evidence-backed turn.",
-    objective ? `Objective: ${objective}` : undefined,
-    'Use repro({ action: "status" }) and persist proof before advancing.',
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
 }
 
 function renderWorkflowPrompt(): string {

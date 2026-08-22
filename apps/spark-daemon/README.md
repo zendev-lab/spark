@@ -5,7 +5,7 @@ Spark's local execution service. Public operator commands use `spark daemon`.
 ```bash
 spark daemon status
 spark daemon login --server-url http://127.0.0.1:5173
-spark daemon workspace register /path/to/workspace --server-url http://127.0.0.1:5173 --token <workspace-token>
+spark daemon workspace register /path/to/workspace --name <workspace-name>
 spark daemon workspace stop <workspace-name>
 spark daemon workspace unregister <workspace-id> --dry-run
 spark daemon workspace move <workspace-id> /new/path --dry-run
@@ -18,7 +18,7 @@ spark daemon restart --yes
 spark daemon sync
 ```
 
-Use `--token -` to read a one-line registration token from stdin. Browser/device login stores a private machine credential for connectivity and refresh only; every workspace registration consumes a fresh workspace token. A successful registration prints a separate one-time browser key for `/{slug}/login`. Mint additional workspace browser keys on the Hub host with `spark hub workspace access create --workspace <id>` (list/revoke there too; name is display-only). Hub-level remote login uses `spark hub access create` and `/login`. Remote Hub URLs require HTTPS unless both login and registration explicitly use `--allow-insecure-http` on a trusted private network.
+Use `--token -` to read a one-line registration token from stdin. Browser/device login stores a private machine credential for connectivity and refresh only; Hub origin is daemon-owned and schedules uplink. Hub workspace announce consumes a fresh workspace token. A successful registration prints a separate one-time browser key for `/{slug}/login`. Mint additional workspace browser keys on the Hub host with `spark hub workspace access create --workspace <id>` (list/revoke there too; name is display-only). Hub-level remote login uses `spark hub access create` and `/login`. Remote Hub URLs require HTTPS unless both login and registration explicitly use `--allow-insecure-http` on a trusted private network.
 
 The daemon owns workspace arbitration, the Session registry and Owner-derived lifecycle, Administrator provisioning, channels, SQLite Invocations/receipts, per-Session execution fencing, cancellation, timeout, restart recovery, and the runtime WebSocket uplink. Hub receives projections; it is not execution truth.
 
@@ -44,7 +44,7 @@ closed while invocations or clients are active and require confirmation unless
 
 `spark daemon restart` requests a drain restart. Before admission closes, the daemon starts an external watchdog and atomically persists a restart fence with an exact restart ID and target process generation. Queued work stays durable. Active local/web session turns that reach the model-to-tool boundary atomically requeue their transient prompt delta and exact pending tool calls, then yield without dispatching those calls; the successor restores the checkpoint and continues with that tool batch once. Turns already inside a tool, channel/driver work, reset sessions, and other unsupported surfaces keep the conservative drain-to-settlement behavior. The successor becomes active only after scheduled work, direct invocations, and already-received channel admissions are idle. External shells wait for the fenced replacement RPC identity by default so `restart --yes` is a stable restart; daemon-hosted callers that would otherwise wait on their own drain must pass `--no-wait`.
 
-Keep source/package updates outside the daemon. An updater should build or install into a staging location, atomically replace the deployed package, then run `spark daemon sync`. `sync` starts a stopped daemon, leaves an already-current daemon alone, and requests the same fenced drain restart when the running build fingerprint differs; it waits for readiness by default (pass `--no-wait` only for fire-and-forget). A running daemon also watches its deployed entrypoint and automatically requests that safe restart after a changed fingerprint remains stable. On macOS the launchd service remains the process supervisor; the daemon never pulls Git or overwrites its own installation.
+Keep source/package updates outside the daemon. An updater should build or install into a staging location, atomically replace the deployed package, then run `spark daemon sync`. `sync` starts a stopped daemon, leaves an already-current daemon alone, and requests the same fenced drain restart when the running build fingerprint differs; it waits for readiness by default (pass `--no-wait` only for fire-and-forget). A running daemon also watches its deployed entrypoint and automatically requests that safe restart after a changed fingerprint remains stable. On macOS the launchd service remains the process supervisor; the LaunchAgent sets `ThrottleInterval` to 1 second so a fenced restart is not delayed by launchd's default 10-second throttle, and the restart helper then waits up to 5 seconds for the replacement PID (2 seconds on Linux). The daemon never pulls Git or overwrites its own installation.
 
 An unplanned daemon exit resumes durable invocations that were left `running`: the successor requeues them with `invocation.resume` and a resume notice for the model session. Invalid task payloads still fail closed with `DAEMON_EXECUTION_INTERRUPTED`. Invocations that were still `queued` remain eligible for the next daemon generation.
 

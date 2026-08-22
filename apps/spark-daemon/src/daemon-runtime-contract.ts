@@ -17,6 +17,7 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SessionSupervisor } from "./session-supervisor.ts";
 import type { CancelSparkInvocationFn, RunSparkCommandFn } from "./spark/bridge.ts";
+import type { SparkDaemonCordisRoot } from "./cordis-root.ts";
 
 export interface ServerSocket {
   send(data: string): void;
@@ -85,6 +86,13 @@ export interface StartSparkDaemonOptions {
   onDrainProgress?: (progress: SparkDaemonDrainProgress) => void;
   onServing?: () => void;
   managePidFile?: boolean;
+  /**
+   * Finish this work after local RPC may bind and before admission opens so
+   * the first turn cannot stall on module evaluation.
+   */
+  beforeAdmission?: Promise<void>;
+  /** Set when the caller already provisioned workspace Administrator Sessions. */
+  skipWorkspaceAdministratorEnsure?: boolean;
 }
 
 export interface MessageContext {
@@ -93,8 +101,9 @@ export interface MessageContext {
   db: DatabaseSync;
   runtimeId: string;
   serverUrl?: string;
-  sparkHome?: string;
+  sparkHome: string;
   controlSparkHome?: string;
+  dshContext?: SparkDaemonCordisRoot["ctx"];
   runtimeSessionId: string | undefined;
   setRuntimeSessionId(value: string): void;
   ensureHeartbeat(intervalMs: number): void;

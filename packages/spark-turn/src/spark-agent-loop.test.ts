@@ -3,6 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
+import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
+import { defineTool, type JsonValue } from "@deepseek-ai/dsh-tools";
 
 import type {
   AssistantMessage,
@@ -10,14 +12,18 @@ import type {
   Context,
   Model,
   ToolCall,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import {
   MODEL_EMPTY_RESPONSE_ERROR_CODE,
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
-} from "@zendev-lab/spark-ai";
-import { assertRef, type SparkHostDelegationEnvelope } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-llm";
+import {
+  assertRef,
+  type SparkDshToolPolicyMetadata,
+  type SparkHostDelegationEnvelope,
+} from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
   SPARK_PROTOCOL_VERSION,
@@ -32,11 +38,15 @@ import {
   resolveSparkPromptCache,
   SparkTurnRestartYieldError,
   splitSparkSystemPrompt,
+  type SparkBeforeProviderRequest,
   type SparkBeforeToolCallsCheckpoint,
   type SparkAgentLoopEvent,
   type SparkAgentStreamFunction,
   type SparkRunOutcome,
+  type SparkTurnLlm,
 } from "./agent-loop.ts";
+import { asSparkTurnLlm } from "./turn-llm.ts";
+import { createSparkDshTurnTestRuntime } from "./testing/dsh-runtime.ts";
 import { evaluateSparkBehavior } from "./behavior-eval.ts";
 import {
   lowerSparkPromptItem,
@@ -44,6 +54,7 @@ import {
   sparkRuntimePromptItem,
 } from "./prompt-items.ts";
 import { compactToolResultContent } from "./tool-result-compaction.ts";
+import { toolRequiresApproval } from "./tool-dispatch.ts";
 
 const TEST_MODEL: Model<string> = {
   id: "test-model",
@@ -124,9 +135,11 @@ test("SparkAgentLoop continues after removing a retriable assistant failure tail
   const finalAssistant = buildAssistant([{ type: "text", text: "continued" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   loop.replacePromptItems([
@@ -149,9 +162,11 @@ test("SparkAgentLoop continues after removing a retriable assistant length tail"
   const finalAssistant = buildAssistant([{ type: "text", text: "continued after length" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   loop.replacePromptItems([
@@ -172,7 +187,7 @@ test("SparkAgentLoop refuses continuation from a completed assistant message", a
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-invalid-continuation" });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({ rounds: [] }),
+    llm: asSparkTurnLlm(makeFakeStream({ rounds: [] })),
     getModel: () => TEST_MODEL,
   });
   loop.replacePromptItems([
@@ -324,12 +339,12 @@ test("SparkAgentLoop sends the effective output budget to its hook and provider"
       estimatedInputTokens = estimate.tokens;
       hookBudget = requestedOutputTokens;
     },
-    streamFunction: (streamModel, context, options) => {
+    llm: asSparkTurnLlm((streamModel, context, options) => {
       providerBudget = options?.maxTokens;
       return makeFakeStream({
         rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
       })(streamModel, context, options);
-    },
+    }),
   });
 
   const outcome = await loop.submitWithOutcome("u".repeat(40));
@@ -369,10 +384,10 @@ test("SparkAgentLoop runs final provider preflight after tool and prompt assembl
     host,
     getModel: () => TEST_MODEL,
     systemPrompt: requestScopedSystemPrompt,
-    streamFunction: (...args) => {
+    llm: asSparkTurnLlm((...args) => {
       streamCalls += 1;
       return makeFakeStream({ rounds: [] })(...args);
-    },
+    }),
     beforeProviderRequest: ({ context }) => {
       observed = context;
       throw new Error("preflight context window overflow");
@@ -444,6 +459,32 @@ function makeFakeStream(plan: FakeStreamPlan): SparkAgentStreamFunction {
     return iterable;
   };
   return fake;
+}
+
+function nativeToolPlugin(
+  name: string,
+  policy: SparkDshToolPolicyMetadata,
+  execute: () => Promise<Record<string, JsonValue>>,
+): CordisPlugin {
+  return {
+    name: `test-${name}`,
+    apply(ctx: CordisContext) {
+      const definition = {
+        ...defineTool({
+          name,
+          description: `Native ${name} test tool`,
+          parameters: {},
+          output: {
+            schema: { type: "object", additionalProperties: true },
+            render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }],
+          },
+          execute,
+        }),
+        sparkPolicy: policy,
+      };
+      ctx.tools.register(definition);
+    },
+  };
 }
 
 async function waitForCondition(predicate: () => boolean, message: string): Promise<void> {
@@ -682,7 +723,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction,
+    llm: asSparkTurnLlm(streamFunction),
     getModel: () => TEST_MODEL,
     systemPrompt: [
       "Stable Spark operating rules.",
@@ -842,7 +883,11 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
         : { type: "done", reason: "stop", message };
     return makeFakeStream({ rounds: [[event]] })(model, context, options);
   };
-  const loop = new SparkAgentLoop({ host, streamFunction, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(streamFunction),
+    getModel: () => TEST_MODEL,
+  });
   loop.onEvent((event) => {
     if (event.type === "prompt_manifest") {
       manifestToolNames.push(event.manifest.tools.map((tool) => tool.name));
@@ -883,7 +928,19 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
 });
 
 test("SparkAgentLoop rechecks phase availability after async approval", async () => {
-  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-phase-approval-test" });
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-phase-approval-test",
+    ui: {
+      interaction: async (request) => ({
+        version: SPARK_PROTOCOL_VERSION,
+        kind: "toolApproval",
+        requestId: request.requestId,
+        status: "answered",
+        approved: true,
+        metadata: {},
+      }),
+    },
+  });
   let executions = 0;
   host.registerTool({
     name: "approved_implement_action",
@@ -909,18 +966,20 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
   let loop!: SparkAgentLoop;
   loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "phase changed" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "phase changed" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
     approvalMethod: "auto",
     reviewToolApproval: async () => {
@@ -984,18 +1043,20 @@ test("SparkAgentLoop enforces action-resolved Fleet policy at dispatch", async (
     };
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: makeFakeStream({
-        rounds: [
-          [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
-          [
-            {
-              type: "done",
-              reason: "stop",
-              message: buildAssistant([{ type: "text", text: "done" }]),
-            },
+      llm: asSparkTurnLlm(
+        makeFakeStream({
+          rounds: [
+            [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+            [
+              {
+                type: "done",
+                reason: "stop",
+                message: buildAssistant([{ type: "text", text: "done" }]),
+              },
+            ],
           ],
-        ],
-      }),
+        }),
+      ),
       getModel: () => TEST_MODEL,
     });
     loop.setCurrentMode("fleet");
@@ -1035,7 +1096,7 @@ test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction,
+    llm: asSparkTurnLlm(streamFunction),
     getModel: () => TEST_MODEL,
     getReasoning: () => "high",
   });
@@ -1078,18 +1139,20 @@ test("SparkAgentLoop supplies tools with the exact current delegation envelope",
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
     getReasoning: () => "high",
   });
@@ -1117,7 +1180,7 @@ test("SparkAgentLoop runs a single-turn stop with one streamed text chunk", asyn
       ],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   loop.onEvent((event) => events.push(event));
 
   const result = await loop.submit("hi");
@@ -1144,7 +1207,7 @@ test("SparkAgentLoop times out a never-resolving model stream", async () => {
     }) as ReturnType<SparkAgentStreamFunction>;
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     streamTimeoutMs: 10,
   });
@@ -1175,7 +1238,7 @@ test("SparkAgentLoop projects user, streaming, final, and run updates to view-mo
       ],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   loop.setViewSessionId("session-view-loop");
   loop.onEvent((event) => events.push(event));
 
@@ -1214,26 +1277,28 @@ test("SparkAgentLoop suppresses identical cumulative assistant stream projection
   const partialComplete = buildAssistant([{ type: "text", text: "same cumulative text" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [
-          { type: "start", partial: partialStart },
-          {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: " cumulative text",
-            partial: partialComplete,
-          },
-          {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "",
-            partial: partialComplete,
-          },
-          { type: "done", reason: "stop", message: partialComplete },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [
+            { type: "start", partial: partialStart },
+            {
+              type: "text_delta",
+              contentIndex: 0,
+              delta: " cumulative text",
+              partial: partialComplete,
+            },
+            {
+              type: "text_delta",
+              contentIndex: 0,
+              delta: "",
+              partial: partialComplete,
+            },
+            { type: "done", reason: "stop", message: partialComplete },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -1263,9 +1328,11 @@ test("SparkAgentLoop projects an empty provider error as a visible terminal mess
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "error", reason: "error", error: errorAssistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "error", reason: "error", error: errorAssistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   loop.setViewSessionId("session-visible-error");
@@ -1322,7 +1389,7 @@ test("SparkAgentLoop appends multi-roundtrip assistant messages in order without
       ],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   loop.setViewSessionId("session-order-loop");
 
   await loop.submit("do it");
@@ -1352,27 +1419,29 @@ test("SparkAgentLoop projects thinking deltas on the stable assistant message", 
   ]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [
-          { type: "start", partial: started },
-          { type: "thinking_start", contentIndex: 0, partial: thinking },
-          {
-            type: "thinking_delta",
-            contentIndex: 0,
-            delta: "checking constraints",
-            partial: thinking,
-          },
-          {
-            type: "thinking_end",
-            contentIndex: 0,
-            content: "checking constraints",
-            partial: thinking,
-          },
-          { type: "done", reason: "stop", message: final },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [
+            { type: "start", partial: started },
+            { type: "thinking_start", contentIndex: 0, partial: thinking },
+            {
+              type: "thinking_delta",
+              contentIndex: 0,
+              delta: "checking constraints",
+              partial: thinking,
+            },
+            {
+              type: "thinking_end",
+              contentIndex: 0,
+              content: "checking constraints",
+              partial: thinking,
+            },
+            { type: "done", reason: "stop", message: final },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -1403,20 +1472,22 @@ test("SparkAgentLoop terminalizes a partial assistant bubble when the stream thr
   const partial = buildAssistant([{ type: "text", text: "partial answer" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: () =>
-      ({
-        async *[Symbol.asyncIterator]() {
-          yield { type: "start", partial };
-          yield {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "partial answer",
-            partial,
-          };
-          throw new Error("provider disconnected");
-        },
-        result: async () => partial,
-      }) as ReturnType<SparkAgentStreamFunction>,
+    llm: asSparkTurnLlm(
+      () =>
+        ({
+          async *[Symbol.asyncIterator]() {
+            yield { type: "start", partial };
+            yield {
+              type: "text_delta",
+              contentIndex: 0,
+              delta: "partial answer",
+              partial,
+            };
+            throw new Error("provider disconnected");
+          },
+          result: async () => partial,
+        }) as ReturnType<SparkAgentStreamFunction>,
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -1441,19 +1512,21 @@ test("SparkAgentLoop preserves a stable provider error code on a thrown stream f
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-provider-code" });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: () =>
-      ({
-        [Symbol.asyncIterator]() {
-          return {
-            next: async () => {
-              throw failure;
-            },
-          };
-        },
-        result: async () => {
-          throw failure;
-        },
-      }) as ReturnType<SparkAgentStreamFunction>,
+    llm: asSparkTurnLlm(
+      () =>
+        ({
+          [Symbol.asyncIterator]() {
+            return {
+              next: async () => {
+                throw failure;
+              },
+            };
+          },
+          result: async () => {
+            throw failure;
+          },
+        }) as ReturnType<SparkAgentStreamFunction>,
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -1468,9 +1541,11 @@ test("SparkAgentLoop marks an empty terminal response with a stable transient co
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-empty-code" });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -1485,74 +1560,84 @@ test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async (
   const stopAssistant = buildAssistant([{ type: "text", text: "done" }]);
   const cases: Array<{
     name: string;
-    streamFunction: SparkAgentStreamFunction;
+    llm: SparkTurnLlm;
     expectedError?: RegExp;
     expectedStopReason?: AssistantMessage["stopReason"];
     expectedStatus: SparkRunOutcome["status"];
   }> = [
     {
       name: "normal stop",
-      streamFunction: makeFakeStream({
-        rounds: [[{ type: "done", reason: "stop", message: stopAssistant }]],
-      }),
+      llm: asSparkTurnLlm(
+        makeFakeStream({
+          rounds: [[{ type: "done", reason: "stop", message: stopAssistant }]],
+        }),
+      ),
       expectedStatus: "completed",
     },
     {
       name: "provider abort",
-      streamFunction: makeFakeStream({
-        rounds: [
-          [
-            {
-              type: "error",
-              reason: "aborted",
-              error: buildAssistant([], "aborted"),
-            },
+      llm: asSparkTurnLlm(
+        makeFakeStream({
+          rounds: [
+            [
+              {
+                type: "error",
+                reason: "aborted",
+                error: buildAssistant([], "aborted"),
+              },
+            ],
           ],
-        ],
-      }),
+        }),
+      ),
       expectedStatus: "aborted",
       expectedStopReason: "aborted",
     },
     {
       name: "stream throws",
-      streamFunction: () =>
-        ({
-          [Symbol.asyncIterator]() {
-            return {
-              next: async () => {
-                throw new Error("stream boom");
-              },
-            };
-          },
-          result: async () => stopAssistant,
-        }) as ReturnType<SparkAgentStreamFunction>,
+      llm: asSparkTurnLlm(
+        () =>
+          ({
+            [Symbol.asyncIterator]() {
+              return {
+                next: async () => {
+                  throw new Error("stream boom");
+                },
+              };
+            },
+            result: async () => stopAssistant,
+          }) as ReturnType<SparkAgentStreamFunction>,
+      ),
       expectedError: /stream boom/,
       expectedStopReason: "error",
       expectedStatus: "failed",
     },
     {
       name: "no assistant",
-      streamFunction: () =>
-        ({
-          [Symbol.asyncIterator]() {
-            return {
-              next: async () => ({
-                done: true,
-                value: undefined as unknown as AssistantMessageEvent,
-              }),
-            };
-          },
-          result: async () => undefined as unknown as AssistantMessage,
-        }) as ReturnType<SparkAgentStreamFunction>,
+      llm: asSparkTurnLlm(
+        () =>
+          ({
+            [Symbol.asyncIterator]() {
+              return {
+                next: async () => ({
+                  done: true,
+                  value: undefined as unknown as AssistantMessageEvent,
+                }),
+              };
+            },
+            result: async () => undefined as unknown as AssistantMessage,
+          }) as ReturnType<SparkAgentStreamFunction>,
+      ),
       expectedError: /stream produced no assistant message/,
       expectedStopReason: "error",
       expectedStatus: "failed",
     },
     {
       name: "empty response",
-      streamFunction: makeFakeStream({
-        rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
-      }),
+      llm: asSparkTurnLlm(
+        makeFakeStream({
+          rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
+        }),
+      ),
       expectedError: /model completed without a displayable response/,
       expectedStopReason: "error",
       expectedStatus: "failed",
@@ -1566,7 +1651,7 @@ test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async (
     host.on("agent_end", (event) => agentEndEvents.push(event));
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: entry.streamFunction,
+      llm: entry.llm,
       getModel: () => TEST_MODEL,
     });
     loop.onEvent((event) => loopEvents.push(event));
@@ -1646,9 +1731,11 @@ test("SparkAgentLoop continues through more than sixteen tool rounds by default"
   const finalAssistant = buildAssistant([{ type: "text", text: "completed after round 16" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [...toolRounds, [{ type: "done", reason: "stop", message: finalAssistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [...toolRounds, [{ type: "done", reason: "stop", message: finalAssistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   const errors: string[] = [];
@@ -1728,7 +1815,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
       ],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   loop.setViewSessionId("session:tool-context");
   const events: SparkAgentLoopEvent[] = [];
   loop.onEvent((event) => events.push(event));
@@ -1830,9 +1917,11 @@ test("SparkAgentLoop yields before tool dispatch and resumes the exact calls onc
   predecessorHost.on("agent_end", (event) => predecessorAgentEnd.push(event));
   const predecessor = new SparkAgentLoop({
     host: predecessorHost,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "toolUse", message: toolAssistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "done", reason: "toolUse", message: toolAssistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   let checkpoint: SparkBeforeToolCallsCheckpoint | undefined;
@@ -1874,9 +1963,11 @@ test("SparkAgentLoop yields before tool dispatch and resumes the exact calls onc
   const finalAssistant = buildAssistant([{ type: "text", text: "restart continuation complete" }]);
   const successor = new SparkAgentLoop({
     host: successorHost,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   successor.replacePromptItems(checkpoint.promptItems);
@@ -1920,12 +2011,14 @@ test("SparkAgentLoop retries a confirmed not-sent tool call and completes it onc
   const finalAssistant = buildAssistant([{ type: "text", text: "sent after safe retry" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [{ type: "done", reason: "stop", message: finalAssistant }],
-      ],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [{ type: "done", reason: "stop", message: finalAssistant }],
+        ],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -1964,18 +2057,20 @@ test("SparkAgentLoop reconciles an unknown tool outcome before continuing withou
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "continued after reconciliation" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "continued after reconciliation" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2028,7 +2123,11 @@ test("SparkAgentLoop returns an unresolved external write to the Agent without r
       ],
     })(_model, _context);
   };
-  const loop = new SparkAgentLoop({ host, streamFunction, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(streamFunction),
+    getModel: () => TEST_MODEL,
+  });
 
   const outcome = await loop.submitWithOutcome("recover from unknown");
   assert.equal(outcome.status, "completed");
@@ -2074,18 +2173,20 @@ test("SparkAgentLoop does not retry a permanent not-sent failure", async () => {
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "corrected the target instead" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "corrected the target instead" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2120,7 +2221,7 @@ test("SparkAgentLoop aborts a timed-out tool attempt before reconciling its exte
     policy: { effect: "external_write", executionMode: "sequential" },
     async execute(_id, _parameters, signal) {
       toolCalls += 1;
-      return await new Promise((resolve, reject) => {
+      return await new Promise((_resolve, reject) => {
         const onAbort = () => {
           timedOutSignalAborted = signal.aborted;
           reject(signal.reason);
@@ -2143,18 +2244,22 @@ test("SparkAgentLoop aborts a timed-out tool attempt before reconciling its exte
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "did not replay the timed-out write" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([
+                { type: "text", text: "did not replay the timed-out write" },
+              ]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
     toolTimeoutMs: 20,
   });
@@ -2206,18 +2311,20 @@ test("SparkAgentLoop waits for a timed-out tool attempt to settle before reconci
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "handled uncertain outcome" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "handled uncertain outcome" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
     toolTimeoutMs: 20,
   });
@@ -2258,12 +2365,14 @@ test("SparkAgentLoop keeps a thrown tool error inside the execution chain and co
   ]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [{ type: "done", reason: "stop", message: finalAssistant }],
-      ],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [{ type: "done", reason: "stop", message: finalAssistant }],
+        ],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2334,12 +2443,14 @@ test("SparkAgentLoop runs an explicitly safe read batch concurrently and commits
   const finalAssistant = buildAssistant([{ type: "text", text: "reads complete" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: firstAssistant }],
-        [{ type: "done", reason: "stop", message: finalAssistant }],
-      ],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: firstAssistant }],
+          [{ type: "done", reason: "stop", message: finalAssistant }],
+        ],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   loop.onEvent((event) => events.push(event));
@@ -2409,18 +2520,20 @@ test("SparkAgentLoop treats a mixed read/write batch as one sequential barrier",
   ];
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2461,18 +2574,20 @@ test("SparkAgentLoop keeps tools without explicit execution metadata sequential"
   ];
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2524,18 +2639,20 @@ test("SparkAgentLoop bounds parallel read batches to four calls by default", asy
   }));
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2583,18 +2700,20 @@ test("SparkAgentLoop isolates failures inside a parallel read batch", async () =
   ];
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -2656,19 +2775,21 @@ test("SparkAgentLoop publishes ordered display-safe conversation parts without t
   const finalAssistant = buildAssistant([{ type: "text", text: "Inspection complete." }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [
-          { type: "start", partial: firstAssistant },
-          { type: "toolcall_end", contentIndex: 3, toolCall, partial: firstAssistant },
-          { type: "done", reason: "toolUse", message: firstAssistant },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [
+            { type: "start", partial: firstAssistant },
+            { type: "toolcall_end", contentIndex: 3, toolCall, partial: firstAssistant },
+            { type: "done", reason: "toolUse", message: firstAssistant },
+          ],
+          [
+            { type: "start", partial: finalAssistant },
+            { type: "done", reason: "stop", message: finalAssistant },
+          ],
         ],
-        [
-          { type: "start", partial: finalAssistant },
-          { type: "done", reason: "stop", message: finalAssistant },
-        ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   loop.setViewSessionId("session-display-safe-view");
@@ -2795,9 +2916,11 @@ test("SparkAgentLoop keeps text phases without projecting commentary as assistan
   ]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "stop", message: assistant }]],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: assistant }]],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
   loop.setViewSessionId("session-text-phase-view");
@@ -2852,7 +2975,7 @@ test("SparkAgentLoop compacts blank runs for log-like tool results", async () =>
       [{ type: "done", reason: "stop", message: finalAssistant }],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
 
   await loop.submit("call compacting tool");
 
@@ -2911,7 +3034,11 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
         [{ type: "done", reason: "stop", message: finalAssistant }],
       ],
     });
-    const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+    const loop = new SparkAgentLoop({
+      host,
+      llm: asSparkTurnLlm(fake),
+      getModel: () => TEST_MODEL,
+    });
 
     await loop.submit("call compacting tool");
 
@@ -3030,18 +3157,20 @@ test("SparkAgentLoop offloads failed long output while preserving diagnostics an
     };
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: makeFakeStream({
-        rounds: [
-          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-          [
-            {
-              type: "done",
-              reason: "stop",
-              message: buildAssistant([{ type: "text", text: "failure recorded" }]),
-            },
+      llm: asSparkTurnLlm(
+        makeFakeStream({
+          rounds: [
+            [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+            [
+              {
+                type: "done",
+                reason: "stop",
+                message: buildAssistant([{ type: "text", text: "failure recorded" }]),
+              },
+            ],
           ],
-        ],
-      }),
+        }),
+      ),
       getModel: () => TEST_MODEL,
     });
     await loop.submit("produce failed output");
@@ -3115,11 +3244,13 @@ test(
     };
     const loop = new SparkAgentLoop({
       host,
-      streamFunction: makeFakeStream({
-        rounds: [
-          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        ],
-      }),
+      llm: asSparkTurnLlm(
+        makeFakeStream({
+          rounds: [
+            [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          ],
+        }),
+      ),
       getModel: () => TEST_MODEL,
       toolTimeoutMs: 60_000,
     });
@@ -3170,7 +3301,7 @@ test("SparkAgentLoop preserves exact-content tool results", async () => {
       [{ type: "done", reason: "stop", message: finalAssistant }],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
 
   await loop.submit("call read tool");
 
@@ -3212,7 +3343,7 @@ test("SparkAgentLoop times out and aborts a signal-aware tool execution", async 
   });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     toolTimeoutMs: 10,
   });
@@ -3263,7 +3394,7 @@ test("SparkAgentLoop times out a never-resolving tool approval interaction", asy
   });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     interactionTimeoutMs: 10,
   });
@@ -3328,7 +3459,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
       [{ type: "done", reason: "stop", message: finalAssistant }],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
 
   await loop.submit("try dangerous tool");
 
@@ -3357,6 +3488,587 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
   assert.equal((toolResult as { isError: boolean }).isError, true);
   assert.match(JSON.stringify(toolResult), /dangerous.*approval cancelled.*Escape/u);
   assert.match(JSON.stringify(toolResult), /no tool execution occurred/u);
+});
+
+test("SparkAgentLoop applies human approval to a Cordis-native DSH tool", async () => {
+  const interactionRequests: unknown[] = [];
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-native-approval",
+    ui: {
+      interaction: async (request) => {
+        interactionRequests.push(request);
+        return {
+          version: SPARK_PROTOCOL_VERSION,
+          kind: "toolApproval",
+          requestId: request.requestId,
+          status: "blocked",
+          approved: false,
+          message: "native denied",
+          metadata: {},
+        };
+      },
+    },
+  });
+  let executions = 0;
+  let preparedRequest: SparkBeforeProviderRequest | undefined;
+  const manifests: SparkAgentLoopEvent[] = [];
+  const firstAssistant = buildAssistant(
+    [{ type: "toolCall", id: "native-approval-call", name: "native_guarded", arguments: {} }],
+    "toolUse",
+  );
+  const fake = makeFakeStream({
+    rounds: [
+      [{ type: "done", reason: "toolUse", message: firstAssistant }],
+      [
+        {
+          type: "done",
+          reason: "stop",
+          message: buildAssistant([{ type: "text", text: "native denial observed" }]),
+        },
+      ],
+    ],
+  });
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(fake),
+    getModel: () => TEST_MODEL,
+    beforeProviderRequest: (request) => {
+      preparedRequest = request;
+    },
+    agentPlugins: [
+      nativeToolPlugin(
+        "native_guarded",
+        {
+          effect: "read",
+          executionMode: "sequential",
+          domains: ["test"],
+          modes: ["execute"],
+          approval: "required",
+          reconcile: "none",
+        },
+        async () => {
+          executions += 1;
+          return { ok: true };
+        },
+      ),
+    ],
+  });
+  loop.onEvent((event) => {
+    if (event.type === "prompt_manifest") manifests.push(event);
+  });
+  loop.setCurrentMode("execute");
+
+  await loop.submit("try native guarded tool");
+
+  assert.equal(executions, 0);
+  assert.equal(interactionRequests.length, 1);
+  assert.equal((interactionRequests[0] as { kind?: unknown } | undefined)?.kind, "toolApproval");
+  assert.equal(
+    preparedRequest?.context.tools?.some((tool) => tool.name === "native_guarded"),
+    true,
+  );
+  const lastManifest = manifests.at(-1);
+  assert.equal(lastManifest?.type, "prompt_manifest");
+  assert.deepEqual(
+    lastManifest?.type === "prompt_manifest"
+      ? lastManifest.manifest.tools.find((tool) => tool.name === "native_guarded")
+      : undefined,
+    {
+      name: "native_guarded",
+      effect: "read",
+      executionMode: "sequential",
+      approval: "required",
+      domains: ["test"],
+      modes: ["execute"],
+    },
+  );
+  assert.equal(
+    loop
+      .getMessages()
+      .some(
+        (message) =>
+          message.role === "toolResult" && message.toolName === "native_guarded" && message.isError,
+      ),
+    true,
+  );
+});
+
+test("SparkAgentLoop hides and denies a DSH tool outside the host effect allowlist", async () => {
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-native-effect-policy",
+    allowedToolEffects: ["read"],
+  });
+  let executions = 0;
+  const contexts: Context[] = [];
+  const planned = makeFakeStream({
+    rounds: [
+      [
+        {
+          type: "done",
+          reason: "toolUse",
+          message: buildAssistant(
+            [
+              {
+                type: "toolCall",
+                id: "native-effect-call",
+                name: "native_write",
+                arguments: {},
+              },
+            ],
+            "toolUse",
+          ),
+        },
+      ],
+      [
+        {
+          type: "done",
+          reason: "stop",
+          message: buildAssistant([{ type: "text", text: "native write denied" }]),
+        },
+      ],
+    ],
+  });
+  const fake: SparkAgentStreamFunction = (model, context, options) => {
+    contexts.push(context);
+    return planned(model, context, options);
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(fake),
+    getModel: () => TEST_MODEL,
+    agentPlugins: [
+      nativeToolPlugin(
+        "native_write",
+        {
+          effect: "local_write",
+          executionMode: "sequential",
+          domains: ["filesystem"],
+          modes: ["execute"],
+          approval: "required",
+          reconcile: "tool_owner",
+        },
+        async () => {
+          executions += 1;
+          return { ok: true };
+        },
+      ),
+    ],
+  });
+  loop.setCurrentMode("execute");
+
+  await loop.submit("try native write");
+
+  assert.equal(executions, 0);
+  assert.equal(
+    contexts[0]?.tools?.some((tool) => tool.name === "native_write"),
+    false,
+  );
+  const result = asToolResult(
+    loop
+      .getMessages()
+      .find((message) => message.role === "toolResult" && message.toolName === "native_write"),
+  );
+  assert.equal(result?.isError, true);
+  assert.match(JSON.stringify(result), /denied by Spark policy/u);
+});
+
+test("manual_only authority excludes standalone WorkflowRuns and includes real drivers", () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-manual-only-driver-authority" });
+  host.registerTool({
+    name: "draft_pr_policy_probe",
+    description: "bounded Draft PR operation",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as never);
+  const tool = host.getTool("draft_pr_policy_probe");
+  assert.ok(tool);
+  const loop = (binding: { goalId?: string; workflowRunId?: string; reproId?: string }) => ({
+    loopId: "loop-driver-authority",
+    binding,
+    generation: 1,
+    ownerSessionId: "session-owner",
+    schedule: async () => undefined,
+    stop: async () => undefined,
+  });
+
+  assert.equal(toolRequiresApproval(tool), true);
+  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({}) }), true);
+  assert.equal(
+    toolRequiresApproval(tool, {}, { loop: loop({}), driverAuthority: "granted" }),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      { loop: loop({ goalId: "goal-1" }), driverAuthority: "granted" },
+    ),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      { loop: loop({ reproId: "repro-1" }), driverAuthority: "granted" },
+    ),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      { loop: loop({ workflowRunId: "workflow-run-1" }), driverAuthority: "granted" },
+    ),
+    true,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      {
+        loop: loop({ goalId: "goal-1", workflowRunId: "workflow-run-1" }),
+        driverAuthority: "granted",
+      },
+    ),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(tool, {}, { loop: loop({ goalId: "goal-1" }), driverAuthority: "denied" }),
+    true,
+  );
+});
+
+test("SparkAgentLoop requires human approval for manual_only tools on manual turns", async () => {
+  const interactionRequests: unknown[] = [];
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-manual-only-test",
+    ui: {
+      interaction: async (request) => {
+        interactionRequests.push(request);
+        return {
+          version: 1,
+          kind: "toolApproval",
+          requestId: request.requestId,
+          status: "blocked",
+          approved: false,
+          message: "not authorized",
+          metadata: {},
+        };
+      },
+    },
+  });
+  let toolCalls = 0;
+  host.registerTool({
+    name: "draft_pr_manual",
+    description: "creates a bounded draft PR",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+    async execute() {
+      toolCalls += 1;
+      return { content: [{ type: "text", text: "draft created" }] };
+    },
+  } as never);
+  const fake = makeFakeStream({
+    rounds: [
+      [
+        {
+          type: "done",
+          reason: "toolUse",
+          message: buildAssistant(
+            [
+              {
+                type: "toolCall",
+                id: "tc-draft-pr-manual",
+                name: "draft_pr_manual",
+                arguments: {},
+              },
+            ],
+            "toolUse",
+          ),
+        },
+      ],
+      [{ type: "done", reason: "stop", message: buildAssistant([{ type: "text", text: "done" }]) }],
+    ],
+  });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
+
+  await loop.submit("create draft PR manually");
+
+  assert.equal(toolCalls, 0);
+  assert.equal(interactionRequests.length, 1);
+  assert.equal((interactionRequests[0] as { toolName?: string }).toolName, "draft_pr_manual");
+});
+
+test("SparkAgentLoop lets a driver run manual_only tools but keeps required gates", async () => {
+  const interactionRequests: unknown[] = [];
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-driver-approval-test",
+    loop: {
+      loopId: "goal-loop",
+      binding: { goalId: "goal-1" },
+      generation: 1,
+      ownerSessionId: "session-owner",
+      schedule: async () => undefined,
+      stop: async () => undefined,
+    },
+    ui: {
+      interaction: async (request) => {
+        interactionRequests.push(request);
+        return {
+          version: 1,
+          kind: "toolApproval",
+          requestId: request.requestId,
+          status: "blocked",
+          approved: false,
+          message: "required approval withheld",
+          metadata: {},
+        };
+      },
+    },
+  });
+  let draftCalls = 0;
+  let destructiveCalls = 0;
+  host.registerTool({
+    name: "draft_pr_driver",
+    description: "creates a bounded draft PR",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+    async execute() {
+      draftCalls += 1;
+      return { content: [{ type: "text", text: "draft created" }] };
+    },
+  } as never);
+  host.registerTool({
+    name: "cleanup_driver",
+    description: "destructive cleanup",
+    parameters: { type: "object" },
+    policy: { effect: "destructive", executionMode: "sequential", approval: "required" },
+    async execute() {
+      destructiveCalls += 1;
+      return { content: [{ type: "text", text: "cleaned" }] };
+    },
+  } as never);
+  const fake = makeFakeStream({
+    rounds: [
+      [
+        {
+          type: "done",
+          reason: "toolUse",
+          message: buildAssistant(
+            [
+              {
+                type: "toolCall",
+                id: "tc-draft-pr-driver",
+                name: "draft_pr_driver",
+                arguments: {},
+              },
+              {
+                type: "toolCall",
+                id: "tc-cleanup-driver",
+                name: "cleanup_driver",
+                arguments: {},
+              },
+            ],
+            "toolUse",
+          ),
+        },
+      ],
+      [{ type: "done", reason: "stop", message: buildAssistant([{ type: "text", text: "done" }]) }],
+    ],
+  });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
+
+  await loop.submit("continue goal delivery");
+
+  assert.equal(draftCalls, 1);
+  assert.equal(destructiveCalls, 0);
+  assert.equal(interactionRequests.length, 1);
+  assert.equal((interactionRequests[0] as { toolName?: string }).toolName, "cleanup_driver");
+});
+
+test("SparkAgentLoop asks interactive sessions once before driver manual_only bypass", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-driver-consent-ask-"));
+  try {
+    const kinds: string[] = [];
+    const host = new SparkHostRuntime({
+      cwd: dir,
+      hasUI: true,
+      loop: {
+        loopId: "goal-loop",
+        binding: { goalId: "goal-1" },
+        generation: 1,
+        ownerSessionId: "session-owner",
+        schedule: async () => undefined,
+        stop: async () => undefined,
+      },
+      ui: {
+        interaction: async (request) => {
+          kinds.push(request.kind);
+          if (request.kind === "askFlow") {
+            return {
+              version: SPARK_PROTOCOL_VERSION,
+              kind: "askFlow",
+              requestId: request.requestId,
+              status: "answered",
+              answers: { driver_authority: { values: ["grant"] } },
+            };
+          }
+          return {
+            version: SPARK_PROTOCOL_VERSION,
+            kind: "toolApproval",
+            requestId: request.requestId,
+            status: "blocked",
+            approved: false,
+            message: "should not be asked",
+          };
+        },
+      },
+    });
+    host.setSessionId("session:consent");
+    let toolCalls = 0;
+    host.registerTool({
+      name: "draft_pr_consent",
+      description: "creates a bounded draft PR",
+      parameters: { type: "object" },
+      policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+      async execute() {
+        toolCalls += 1;
+        return { content: [{ type: "text", text: "draft created" }] };
+      },
+    } as never);
+    const fake = makeFakeStream({
+      rounds: [
+        [
+          {
+            type: "done",
+            reason: "toolUse",
+            message: buildAssistant(
+              [
+                {
+                  type: "toolCall",
+                  id: "tc-draft-pr-consent",
+                  name: "draft_pr_consent",
+                  arguments: {},
+                },
+              ],
+              "toolUse",
+            ),
+          },
+        ],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    });
+    const loop = new SparkAgentLoop({
+      host,
+      llm: asSparkTurnLlm(fake),
+      getModel: () => TEST_MODEL,
+    });
+    await loop.submit("continue goal delivery");
+    assert.equal(toolCalls, 1);
+    assert.deepEqual(kinds, ["askFlow"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentLoop treats denied driver authority as required for manual_only tools", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-driver-consent-deny-"));
+  try {
+    const kinds: string[] = [];
+    const host = new SparkHostRuntime({
+      cwd: dir,
+      hasUI: true,
+      loop: {
+        loopId: "goal-loop",
+        binding: { goalId: "goal-1" },
+        generation: 1,
+        ownerSessionId: "session-owner",
+        schedule: async () => undefined,
+        stop: async () => undefined,
+      },
+      ui: {
+        interaction: async (request) => {
+          kinds.push(request.kind);
+          if (request.kind === "askFlow") {
+            return {
+              version: SPARK_PROTOCOL_VERSION,
+              kind: "askFlow",
+              requestId: request.requestId,
+              status: "answered",
+              answers: { driver_authority: { values: ["deny"] } },
+            };
+          }
+          return {
+            version: SPARK_PROTOCOL_VERSION,
+            kind: "toolApproval",
+            requestId: request.requestId,
+            status: "blocked",
+            approved: false,
+            message: "per-tool approval withheld",
+          };
+        },
+      },
+    });
+    host.setSessionId("session:denied");
+    let toolCalls = 0;
+    host.registerTool({
+      name: "draft_pr_denied",
+      description: "creates a bounded draft PR",
+      parameters: { type: "object" },
+      policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+      async execute() {
+        toolCalls += 1;
+        return { content: [{ type: "text", text: "draft created" }] };
+      },
+    } as never);
+    const fake = makeFakeStream({
+      rounds: [
+        [
+          {
+            type: "done",
+            reason: "toolUse",
+            message: buildAssistant(
+              [
+                {
+                  type: "toolCall",
+                  id: "tc-draft-pr-denied",
+                  name: "draft_pr_denied",
+                  arguments: {},
+                },
+              ],
+              "toolUse",
+            ),
+          },
+        ],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    });
+    const loop = new SparkAgentLoop({
+      host,
+      llm: asSparkTurnLlm(fake),
+      getModel: () => TEST_MODEL,
+    });
+    await loop.submit("continue goal delivery");
+    assert.equal(toolCalls, 0);
+    assert.deepEqual(kinds, ["askFlow", "toolApproval"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without interaction", async () => {
@@ -3409,7 +4121,7 @@ test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without
   });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     approvalMethod: "skip",
   });
@@ -3420,7 +4132,7 @@ test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without
   assert.equal(interactionRequests.length, 0);
 });
 
-test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async () => {
+test("SparkAgentLoop auto review cannot substitute for human approval", async () => {
   const interactionRequests: unknown[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-approval-auto-ok-test",
@@ -3431,9 +4143,8 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
           version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
-          status: "blocked",
-          approved: false,
-          message: "should not be asked",
+          status: "answered",
+          approved: true,
           metadata: {},
         };
       },
@@ -3471,7 +4182,7 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
   });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     approvalMethod: "auto",
     reviewToolApproval: async (request) => {
@@ -3485,7 +4196,7 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
   assert.equal(toolCalls, 1);
   assert.equal(reviewCalls.length, 1);
   assert.equal((reviewCalls[0] as { toolName?: string }).toolName, "dangerous_auto_ok");
-  assert.equal(interactionRequests.length, 0);
+  assert.equal(interactionRequests.length, 1);
 });
 
 test("SparkAgentLoop auto approvalMethod escalates to ask when reviewer rejects", async () => {
@@ -3537,7 +4248,7 @@ test("SparkAgentLoop auto approvalMethod escalates to ask when reviewer rejects"
   });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     approvalMethod: "auto",
     approvalRejectAction: "ask",
@@ -3599,7 +4310,7 @@ test("SparkAgentLoop auto approvalMethod can deny without ask", async () => {
   });
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
     approvalMethod: "auto",
     approvalRejectAction: "deny",
@@ -3646,7 +4357,7 @@ test("SparkAgentLoop preserves tool-returned isError results", async () => {
       [{ type: "done", reason: "stop", message: finalAssistant }],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
 
   await loop.submit("trigger business error");
 
@@ -3672,7 +4383,7 @@ test("SparkAgentLoop unknown tool returns an isError tool result without throwin
       [{ type: "done", reason: "stop", message: finalAssistant }],
     ],
   });
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   await loop.submit("trigger missing tool");
   const toolResult = loop.getMessages().find((message) => message.role === "toolResult");
   assert.equal(toolResult !== undefined, true);
@@ -3702,18 +4413,20 @@ test("SparkAgentLoop refuses a model call to a registered but inactive tool", as
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "inactive call rejected" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "inactive call rejected" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -3751,7 +4464,7 @@ test("SparkAgentLoop drainOutboxIntoMessages turns sendUserMessage envelopes int
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: fake,
+    llm: asSparkTurnLlm(fake),
     getModel: () => TEST_MODEL,
   });
   await loop.submit("start");
@@ -3761,6 +4474,54 @@ test("SparkAgentLoop drainOutboxIntoMessages turns sendUserMessage envelopes int
   assert.equal(messages[2]!.role, "user");
   assert.match(JSON.stringify(messages[2]!.content), /follow up/);
   assert.equal((messages[3] as AssistantMessage).content[0]!.type, "text");
+});
+
+test("SparkAgentLoop includes tool-enqueued outbox in the next model request", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-tool-outbox" });
+  const toolCall: ToolCall = {
+    type: "toolCall",
+    id: "outbox-1",
+    name: "enqueue_followup",
+    arguments: {},
+  };
+  host.registerTool({
+    name: "enqueue_followup",
+    description: "enqueue an outbox user message",
+    parameters: { type: "object" },
+    async execute() {
+      host.sendUserMessage("tool follow-up", { deliverAs: "steer" });
+      return { content: [{ type: "text", text: "enqueued" }] };
+    },
+  });
+  const contexts: Message[][] = [];
+  let calls = 0;
+  const fake: SparkAgentStreamFunction = (_model, context) => {
+    contexts.push([...(context.messages ?? [])]);
+    calls += 1;
+    const message =
+      calls === 1
+        ? buildAssistant([toolCall], "toolUse")
+        : buildAssistant([{ type: "text", text: "after tool outbox" }]);
+    return {
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "done" as const,
+          reason: (calls === 1 ? "toolUse" : "stop") as "toolUse" | "stop",
+          message,
+        };
+      },
+      result: async () => message,
+    } as ReturnType<SparkAgentStreamFunction>;
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(fake),
+    getModel: () => TEST_MODEL,
+  });
+  const outcome = await loop.submitWithOutcome("start");
+  assert.equal(outcome.status, "completed");
+  assert.equal(calls, 2);
+  assert.match(JSON.stringify(contexts[1]), /tool follow-up/);
 });
 
 test("SparkAgentLoop consumes a non-triggering turn_end follow-up inside the current run", async () => {
@@ -3793,7 +4554,7 @@ test("SparkAgentLoop consumes a non-triggering turn_end follow-up inside the cur
       result: async () => message,
     } as ReturnType<SparkAgentStreamFunction>;
   };
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
 
   const result = await loop.submit("start");
 
@@ -3819,7 +4580,7 @@ test("SparkAgentLoop triggerTurn queues hidden custom messages without visible u
       result: async () => finalAssistant,
     } as ReturnType<SparkAgentStreamFunction>;
   };
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   const completed = new Promise<void>((resolve) => {
     loop.onEvent((event) => {
       eventTypes.push(event.type);
@@ -3852,14 +4613,14 @@ test("SparkAgentLoop defaults extension custom messages to untrusted runtime dat
   const finalAssistant = buildAssistant([{ type: "text", text: "observed" }]);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: () => {
+    llm: asSparkTurnLlm(() => {
       return {
         async *[Symbol.asyncIterator]() {
           yield { type: "done", reason: "stop", message: finalAssistant };
         },
         result: async () => finalAssistant,
       } as ReturnType<SparkAgentStreamFunction>;
-    },
+    }),
     getModel: () => TEST_MODEL,
   });
   const completed = new Promise<void>((resolve) => {
@@ -3884,7 +4645,7 @@ test("SparkAgentLoop retains nextTurn runtime data in its originating session", 
   const contexts: Message[][] = [];
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: (_model, context) => {
+    llm: asSparkTurnLlm((_model, context) => {
       contexts.push([...context.messages]);
       const message = buildAssistant([{ type: "text", text: "ok" }]);
       return {
@@ -3893,7 +4654,7 @@ test("SparkAgentLoop retains nextTurn runtime data in its originating session", 
         },
         result: async () => message,
       } as ReturnType<SparkAgentStreamFunction>;
-    },
+    }),
     getModel: () => TEST_MODEL,
   });
 
@@ -3960,7 +4721,7 @@ test("SparkAgentLoop scopes delivery ids by session and bounds consumed history"
   const contexts: Message[][] = [];
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: (_model, context) => {
+    llm: asSparkTurnLlm((_model, context) => {
       contexts.push([...context.messages]);
       const message = buildAssistant([{ type: "text", text: "ok" }]);
       return {
@@ -3969,7 +4730,7 @@ test("SparkAgentLoop scopes delivery ids by session and bounds consumed history"
         },
         result: async () => message,
       } as ReturnType<SparkAgentStreamFunction>;
-    },
+    }),
     getModel: () => TEST_MODEL,
   });
   const checkpoint = (deliveryId: string) => ({
@@ -4046,7 +4807,7 @@ test("SparkAgentLoop triggerTurn uses queued user instruction without duplicate 
       result: async () => finalAssistant,
     } as ReturnType<SparkAgentStreamFunction>;
   };
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   const completed = new Promise<void>((resolve) => {
     loop.onEvent((event) => {
       if (event.type === "turn_complete") resolve();
@@ -4094,7 +4855,7 @@ test("SparkAgentLoop triggerTurn runs hidden before_agent_start context without 
       result: async () => finalAssistant,
     } as ReturnType<SparkAgentStreamFunction>;
   };
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   const completed = new Promise<void>((resolve) => {
     loop.onEvent((event) => {
       eventTypes.push(event.type);
@@ -4156,7 +4917,7 @@ test("SparkAgentLoop abort cancels the in-flight stream and returns to idle", as
       result: () => resultPromise,
     } as ReturnType<SparkAgentStreamFunction>;
   };
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   const promise = loop.submitWithOutcome("hang");
   // Abort after a microtask to ensure the loop entered streaming
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -4187,7 +4948,7 @@ test("SparkAgentLoop classifies a provider AbortError caused by user abort as ab
       },
       result: async () => buildAssistant([], "aborted"),
     }) as ReturnType<SparkAgentStreamFunction>;
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
 
   const running = loop.submitWithOutcome("hang then throw");
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -4225,11 +4986,13 @@ test("SparkAgentLoop abort releases a pending human tool approval", async () => 
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-      ],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+        ],
+      }),
+    ),
     getModel: () => TEST_MODEL,
     approvalMethod: "human",
     interactionTimeoutMs: 60_000,
@@ -4282,11 +5045,13 @@ test("SparkAgentLoop pairs every sequential tool call with an aborted result", a
   ];
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
-      ],
-    }),
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant(toolCalls, "toolUse") }],
+        ],
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -4326,7 +5091,7 @@ test("SparkAgentLoop refuses concurrent submit while in flight", async () => {
       result: () => resultPromise,
     } as ReturnType<SparkAgentStreamFunction>;
   };
-  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+  const loop = new SparkAgentLoop({ host, llm: asSparkTurnLlm(fake), getModel: () => TEST_MODEL });
   const first = loop.submit("first");
   await new Promise<void>((r) => setImmediate(r));
   await assert.rejects(loop.submit("second"), /not idle/);
@@ -4364,18 +5129,20 @@ test("SparkAgentLoop strips provider-filled blank optional arguments before disp
   };
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -4419,30 +5186,32 @@ test("SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately bef
   mutateTool.active = true;
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: makeFakeStream({
-      rounds: [
-        [
-          {
-            type: "done",
-            reason: "toolUse",
-            message: buildAssistant(
-              [
-                { type: "toolCall", id: "read-call", name: "inspect", arguments: {} },
-                { type: "toolCall", id: "write-call", name: "mutate", arguments: {} },
-              ],
-              "toolUse",
-            ),
-          },
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [
+            {
+              type: "done",
+              reason: "toolUse",
+              message: buildAssistant(
+                [
+                  { type: "toolCall", id: "read-call", name: "inspect", arguments: {} },
+                  { type: "toolCall", id: "write-call", name: "mutate", arguments: {} },
+                ],
+                "toolUse",
+              ),
+            },
+          ],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
         ],
-        [
-          {
-            type: "done",
-            reason: "stop",
-            message: buildAssistant([{ type: "text", text: "done" }]),
-          },
-        ],
-      ],
-    }),
+      }),
+    ),
     getModel: () => TEST_MODEL,
   });
 
@@ -4456,4 +5225,27 @@ test("SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately bef
   assert.equal(results[0]?.isError, false);
   assert.equal(results[1]?.isError, true);
   assert.match(toolResultText(results[1]), /denied by host policy: mutate/u);
+});
+
+test("SparkAgentLoop runs a structural llm through an explicit isolated test runtime", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-llm-only" });
+  const llm: SparkTurnLlm = {
+    async *stream() {
+      yield { type: "text-delta", index: 0, text: "hello from llm" };
+      yield { type: "usage", usage: { inputTokens: 1, outputTokens: 2 } };
+      yield { type: "finish", reason: { kind: "stop" } };
+    },
+    createDshTestRuntime: createSparkDshTurnTestRuntime,
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    llm,
+    getModel: () => TEST_MODEL,
+    streamIdleTimeoutMs: 0,
+  });
+  assert.equal("ctx" in loop, false);
+  const outcome = await loop.submitWithOutcome("hi");
+  assert.equal(outcome.status, "completed");
+  if (outcome.status !== "completed") assert.fail("expected completed outcome");
+  assert.match(JSON.stringify(outcome.assistant.content), /hello from llm/u);
 });

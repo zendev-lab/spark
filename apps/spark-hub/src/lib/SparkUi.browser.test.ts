@@ -1,6 +1,6 @@
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { GitChangePreview } from "@zendev-lab/spark-ui/git-change";
 import { Response, SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
 import { A2uiRenderer } from "@zendev-lab/spark-ui/a2ui";
@@ -181,14 +181,8 @@ describe("Response browser contract", () => {
 });
 
 describe("A2UI Workbench browser contract", () => {
-  it("renders native tabs and emits only a revision-bound official action envelope", async () => {
-    const onAction = vi.fn();
-    const screen = await render(A2uiRenderer, {
-      content: workbenchA2ui(),
-      interactive: true,
-      binding: workbenchBinding,
-      onAction,
-    });
+  it("renders native tabs and keeps projected controls read-only", async () => {
+    const screen = await render(A2uiRenderer, { content: workbenchA2ui() });
 
     await expect.element(screen.getByRole("heading", { name: "Repro Workbench" })).toBeVisible();
     const lanes = screen.getByRole("tab", { name: "Lanes" });
@@ -208,61 +202,8 @@ describe("A2UI Workbench browser contract", () => {
     const coverage = screen.getByRole("tab", { name: "Experiments / Coverage" });
     await expect.element(coverage).toHaveAttribute("aria-selected", "true");
     await expect.element(coverage).toHaveFocus();
-    await screen.getByRole("button", { name: "Pause" }).click();
-
-    expect(onAction).toHaveBeenCalledOnce();
-    expect(onAction.mock.calls[0]?.[0]).toMatchObject({
-      version: "v0.9.1",
-      action: {
-        name: "spark.loop.control",
-        surfaceId: "spark-repro-repro-1",
-        sourceComponentId: "control-pause",
-        context: {
-          actionId: "pause",
-          artifactRef: workbenchBinding.artifactRef,
-          revision: workbenchBinding.revision,
-          loopId: workbenchBinding.loopId,
-          generation: workbenchBinding.generation,
-        },
-      },
-    });
-  });
-
-  it("keeps ordinary or unbound A2UI actions read-only", async () => {
-    const onAction = vi.fn();
-    const screen = await render(A2uiRenderer, {
-      content: workbenchA2ui(),
-      interactive: true,
-      onAction,
-    });
-    const pause = screen.getByRole("button", { name: "Pause" });
-
-    await expect.element(pause).toBeDisabled();
-    await pause.click({ force: true });
-    expect(onAction).not.toHaveBeenCalled();
-  });
-
-  it("requires explicit browser confirmation before emitting stop", async () => {
-    const onAction = vi.fn();
-    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const screen = await render(A2uiRenderer, {
-      content: workbenchA2ui(),
-      interactive: true,
-      binding: workbenchBinding,
-      onAction,
-    });
-    const stop = screen.getByRole("button", { name: "Stop" });
-
-    await stop.click();
-    expect(onAction).not.toHaveBeenCalled();
-    confirmation.mockReturnValue(true);
-    await stop.click();
-    expect(onAction).toHaveBeenCalledOnce();
-    expect(onAction.mock.calls[0]?.[0].action.context).toMatchObject({
-      actionId: "stop",
-      confirm: true,
-    });
-    confirmation.mockRestore();
+    await expect.element(screen.getByRole("button", { name: "Pause" })).toBeDisabled();
+    await expect.element(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
   });
 
   it("fails closed when a component graph contains a cycle", async () => {
@@ -279,14 +220,6 @@ describe("A2UI Workbench browser contract", () => {
     await expect.element(screen.getByText("Cyclic A2UI component reference: cycle")).toBeVisible();
   });
 });
-
-const workbenchBinding = {
-  artifactRef: "artifact:workbench-1",
-  revision: 7,
-  lifecycle: "live" as const,
-  loopId: "loop-1",
-  generation: 4,
-};
 
 function workbenchA2ui(): string {
   return JSON.stringify({
@@ -314,39 +247,12 @@ function workbenchA2ui(): string {
               id: "control-pause",
               component: "Button",
               child: "pause-label",
-              action: {
-                event: {
-                  name: "spark.loop.control",
-                  context: {
-                    actionId: "pause",
-                    artifactRef: workbenchBinding.artifactRef,
-                    revision: workbenchBinding.revision,
-                    loopId: workbenchBinding.loopId,
-                    generation: workbenchBinding.generation,
-                    idempotencyKey: "pause-7-4",
-                  },
-                },
-              },
             },
             { id: "stop-label", component: "Text", text: "Stop" },
             {
               id: "control-stop",
               component: "Button",
               child: "stop-label",
-              action: {
-                event: {
-                  name: "spark.loop.control",
-                  context: {
-                    actionId: "stop",
-                    artifactRef: workbenchBinding.artifactRef,
-                    revision: workbenchBinding.revision,
-                    loopId: workbenchBinding.loopId,
-                    generation: workbenchBinding.generation,
-                    idempotencyKey: "stop-7-4",
-                    confirm: true,
-                  },
-                },
-              },
             },
             {
               id: "tabs",
@@ -390,7 +296,7 @@ function workbenchA2ui(): string {
         updateDataModel: {
           surfaceId: "spark-repro-repro-1",
           path: "/",
-          value: { schema: "spark.repro.workbench/v1", ...workbenchBinding },
+          value: { schema: "spark.repro.workbench/v2", reproId: "repro-1", readOnly: true },
         },
       },
     ],

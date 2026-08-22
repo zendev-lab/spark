@@ -14,7 +14,7 @@ import {
   type ServerCommandEnvelope,
   type SparkAssignment,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-system";
 
 import {
   handleCommand,
@@ -105,6 +105,11 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
       daemonId: installationId,
       daemonCwd: root,
       resolveWorkspaceCwd: (workspaceId) => (workspaceId === hubWorkspace.id ? root : undefined),
+      resolveChannelSessionCwd: async (sessionId) => {
+        const cwd = channelSessionWorkspacePath(paths, sessionId);
+        await mkdir(cwd, { recursive: true, mode: 0o700 });
+        return cwd;
+      },
     });
     const administrator = await registry.ensureWorkspaceAdministrator(hubWorkspace.id);
     const context: MessageContext = {
@@ -112,6 +117,7 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
       config: { installationId, displayName: "Remote session daemon", runtimeId },
       db: daemonDb,
       runtimeId,
+      sparkHome: join(root, "spark-home"),
       runtimeSessionId: undefined,
       setRuntimeSessionId(value) {
         this.runtimeSessionId = value;
@@ -134,6 +140,25 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
     let bridge = connectRuntime(hubDb, context, bindingId);
     const bridges = [bridge];
     const client = createHubRuntimeSessionClient(hubDb);
+    const channelSession = await registry.resolveChannelSession({
+      externalKey: "infoflow:user:remote-channel",
+      adapterId: "infoflow-primary",
+      adapterAccountIdentity: "channel-account:infoflow:remote",
+      name: "Remote Channel",
+    });
+    const daemonSessions = await client.list({
+      runtimeId,
+      scope: { kind: "daemon" },
+      includeArchived: true,
+    });
+    assert.deepEqual(
+      daemonSessions.map(({ sessionId }) => sessionId),
+      [channelSession.sessionId],
+    );
+    assert.deepEqual(daemonSessions[0]?.scope, {
+      kind: "daemon",
+      daemonId: installationId,
+    });
     const workspaceSessionId = createId("sess");
     const secondSessionId = createId("sess");
     const workspaceCreate = {
@@ -189,10 +214,10 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
       scope: { kind: "workspace", workspaceId: hubWorkspace.id },
       related: true,
     });
-    assert.deepEqual(related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.owner, {
-      kind: "side_thread",
+    assert.deepEqual(related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.lineage, {
+      kind: "child",
       parentSessionId: workspaceSessionId,
-      generation: sideThread.generation,
+      origin: { kind: "side_thread", generation: sideThread.generation },
     });
     assert.equal(
       related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.sideThreadMode,
@@ -205,11 +230,11 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
           related: true,
         },
         hubDb,
-      ).sessions.find(({ sessionId }) => sessionId === sideThread.sessionId)?.owner,
+      ).sessions.find(({ sessionId }) => sessionId === sideThread.sessionId)?.lineage,
       {
-        kind: "side_thread",
+        kind: "child",
         parentSessionId: workspaceSessionId,
-        generation: sideThread.generation,
+        origin: { kind: "side_thread", generation: sideThread.generation },
       },
     );
     await assert.rejects(
@@ -626,7 +651,7 @@ async function writeTranscript(
 ): Promise<void> {
   await mkdir(join(path, ".."), { recursive: true });
   const entries = [
-    { type: "session", version: 3, id: sessionId, timestamp: now, cwd },
+    { type: "session", version: 4, id: sessionId, timestamp: now, cwd },
     {
       type: "message",
       id: `${sessionId}-user`,

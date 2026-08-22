@@ -1,8 +1,10 @@
-import { sparkSessionLifetimeForOwner, type SparkSessionState } from "@zendev-lab/spark-protocol";
+import { sparkSessionLifetimeForLineage, type SparkSessionState } from "@zendev-lab/spark-protocol";
 
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SparkLoopStore } from "./store/loops.ts";
 import type { SparkInvocationStore } from "./store/invocations.ts";
+
+import { errorMessage } from "./text.ts";
 
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_DAYS = 30;
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_MS =
@@ -98,12 +100,8 @@ function isUnassignedRetentionCandidate(session: SparkSessionState): boolean {
   return (
     session.lifecycle === "open" &&
     session.placement === "active" &&
-    sparkSessionLifetimeForOwner(session.owner) === "scoped" &&
+    sparkSessionLifetimeForLineage(session.lineage) === "scoped" &&
     session.roleBinding.kind === "none" &&
     session.bindings.length === 0
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

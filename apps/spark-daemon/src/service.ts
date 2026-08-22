@@ -36,6 +36,9 @@ const processOwnershipMutexName = "daemon.identity.lock";
 const startMarkerFileName = "daemon.starting.json";
 const restartStartRetryBaseMs = 100;
 const restartStartRetryMaxMs = 5_000;
+const sparkDaemonDarwinSupervisorGraceMs = 5_000;
+const sparkDaemonLinuxSupervisorGraceMs = 2_000;
+const sparkDaemonLaunchdThrottleIntervalSeconds = 1;
 
 interface SparkDaemonStartMarker {
   token: string;
@@ -332,7 +335,7 @@ export async function scheduleSparkDaemonRestartSuccessor(
   // launchd normally wins on macOS; the helper remains as a fenced watchdog
   // and only re-registers the job if no RPC-ready replacement appears.
   mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 });
-  const existing = readRestartFence(paths);
+  const existing = readRestartActiveRecord(paths);
   if (existing && existing.previousPid !== previousPid) {
     throw new Error(
       `Spark daemon restart ${existing.restartId} is still completing for process ${existing.previousPid}.`,
@@ -451,7 +454,7 @@ export function readSparkDaemonRestartSuccessorContext(
   paths: SparkPaths,
 ): SparkDaemonRestartSuccessorContext | null {
   const intent = readRestartActiveRecord(paths);
-  if (!intent || predecessorProcessMatches(intent)) {
+  if (!intent || isSparkDaemonRestartPredecessorAlive(intent)) {
     return null;
   }
   return restartSuccessorContext(intent);
@@ -484,7 +487,7 @@ export function prepareSparkDaemonRestartAwareStart(
     }
     return { start: true, successorContext: null };
   }
-  if (predecessorProcessMatches(active)) {
+  if (isSparkDaemonRestartPredecessorAlive(active)) {
     return { start: false, reason: "missing" };
   }
   if (active.state === "armed") {
@@ -624,7 +627,7 @@ export async function runSparkDaemonRestartSuccessor(
       await sleep(pollIntervalMs);
     }
   }
-  const expectedIntent = readRestartFence(paths);
+  const expectedIntent = readRestartActiveRecord(paths);
   if (
     options.expectedRestartId &&
     (!expectedIntent ||
@@ -638,7 +641,9 @@ export async function runSparkDaemonRestartSuccessor(
   const processAlive =
     options.processAlive ??
     (() =>
-      expectedIntent ? predecessorProcessMatches(expectedIntent) : isProcessAlive(previousPid));
+      expectedIntent
+        ? isSparkDaemonRestartPredecessorAlive(expectedIntent)
+        : isProcessAlive(previousPid));
   const runningPid = options.runningPid ?? (() => readRunningPid(paths));
   const startService =
     options.startService ?? ((restartId?: string) => startDetachedSparkDaemon(paths, restartId));
@@ -825,7 +830,9 @@ export async function runSparkDaemonRestartSuccessor(
   const supervisorDeadline =
     now() +
     (options.supervisorGraceMs ??
-      (supervisorMayRestart ? (process.platform === "darwin" ? 30_000 : 2_000) : 0));
+      sparkDaemonSupervisorGraceMs({
+        supervisorMayRestart,
+      }));
   while (now() < supervisorDeadline) {
     if (!restartClaimActive()) return null;
     const replacementPid = runningPid();
@@ -901,6 +908,16 @@ export function matchesSparkDaemonRestartReplacement(
     processIdentity.protocolVersion === SPARK_PROTOCOL_VERSION &&
     processIdentity.acceptedRestartId === expected.expectedRestartId
   );
+}
+
+export function sparkDaemonSupervisorGraceMs(input: {
+  supervisorMayRestart: boolean;
+  platform?: NodeJS.Platform;
+}): number {
+  if (!input.supervisorMayRestart) return 0;
+  return (input.platform ?? process.platform) === "darwin"
+    ? sparkDaemonDarwinSupervisorGraceMs
+    : sparkDaemonLinuxSupervisorGraceMs;
 }
 
 function restartIntentPath(paths: SparkPaths): string {
@@ -1069,10 +1086,6 @@ function fsyncDirectory(path: string): void {
     // Some filesystems do not support directory fsync. The atomically
     // renamed, fsynced file remains the source of truth.
   }
-}
-
-function readRestartFence(paths: SparkPaths): SparkDaemonRestartIntent | null {
-  return readRestartActiveRecord(paths);
 }
 
 function readRestartActiveRecord(paths: SparkPaths): SparkDaemonRestartRecord | null {
@@ -1283,10 +1296,6 @@ async function armRestartHelper(
     child.on("message", onMessage);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
-}
-
-function predecessorProcessMatches(intent: SparkDaemonRestartIntent): boolean {
-  return isSparkDaemonRestartPredecessorAlive(intent);
 }
 
 /**
@@ -1668,6 +1677,8 @@ ${Object.entries(environment)
     <key>SuccessfulExit</key>
     <false/>
   </dict>
+  <key>ThrottleInterval</key>
+  <integer>${sparkDaemonLaunchdThrottleIntervalSeconds}</integer>
   <key>WorkingDirectory</key>
   <string>${xmlEscape(process.cwd())}</string>
   <key>StandardOutPath</key>
@@ -1892,7 +1903,10 @@ function serviceEnvironment(): Record<string, string> {
     "PATH",
     "SPARK_HOME",
     "SPARK_BUILD_INFO_PATH",
+    "SPARK_DAEMON_ENTRYPOINT",
     "SPARK_DEPLOYMENT_WATCH_PATH",
+    "SPARK_HEADLESS_EXECUTOR_MODULE",
+    "SPARK_PRODUCT_DIST",
     "SPARK_STABLE_LAUNCHER",
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",

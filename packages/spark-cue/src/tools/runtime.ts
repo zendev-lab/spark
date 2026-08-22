@@ -71,7 +71,13 @@ export function cueSessionOptionsFromContext(
 ): Required<CueSessionOptions> {
   const cwd = resolveCueWorkingDirectory(undefined, ctx?.cwd);
   const sessionId = cueSessionIdFromContext(ctx, cwd);
-  return { sessionId, cwd, env: ctx?.env ?? process.env, refresh: false };
+  return {
+    sessionId,
+    cwd,
+    env: ctx?.env ?? process.env,
+    refresh: false,
+    forwardSensitiveEnv: ctx?.cueForwardSensitiveEnv ?? false,
+  };
 }
 
 function cueSessionIdFromContext(ctx: SparkCueToolContext | undefined, cwd: string): string {
@@ -118,6 +124,13 @@ export function releaseClientOwner(owner: CueClientOwner, ctx?: SparkCueToolCont
   }
 }
 
+export function releaseAllClientOwner(owner: CueClientOwner): void {
+  for (const entry of Array.from(clientRegistry.values())) {
+    if (!entry.owners.delete(owner)) continue;
+    if (entry.owners.size === 0) closeClientRegistryEntry(entry);
+  }
+}
+
 async function connectClient(
   transport: CueResolvedTransport,
   session: Required<CueSessionOptions>,
@@ -129,13 +142,14 @@ async function connectClient(
     if (error instanceof CueError && error.code === "UNSUPPORTED_PROTOCOL") throw error;
     if (transport.transport === "ssh") throw error;
     if (!(error instanceof CueError) || error.code !== "DAEMON_UNREACHABLE") throw error;
+    if (ctx?.cueAutoStartLocal === false) throw error;
     // Local socket could not be reached — auto-start local/unix transports only.
-    ctx?.ui?.notify?.("cue-shell: auto-starting daemon…", "info");
+    ctx?.ui?.notify?.("Cue: auto-starting daemon…", "info");
     try {
       await autoStartDaemon(transport.socket_path);
     } catch (startErr) {
       const msg = [
-        `cue-shell daemon not reachable at ${transport.socket_path}.`,
+        `Cue daemon not reachable at ${transport.socket_path}.`,
         `Initial connection failure: ${cueErrorDetail(error)}`,
         `Auto-start failed: ${cueErrorDetail(startErr)}`,
       ].join("\n");
@@ -147,7 +161,7 @@ async function connectClient(
     } catch (err) {
       if (err instanceof CueError && err.code === "UNSUPPORTED_PROTOCOL") throw err;
       const msg = [
-        `cue-shell daemon auto-started but still not reachable at ${transport.socket_path}.`,
+        `Cue daemon auto-started but still not reachable at ${transport.socket_path}.`,
         `Initial connection failure: ${cueErrorDetail(error)}`,
         `Retry failure: ${cueErrorDetail(err)}`,
       ].join("\n");
@@ -214,7 +228,7 @@ export async function getClient(
     closeClientRegistryEntry(entry);
     throw new CueError(
       "DAEMON_UNREACHABLE",
-      `cue-shell connection closed during initialization for session ${session.sessionId}`,
+      `Cue connection closed during initialization for session ${session.sessionId}`,
     );
   }
 
@@ -357,7 +371,7 @@ function cueRetryProgressUpdate(
       content: [
         {
           type: "text",
-          text: `cue-shell transport interrupted; retrying attempt ${attempt} in ${delayMs}ms${budget}`,
+          text: `Cue transport interrupted; retrying attempt ${attempt} in ${delayMs}ms${budget}`,
         },
       ],
     });

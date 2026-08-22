@@ -1,6 +1,8 @@
 # @zendev-lab/spark-roles
 
-Owns reusable `RoleSpec` definitions, Role-Skill composition, Skill discovery and prompt rendering, external Role model settings, ephemeral Role Invocation execution, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation. Canonical Skill APIs are exported from `@zendev-lab/spark-roles/{builtin-skills,skill-resolver}`; the matching `spark-host` subpaths are compatibility re-exports only.
+Owns reusable `RoleSpec` definitions, Role-Skill composition, Skill discovery and prompt rendering, external Role model settings, the internal Role execution runtime, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation. Canonical Skill APIs are exported from `@zendev-lab/spark-roles/{builtin-skills,skill-resolver}`; the matching `spark-host` subpaths are compatibility re-exports only.
+
+Role is static catalog. Session binds at most one Role through `roleBinding` at runtime. A Role-bound child Session is a subagent; it is not a second runtime type. The human operator is not a Role. See [`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
 
 ## Storage and models
 
@@ -13,8 +15,8 @@ The persisted settings schema is strict v2 and keys `modelTypes` by open semanti
 ## Public surface
 
 - `role({ action: "list" | "get" | "create" })` manages reusable definitions.
-- `role({ action: "call" })` instantiates one fresh Invocation-owned ephemeral Session, invokes it, and closes it. It never enters Session list/mail/bind/archive/restore/resume surfaces.
 - `role({ action: "model_list" | "model_get" | "model_set" | "model_delete" })` manages model settings.
+- To execute a Role, create a Role-bound child with `session({ action: "spawn" | "fork", roleRef })`, then trigger it with `session({ action: "send", kind: "request", toSessionId, message })`.
 - `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })` runs an ad-hoc, self-contained capability with exact model-invocable Skills when no predefined Role owns the responsibility.
 
 A Skill Agent receives the selected Skill bodies and the explicit delegation
@@ -32,7 +34,7 @@ and the parent should hand over execution instead of interpreting those Skills
 itself. Read `SKILL.md` when the parent session must directly follow a Skill.
 Do not explicitly read and delegate the same Skill by default.
 
-Scoped identity, lifecycle, bindings, continuity, calls, and mail belong to canonical `session`. `role` and `skill_agent` must not accept persistent Session lifecycle or mail parameters.
+Scoped identity, lifecycle, bindings, continuity, and mail belong to canonical `session`. `role` and `skill_agent` must not accept persistent Session lifecycle or mail parameters.
 
 Builtin role identities, Model Types, and capability profiles are:
 
@@ -44,4 +46,4 @@ Builtin role identities, Model Types, and capability profiles are:
 Explorer and Reviewer receive no execution, file-write, interactive, or further-delegation tools and return blockers to Administrator. Builtin model choices remain outside RoleSpec in project/user Role model settings.
 
 Managed Task execution remains the Task/Workflow scheduler's responsibility;
-direct Role and Skill Agent calls do not claim Tasks or create Task Evidence.
+Role-bound Session requests and Skill Agent calls do not claim Tasks or create Task Evidence.

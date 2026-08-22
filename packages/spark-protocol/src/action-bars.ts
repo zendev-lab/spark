@@ -33,7 +33,6 @@ export const sparkActionIntentOptions = [
   "loop.stop",
   "repro.status",
   "repro.start",
-  "repro.restart",
   "repro.stop",
   "workflow.open",
   "workflow.inspect",
@@ -263,11 +262,15 @@ const loopActionBar = lifecycleActionBar("loop", "Loop controls", {
   stop: "Stop loop",
 });
 
-const reproActionBar = lifecycleActionBar("repro", "Reproduction controls", {
-  status: "Inspect repro",
-  start: "Start repro",
-  restart: "Restart repro",
-  stop: "Stop repro",
+const reproActionBar = actionBar({
+  id: "repro",
+  title: "Reproduction controls",
+  defaultActionId: "repro-status",
+  actions: [
+    action("repro-status", "Inspect repro", "repro.status", "primary"),
+    action("repro-start", "Start repro", "repro.start"),
+    action("repro-stop", "Stop repro", "repro.stop", "danger"),
+  ],
 });
 
 const workflowActionBar = actionBar({
@@ -409,7 +412,7 @@ function actionBar(input: z.input<typeof sparkActionBarViewSchema>): SparkAction
 }
 
 function lifecycleActionBar(
-  resource: "goal" | "loop" | "repro",
+  resource: "goal" | "loop",
   title: string,
   labels: { status: string; start: string; restart: string; stop: string },
 ): SparkActionBarView {

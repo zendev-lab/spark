@@ -1,10 +1,19 @@
 import type { SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
 
-import { registerSparkAskActionTool } from "./action-tool.ts";
+import { registerSparkAskActionTool, type SparkAskDaemonRequest } from "./action-tool.ts";
 import { registerSparkAskFlowTool } from "./flow.ts";
 import { registerSparkAskTools } from "./index.ts";
 
-export default function piAskExtension(pi: SparkHostAPI): void {
+export type { SparkAskDaemonRequest };
+
+export interface SparkAskExtensionOptions {
+  request?: SparkAskDaemonRequest;
+}
+
+export default function piAskExtension(
+  pi: SparkHostAPI,
+  options: SparkAskExtensionOptions = {},
+): void {
   if (!pi.registerTool) throw new Error("spark-ask extension requires registerTool support");
 
   const askImplementationTools = new Map<string, ToolConfig>();
@@ -24,5 +33,6 @@ export default function piAskExtension(pi: SparkHostAPI): void {
   registerSparkAskFlowTool(internalApi);
   registerSparkAskActionTool(publicApi, {
     resolveTool: (name) => askImplementationTools.get(name),
+    ...(options.request ? { request: options.request } : {}),
   });
 }

@@ -1,8 +1,8 @@
 {
   "name": "@zendev-lab/spark-ask",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Structured ask_user and ask_flow primitives for Spark extension hosts.",
+  "description": "Structured ask_user and ask_flow primitives for Spark host adapters.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -25,7 +25,6 @@
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
-    "@zendev-lab/spark-tui-adapter": "workspace:^",
     "typebox": "catalog:"
   }
 }

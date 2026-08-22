@@ -1,12 +1,12 @@
 /**
- * SparkHostRuntime — the native spark-tui implementation of the
+ * SparkHostRuntime — the native Spark implementation of the
  * `spark-core` SparkHostAPI surface.
  *
  * This file owns the *contract surface* exposed to extensions plus the minimum
  * internal plumbing needed to make the existing 5 retained extensions
  * (`spark`, `spark-cue`, `spark-graft`, `spark-roles`, `spark-ask`) load and run without
  * crashing. Wiring it into a real agent turn loop, model selector, session
- * store, and TUI rendering is split into follow-up tasks
+ * store, and presentation is split into follow-up tasks
  * (`agent-turn-loop`, `model-selector-ui`, `session-format-and-store`,
  * `tool-and-thinking-rendering`); this skeleton intentionally keeps those
  * surfaces minimal:
@@ -25,28 +25,31 @@
  *     every UI method is a no-op so extensions that call `ctx.ui.notify()`
  *     defensively keep working.
  *
- * The host runtime is intentionally process-private state; no file I/O lives
- * here. Tests construct one runtime per test, register a few tools, drive
+ * The host runtime is intentionally process-private state. Session workspace
+ * file I/O for driver-authority consent lives in `driver-authority.ts`.
+ * Tests construct one runtime per test, register a few tools, drive
  * `emit("session_start", ...)`, and assert observable state.
  */
 
-import {
-  type CommandConfig,
-  type SparkHostAPI,
-  type SparkHostContext,
-  type SparkHostLoopContext,
-  type SparkSessionLeaseIdentity,
-  type SparkHostRuntimeMessage,
-  type SparkHostHookOptions,
-  type ExtensionUi,
-  type LeafCapabilityRunner,
-  type ExtensionRoleRunner,
-  type ToolConfig,
-  type ToolInfo,
-  resolveToolPolicy,
-  type ResolvedToolPolicy,
-  type ToolEffect,
+import type {
+  CommandConfig,
+  SparkDriverAuthority,
+  SparkHostAPI,
+  SparkHostContext,
+  SparkHostLoopContext,
+  SparkSessionLeaseIdentity,
+  SparkHostRuntimeMessage,
+  SparkHostHookOptions,
+  ExtensionUi,
+  LeafCapabilityRunner,
+  ExtensionRoleRunner,
+  SparkDshToolPolicyMetadata,
+  ToolConfig,
+  ToolInfo,
+  ResolvedToolPolicy,
+  ToolEffect,
 } from "@zendev-lab/spark-core";
+import { resolveToolPolicy } from "@zendev-lab/spark-core";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
@@ -59,7 +62,14 @@ import {
   type SparkViewModelEvent,
 } from "@zendev-lab/spark-protocol";
 
-import type { SparkMemoryDirectIntentTurnAuthority } from "./memory-direct-intent.js";
+import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
+import {
+  createDriverAuthorityAskRequest,
+  driverAuthorityFromAskResponse,
+  hostSessionContext,
+  loadPersistedDriverAuthority,
+  persistDriverAuthority,
+} from "./driver-authority.ts";
 import {
   SparkKeybindings,
   type SparkKeybindingContext,
@@ -94,7 +104,6 @@ export interface SparkHostRuntimeOptions {
   channelBinding?: {
     adapter: "feishu" | "infoflow" | "qqbot";
     externalKey: string;
-    workspaceId?: string;
     recipient?: string;
     /** Runtime/config adapter id. Kept for legacy routing diagnostics. */
     adapterId?: string;
@@ -105,9 +114,6 @@ export interface SparkHostRuntimeOptions {
   taskExecutionScope?: SparkHostContext["taskExecutionScope"];
   /** Private current-turn authority supplied by the executable host. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
-  stateBindingSessionId?: string;
-  /** @deprecated Compatibility input; normalized into stateBindingSessionId. */
-  stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   /** When present, this host instance must never activate tools outside this allowlist. */
@@ -126,7 +132,7 @@ export interface SparkHostRuntimeOptions {
   sessionManager?: SparkHostSessionManagerStub;
   modelRegistry?: SparkHostModelRegistryLike;
   keybindings?: SparkKeybindings | SparkKeybindingsOptions;
-  /** Optional single-shot spark-ai leaf runner exposed to tools via ctx.runLeaf. */
+  /** Optional single-shot spark-llm leaf runner exposed to tools via ctx.runLeaf. */
   leafRunner?: LeafCapabilityRunner;
   /** Optional daemon-native role runner exposed to tools via ctx.runRole. */
   roleRunner?: ExtensionRoleRunner;
@@ -175,14 +181,12 @@ export class SparkHostRuntime implements SparkHostAPI {
     | {
         adapter: "feishu" | "infoflow" | "qqbot";
         externalKey: string;
-        workspaceId?: string;
         recipient?: string;
         adapterId?: string;
         adapterAccountIdentity?: string;
       }
     | undefined;
   readonly invocationId: string | undefined;
-  readonly stateBindingSessionId: string | undefined;
   readonly taskExecutionScope: SparkHostContext["taskExecutionScope"];
   readonly loop: SparkHostLoopContext | undefined;
   readonly sessionQuestionChain: readonly string[] | undefined;
@@ -207,6 +211,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   private sessionLeaseProvider: (() => SparkSessionLeaseIdentity | undefined) | undefined;
   private sessionId: string | undefined;
   private shutdownPromise: Promise<void> | undefined;
+  private driverAuthorityInflight: Promise<SparkDriverAuthority> | undefined;
   private idle = true;
   private readonly keybindings: SparkKeybindings;
 
@@ -221,8 +226,6 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.invocationId = options.invocationId?.trim() || undefined;
     this.taskExecutionScope = options.taskExecutionScope;
     this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
-    this.stateBindingSessionId =
-      options.stateBindingSessionId?.trim() || options.stateOwnerSessionId?.trim() || undefined;
     this.loop = options.loop;
     this.sessionQuestionChain = options.sessionQuestionChain
       ?.map((entry) => entry.trim())
@@ -396,7 +399,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   // ── Host-only surface ───────────────────────────────────────────────────
 
   /**
-   * Plug a real UI transport (typically the spark-cli pi-tui shell) into the
+   * Plug a real UI transport (typically the local spark-web workbench) into the
    * runtime after construction. Until this is called, all UI calls are
    * no-ops; extensions using optional chaining (`ctx.ui?.notify?.(...)`)
    * remain safe.
@@ -436,6 +439,17 @@ export class SparkHostRuntime implements SparkHostAPI {
    */
   isToolDispatchAllowed(name: string, tool: RegisteredTool): boolean {
     return this.tools.get(name) === tool && tool.active && this.isToolAllowed(name, tool.policy);
+  }
+
+  /** Apply the same request-scoped allowlists to Cordis-native DSH tools. */
+  isDshToolDispatchAllowed(name: string, policy: SparkDshToolPolicyMetadata): boolean {
+    return this.isToolAllowed(name, {
+      effect: policy.effect ?? "unknown",
+      executionMode: policy.executionMode ?? "sequential",
+      domains: policy.domains ?? [],
+      modes: policy.modes ?? [],
+      approval: policy.approval ?? "required",
+    });
   }
 
   private isToolAllowed(name: string, policy?: ResolvedToolPolicy): boolean {
@@ -552,6 +566,38 @@ export class SparkHostRuntime implements SparkHostAPI {
     return response;
   }
 
+  async ensureDriverAuthority(
+    ctx: SparkHostContext,
+    signal?: AbortSignal,
+  ): Promise<SparkDriverAuthority> {
+    if (this.driverAuthorityInflight) return await this.driverAuthorityInflight;
+    const pending = this.resolveDriverAuthority(ctx, signal);
+    this.driverAuthorityInflight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.driverAuthorityInflight === pending) this.driverAuthorityInflight = undefined;
+    }
+  }
+
+  private async resolveDriverAuthority(
+    ctx: SparkHostContext,
+    signal?: AbortSignal,
+  ): Promise<SparkDriverAuthority> {
+    if (ctx.driverAuthority) return ctx.driverAuthority;
+    const sessionCtx = hostSessionContext(ctx, this.cwd);
+    const persisted = await loadPersistedDriverAuthority(this.cwd, sessionCtx);
+    if (persisted) return persisted;
+    if (!this.hasUI) {
+      return await persistDriverAuthority(this.cwd, sessionCtx, "granted");
+    }
+    throwIfSignalAborted(signal);
+    const response = await this.requestInteraction(createDriverAuthorityAskRequest());
+    const decided = driverAuthorityFromAskResponse(response);
+    if (!decided) return "denied";
+    return await persistDriverAuthority(this.cwd, sessionCtx, decided);
+  }
+
   publishView(event: SparkViewModelEvent): void {
     this.uiTransport.publishView?.(event);
   }
@@ -607,9 +653,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     return {
       cwd: this.cwd,
       ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
-      ...(this.stateBindingSessionId || this.sessionId
-        ? { sessionId: this.stateBindingSessionId ?? this.sessionId }
-        : {}),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       ...(this.sparkStateRoot ? { sparkStateRoot: this.sparkStateRoot } : {}),
       ...(this.sessionSurface ? { sessionSurface: this.sessionSurface } : {}),
       ...(this.sessionSource ? { sessionSource: this.sessionSource } : {}),
@@ -650,10 +694,7 @@ export class SparkHostRuntime implements SparkHostAPI {
         ? { roleNativeCompatibilityRecovery: { ...this.roleNativeCompatibilityRecovery } }
         : {}),
       ...extra,
-      // A caller may supply the execution/view Session as part of a turn-local
-      // context. Durable tools must nevertheless remain bound to the explicit
-      // state owner selected when this host was created.
-      ...(this.stateBindingSessionId ? { sessionId: this.stateBindingSessionId } : {}),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
     };
   }
 
@@ -777,6 +818,11 @@ export class SparkHostRuntime implements SparkHostAPI {
       handler: config.handler as RegisteredCommand["handler"],
     };
   }
+}
+
+function throwIfSignalAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
 }
 
 export function createSparkHostRuntime(options: SparkHostRuntimeOptions): SparkHostRuntime {

@@ -40,16 +40,16 @@ headline cost only. `cacheWrite` is not an xAI line item; keep `2` like grok-4.5
 
 When adding or retuning a Baidu model, update all that apply:
 
-1. `packages/spark-ai/src/baidu-oneapi.ts`
+1. `packages/spark-llm/src/baidu-oneapi.ts`
    - `GATEWAY_MODEL_BY_ID`
    - `BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS` for Responses models
    - cost constant
    - `models[]` row (comments must cite measurement or vendor docs)
-2. `packages/spark-ai/src/baidu-oneapi-compat-extension.test.ts` — `BAIDU_MODEL_IDS` order matches `models[]`
-3. `apps/spark-tui/src/__tests__/spark-provider-registry.test.ts` — window, maxTokens, transport, cost
-4. `packages/spark-ai/README.md` — catalog ids, transport sentence, measured windows
+2. `packages/spark-llm/src/baidu-oneapi-provider.test.ts` — `BAIDU_MODEL_IDS` order matches `models[]`
+3. `apps/spark-daemon/src/product/__tests__/spark-provider-registry.test.ts` — window, maxTokens, transport, cost
+4. `packages/spark-llm/README.md` — catalog ids, transport sentence, measured windows
 5. Default enable lives in `DEFAULT_SPARK_ENABLED_MODEL_PATTERNS`
-   (`packages/spark-ai/src/control/provider-catalog.ts`). Catalog rows are not
+   (`packages/spark-llm/src/control/provider-catalog.ts`). Catalog rows are not
    automatically enabled. For a successor model:
    - add the new id (or current-family glob such as `baidu-oneapi/gpt-5.6-*`)
    - remove the predecessor from the default list (grok-4.5 → grok-4.6)
@@ -57,25 +57,26 @@ When adding or retuning a Baidu model, update all that apply:
    - add the previous bundled default as a legacy migration set
    - assert `enabledModelIds.includes("baidu-oneapi/<new>")` and
      `!enabledModelIds.includes("baidu-oneapi/<old>")` in
-     `packages/spark-ai/src/spark-provider-control.test.ts`
+     `packages/spark-llm/src/spark-provider-control.test.ts`
 
-Pi compat and native adapters share `baidu-oneapi.ts`. Do not fork the catalog
-in the compat extension.
+Pi compat and native adapters share `baidu-oneapi.ts`. Do not fork the catalog.
 
 ## Other spark-ai providers
 
 OpenAI Codex is adapted from pi-ai's maintained catalog
-(`openai-codex-provider`). Do not duplicate Codex rows into Baidu. New
-standalone providers need a provider plugin, registry tests, and a README
-section; they are out of scope unless the user asked for a new provider.
+(`openai-codex-provider`). Kimi For Coding is the same pattern
+(`kimi-coding-provider`, API key `KIMI_API_KEY`). Do not duplicate those rows
+into Baidu. New standalone providers need a provider plugin, registry tests,
+and a README section; they are out of scope unless the user asked for a new
+provider.
 
 ## Validation
 
 From the repo root (narrowest first):
 
 ```text
-pnpm --filter @zendev-lab/spark-ai test src/baidu-oneapi-compat-extension.test.ts src/control/provider-catalog.test.ts src/spark-provider-control.test.ts
-pnpm --filter @zendev-lab/spark-tui test src/__tests__/spark-provider-registry.test.ts src/__tests__/spark-config.test.ts
+pnpm --filter @zendev-lab/spark-llm test src/baidu-oneapi-provider.test.ts src/kimi-coding-provider.test.ts src/control/provider-catalog.test.ts src/spark-provider-control.test.ts
+pnpm --filter @zendev-lab/spark-daemon test src/product/__tests__/spark-provider-registry.test.ts src/product/__tests__/spark-config.test.ts
 ```
 
 Then the package or repo gate required by `CONTRIBUTING.md`.

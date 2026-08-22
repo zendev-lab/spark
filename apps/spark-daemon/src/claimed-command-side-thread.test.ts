@@ -71,6 +71,7 @@ function makeContext(): {
       config: { installationId: "claimed-side-thread-test", displayName: "Test daemon" },
       db,
       runtimeId: "rt_11111111111111111111111111111111",
+      sparkHome: root,
       runtimeSessionId: undefined,
       setRuntimeSessionId() {},
       ensureHeartbeat() {},

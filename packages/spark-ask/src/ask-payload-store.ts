@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 import { normalizeSparkAskAnswerSource } from "./answer-source.ts";
 import {
   validateSparkAskFlowRequest,
@@ -27,13 +30,13 @@ export class SparkAskFlowPayloadStoreFormatError extends Error {
 
 export class SparkAskFlowPayloadStore {
   /** Save the latest ask payload for the given cwd. */
-  async save(cwd: string, payload: StoredAskPayload): Promise<void> {
-    await writeJsonFileAtomic(askPayloadPath(cwd), payload);
+  async save(cwd: string, payload: StoredAskPayload, ctx?: SparkStateRootContext): Promise<void> {
+    await writeJsonFileAtomic(askPayloadPath(cwd, ctx), payload);
   }
 
   /** Load the latest ask payload for the given cwd. */
-  async load(cwd: string): Promise<StoredAskPayload | null> {
-    const filePath = askPayloadPath(cwd);
+  async load(cwd: string, ctx?: SparkStateRootContext): Promise<StoredAskPayload | null> {
+    const filePath = askPayloadPath(cwd, ctx);
     let raw: string;
     try {
       raw = await readFile(filePath, "utf8");
@@ -45,8 +48,8 @@ export class SparkAskFlowPayloadStore {
   }
 }
 
-function askPayloadPath(cwd: string): string {
-  return join(cwd, ".spark", "asks", "latest.json");
+function askPayloadPath(cwd: string, ctx?: SparkStateRootContext): string {
+  return sparkWorkspaceStatePath(cwd, ["asks", "latest.json"], ctx);
 }
 
 function parseStoredAskPayload(text: string, filePath: string): StoredAskPayload {

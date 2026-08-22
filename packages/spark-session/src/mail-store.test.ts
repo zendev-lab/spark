@@ -221,7 +221,6 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
         },
       ],
       originBinding: {
-        workspaceId: "workspace-info",
         adapter: "infoflow",
         externalKey: "infoflow:user:origin",
         recipient: "origin",
@@ -233,7 +232,6 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
     });
 
     expect(sent.message.originBinding).toEqual({
-      workspaceId: "workspace-info",
       adapter: "infoflow",
       externalKey: "infoflow:user:origin",
       recipient: "origin",
@@ -290,7 +288,6 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
         },
       ],
       originBinding: {
-        workspaceId: "workspace-info",
         adapter: "infoflow",
         externalKey: "infoflow:user:origin",
         recipient: "origin",
@@ -341,5 +338,94 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
     );
     expect(lateRetry).toEqual(uncertain);
     expect(await store.get(sent.message.toSessionId, sent.message.id)).toEqual(uncertain);
+  });
+});
+
+describe("SparkSessionMailStore request queue", () => {
+  it("lists pending request mails FIFO and excludes accepted or notification mails", async () => {
+    const store = await createStore(() => Date.parse("2026-07-15T00:00:01Z"));
+    const first = await store.send({
+      toSessionId: "session:worker",
+      fromSessionId: "session:origin",
+      kind: "request",
+      intent: "work.request",
+      body: "first",
+      idempotencyKey: "request:first",
+      requestExecution: {
+        notifyOnCompletion: true,
+        parentInvocationId: null,
+        origin: { surface: "local", host: "session" },
+      },
+    });
+    const accepted = await store.send({
+      toSessionId: "session:worker",
+      fromSessionId: "session:origin",
+      kind: "request",
+      intent: "work.request",
+      body: "second",
+      idempotencyKey: "request:second",
+    });
+    const notice = await store.send({
+      toSessionId: "session:worker",
+      fromSessionId: "session:origin",
+      kind: "notification",
+      body: "notice",
+      idempotencyKey: "notice:1",
+    });
+    await store.recordRequestAdmission(accepted.message.toSessionId, accepted.message.id, {
+      invocationId: "inv_accepted",
+      status: "queued",
+      acceptedAt: "2026-07-15T00:00:02.000Z",
+    });
+    void notice;
+
+    await expect(store.pendingRequestHeads()).resolves.toEqual([first.message]);
+    await expect(store.pendingRequestsForSession("session:worker")).resolves.toEqual([
+      first.message,
+    ]);
+
+    // The frozen execution envelope survives a reload from disk.
+    const reloaded = new SparkSessionMailStore({ sparkHome: store.sparkHome });
+    const persisted = await reloaded.pendingRequestHeads();
+    expect(persisted[0]).toMatchObject({
+      id: first.message.id,
+      requestExecution: {
+        notifyOnCompletion: true,
+        parentInvocationId: null,
+        origin: { surface: "local", host: "session" },
+      },
+    });
+  });
+
+  it("rejects an idempotency-key reuse that changes the execution envelope", async () => {
+    const store = await createStore();
+    await store.send({
+      toSessionId: "session:worker",
+      fromSessionId: "session:origin",
+      kind: "request",
+      intent: "work.request",
+      body: "task one",
+      idempotencyKey: "request:env",
+      requestExecution: {
+        notifyOnCompletion: false,
+        parentInvocationId: null,
+        origin: { surface: "local", host: "session" },
+      },
+    });
+    await expect(
+      store.send({
+        toSessionId: "session:worker",
+        fromSessionId: "session:origin",
+        kind: "request",
+        intent: "work.request",
+        body: "task one",
+        idempotencyKey: "request:env",
+        requestExecution: {
+          notifyOnCompletion: true,
+          parentInvocationId: null,
+          origin: { surface: "local", host: "session" },
+        },
+      }),
+    ).rejects.toThrow(/reused for a different message/u);
   });
 });

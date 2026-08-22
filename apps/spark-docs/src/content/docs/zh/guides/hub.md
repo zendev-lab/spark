@@ -15,7 +15,7 @@ description: 启动 Hub Web 界面，理解它与 daemon 的关系，并保护�
 
 进入对话后，会话检查器把摘要、产物、变更、任务和 Lanes 分开。活跃 Repro 的
 Lanes 会显示 Implementation、Exactness、Formalize 三张有界卡片，以及向前 handoff、
-向后 resolution 和 `formalizedTip`。该文档来自 daemon 已有的 A2UI 投影；Hub 不保存
+checkpoint receipt 和 `formalizedRevision`。该文档来自 daemon 已有的 A2UI 投影；Hub 不保存
 第二份 Repro store，也不调度 lane 工作。摘要先显示状态与数量；工作目录、模型、
 session ID 和时间放在默认折叠的技术详情中。
 
@@ -29,11 +29,6 @@ spark hub
 ```
 
 打开命令输出的 URL。Hub Web 是控制与投影界面；持久执行仍由 Spark daemon 拥有。
-
-如果此安装之前运行过 Spark Cockpit，请先停止旧进程再启动 Hub。首次打开 Hub
-数据库时会迁移已退役的 XDG 或 `SPARK_HOME` 应用目录，包括 `cockpit.toml` 与
-`cockpit.sqlite`。检测到仍活动的旧锁或源/目标冲突时，迁移会拒绝覆盖。完整映射
-与环境变量兼容窗口见[配置与路径](/zh/reference/configuration-and-paths/)。
 
 如果页面无法加载会话数据，应分别检查两个进程：
 
@@ -52,6 +47,12 @@ Daemon 设置通过当前 workspace 的租约路由。模型页先使用 Hub 最
 daemon 投影快速显示，再提供显式的 daemon 刷新；“已连接”只表示凭据存在。
 使用**快速测试**会向所选模型发送一次受限、无工具的请求，以确认模型确实能够
 响应。调用诊断复用同一条 runtime 连接，不要求 Hub 主机存在 daemon socket。
+
+Channel 属于 daemon 全局设置，不是 Workspace 设置。打开 `/settings/channels`；当
+Hub 发现多个 daemon 时，必须显式选择 installation/runtime。该页面按 adapter ID
+展示所有已配置账号，并把 daemon Channel Session 与 Workspace 对话分开。远端投影
+刻意保持窄范围：绝不暴露凭据、完整 cwd、外部对话 key、账号身份或 transcript。
+配置与失败行为见 [Daemon 全局 Channel](/zh/guides/channels/)。
 
 **Hub 更新**只报告 Hub 安装自身的状态；每个已连接 daemon 仍在其所在机器上独立
 更新。
@@ -100,16 +101,18 @@ streaming response，并拒绝未知公网 host。
 loopback proxy 后使用。公网 origin 改变会改变 daemon 的 server identity，因此应
 显式重新注册受影响的 workspace。
 
-## 注册远程 workspace
+## 连接 daemon 并附加 workspace
 
-先授权 daemon 机器，再用独立的新 registration token 注册每个 workspace：
+workspace 身份在 daemon 上。先授权 daemon 机器；Hub 投影由 daemon 调度，不是 workspace 属性：
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark daemon workspace register . \
-  --server-url https://hub.example \
-  --token <workspace-token> \
-  --name <workspace-name>
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <workspace-token>
 ```
 
-机器连接凭据和一次性 workspace registration token 的 scope 不同，不能互相复用。
+`spark daemon login` 把 daemon 安装（每台机器一个）绑定到 Hub；第一条
+`workspace register` 在本地登记 workspace，带 token 的形式则通过同一个 daemon
+绑定宣告它的 Hub 投影。Hub 以 daemon 安装为绑定单位：workspace 都运行在该
+daemon 上，并作为它的会话组织形式呈现。宣告 Hub 投影仍需要 enrollment token；
+不带 token 时 workspace 保持 daemon 本地，直到被附加。

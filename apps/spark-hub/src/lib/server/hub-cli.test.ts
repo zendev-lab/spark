@@ -119,3 +119,77 @@ it("creates, lists, and shows a durable Hub delegation through canonical CLI com
     messages: [{ sequence: 1, kind: "request", deliveryStatus: "queued" }],
   });
 });
+
+it("lists daemons as the hub binding unit with their workspaces", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spark-hub-cli-"));
+  roots.push(root);
+  const databasePath = join(root, "hub.sqlite");
+  const db = openDatabase({ path: databasePath });
+  migrate(db);
+  const now = "2026-08-03T00:00:00.000Z";
+  const runtimeId = createId("rt");
+  db.prepare(
+    `INSERT INTO runtime_connections
+      (id, installation_id, name, status, protocol_version, capabilities_json, labels_json,
+       enrollment_scopes_json, created_at, updated_at)
+     VALUES (?, 'install-machine-a', 'Machine A daemon', 'online', '1', '{}', '{}',
+             '["daemon:attach", "runtime:refresh"]', ?, ?)`,
+  ).run(runtimeId, now, now);
+  const workspaceId = createId("ws");
+  db.prepare(
+    `INSERT INTO workspaces
+      (id, slug, name, status, settings_json, created_at, updated_at)
+     VALUES (?, 'spore', 'Spore', 'active', '{}', ?, ?)`,
+  ).run(workspaceId, now, now);
+  const bindingId = createId("rtwb");
+  db.prepare(
+    `INSERT INTO runtime_workspace_bindings
+      (id, runtime_id, local_workspace_key, local_path, display_name, status, capabilities_json,
+       diagnostics_json, administrator_session_id, administrator_provisioning_state,
+       created_at, updated_at)
+     VALUES (?, ?, 'spore', '/Users/test/workspaces/spore', 'Spore', 'available', '{}', '{}',
+             'sess_spore_administrator', 'active', ?, ?)`,
+  ).run(bindingId, runtimeId, now, now);
+  db.prepare(
+    `INSERT INTO workspace_leases
+      (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, ended_at, created_at)
+     VALUES (?, ?, ?, 'primary', ?, NULL, ?)`,
+  ).run(createId("wob"), workspaceId, bindingId, now, now);
+  db.close();
+
+  const output: string[] = [];
+  const errors: string[] = [];
+  const code = await runSparkHubCli(
+    ["daemon", "list", "--database", databasePath, "--json"],
+    { write: (text) => output.push(text) },
+    { write: (text) => errors.push(text) },
+  );
+  expect(errors).toEqual([]);
+  expect(code).toBe(0);
+  const parsed = JSON.parse(output.join("\n")) as {
+    plane: string;
+    resource: string;
+    daemons: Array<{
+      id: string;
+      installationId: string;
+      name: string;
+      status: string;
+      workspaceCount: number;
+      workspaceNames: string[];
+      enrollmentScope: string;
+    }>;
+  };
+  expect(parsed).toMatchObject({ plane: "hub", resource: "daemon" });
+  expect(parsed.daemons).toEqual([
+    {
+      id: runtimeId,
+      installationId: "install-machine-a",
+      name: "Machine A daemon",
+      status: "online",
+      protocolVersion: "1",
+      workspaceCount: 1,
+      workspaceNames: ["Spore"],
+      enrollmentScope: "daemon",
+    },
+  ]);
+});

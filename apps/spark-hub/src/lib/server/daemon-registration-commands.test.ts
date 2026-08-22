@@ -20,7 +20,7 @@ describe("daemon registration commands", () => {
         registrationToken: "spark_wsreg_model_repro",
       }),
     ).toBe(
-      "spark daemon workspace register . --server-url https://spark.example.test --token spark_wsreg_model_repro --name 'Model repro' --workspace-name 'Model repro' --workspace-slug model-repro",
+      "spark daemon workspace register . --token spark_wsreg_model_repro --name 'Model repro' --workspace-name 'Model repro' --workspace-slug model-repro",
     );
   });
 

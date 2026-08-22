@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { SparkStateRootContext, ToolConfig } from "@zendev-lab/spark-core";
 
 import { createRecallCandidateGcPlan, type RecallCandidateGcPlan } from "./candidate-lifecycle.ts";
 import {
@@ -28,7 +28,7 @@ import {
 
 export type SparkMemoryKind = "entry" | "learning" | "candidate";
 
-export type SparkMemoryLearningAction =
+type SparkMemoryLearningAction =
   | "record"
   | "search"
   | "list"
@@ -39,7 +39,7 @@ export type SparkMemoryLearningAction =
   | "export_markdown"
   | "import_markdown";
 
-export type SparkMemoryCandidateAction =
+type SparkMemoryCandidateAction =
   | "record"
   | "record_candidate"
   | "list"
@@ -55,6 +55,7 @@ type ToolResult = Awaited<ReturnType<ToolConfig["execute"]>>;
 export async function executeMemoryCandidateAction(input: {
   params: Record<string, unknown>;
   cwd: string;
+  ctx?: SparkStateRootContext;
   storePaths?: RecallStorePaths;
   verifier?: MemoryApprovalVerifier;
   workspaceId?: string;
@@ -63,10 +64,16 @@ export async function executeMemoryCandidateAction(input: {
   const { params, cwd, storePaths } = input;
   const action = normalizeCandidateAction(params.action);
   const scope = normalizeRecallScope(params.scope);
-  const store = defaultRecallStore(cwd, scope, storePaths, {
-    verifier: input.verifier,
-    workspaceId: input.workspaceId,
-  });
+  const store = defaultRecallStore(
+    cwd,
+    scope,
+    storePaths,
+    {
+      verifier: input.verifier,
+      workspaceId: input.workspaceId,
+    },
+    input.ctx,
+  );
   if (action === "record" || action === "record_candidate") {
     const candidate = await store.record({
       scope,
@@ -82,7 +89,9 @@ export async function executeMemoryCandidateAction(input: {
   }
   if (action === "audit" || action === "gc") {
     const candidates = await store.list();
-    const protectedRecordRefs = (await defaultSparkMemoryStore(cwd, scope).list())
+    const protectedRecordRefs = (
+      await defaultSparkMemoryStore(cwd, scope, undefined, undefined, input.ctx).list()
+    )
       .filter((entry) => ["preference", "convention", "correction"].includes(entry.category))
       .map((entry) => entry.id);
     const olderThanDays = optionalNonNegativeNumber(params.olderThanDays, 7, "olderThanDays");
@@ -146,6 +155,7 @@ export async function executeMemoryCandidateAction(input: {
 export async function executeMemoryLearningAction(input: {
   params: Record<string, unknown>;
   cwd: string;
+  ctx?: SparkStateRootContext;
   verifier?: MemoryApprovalVerifier;
   workspaceId?: string;
   authorization?: MemoryMutationAuthorization;
@@ -157,6 +167,7 @@ export async function executeMemoryLearningAction(input: {
     input.verifier,
     input.workspaceId,
     input.authorization,
+    input.ctx,
   );
 }
 
@@ -167,12 +178,18 @@ async function executeBuiltinLearningAction(
   verifier?: MemoryApprovalVerifier,
   workspaceId?: string,
   authorization?: MemoryMutationAuthorization,
+  ctx?: SparkStateRootContext,
 ): Promise<ToolResult> {
   const location = optionalLearningLocation(params.location);
-  const store = defaultLearningStore(cwd, location, {
-    verifier,
-    workspaceId,
-  });
+  const store = defaultLearningStore(
+    cwd,
+    location,
+    {
+      verifier,
+      workspaceId,
+    },
+    ctx,
+  );
 
   if (action === "record") {
     const evidence = await store.record(

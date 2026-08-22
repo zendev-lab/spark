@@ -10,12 +10,58 @@ export const npmTag = releaseVersion.includes("-") ? "next" : "latest";
 export const productsDirectory = resolve(root, "dist/npm-products");
 export const releaseDirectory = resolve(root, "dist/release");
 
+export const nativeNpmDistributions = [
+  {
+    id: "native-darwin-arm64",
+    target: "aarch64-apple-darwin",
+    suffix: "darwin-arm64",
+    os: "darwin",
+    cpu: "arm64",
+  },
+  {
+    id: "native-darwin-x64",
+    target: "x86_64-apple-darwin",
+    suffix: "darwin-x64",
+    os: "darwin",
+    cpu: "x64",
+  },
+  {
+    id: "native-linux-arm64",
+    target: "aarch64-unknown-linux-musl",
+    suffix: "linux-arm64",
+    os: "linux",
+    cpu: "arm64",
+  },
+  {
+    id: "native-linux-x64",
+    target: "x86_64-unknown-linux-musl",
+    suffix: "linux-x64",
+    os: "linux",
+    cpu: "x64",
+  },
+].map((target) => ({
+  ...target,
+  packageName: "@zendev-lab/spark-cli",
+  aliasPackageName: `@zendev-lab/spark-cli-${target.suffix}`,
+  version: `${releaseVersion}-${target.suffix}`,
+  directory: resolve(productsDirectory, "native", target.target),
+  assetName: `spark-cli-${target.target}-npm-v${releaseVersion}.tgz`,
+  manifestName: `native-${target.target}-release-manifest.json`,
+}));
+
+export const nativeOptionalDependencies = Object.fromEntries(
+  nativeNpmDistributions.map((distribution) => [
+    distribution.aliasPackageName,
+    `npm:${distribution.packageName}@${distribution.version}`,
+  ]),
+);
+
 export const npmDistributions = [
   {
     id: "spark",
     packageName: "@zendev-lab/spark",
     description:
-      "Complete Spark installation metadata that pins the CLI, daemon, TUI, and Hub apps.",
+      "Complete Spark installation metadata that pins the CLI, daemon, Hub, and web apps.",
     directory: resolve(productsDirectory, "spark"),
     assetName: `spark-v${releaseVersion}.tgz`,
     manifestName: "release-manifest.json",
@@ -26,7 +72,8 @@ export const npmDistributions = [
       "@zendev-lab/spark-cli",
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
-      "@zendev-lab/spark-tui",
+      "@zendev-lab/spark-web",
+      "@zendev-lab/spark-web-dsh",
     ],
     exports: {},
   },
@@ -38,33 +85,38 @@ export const npmDistributions = [
     assetName: `spark-cli-v${releaseVersion}.tgz`,
     manifestName: "cli-release-manifest.json",
     bins: {
-      spark: "spark-cli.js",
+      spark: "npm-resolver.mjs",
       "spark-acp": "spark-acp.js",
       "spark-daemon": "spark-daemon-companion.js",
       "spark-hub": "spark-hub-companion.js",
       "spark-mcp": "spark-mcp.js",
-      "spark-tui": "spark-tui-companion.js",
-      "spark-update": "spark-update.js",
+      "spark-paths": "spark-paths.js",
+      "spark-web": "spark-web-companion.js",
+      "spark-web-dsh": "spark-web-dsh-companion.js",
     },
     bundles: {
-      "spark-cli.js": "apps/spark-cli/src/cli.ts",
       "spark-acp.js": "packages/spark-acp/bin/spark-acp.ts",
       "spark-mcp.js": "packages/spark-mcp/bin/spark-mcp.ts",
-      "spark-update.js": "packages/spark-update/src/entry.ts",
+      "spark-paths.js": "apps/spark-cli/src/paths.ts",
     },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    copyModules: { "npm-resolver.mjs": "apps/spark-cli/src/npm-resolver.mjs" },
+    files: ["bin", "dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
-      "@zendev-lab/spark-tui",
+      "@zendev-lab/spark-web",
+      "@zendev-lab/spark-web-dsh",
     ],
     exports: {
-      "./cli": "./dist/spark-cli.js",
+      "./acp-executable": "./bin/spark-acp",
       "./mcp-executable": "./bin/spark-mcp",
       "./executable": "./bin/spark",
-      "./update-executable": "./bin/spark-update",
+      "./paths-executable": "./bin/spark-paths",
+      "./resolver": "./dist/npm-resolver.mjs",
+      "./web-executable": "./bin/spark-web",
+      "./web-dsh-executable": "./bin/spark-web-dsh",
     },
-    skills: true,
+    optionalDependencies: nativeOptionalDependencies,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
   },
   {
@@ -76,41 +128,16 @@ export const npmDistributions = [
     manifestName: "daemon-release-manifest.json",
     bins: { "spark-daemon": "spark-daemon.js" },
     bundles: {
-      "spark-headless-role-executor.js": "apps/spark-tui/src/headless-role-executor.ts",
+      "spark-headless-role-executor.js": "apps/spark-daemon/src/headless-role-executor.ts",
     },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    files: ["bin", "dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: {
       "./entrypoint": "./dist/spark-daemon.js",
       "./executable": "./bin/spark-daemon",
       "./headless-role-executor": "./dist/spark-headless-role-executor.js",
     },
-    skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
-  },
-  {
-    id: "tui",
-    packageName: "@zendev-lab/spark-tui",
-    description: "Spark native terminal application.",
-    directory: resolve(productsDirectory, "tui"),
-    assetName: `spark-tui-v${releaseVersion}.tgz`,
-    manifestName: "tui-release-manifest.json",
-    bins: { "spark-tui": "spark-tui-entry.js" },
-    bundles: {
-      "spark-tui-entry.js": "apps/spark-tui/src/cli-entry.ts",
-      "spark-tui-worker.js": "apps/spark-tui/src/cli.ts",
-    },
-    modules: {
-      "spark-headless-role-executor.js":
-        'export * from "@zendev-lab/spark-daemon/headless-role-executor";',
-    },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-    exactDependencies: ["@zendev-lab/spark-daemon"],
-    exports: {
-      "./executable": "./bin/spark-tui",
-      "./headless-role-executor": "./dist/spark-headless-role-executor.js",
-    },
-    skills: true,
   },
   {
     id: "hub",
@@ -129,6 +156,36 @@ export const npmDistributions = [
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-hub" },
     migrationSource: resolve(root, "packages/spark-hub-db/src/migrations"),
+  },
+  {
+    id: "web",
+    packageName: "@zendev-lab/spark-web",
+    description: "Local single-workspace Spark browser workbench bound to the daemon.",
+    directory: resolve(productsDirectory, "web"),
+    assetName: `spark-web-v${releaseVersion}.tgz`,
+    manifestName: "web-release-manifest.json",
+    bins: { "spark-web": "spark-web.js" },
+    bundles: {
+      "spark-web.js": "apps/spark-web/src/product-entry.ts",
+    },
+    files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    exactDependencies: [],
+    exports: { "./executable": "./bin/spark-web" },
+  },
+  {
+    id: "web-dsh",
+    packageName: "@zendev-lab/spark-web-dsh",
+    description: "Optional DeepSeek Harness compatibility workbench for Spark.",
+    directory: resolve(productsDirectory, "web-dsh"),
+    assetName: `spark-web-dsh-v${releaseVersion}.tgz`,
+    manifestName: "web-dsh-release-manifest.json",
+    bins: { "spark-web-dsh": "spark-web-dsh.js" },
+    bundles: {
+      "spark-web-dsh.js": "apps/spark-web-dsh/src/cli-entry.ts",
+    },
+    files: ["bin", "dist", "lib", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    exactDependencies: [],
+    exports: { "./executable": "./bin/spark-web-dsh" },
   },
 ];
 

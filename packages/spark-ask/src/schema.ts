@@ -101,6 +101,7 @@ export const SparkAskFlowRequestSchema = Type.Object({
   mode: Type.Optional(SparkAskFlowMode),
   delivery: Type.Optional(SparkAskDeliverySchema),
   timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_ASK_TIMEOUT_MS })),
+  toSessionId: Type.Optional(Type.String()),
   approvalBinding: Type.Optional(Type.Any()),
   questions: Type.Array(SparkAskFlowQuestionSchema, { minItems: 1, maxItems: MAX_QUESTIONS }),
   behaviour: Type.Optional(SparkAskFlowBehaviourSchema),
@@ -113,6 +114,8 @@ export interface SparkAskFlowRequest extends Static<typeof SparkAskFlowRequestSc
   interactionRequestId?: string;
   /** Host-only detached EvidenceRequest binding; not exposed in the raw alias schema. */
   evidenceRequest?: ExtensionEvidenceRequestBinding;
+  /** Address the ask to this Session instead of User. */
+  toSessionId?: string;
 }
 
 // ---- Answer types ----

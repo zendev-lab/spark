@@ -72,15 +72,13 @@ export function buildHubSearchResults(input: {
       [workspace.name, workspace.slug].join("\n").toLowerCase().includes(query),
     )
     .slice(0, Math.max(0, 8 - sessionResults.length))
-    .map(
-      (workspace): HubSearchResult => ({
-        id: workspace.id,
-        type: "workspace",
-        title: workspace.name,
-        description: `/${workspace.slug}`,
-        href: `/${workspace.slug}`,
-      }),
-    );
+    .map((workspace): HubSearchResult => ({
+      id: workspace.id,
+      type: "workspace",
+      title: workspace.name,
+      description: `/${workspace.slug}`,
+      href: `/${workspace.slug}`,
+    }));
 
   const pageResults = (input.pages ?? [])
     .filter((page) => `${page.title}\n${page.description ?? ""}`.toLowerCase().includes(query))

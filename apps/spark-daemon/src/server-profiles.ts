@@ -6,6 +6,9 @@ import { dirname, join } from "node:path";
 import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 
+import { errorMessage } from "./text.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
+
 const serverProfilesFileVersion = 1;
 const defaultServerProfilesLockTimeoutMs = 10_000;
 const defaultServerProfilesLockRetryIntervalMs = 25;
@@ -109,6 +112,29 @@ export function listSparkDaemonServerProfiles(paths: SparkPaths): SparkDaemonSer
   return [...profiles.values()].sort((left, right) =>
     left.serverUrl.localeCompare(right.serverUrl),
   );
+}
+
+/**
+ * Hub origin this daemon will schedule. Workspace rows do not own this.
+ * `requested` is only an origin selector (or first-enroll target), never workspace identity.
+ */
+export function scheduledSparkDaemonHubOrigin(
+  paths: SparkPaths,
+  requested?: string,
+): { serverUrl?: string; ambiguous: boolean } {
+  if (requested?.trim()) {
+    return { serverUrl: requested.trim(), ambiguous: false };
+  }
+  const runnable = listSparkDaemonServerProfiles(paths).filter((profile) =>
+    Boolean(profile.runtimeId && profile.runtimeToken),
+  );
+  if (runnable.length === 1) {
+    return { serverUrl: runnable[0]!.serverUrl, ambiguous: false };
+  }
+  if (runnable.length > 1) {
+    return { ambiguous: true };
+  }
+  return { ambiguous: false };
 }
 
 /** Look up one Hub profile by its normalized origin. */
@@ -513,10 +539,6 @@ function isErrno(error: unknown, code: string): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === code;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function normalizeServerProfile(profile: SparkDaemonServerProfile): SparkDaemonServerProfile {
   return {
     serverUrl: normalizeSparkDaemonServerUrl(profile.serverUrl),
@@ -572,8 +594,4 @@ function readCredentialFields(
     result[key] = candidate;
   }
   return result;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

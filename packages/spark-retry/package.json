@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-retry",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Zero-dependency retry timing primitives for Spark domain policies.",
   "license": "MIT",
@@ -24,8 +24,5 @@
     "@stryker-mutator/vitest-runner": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=26.0.0 <27"
   }
 }

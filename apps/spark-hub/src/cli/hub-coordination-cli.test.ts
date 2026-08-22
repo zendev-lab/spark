@@ -55,6 +55,46 @@ test("parseSparkHubCliArgs routes Hub coordination resources", () => {
   });
 });
 
+test("parseSparkHubCliArgs preserves aliases, delimiters, and parser errors", () => {
+  assert.deepEqual(
+    parseSparkHubCliArgs([
+      "assign",
+      "create",
+      "positional-session",
+      "--goal",
+      " delegated work ",
+      "-s",
+      " managed-session ",
+      "--json",
+    ]),
+    {
+      resource: "assign",
+      verb: "create",
+      json: true,
+      sessionId: "managed-session",
+      goal: "delegated work",
+      title: undefined,
+      role: undefined,
+      workspaceId: undefined,
+    },
+  );
+  assert.deepEqual(parseSparkHubCliArgs(["project", "status", "--", "--help"]), {
+    resource: "project",
+    verb: "status",
+    json: false,
+    limit: undefined,
+    selector: "--help",
+  });
+  assert.throws(
+    () => parseSparkHubCliArgs(["status", "--limit", "not-a-number"]),
+    /--limit must be a number/u,
+  );
+  assert.throws(
+    () => parseSparkHubCliArgs(["status", "--unknown"]),
+    /Unexpected option or subcommand: `--unknown`/u,
+  );
+});
+
 test("spark hub help documents only the Web presentation lifecycle", () => {
   const help = sparkHubHelpText();
   assert.match(help, /spark hub - Spark Hub Web presentation host/u);
@@ -111,27 +151,6 @@ test("parseSparkHubCliArgs routes workspace access under workspace access", () =
     },
   );
 });
-
-test("spark-hub thin bin routes through the TypeScript surface entry", async () => {
-  const bin = fileURLToPath(new URL("../../bin/spark-hub", import.meta.url));
-  const help = await runBin(bin, ["--help"]);
-  assert.equal(help.code, 0);
-  assert.match(help.stdout, /spark-hub web <start\|status\|stop\|logs>/u);
-  assert.match(help.stdout, /"spark hub \.\.\." dispatcher form forwards/u);
-  assert.doesNotMatch(help.stdout, /spark hub access create/u);
-
-  const unknown = await runBin(bin, ["access", "not-a-real-op", "--json"]);
-  assert.notEqual(unknown.code, 0);
-  assert.doesNotMatch(unknown.stderr, /Unknown spark hub command: access/u);
-  assert.match(
-    `${unknown.stdout}${unknown.stderr}`,
-    /unknown spark hub access operation|create, list, or revoke/iu,
-  );
-
-  const missingWeb = await runBin(bin, ["web", "not-a-real-op"]);
-  assert.notEqual(missingWeb.code, 0);
-  assert.match(`${missingWeb.stdout}${missingWeb.stderr}`, /Unknown spark hub web command/u);
-}, 60_000);
 
 test("spark hub status/project/task/goal/artifact/review/workflow expose stable JSON", async () => {
   const fixture = fixtureHubOptions();
@@ -527,27 +546,6 @@ type AcceptanceInvocation = {
   prompt?: string;
   task?: unknown;
 };
-
-async function runBin(
-  bin: string,
-  args: string[],
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      resolve({ code, stdout, stderr });
-    });
-  });
-}
 
 function startHubAcceptanceDaemon(root: string): ChildProcess {
   return spawn(

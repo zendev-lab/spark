@@ -161,7 +161,12 @@ export function verifySubgoalCompletion(
 
 function normalizeDefinition(input: SparkSubgoalDefinition): SparkSubgoalDefinition {
   const authority = input.authority;
-  if (authority !== "safe_local" && authority !== "ask_decision" && authority !== "ask_approval") {
+  if (
+    authority !== "safe_local" &&
+    authority !== "driver_local" &&
+    authority !== "ask_decision" &&
+    authority !== "ask_approval"
+  ) {
     throw new Error("authority is invalid");
   }
   const dependsOn = uniqueRefs(input.dependsOn ?? [], "subgoal", "dependsOn");

@@ -39,6 +39,7 @@ import {
   stopSparkDaemonPidFileProcess,
   stopSparkDaemonRestartStartedService,
   writeSparkDaemonLaunchdPlist,
+  sparkDaemonSupervisorGraceMs,
 } from "./service.ts";
 
 const paths = resolveSparkPaths({ app: "daemon", env: { HOME: "/tmp/spark-service-test" } });
@@ -222,6 +223,9 @@ setInterval(() => {}, 1000);
         },
         "2026-08-08T00:01:00.000Z",
         {
+          // The source launcher may perform an incremental Cargo build before
+          // it can forward the restart helper IPC handshake.
+          helperReadyTimeoutMs: 60_000,
           helperCommand: [stableLauncher, "daemon"],
           helperEnv: {
             SPARK_DAEMON_COMMAND: target,
@@ -239,7 +243,7 @@ setInterval(() => {}, 1000);
       cancelSparkDaemonRestartSuccessor(bridgePaths);
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, 70_000);
 
   it("revokes a newly published fence when the helper exits before final armed ack", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-service-helper-exit-"));
@@ -381,7 +385,7 @@ setInterval(() => {}, 1000);
           pid: 202,
           instanceId: "target-instance",
           generation: "target-generation",
-          protocolVersion: 2,
+          protocolVersion: 4,
           acceptedRestartId: "restart-1",
         },
       },
@@ -839,7 +843,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
         supervisorManaged: false,
       }),
@@ -925,7 +929,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:new",
         targetInstanceId: "target-new",
         targetGeneration: "target-generation-new",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -967,7 +971,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "linux:definitely-not-this-process",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1004,7 +1008,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1037,7 +1041,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1102,7 +1106,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1293,11 +1297,57 @@ setInterval(() => {}, 1000);
       expect(plist).toContain(
         "<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>",
       );
+      expect(plist).toContain("<key>ThrottleInterval</key>\n  <integer>1</integer>");
       expect(plist).not.toContain("<key>KeepAlive</key>\n  <true/>");
       expect(plist).toContain("<string>__service-start</string>");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("preserves packaged companion paths in the launchd environment", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-service-launchd-package-env-"));
+    const launchdPaths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: { runtimeDir: join(root, "run"), stateDir: join(root, "state") },
+    });
+    const keys = [
+      "SPARK_BUILD_INFO_PATH",
+      "SPARK_DAEMON_ENTRYPOINT",
+      "SPARK_HEADLESS_EXECUTOR_MODULE",
+      "SPARK_PRODUCT_DIST",
+    ] as const;
+    const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+    try {
+      for (const key of keys) process.env[key] = join(root, key.toLowerCase());
+      const plist = readFileSync(
+        writeSparkDaemonLaunchdPlist(launchdPaths, { home: root }),
+        "utf8",
+      );
+      for (const key of keys) {
+        expect(plist).toContain(`<key>${key}</key>`);
+        expect(plist).toContain(`<string>${process.env[key]}</string>`);
+      }
+    } finally {
+      for (const key of keys) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("waits five seconds for Darwin launchd and two seconds for other supervisors", () => {
+    expect(sparkDaemonSupervisorGraceMs({ supervisorMayRestart: true, platform: "darwin" })).toBe(
+      5_000,
+    );
+    expect(sparkDaemonSupervisorGraceMs({ supervisorMayRestart: true, platform: "linux" })).toBe(
+      2_000,
+    );
+    expect(sparkDaemonSupervisorGraceMs({ supervisorMayRestart: false, platform: "darwin" })).toBe(
+      0,
+    );
   });
 
   it("pins launchd to the version-independent managed launcher", () => {
@@ -1382,7 +1432,7 @@ setInterval(() => {}, 1000);
       previousProcessStartToken: "test:old",
       targetInstanceId: "old-target-instance",
       targetGeneration: "old-target-generation",
-      protocolVersion: 2,
+      protocolVersion: 4,
       requestedAt: "2026-07-15T00:01:00.000Z",
     };
     writeFileSync(
@@ -1445,7 +1495,7 @@ setInterval(() => {}, 1000);
       previousProcessStartToken: "test:old",
       targetInstanceId: "new-instance",
       targetGeneration: "new-generation",
-      protocolVersion: 2,
+      protocolVersion: 4,
       requestedAt: "2026-07-17T00:01:00.000Z",
     };
     writeFileSync(

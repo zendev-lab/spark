@@ -10,8 +10,8 @@ also defines the checks to run before changing state when something goes wrong.
 
 - The **daemon** owns execution, sessions, invocations, workspace bindings, and
   recovery.
-- The **TUI** is the interactive terminal host. It presents daemon state and
-  sends user intent to the daemon.
+- The **local web workbench** is the interactive host. It presents daemon state
+  and sends user intent to the daemon.
 - **Hub Web** is the browser coordination and projection surface. It does not
   infer execution state from browser timers or transcript text.
 - Product artifacts are exactly Issues, Git changes, and Documents. A Git change
@@ -137,14 +137,15 @@ separately.
 The generated command has this shape:
 
 ```bash
-spark daemon workspace register . \
-  --server-url http://127.0.0.1:5174 \
-  --token <one-time-workspace-token> \
-  --name <workspace-name>
+spark daemon login --server-url http://127.0.0.1:5174
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <enrollment-token>
 ```
 
-The token is shown once and authorizes one directory. It is not a provider
-credential or a reusable daemon login.
+`spark daemon login` binds the daemon installation (one per machine) to the
+Hub. The first `workspace register` records the workspace locally; the token
+form announces its Hub projection through the same daemon binding. The token
+is shown once and is not a provider credential.
 
 Verify the daemon-owned binding:
 
@@ -159,25 +160,26 @@ binding display name.
 
 ## 5. Create, inspect, and attach a session
 
-Read the server workspace ID from `spark daemon workspace ls --json`, then
-create a managed session:
+Read the protected Administrator Session ID from
+`spark daemon session list --registry --json`, select an exact static RoleRef,
+then create an empty managed child:
 
 ```bash
-spark daemon session create \
-  --workspace <server-workspace-id> \
-  --role operator \
+spark daemon session spawn \
+  --supervisor <administrator-session-id> \
+  --role-ref role:builtin-executor \
   --json
 
 spark daemon session list --registry --json
 spark daemon session show <session-id> --json
 ```
 
-For managed sessions, `role` is the stable division-of-labour identity and is
-also used as the compatibility title. Run attach commands from the same
-canonical workspace:
+`spawn` creates no Invocation. Use `fork` with the same flags only when the
+child needs an independent copy of the supervisor's stable transcript prefix.
+Run attach commands from the same canonical workspace:
 
 ```bash
-spark tui --session-id <session-id>
+spark web
 ```
 
 Hub Web lists the same daemon-owned session under Conversations. Creating a
@@ -223,27 +225,13 @@ unknown mutation or delivery outcome must fail closed rather than replay.
 
 ## 7. Exercise the product workflow
 
-Inside the TUI, use:
-
-```text
-/plan <goal>
-/execute [focus]
-/inspect
-/goal start <objective>
-/repro start <objective>
-/workflow list
-/help commands
-```
-
-`/help` is rendered locally and is never submitted as an agent prompt. Bare
-slash controls enter their final surface directly, and normal selector or
-palette actions execute on one Enter. The TUI owns prompt history, transcript
-viewport scrolling, and idle double-Esc session navigation; use the [TUI
-guide](/guides/tui/) for the current keyboard contract.
+Describe the intended outcome in the [local web workbench](/guides/web/) or
+with `spark run`. Plan, implement, inspect, Goal, Repro, and Workflow remain
+daemon-owned operations; discover their CLI forms with `spark daemon --help`.
 
 Use these surfaces together:
 
-- **Conversations** and the TUI show daemon-owned sessions and turns.
+- **Conversations** and the local web workbench show daemon-owned sessions and turns.
 - **Inbox** shows inline questions and approvals without moving Ask into a
   global modal.
 - **Artifacts** contains only Issues, Git changes, and Documents.
@@ -252,16 +240,8 @@ Use these surfaces together:
 - Goal, Repro, Workflow, and background loops remain distinct; do not collapse
   scheduled, running, retry-waiting, dormant, blocked, and stopped states.
 
-Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),
+Continue with [local web](/guides/web/), [runs and sessions](/guides/runs-and-sessions/),
 [Hub Web](/guides/hub/), and [long-running work](/guides/automation/).
-
-### Renderer status
-
-Spark 0.2.0 keeps the Pi TUI kernel behind the private
-`SparkTerminalController`. OpenTUI is an isolated candidate, not a production
-dependency. A renderer change requires a separate architecture decision and
-evidence from the component, Direct PTY, packaged-product, and supported
-platform validation lanes.
 
 ## 8. Remote access
 
@@ -291,7 +271,8 @@ Help is read-only at every nested surface:
 ```bash
 spark doctor --help
 spark hub web start --help
-spark daemon session create --help
+spark daemon session spawn --help
+spark daemon session fork --help
 ```
 
 If a packaged installation behaves differently, compare `spark version --json`

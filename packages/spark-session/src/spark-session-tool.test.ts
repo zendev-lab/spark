@@ -50,30 +50,41 @@ async function sessionSendRpc(
   };
 }
 
-test("session tool exposes persistent lifecycle, calls, classification, and mail", () => {
+test("session tool exposes explicit spawn/fork lifecycle and mail", () => {
   const tool = registerTestTool({
     request: async () => assert.fail("request should not run during registration"),
   });
   const schema = JSON.stringify(tool.parameters);
   const properties = (tool.parameters as { properties?: Record<string, unknown> }).properties ?? {};
   assert.equal("scope" in properties, false);
+  assert.ok("onActive" in properties);
+  assert.match(JSON.stringify(properties.onActive), /queue/u);
+  assert.match(JSON.stringify(properties.onActive), /interrupt/u);
+  assert.ok("wake" in properties);
   for (const action of [
     "list",
     "get",
-    "create",
-    "call",
+    "spawn",
+    "fork",
     "bind",
     "unbind",
     "archive",
     "restore",
     "close",
     "send",
+    "lookup",
+    "wait",
     "inbox",
     "read",
     "ack",
   ]) {
     assert.match(schema, new RegExp(action));
   }
+  assert.doesNotMatch(schema, /\bcreate\b/u);
+  assert.doesNotMatch(schema, /\bcall\b/u);
+  assert.equal("instruction" in properties, false);
+  assert.equal("roleBinding" in properties, false);
+  assert.ok("roleRef" in properties);
   assert.deepEqual(tool.resolvePolicy?.({ action: "list" }), {
     effect: "read",
     executionMode: "parallel",
@@ -81,7 +92,21 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
     modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
-  assert.deepEqual(tool.resolvePolicy?.({ action: "call" }), {
+  assert.deepEqual(tool.resolvePolicy?.({ action: "lookup" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["sessions"],
+    modes: ["plan", "execute", "fleet"],
+    approval: "none",
+  });
+  assert.deepEqual(tool.resolvePolicy?.({ action: "wait" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["sessions"],
+    modes: ["plan", "execute", "fleet"],
+    approval: "none",
+  });
+  assert.deepEqual(tool.resolvePolicy?.({ action: "spawn" }), {
     effect: "external_write",
     executionMode: "sequential",
     domains: ["sessions"],
@@ -118,13 +143,18 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     if (method === "workspace.ensure-local") return { id: "workspace:test" } as T;
     if (method === "session.list") return [...records.values()] as T;
     if (method === "session.get") return records.get(String(input.sessionId)) as T;
-    if (method === "session.create") {
-      const record = sessionRecord(
-        typeof input.sessionId === "string" ? input.sessionId : "session:new",
-        {
+    if (method === "session.spawn" || method === "session.fork") {
+      const record = {
+        ...sessionRecord(method === "session.spawn" ? "session:spawned" : "session:forked", {
           title: typeof input.name === "string" ? input.name : undefined,
+        }),
+        roleBinding: { kind: "explicit" as const, roleRef: String(input.roleRef) },
+        lineage: {
+          kind: "child" as const,
+          parentSessionId: String(input.supervisorSessionId),
+          origin: { kind: "session" as const },
         },
-      );
+      };
       records.set(record.sessionId, record);
       return record as T;
     }
@@ -211,38 +241,52 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     "session:a",
   );
 
-  const created = await execute(tool, ctx, {
-    action: "create",
-    sessionId: "session:new",
+  const spawned = await execute(tool, ctx, {
+    action: "spawn",
+    roleRef: "role:project-verifier",
     name: "Verification",
   });
   assert.equal(
-    (created.details as { session: { sessionId: string } }).session.sessionId,
-    "session:new",
+    (spawned.details as { session: { sessionId: string } }).session.sessionId,
+    "session:spawned",
   );
-  assert.deepEqual(calls.find((call) => call.method === "session.create")?.params, {
-    sessionId: "session:new",
-    name: "Verification",
-    roleBinding: { kind: "none" },
-    placement: "child",
+  assert.equal((spawned.details as { executionTriggered: boolean }).executionTriggered, false);
+  assert.deepEqual(calls.find((call) => call.method === "session.spawn")?.params, {
     supervisorSessionId: "session:a",
-    cwd: "/workspace/test",
-    scope: { kind: "workspace", workspaceId: "workspace:test" },
+    roleRef: "role:project-verifier",
+    name: "Verification",
+  });
+  const forked = await execute(tool, ctx, {
+    action: "fork",
+    roleRef: "role:project-verifier",
+    cwd: "/workspace/test-copy",
+    cwdArtifactRef: "artifact:git-change-copy",
+  });
+  assert.equal(
+    (forked.details as { session: { sessionId: string } }).session.sessionId,
+    "session:forked",
+  );
+  assert.equal((forked.details as { executionTriggered: boolean }).executionTriggered, false);
+  assert.deepEqual(calls.find((call) => call.method === "session.fork")?.params, {
+    supervisorSessionId: "session:a",
+    roleRef: "role:project-verifier",
+    cwd: "/workspace/test-copy",
+    cwdArtifactRef: "artifact:git-change-copy",
   });
 
   await execute(tool, ctx, {
     action: "bind",
-    sessionId: "session:new",
+    sessionId: "session:spawned",
     externalKey: "infoflow:user:u1",
   });
   await execute(tool, ctx, {
     action: "unbind",
-    sessionId: "session:new",
+    sessionId: "session:spawned",
     externalKey: "infoflow:user:u1",
   });
   const archived = await execute(tool, ctx, {
     action: "archive",
-    sessionId: "session:new",
+    sessionId: "session:spawned",
   });
   assert.equal(
     (archived.details as { session: { placement: string } }).session.placement,
@@ -260,8 +304,8 @@ test("session tool routes managed actions through daemon RPC and classifies surf
       "workspace.ensure-local",
       "session.list",
       "session.get",
-      "workspace.ensure-local",
-      "session.create",
+      "session.spawn",
+      "session.fork",
       "session.bind",
       "session.unbind",
       "session.archive",
@@ -269,37 +313,30 @@ test("session tool routes managed actions through daemon RPC and classifies surf
   );
 });
 
-test("channel sessions can inspect same-workspace local and channel sessions", async () => {
-  const channelCurrent: SparkSessionProjection = {
-    ...sessionRecord("session:channel"),
-    bindings: [
-      {
-        kind: "channel",
-        adapter: "infoflow",
-        externalKey: "infoflow:group:channel",
-        boundAt: NOW,
-      },
-    ],
-  };
+test("channel sessions can inspect only Channel Sessions in the same daemon", async () => {
+  const channelCurrent = daemonChannelRecord("session:channel", [
+    {
+      kind: "channel",
+      adapter: "infoflow",
+      externalKey: "infoflow:group:channel",
+      boundAt: NOW,
+    },
+  ]);
   const localTarget = sessionRecord("session:local");
-  const channelPeer: SparkSessionProjection = {
-    ...sessionRecord("session:channel-peer"),
-    bindings: [
-      {
-        kind: "channel",
-        adapter: "qqbot",
-        externalKey: "qqbot:group:peer",
-        boundAt: NOW,
-      },
-    ],
-  };
-  const otherWorkspace: SparkSessionProjection = {
-    ...sessionRecord("session:other-workspace"),
-    scope: { kind: "workspace", workspaceId: "workspace:other" },
-    owner: { kind: "session", supervisorSessionId: "sess_admin_workspace_other" },
+  const channelPeer = daemonChannelRecord("session:channel-peer", [
+    {
+      kind: "channel",
+      adapter: "qqbot",
+      externalKey: "qqbot:group:peer",
+      boundAt: NOW,
+    },
+  ]);
+  const otherDaemon = {
+    ...daemonChannelRecord("session:other-daemon"),
+    scope: { kind: "daemon" as const, daemonId: "installation:other" },
   };
   const records = new Map(
-    [channelCurrent, localTarget, channelPeer, otherWorkspace].map((record) => [
+    [channelCurrent, localTarget, channelPeer, otherDaemon].map((record) => [
       record.sessionId,
       record,
     ]),
@@ -321,20 +358,16 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     (listed.details as { sessions: Array<{ sessionId: string }> }).sessions.map(
       (session) => session.sessionId,
     ),
-    [channelCurrent.sessionId, localTarget.sessionId, channelPeer.sessionId],
+    [channelCurrent.sessionId, channelPeer.sessionId],
   );
   assert.deepEqual(calls.find((call) => call.method === "session.list")?.params, {
-    scope: { kind: "workspace", workspaceId: "workspace:test" },
+    scope: { kind: "daemon" },
     includeArchived: false,
   });
 
-  const selected = await execute(tool, ctx, {
-    action: "get",
-    sessionId: localTarget.sessionId,
-  });
-  assert.equal(
-    (selected.details as { session: { sessionId: string } }).session.sessionId,
-    localTarget.sessionId,
+  await assert.rejects(
+    () => execute(tool, ctx, { action: "get", sessionId: localTarget.sessionId }),
+    /must be Channel Sessions in the current daemon/u,
   );
   const selectedChannel = await execute(tool, ctx, {
     action: "get",
@@ -345,12 +378,8 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     "channel",
   );
   await assert.rejects(
-    () => execute(tool, ctx, { action: "get", sessionId: otherWorkspace.sessionId }),
-    /must be sessions in the current workspace/u,
-  );
-  await assert.rejects(
-    () => execute(tool, ctx, { action: "list", scope: "daemon" }),
-    /their own workspace only/u,
+    () => execute(tool, ctx, { action: "get", sessionId: otherDaemon.sessionId }),
+    /must be Channel Sessions in the current daemon/u,
   );
   const channelOnly = await execute(tool, ctx, { action: "list", surface: "channel" });
   assert.deepEqual(
@@ -360,7 +389,7 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     [channelCurrent.sessionId, channelPeer.sessionId],
   );
 
-  for (const action of ["create", "call", "bind", "unbind", "archive"] as const) {
+  for (const action of ["spawn", "fork", "bind", "unbind", "archive"] as const) {
     await assert.rejects(
       () => execute(tool, ctx, { action }),
       new RegExp(`cannot use session action=${action}`, "u"),
@@ -368,81 +397,15 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
   }
 });
 
-test("session call uses daemon turn.submit for persistent continuity", async () => {
-  const calls: Array<{ method: string; params: unknown }> = [];
-  const request = async <T>(method: string, params?: unknown): Promise<T> => {
-    calls.push({ method, params });
-    if (method === "session.get") return sessionRecord("session:persistent") as T;
-    if (method === "turn.submit")
-      return {
-        invocationId: "inv_persistentcall",
-        status: "queued",
-        acceptedAt: NOW,
-      } as T;
-    return assert.fail(`unexpected RPC method: ${method}`);
-  };
+test("legacy create and call actions are unknown and never reach the daemon", async () => {
+  const request = async () => assert.fail("legacy actions must not reach the daemon");
   const tool = registerTestTool({ request });
-
-  const result = await execute(tool, context("session:caller"), {
-    action: "call",
-    sessionId: "session:persistent",
-    instruction: "Continue the investigation",
-  });
-  assert.match(toolText(result), /Queued Spark Session call/u);
-  assert.match(toolText(result), /invocation inv_persistentcall was accepted/u);
-  assert.equal((result.details as { sessionLifetime: string }).sessionLifetime, "scoped");
-  assert.deepEqual(calls, [
-    { method: "session.get", params: { sessionId: "session:persistent" } },
-    {
-      method: "turn.submit",
-      params: {
-        sessionId: "session:persistent",
-        prompt: "Continue the investigation",
-        messageMetadata: {
-          origin: {
-            kind: "session",
-            sessionId: "session:caller",
-            surface: "local",
-            host: "session",
-          },
-        },
-      },
-    },
-  ]);
-
-  await assert.rejects(
-    () =>
-      execute(
-        tool,
-        { ...context("session:caller"), sessionSurface: "channel" },
-        {
-          action: "call",
-          sessionId: "session:persistent",
-          instruction: "Channel sessions must forward",
-        },
-      ),
-    /message-platform sessions cannot use session action=call/u,
-  );
-  await assert.rejects(
-    () =>
-      execute(tool, context("session:caller"), {
-        action: "call",
-        sessionId: "session:persistent",
-        instruction: "Ambiguous options",
-        timeoutMs: 5_000,
-      }),
-    /session call does not accept timeoutMs/u,
-  );
-  await assert.rejects(
-    () =>
-      execute(tool, context("session:caller"), {
-        action: "call",
-        sessionId: "session:persistent",
-        instruction: "Invalid reset",
-        reset: "yes",
-      }),
-    /session reset must be a boolean/u,
-  );
+  for (const action of ["create", "call"]) {
+    await assert.rejects(
+      () => execute(tool, context("session:caller"), { action }),
+      /session\.action must be list, get, spawn, fork/u,
+    );
+  }
 });
 
 test("session request delegates durable admission context to the daemon", async () => {
@@ -479,7 +442,7 @@ test("session request delegates durable admission context to the daemon", async 
           surface: "local",
           host: "tui",
         });
-        assert.equal(input.notifyOnCompletion, true);
+        assert.equal(input.wake, false);
         return admitted as T;
       }
       return assert.fail(`unexpected RPC method: ${method}`);
@@ -585,7 +548,7 @@ test("session request delegates durable admission context to the daemon", async 
   }
 });
 
-test("session request blocks for success and preserves causal invocation metadata", async () => {
+test("session request remains one-way and wait polls the durable invocation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-request-success-"));
   try {
     const mailStore = new SparkSessionMailStore({ sparkHome: dir });
@@ -629,7 +592,7 @@ test("session request blocks for success and preserves causal invocation metadat
       sleep: async () => undefined,
     });
 
-    const result = await execute(
+    const sent = await execute(
       tool,
       {
         ...context("session:caller"),
@@ -639,24 +602,34 @@ test("session request blocks for success and preserves causal invocation metadat
       {
         action: "send",
         kind: "request",
-        wait: "completed",
         toSessionId: "session:worker",
         message: "Is the build green?",
-        timeoutMs: 1_000,
       },
       "call-request-success",
+    );
+    assert.equal(
+      (sent.details as { submitted: { invocationId: string } }).submitted.invocationId,
+      "inv_requestsuccess",
+    );
+    const result = await execute(
+      tool,
+      context("session:caller"),
+      {
+        action: "wait",
+        invocationId: "inv_requestsuccess",
+        timeoutMs: 1_000,
+      },
+      "call-request-wait",
     );
 
     assert.equal(toolText(result), "The build is green.");
     const details = result.details as {
       blocking: boolean;
-      executionTriggered: boolean;
       waitTimedOut: boolean;
       answer: string;
       invocationId: string;
     };
     assert.equal(details.blocking, true);
-    assert.equal(details.executionTriggered, true);
     assert.equal(details.waitTimedOut, false);
     assert.equal(details.answer, "The build is green.");
     assert.equal(details.invocationId, "inv_requestsuccess");
@@ -669,7 +642,7 @@ test("session request blocks for success and preserves causal invocation metadat
         body: sendRequest.body,
         idempotencyKey: sendRequest.idempotencyKey,
         origin: sendRequest.origin,
-        notifyOnCompletion: sendRequest.notifyOnCompletion,
+        wake: sendRequest.wake,
         parentInvocationId: sendRequest.parentInvocationId,
       },
       {
@@ -678,7 +651,7 @@ test("session request blocks for success and preserves causal invocation metadat
         body: "Is the build green?",
         idempotencyKey: 'session.tool:["session:caller","call-request-success"]',
         origin: { surface: "local", host: "daemon" },
-        notifyOnCompletion: false,
+        wake: false,
         parentInvocationId: "inv_parent",
       },
     );
@@ -732,11 +705,8 @@ test("session request reports terminal failure without retrying or throwing", as
     });
 
     const result = await execute(tool, context("session:caller"), {
-      action: "send",
-      kind: "request",
-      wait: "completed",
-      toSessionId: "session:worker",
-      message: "Run the check",
+      action: "wait",
+      invocationId: "inv_requestfailed",
     });
 
     assert.match(toolText(result), /inv_requestfailed failed: worker failed/u);
@@ -787,12 +757,15 @@ test("session request timeout stops only the sender wait", async () => {
       },
     });
 
-    const timedOut = await execute(tool, context("session:caller"), {
+    await execute(tool, context("session:caller"), {
       action: "send",
       kind: "request",
-      wait: "completed",
       toSessionId: "session:worker",
       message: "Keep working after I stop waiting",
+    });
+    const timedOut = await execute(tool, context("session:caller"), {
+      action: "wait",
+      invocationId: "inv_requesttimeout",
       timeoutMs: 1_000,
     });
     assert.match(toolText(timedOut), /stopped waiting after 1000ms/u);
@@ -811,6 +784,15 @@ test("session request timeout stops only the sender wait", async () => {
           message: "Reject before persistence",
           timeoutMs: 999,
         }),
+      /session send no longer accepts wait/u,
+    );
+    await assert.rejects(
+      () =>
+        execute(tool, context("session:invalid-timeout"), {
+          action: "wait",
+          invocationId: "inv_requesttimeout",
+          timeoutMs: 999,
+        }),
       /request timeoutMs must be between 1000 and 300000/u,
     );
     assert.equal((await mailStore.list("session:other")).length, 0);
@@ -818,7 +800,6 @@ test("session request timeout stops only the sender wait", async () => {
     const delegated = await execute(tool, context("session:nested"), {
       action: "send",
       kind: "request",
-      wait: "accepted",
       toSessionId: "session:other",
       message: "Delegate asynchronously",
     });
@@ -870,33 +851,27 @@ test("session request preserves durable recovery data when queue acceptance fail
   }
 });
 
-test("channel sessions may request work only from local sessions in their workspace", async () => {
+test("channel sessions may request work only from Channel Sessions in their daemon", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-channel-request-"));
   try {
     const mailStore = new SparkSessionMailStore({ sparkHome: dir });
-    const channelCurrent: SparkSessionProjection = {
-      ...sessionRecord("session:channel"),
-      bindings: [
-        {
-          kind: "channel",
-          adapter: "infoflow",
-          externalKey: "infoflow:user:channel",
-          boundAt: NOW,
-        },
-      ],
-    };
+    const channelCurrent = daemonChannelRecord("session:channel", [
+      {
+        kind: "channel",
+        adapter: "infoflow",
+        externalKey: "infoflow:user:channel",
+        boundAt: NOW,
+      },
+    ]);
     const localTarget = sessionRecord("session:local");
-    const channelTarget: SparkSessionProjection = {
-      ...sessionRecord("session:channel-target"),
-      bindings: [
-        {
-          kind: "channel",
-          adapter: "qqbot",
-          externalKey: "qqbot:c2c:target",
-          boundAt: NOW,
-        },
-      ],
-    };
+    const channelTarget = daemonChannelRecord("session:channel-target", [
+      {
+        kind: "channel",
+        adapter: "qqbot",
+        externalKey: "qqbot:c2c:target",
+        boundAt: NOW,
+      },
+    ]);
     const records = new Map(
       [channelCurrent, localTarget, channelTarget].map((record) => [record.sessionId, record]),
     );
@@ -920,7 +895,6 @@ test("channel sessions may request work only from local sessions in their worksp
       ...context(channelCurrent.sessionId),
       sessionSurface: "channel" as const,
       channelBinding: {
-        workspaceId: "workspace:test",
         adapter: "infoflow" as const,
         adapterId: "infoflow-main",
         externalKey: "infoflow:user:channel",
@@ -931,7 +905,7 @@ test("channel sessions may request work only from local sessions in their worksp
     const requested = await execute(tool, ctx, {
       action: "send",
       kind: "request",
-      toSessionId: localTarget.sessionId,
+      toSessionId: channelTarget.sessionId,
       intent: "work.request",
       message: "Handle this now",
     });
@@ -943,10 +917,10 @@ test("channel sessions may request work only from local sessions in their worksp
         execute(tool, ctx, {
           action: "send",
           kind: "request",
-          toSessionId: channelTarget.sessionId,
-          message: "Do not execute on a channel session",
+          toSessionId: localTarget.sessionId,
+          message: "Do not execute on a Workspace Session",
         }),
-      /request targets must be local sessions/u,
+      /must be Channel Sessions in the current daemon/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -1206,6 +1180,22 @@ function sessionRecord(
     updatedAt: NOW,
     ...(options.title ? { name: options.title } : {}),
   });
+}
+
+function daemonChannelRecord(
+  sessionId: string,
+  bindings: SparkSessionProjection["bindings"] = [],
+): SparkSessionProjection {
+  return {
+    ...sessionRecord(sessionId),
+    scope: { kind: "daemon", daemonId: "installation:test" },
+    lineage: { kind: "root" },
+    lifetime: "persistent",
+    roleBinding: { kind: "none" },
+    purpose: "channel",
+    cwd: `/private/channels/${sessionId}/workspace`,
+    bindings,
+  };
 }
 
 function toolText(result: SessionToolResult): string {

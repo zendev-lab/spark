@@ -134,7 +134,8 @@ Use an authenticated HTTPS browser session for protected pages. Verify:
 - target heartbeat count is positive in both windows and source count remains unchanged;
 - session create/list/bind/unbind/archive and turn submit/cancel/result work over WSS;
 - model catalog/default/session model/thinking and provider logout/OAuth lifecycle work;
-- channel status/configure/reload work and credential flags are redacted;
+- daemon-global channel status/configure/reload work for an explicitly selected
+  installation/runtime, and credential flags are redacted;
 - daemon-local and third-origin bindings do not appear on source or target projections.
 
 Send one secret request to an HTTP test endpoint and require rejection with `daemonExecutionCount: 0`. Run a unique marker through HTTPS/WSS test credentials, then scan Hub SQLite, cache, logs, artifacts, events, audit payloads, durable commands, and generic outbox. Every target must report `matchCount: 0`; only daemon-owned provider/OAuth/channel credential targets may match.

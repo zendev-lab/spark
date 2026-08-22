@@ -1,17 +1,19 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultArtifactStore, defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
+import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
+import type { SparkDaemonModelControl } from "../model-control.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { createDaemonWorkspaceSession } from "../../../../test/support/session-fixtures.ts";
-import { SparkReproFormalEvidenceReceiptStore } from "../store/repro-formal-evidence.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import { SparkTokenUsageStore } from "../store/token-usage.ts";
@@ -48,6 +50,354 @@ describe("transport-neutral local RPC service", () => {
     expect(direct).not.toHaveProperty("id");
     expect(direct).not.toHaveProperty("ok");
     expect(legacy).toEqual({ id: "rpc_workspace_list", ok: true, result: direct });
+    db.close();
+  });
+
+  it("lists and reads ArtifactStore content through bounded workspace-owned chunks", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "artifact-control-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const created = await defaultArtifactStore(workspaceRoot).put({
+      kind: "document",
+      title: "Native report",
+      format: "markdown",
+      body: {
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/markdown",
+        content: "# owner-backed artifact\n",
+        revision: 1,
+      },
+    });
+
+    const listed = await invokeLocalRpcService(
+      "artifact.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(listed).toMatchObject({
+      workspaceId: workspace.id,
+      total: 1,
+      artifacts: [
+        {
+          ref: created.ref,
+          kind: "document",
+          title: "Native report",
+          mediaType: "text/markdown",
+        },
+      ],
+    });
+
+    const first = await invokeLocalRpcService(
+      "artifact.read",
+      { workspaceId: workspace.id, artifactRef: created.ref, maxBytes: 8 },
+      { paths, db },
+    );
+    expect(first.artifact?.ref).toBe(created.ref);
+    expect(first.chunk).toMatchObject({ offsetBytes: 0, nextOffsetBytes: 8, eof: false });
+    expect(Buffer.from(first.chunk?.data ?? "", "base64").toString("utf8")).toBe("# owner-");
+
+    await expect(
+      invokeLocalRpcService(
+        "artifact.read",
+        { workspaceId: workspace.id, artifactRef: "artifact:missing" },
+        { paths, db },
+      ),
+    ).resolves.toEqual({ workspaceId: workspace.id, artifact: null });
+    db.close();
+  });
+
+  it("projects Role and Skill catalogs without exposing resource paths", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "agent-catalog-workspace");
+    const skillRoot = join(workspaceRoot, ".agents", "skills", "browser-check");
+    mkdirSync(skillRoot, { recursive: true });
+    writeFileSync(
+      join(skillRoot, "SKILL.md"),
+      "---\nname: browser-check\ndescription: Verify the Web surface\n---\n\n# Browser check\n",
+      "utf8",
+    );
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+
+    const roles = await invokeLocalRpcService(
+      "role.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(roles.roles.some((role) => role.ref === "role:builtin-administrator")).toBe(true);
+    expect(roles.roles[0]).not.toHaveProperty("systemPrompt");
+
+    const [firstCreate, secondCreate] = await Promise.all(
+      ["Review Web owner boundaries", "Do not overwrite the concurrent winner"].map((description) =>
+        invokeLocalRpcService(
+          "role.create",
+          {
+            workspaceId: workspace.id,
+            id: "web-reviewer",
+            description,
+            systemPrompt: "Verify the implementation against its owner APIs.",
+            capabilities: ["read"],
+            skills: ["browser-check"],
+            modelType: "verification",
+          },
+          { paths, db },
+        ),
+      ),
+    );
+    expect([firstCreate, secondCreate].filter((result) => result.created)).toHaveLength(1);
+    expect(firstCreate.role.ref).toBe(secondCreate.role.ref);
+    expect(firstCreate.role.source).toBe("project");
+    for (const result of [firstCreate, secondCreate]) {
+      expect(result.role).not.toHaveProperty("systemPrompt");
+      expect(result.role.origin).not.toHaveProperty("sourcePath");
+    }
+
+    const modelControl = {
+      async snapshot() {
+        return {
+          providers: [
+            {
+              providerName: "test",
+              label: "Test",
+              auth: { providerName: "test", kind: "none" as const, configured: true },
+              models: [
+                {
+                  model: { providerName: "test", modelId: "reviewer" },
+                  reasoning: true,
+                  input: ["text" as const],
+                  available: true,
+                },
+              ],
+            },
+          ],
+          diagnostics: [],
+        };
+      },
+    } as unknown as SparkDaemonModelControl;
+    const modelOptions = { paths, db, handlerOptions: { modelControl } };
+    await expect(
+      invokeLocalRpcService(
+        "role.model.set",
+        {
+          workspaceId: workspace.id,
+          roleRef: firstCreate.role.ref,
+          model: "test/reviewer",
+          source: "project",
+        },
+        modelOptions,
+      ),
+    ).resolves.toMatchObject({
+      role: { ref: firstCreate.role.ref, modelType: "verification" },
+      setting: { modelType: "verification", model: "test/reviewer", source: "project" },
+    });
+    await expect(
+      invokeLocalRpcService(
+        "role.model.get",
+        { workspaceId: workspace.id, roleRef: firstCreate.role.ref },
+        { paths, db },
+      ),
+    ).resolves.toMatchObject({ setting: { model: "test/reviewer", source: "project" } });
+    await expect(
+      invokeLocalRpcService(
+        "role.model.list",
+        { workspaceId: workspace.id, source: "project" },
+        { paths, db },
+      ),
+    ).resolves.toMatchObject({ entries: [{ modelType: "verification", model: "test/reviewer" }] });
+    await expect(
+      invokeLocalRpcService(
+        "role.model.delete",
+        { workspaceId: workspace.id, roleRef: firstCreate.role.ref, source: "project" },
+        { paths, db },
+      ),
+    ).resolves.toMatchObject({ deleted: true, source: "project" });
+
+    const skills = await invokeLocalRpcService(
+      "skill.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(skills.skills).toContainEqual(
+      expect.objectContaining({ name: "browser-check", layer: "cwd" }),
+    );
+    expect(skills.skills.find((skill) => skill.name === "browser-check")).not.toHaveProperty(
+      "filePath",
+    );
+    expect(skills).not.toHaveProperty("diagnostics");
+    db.close();
+  });
+
+  it("browses only daemon-authorized workspace directories and blocks symlink escapes", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "directory-workspace");
+    const externalRoot = join(paths.dataDir, "outside-workspace");
+    mkdirSync(join(workspaceRoot, "src"), { recursive: true });
+    mkdirSync(externalRoot, { recursive: true });
+    writeFileSync(join(workspaceRoot, "README.md"), "visible file\n", "utf8");
+    symlinkSync(externalRoot, join(workspaceRoot, "escape"));
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+
+    const listed = await invokeLocalRpcService(
+      "workspace.directory.list",
+      { workspaceId: workspace.id },
+      { paths, db },
+    );
+    expect(listed.current.relativePath).toBe("");
+    expect(listed).not.toHaveProperty("path");
+    expect(listed.entries).toContainEqual(
+      expect.objectContaining({ name: "src", kind: "directory", selectable: true }),
+    );
+    expect(listed.entries).toContainEqual(
+      expect.objectContaining({
+        name: "escape",
+        kind: "symlink",
+        selectable: false,
+        blockedReason: "symlink_escape",
+      }),
+    );
+    expect(JSON.stringify(listed)).not.toContain(workspaceRoot);
+    for (const name of ["zeta", "beta", "gamma"]) {
+      mkdirSync(join(workspaceRoot, name));
+    }
+    const bounded = await invokeLocalRpcService(
+      "workspace.directory.list",
+      { workspaceId: workspace.id, limit: 2 },
+      { paths, db },
+    );
+    expect(bounded.entries.map((entry) => entry.name)).toEqual(["beta", "escape"]);
+    expect(bounded.truncated).toBe(true);
+    await expect(
+      invokeLocalRpcService(
+        "workspace.directory.list",
+        { workspaceId: workspace.id, relativePath: "../outside-workspace" },
+        { paths, db },
+      ),
+    ).rejects.toThrow(/traversal/u);
+    db.close();
+  });
+
+  it("searches cold Session history and exports revision-stable sanitized pages", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "search-export-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "search-export-service-test",
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    const store = new SparkSessionStore({
+      cwd: workspaceRoot,
+      sparkHome: paths.sessionRuntimeDir!,
+    });
+    const transcript = store.createCanonicalSession({ id: "session-search-export" });
+    store.appendMessage(transcript, { role: "user", content: "find the cold-history needle" });
+    store.appendMessage(transcript, {
+      role: "assistant",
+      content: "safe <script>alert('never')</script> answer",
+      stopReason: "stop",
+    });
+    await store.save(transcript);
+    await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-search-export",
+      workspaceId: workspace.id,
+      cwd: workspaceRoot,
+      sessionPath: transcript.path,
+    });
+    const service = { paths, db, handlerOptions: { sessionRegistry: registry } };
+
+    const searched = await invokeLocalRpcService(
+      "session.search",
+      { sessionId: "session-search-export", query: "needle" },
+      service,
+    );
+    expect(searched).toMatchObject({ totalMatches: 1, scannedMessages: 2 });
+    expect(searched.matches[0]).toMatchObject({
+      ref: expect.stringMatching(/^message:/u),
+      role: "user",
+    });
+    expect(searched.matches[0]?.excerpt.match(/find the cold-history needle/gu)).toHaveLength(1);
+
+    const global = await invokeLocalRpcService(
+      "search.global",
+      { query: "needle", workspaceId: workspace.id },
+      service,
+    );
+    expect(global.results).toContainEqual(
+      expect.objectContaining({ kind: "message", sessionId: "session-search-export" }),
+    );
+
+    const first = await invokeLocalRpcService(
+      "session.export",
+      { sessionId: "session-search-export", format: "json", limit: 1 },
+      service,
+    );
+    await registry.setNameIfMissing("session-search-export", "Searchable conversation");
+    const retitled = await invokeLocalRpcService(
+      "session.export",
+      { sessionId: "session-search-export", format: "text", limit: 1 },
+      service,
+    );
+    expect(retitled.revision).not.toBe(first.revision);
+    expect(retitled.chunk).toContain("Spark Session Searchable conversation");
+    store.appendMessage(transcript, {
+      role: "user",
+      content: "written after the revision-pinned export began",
+    });
+    await store.save(transcript);
+    const second = await invokeLocalRpcService(
+      "session.export",
+      {
+        sessionId: "session-search-export",
+        format: "json",
+        limit: 1,
+        offset: first.nextOffset,
+        revision: first.revision,
+      },
+      service,
+    );
+    expect(JSON.parse(`${first.chunk}${second.chunk}`)).toMatchObject({
+      sessionId: "session-search-export",
+      messages: [{ role: "user" }, { role: "assistant" }],
+    });
+    const html = await invokeLocalRpcService(
+      "session.export",
+      { sessionId: "session-search-export", format: "html", limit: 10 },
+      service,
+    );
+    expect(html.revision).not.toBe(first.revision);
+    expect(html.totalMessages).toBe(3);
+    expect(html.chunk).toContain("&lt;script&gt;");
+    expect(html.chunk).not.toContain("<script>alert");
+    expect(html.chunk.match(/safe &lt;script&gt;/gu)).toHaveLength(1);
+    db.close();
+  });
+
+  it("surfaces a global-search Session snapshot failure", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "search-failure-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "search-failure-service-test",
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-search-failure",
+      workspaceId: workspace.id,
+      cwd: workspaceRoot,
+      sessionPath: join(workspaceRoot, "missing-transcript.jsonl"),
+    });
+
+    await expect(
+      invokeLocalRpcService(
+        "search.global",
+        { query: "anything", workspaceId: workspace.id },
+        { paths, db, handlerOptions: { sessionRegistry: registry } },
+      ),
+    ).rejects.toThrow(/missing-transcript/u);
     db.close();
   });
 
@@ -93,95 +443,110 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("records only registered-verifier formal Evidence receipts in daemon-owned SQLite", async () => {
+  it("routes spawn and fork into child creation without admitting an Invocation", async () => {
     const { paths, db } = createFixture();
-    const cwd = join(paths.dataDir, "workspace");
+    const cwd = join(paths.dataDir, "managed-child-workspace");
     mkdirSync(cwd, { recursive: true });
     const workspace = registerWorkspace(db, { localPath: cwd });
-    const evidence = await defaultEvidenceStore(cwd).put({
-      ref: "evidence:formal-proof",
-      kind: "record",
-      title: "formal proof",
-      format: "json",
-      body: { signed: true },
-      provenance: { producer: "spark" },
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "managed-child-service-test",
+      daemonCwd: cwd,
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
     });
-    if (!evidence.hash) throw new Error("test Evidence lacks a durable hash");
-    const candidate = {
-      workspaceCwd: cwd,
-      evidenceRef: evidence.ref,
-      evidenceHash: evidence.hash,
-      reproId: "repro-rpc",
-      requirementId: "alignment",
-      stepId: "S1",
-      planRevision: 3,
-      stepDefinitionDigest: "digest:S1",
-      invocationClass: "owning_entrypoint" as const,
-      evidenceClass: "entrypoint" as const,
-      profileDigest: "b".repeat(64),
-      topologyDigest: "c".repeat(64),
-    };
-    const receipt = {
-      schema: "spark.repro.formal-evidence-receipt/v1" as const,
-      ...candidate,
-      workspaceCwd: workspace.localPath,
-      verifierId: "registered-verifier",
-      verifierVersion: "1",
-      verdict: "accepted" as const,
-      verifiedAt: "2026-08-09T00:00:00.000Z",
-      stale: false,
-      superseded: false,
-    };
+    const supervisor = await registry.ensureWorkspaceAdministrator(workspace.id);
+    const store = new SparkSessionStore({
+      cwd: supervisor.cwd!,
+      sparkHome: paths.sessionRuntimeDir!,
+    });
+    const parent = store.createCanonicalSession({ id: supervisor.sessionId });
+    store.appendMessage(parent, { role: "user", content: "stable question" });
+    store.appendMessage(parent, {
+      role: "assistant",
+      content: "stable answer",
+      stopReason: "stop",
+    });
+    store.appendMessage(parent, { role: "user", content: "unstable tail" });
+    await store.save(parent);
+    await registry.bindTranscriptPath({
+      sessionId: supervisor.sessionId,
+      sessionPath: parent.path,
+    });
+    const service = { paths, db, handlerOptions: { sessionRegistry: registry } };
+
+    const spawned = await invokeLocalRpcService(
+      "session.spawn",
+      {
+        supervisorSessionId: supervisor.sessionId,
+        roleRef: "role:builtin-executor",
+        name: "Fresh executor",
+      },
+      service,
+    );
+    const forked = await invokeLocalRpcService(
+      "session.fork",
+      {
+        supervisorSessionId: supervisor.sessionId,
+        roleRef: "role:builtin-reviewer",
+      },
+      service,
+    );
+
+    expect(spawned).toMatchObject({
+      name: "Fresh executor",
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+      lineage: {
+        kind: "child",
+        parentSessionId: supervisor.sessionId,
+        origin: { kind: "session" },
+      },
+      activity: "idle",
+    });
+    expect(forked).toMatchObject({
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-reviewer" },
+      lineage: {
+        kind: "child",
+        parentSessionId: supervisor.sessionId,
+        origin: { kind: "session" },
+      },
+      activity: "idle",
+    });
+    expect((await store.load(spawned.sessionPath!)).entries).toEqual([]);
+    expect((await store.load(forked.sessionPath!)).entries.map((entry) => entry.id)).toEqual(
+      parent.entries.slice(0, 2).map((entry) => entry.id),
+    );
+    expect((await store.load(parent.path)).entries).toHaveLength(3);
+    expect(new SparkInvocationStore(db).list()).toEqual([]);
+    db.close();
+  });
+
+  it("routes Session mode changes through the persisted workspace owner", async () => {
+    const { paths, db } = createFixture();
+    const cwd = join(paths.dataDir, "session-mode-workspace");
+    mkdirSync(cwd, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: cwd });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "session-mode-service-test",
+      daemonCwd: cwd,
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-mode-service",
+      workspaceId: workspace.id,
+      cwd,
+    });
 
     await expect(
       invokeLocalRpcService(
-        "repro.formal-evidence.record",
-        { workspaceCwd: cwd, candidate },
-        { paths, db },
+        "session.mode.set",
+        { sessionId: "session-mode-service", mode: "plan" },
+        { paths, db, handlerOptions: { sessionRegistry: registry } },
       ),
-    ).rejects.toThrow("no registered daemon formal Evidence verifier");
+    ).resolves.toEqual({ sessionId: "session-mode-service", mode: "plan" });
     await expect(
-      invokeLocalRpcService(
-        "repro.formal-evidence.record",
-        { workspaceCwd: cwd, candidate: { ...candidate, evidenceHash: "d".repeat(64) } },
-        {
-          paths,
-          db,
-          handlerOptions: {
-            reproFormalEvidenceVerifier: {
-              async verify() {
-                throw new Error("must not verify a mismatched durable Evidence hash");
-              },
-            },
-          },
-        },
-      ),
-    ).rejects.toThrow("does not match durable workspace Evidence");
-    await expect(
-      invokeLocalRpcService(
-        "repro.formal-evidence.record",
-        { workspaceCwd: cwd, candidate },
-        {
-          paths,
-          db,
-          handlerOptions: {
-            reproFormalEvidenceVerifier: {
-              async verify(actual, body) {
-                expect(actual).toEqual(candidate);
-                expect(body).toEqual({ signed: true });
-                return {
-                  verifierId: "registered-verifier",
-                  verifierVersion: "1",
-                  verdict: "accepted",
-                  verifiedAt: "2026-08-09T00:00:00.000Z",
-                };
-              },
-            },
-          },
-        },
-      ),
-    ).resolves.toEqual({ recorded: true, receipt });
-    expect(new SparkReproFormalEvidenceReceiptStore(db).get(cwd, candidate)).toEqual(receipt);
+      loadSparkSessionWorkspaceState(cwd, { sessionId: "session-mode-service" }),
+    ).resolves.toMatchObject({ version: 4, mode: "plan" });
     db.close();
   });
 
@@ -244,11 +609,9 @@ describe("transport-neutral local RPC service", () => {
     });
     expect(result).not.toHaveProperty("executionCount");
     expect(result).not.toHaveProperty("unsupportedSources");
-    const persistence = await invokeLocalRpcService(
-      "usage.persistence",
-      { scope: { kind: "repro", reproId: "repro-rpc" } },
-      { paths, db },
-    );
+    const persistence = tokenUsage.summarizeByPersistence({
+      scope: { kind: "repro", reproId: "repro-rpc" },
+    });
     expect(persistence).toMatchObject({
       scope: { kind: "repro", reproId: "repro-rpc" },
       byPersistence: {
@@ -258,69 +621,6 @@ describe("transport-neutral local RPC service", () => {
     });
     expect(persistence).not.toHaveProperty("receipts");
     expect(tokenUsage.receiptCount()).toBe(before);
-    db.close();
-  });
-
-  it("imports only explicitly attributed legacy usage and records provable coverage gaps", async () => {
-    const { paths, db } = createFixture();
-    const invocation = new SparkInvocationStore(db).submit({
-      sessionId: "session-legacy-rpc",
-      prompt: "legacy",
-      now: "2026-08-03T00:00:00.000Z",
-    });
-    const common = {
-      invocationId: invocation.invocationId,
-      scope: { kind: "repro" as const, reproId: "repro-legacy-rpc" },
-      executionKind: "root_session" as const,
-      persistence: "persistent" as const,
-      observedAt: "2026-08-03T00:00:01.000Z",
-    };
-    const response = {
-      ...common,
-      action: "response" as const,
-      sourceEventId: "assistant-entry-1",
-      provider: "openai",
-      model: "legacy-model",
-      usage: {
-        inputTokens: 5,
-        outputTokens: 3,
-        cacheReadTokens: 1,
-        cacheWriteTokens: 0,
-        totalTokens: 9,
-      },
-    };
-    await expect(invokeLocalRpcService("usage.backfill", response, { paths, db })).resolves.toEqual(
-      { recorded: true },
-    );
-    await expect(invokeLocalRpcService("usage.backfill", response, { paths, db })).resolves.toEqual(
-      { recorded: false },
-    );
-    await expect(
-      invokeLocalRpcService(
-        "usage.backfill",
-        {
-          ...common,
-          action: "coverage_gap",
-          sourceEventId: "assistant-range-unproven",
-          executionId: "legacy-gap:assistant-range-unproven",
-          reason: "unproven_seed_boundary",
-        },
-        { paths, db },
-      ),
-    ).resolves.toEqual({ recorded: true });
-
-    const aggregate = await invokeLocalRpcService(
-      "usage.summary",
-      { scope: common.scope },
-      { paths, db },
-    );
-    expect(aggregate).toMatchObject({
-      quality: "partial",
-      totalTokens: 9,
-      responseCount: 2,
-      missingResponseCount: 1,
-      coverageGapCount: 1,
-    });
     db.close();
   });
 

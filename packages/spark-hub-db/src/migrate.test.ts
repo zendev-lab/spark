@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { openMemoryDatabase } from "./client.js";
+import { ensureHubInstanceId, readHubInstanceId } from "./hub-snapshot.js";
 import { loadMigrations, migrate } from "./migrate.js";
 
 function tableExists(db: ReturnType<typeof openMemoryDatabase>, table: string) {
@@ -92,7 +93,6 @@ describe("migrations", () => {
       "runtime_session_projections_scope_lifecycle_idx",
       "runtime_invocation_projections_session_status_idx",
       "runtime_invocation_event_projections_cursor_idx",
-      "runtime_channel_control_projections_workspace_idx",
       "runtime_ephemeral_secret_audit_runtime_created_idx",
       "events_ingest_sequence_unique",
       "events_workspace_session_created_idx",
@@ -110,8 +110,8 @@ describe("migrations", () => {
     const runtimeSessionSchema = db
       .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get("runtime_session_projections") as { sql: string };
-    for (const ownerKind of [
-      "workspace",
+    for (const lineageOriginKind of [
+      "root",
       "session",
       "side_thread",
       "task_run",
@@ -121,9 +121,22 @@ describe("migrations", () => {
       "driver_tick",
       "invocation",
     ]) {
-      expect(runtimeSessionSchema.sql).toContain(`'${ownerKind}'`);
+      expect(runtimeSessionSchema.sql).toContain(`'${lineageOriginKind}'`);
     }
+    expect(runtimeSessionSchema.sql).toContain("lineage_origin_kind");
+    expect(runtimeSessionSchema.sql).not.toContain("owner_kind");
     expect(runtimeSessionSchema.sql).not.toContain("'driver_generation'");
+
+    const runtimeChannelSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("runtime_channel_control_projections") as { sql: string };
+    expect(runtimeChannelSchema.sql).toContain("runtime_id TEXT PRIMARY KEY");
+    expect(runtimeChannelSchema.sql).not.toContain("workspace_id");
+
+    const ephemeralSecretAuditSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("runtime_ephemeral_secret_audit") as { sql: string };
+    expect(ephemeralSecretAuditSchema.sql).not.toContain("workspace_id");
 
     const versions = db
       .prepare("SELECT version FROM schema_migrations ORDER BY version")
@@ -153,6 +166,9 @@ describe("migrations", () => {
       "0021",
       "0022",
       "0023",
+      "0024",
+      "0025",
+      "0026",
     ]);
 
     const bindingColumns = db
@@ -176,7 +192,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(23);
+    expect(migrationCount.count).toBe(26);
     db.close();
   });
 
@@ -241,6 +257,30 @@ describe("migrations", () => {
         .prepare("SELECT value_json AS valueJson FROM app_settings WHERE key = ?")
         .get("spark_hub:instance_id"),
     ).toEqual({ valueJson: JSON.stringify(instanceId) });
+    db.close();
+  });
+
+  it("mints a new Hub instance id when a retired Cockpit identity remains after 0022", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0021"),
+    );
+    const now = "2026-07-21T00:00:00.000Z";
+    const retiredId = "cockpit_11111111111111111111111111111111";
+    db.prepare("INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)").run(
+      "spark_cockpit:instance_id",
+      JSON.stringify(retiredId),
+      now,
+    );
+    migrate(db, migrations);
+
+    expect(readHubInstanceId(db)).toBeNull();
+    const minted = ensureHubInstanceId(db, { now });
+    expect(minted).toMatch(/^hub_[a-f0-9]{32}$/u);
+    expect(minted).not.toBe(retiredId);
+    expect(readHubInstanceId(db)).toBe(minted);
     db.close();
   });
 

@@ -47,18 +47,36 @@ spark daemon invocation cancel <invocation-id> --reason "不再需要" --json
 
 ```bash
 spark daemon session list --json
-spark tui --session-id <session-id>
+spark web
 ```
 
 会话标识会保留对话与执行连续性，但不会绕过 workspace 绑定或权限检查。
 
-每个 workspace 只有一个受保护的 Administrator 根 Session。Role、Skill、Task 与
-Workflow 工作运行在 owner-bound 子 Session 中；活跃状态由 queued/running
-Invocation 推导，不依赖 UI 计时器。临时 owned 子 Session 会随 owner 关闭并默认删除
+每个 workspace 只有一个受保护的 Administrator 根 Session；普通 workspace 对话是
+该 root 下保留内容的子 Session。运行时会话实体始终是 Session。Role 是静态定义，
+运行时通过 `roleBinding` 绑到 Session 上。人类操作者不是 Role；根 Session 始终
+绑定 builtin `administrator`。任何具有 child lineage 的 Session 都是 subsession，
+无论 origin 来自 Side Thread、TaskRun、Workflow、driver、driver tick 还是 Invocation。
+通过 `session spawn|fork` 创建、带显式 Role 绑定的子 Session 是 subagent；这只是
+呈现用语，不是第二种运行时类型。官方 DSH 的 `subagent` / `subagent_fork` 工具
+是兼容映射：内部是 `session spawn|fork` 再 `session send`；原生 session 工具
+仍可单独调用。
+活跃状态由 queued/running
+Invocation 推导，不依赖 UI 计时器。原生会话视图的 `status` 使用同一组三个值
+（`idle`、`queued`、`running`）；queued Invocation 不会被折叠成 `running`。临时 owned 子 Session 会随 owner 关闭并默认删除
 完整 transcript；只有保留公开记录的 Session 才能用同一稳定 ID、incarnation 和
-transcript 恢复。新的 TUI、Hub 和 ACP 对话是该根 Session 下保留内容的 scoped 子
-Session。Channel 对话使用同一父级，但保留 Channel 路由与 state binding。Loop 的活动从
-`driver` 或 `driver_tick` 子 Session 上卷，且不会暴露子 Session 的私有 prompt。
+transcript 恢复。新的本地 Web、Hub 和 ACP 对话是该根 Session 下保留内容的 scoped 子
+Session。Channel 对话是单独的 daemon-scoped root Session，不要求 Workspace；Hub 会
+把它们显示在 Workspace tree 之外。父 Session 的自身活动与
+有界 descendant activity 分开显示。driver/driver-tick 子 Session 与父人工 turn
+共享持久 FIFO serialization key，因此只会排队而不会并发；普通子 Session 和 Repro
+lane 仍按各自 Session ID 独立串行。
+
+Spark 0.4.0 提供从 Session registry v6→v7、Repro v9→v10 的中间升级；当前 daemon
+继续把 registry v7→v8，并迁移符合条件的旧 Channel child。每一步都会先创建备份，
+在临时文件中完成迁移并回读校验，再提交新状态。更老或存在歧义的状态会 fail
+closed；必须先经中间版本升级，才能启动更新版本的 daemon。Channel 冲突行为见
+[Daemon 全局 Channel](/zh/guides/channels/)。
 
 owned 临时 Session 删除内容前，Spark 会先封存一份有界关闭摘要。Role 与 Skill 子
 Session 复用其结构化 outcome 和最终 assistant result；Task 与 Repro 子 Session
@@ -67,9 +85,50 @@ Invocation、Evidence 与 Artifact 引用。没有有效语义结果时，Spark 
 的确定性 fallback，并继续清理内容。该 receipt 是可查询的 Session 元数据，不是
 Evidence 或 Memory。
 
+## 创建 Role-bound Session
+
+先创建或选择静态 Role。在可使用工具的 Session 中，`spawn` 创建空子 Session，
+`fork` 则把当前 Session 的稳定 transcript 前缀复制到一份独立子 Session：
+
+```ts
+session({ action: "spawn", roleRef: "role:project-executor", name: "实现" })
+session({ action: "fork", roleRef: "role:builtin-reviewer", name: "审查" })
+```
+
+CLI 调用必须显式指定 supervisor：
+
+```bash
+spark daemon session spawn --supervisor <session-id> --role-ref <RoleRef> --json
+spark daemon session fork --supervisor <session-id> --role-ref <RoleRef> --json
+```
+
+两个命令都不接收 instruction，也不会创建 Invocation。拿到子 Session 后，再单独触发工作：
+
+```ts
+session({
+  action: "send",
+  kind: "request",
+  toSessionId: "<child-session-id>",
+  message: "运行聚焦验证并报告证据。"
+})
+```
+
+fork 不会与父 Session 共享可写 transcript tail；父子后续 append 与 compact 完全独立。
+复制稳定前缀期间父 transcript 若发生变化，Spark 会重试一次，之后返回
+`session_transcript_changed`，不会创建撕裂快照。
+
+## 在 Session 之间发送工作
+
+未设置 `onActive` 的 Session request 只尝试投递给空闲目标。目标空闲时，Spark 会立即提交；目标处于 queued 或 running 状态时，Spark 不会持久化消息，并返回 `session_mail_target_active`，提示调用方显式选择一种重试策略：
+
+- `onActive: "queue"`：把 request 放入目标的持久 FIFO 队列。每个目标最多保留三个 pending request；队列已满时不会再写入消息。
+- `onActive: "interrupt"`：先取消目标当前的 invocation，再提交新 request。
+
+Notification 仍然只做持久化，不会触发目标执行。
+
 ## 应该使用哪一种？
 
 - 只要一个前台结果时使用 `spark run`。
 - 希望 shell 在持久提交后立即返回时使用 `spark bg`。
-- 需要交互探索与 steering 时使用 `spark` 或 `spark tui`。
+- 需要交互探索与 steering 时使用 `spark web`。
 - 需要从浏览器观察和控制现有 daemon 工作时使用 Hub Web。

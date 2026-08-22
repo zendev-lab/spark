@@ -16,4 +16,4 @@ Retired Pi/component-specific path variables are not active overrides.
 
 See [`../../.agents/notes/contracts/configuration-and-paths.md`](../../.agents/notes/contracts/configuration-and-paths.md) for layout, precedence, and migration policy.
 
-This package is part of the Spark monorepo and targets Node 26.
+This package is part of the Spark monorepo and targets Node 24 and newer.

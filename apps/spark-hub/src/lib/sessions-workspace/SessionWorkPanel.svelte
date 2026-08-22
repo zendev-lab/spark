@@ -20,7 +20,7 @@
   let loop = $derived(primarySessionLoop(session));
   let semanticStatus = $derived(sessionWorkStatus(session));
   let objective = $derived(sessionWorkObjective(session));
-  let currentStep = $derived(repro?.plan.currentStep);
+  let checkpoint = $derived(repro?.checkpoint);
   let statusIcon = $derived.by((): IconName => {
     if (semanticStatus === "blocked" || semanticStatus === "retry_wait") return "warning";
     if (semanticStatus === "complete") return "check";
@@ -58,7 +58,6 @@
             <ReproWorkbench
               sessionId={session!.sessionId}
               binding={repro.workbench}
-              canControl={host.canAssign}
               labels={{
                 aria: host.copy.reproWorkbenchAria,
                 loading: host.copy.reproWorkbenchLoading,
@@ -73,113 +72,76 @@
         {/if}
         <article class="work-card current-step">
           <p class="field-label">{host.copy.currentStep}</p>
-          {#if currentStep}
-            <h3>{currentStep.goal}</h3>
+          {#if checkpoint}
+            <h3>{checkpoint.kind}</h3>
             <p class="step-meta">
-              {repro.stage.title} · {host.copy.stepProgress
-                .replace("{done}", String(repro.plan.completedSteps))
-                .replace("{total}", String(repro.plan.totalSteps))}
+              {checkpoint.status} · {host.copy.stepProgress
+                .replace("{done}", String(repro.progress.accepted))
+                .replace("{total}", String(repro.progress.total))}
             </p>
-            {#if currentStep.doneWhen.length > 0}
+            {#if checkpoint.summary}
               <div class="field-block">
-                <p class="field-label">{host.copy.doneWhen}</p>
-                <ul>
-                  {#each currentStep.doneWhen as condition}
-                    <li>{condition}</li>
-                  {/each}
-                </ul>
+                <p class="field-label">Summary</p>
+                <p>{checkpoint.summary}</p>
               </div>
             {/if}
-            {#if currentStep.evidenceRequired.length > 0}
+            {#if checkpoint.evidenceRefs.length > 0}
               <div class="field-block">
-                <p class="field-label">{host.copy.evidenceRequired}</p>
-                <ul>
-                  {#each currentStep.evidenceRequired as requirement}
-                    <li>{requirement}</li>
+                <p class="field-label">{host.copy.evidenceReferences}</p>
+                <div class="evidence-refs">
+                  {#each checkpoint.evidenceRefs as reference}
+                    <code>{reference}</code>
                   {/each}
-                </ul>
+                </div>
               </div>
             {/if}
-            {#if currentStep.blocker}
+            {#if checkpoint.attention}
               <div class="blocker" role="status">
                 <Icon name="warning" size={15} />
                 <div>
                   <p class="field-label">{host.copy.blocker}</p>
-                  <p>{currentStep.blocker}</p>
+                  <p>{checkpoint.attention.question}</p>
                 </div>
               </div>
             {/if}
           {:else}
             <h3>{host.copy.noCurrentStep}</h3>
-            <p class="step-meta">{repro.stage.title}</p>
+            <p class="step-meta">{repro.status}</p>
           {/if}
         </article>
 
         <aside class="work-card work-context">
           <dl>
             <div>
-              <dt>{host.copy.stage}</dt>
-              <dd>{repro.stage.index + 1}/{repro.stage.total} · {repro.stage.title}</dd>
+              <dt>Checkpoints</dt>
+              <dd>{repro.progress.accepted}/{repro.progress.total}</dd>
             </div>
             <div>
-              <dt>{host.copy.phase}</dt>
-              <dd>{repro.stage.phase}</dd>
+              <dt>Implementation</dt>
+              <dd><code>{repro.lanes.implementation.sessionId}</code></dd>
             </div>
             <div>
-              <dt>{host.copy.goalContract}</dt>
-              <dd>{repro.contractStatus}</dd>
+              <dt>Exactness</dt>
+              <dd><code>{repro.lanes.exactness.sessionId}</code></dd>
             </div>
             <div>
-              <dt>{host.copy.stopGuard}</dt>
-              <dd>{repro.stopGuard.decision} · {repro.stopGuard.stagnationCount}/{repro.stopGuard.limit}</dd>
+              <dt>Formalize</dt>
+              <dd><code>{repro.lanes.formalize.sessionId}</code></dd>
             </div>
-            {#if loop?.dueAt}
+            {#if repro.formalizedRevision}
               <div>
-                <dt>{host.copy.nextSchedule}</dt>
-                <dd>{host.relative(loop.dueAt)}</dd>
+                <dt>Formalized revision</dt>
+                <dd><code>{repro.formalizedRevision}</code></dd>
               </div>
             {/if}
-            {#if loop}
+            {#if repro.blockingReason}
               <div>
-                <dt>Loop</dt>
-                <dd>{loop.status} · generation {loop.generation}</dd>
-              </div>
-              <div>
-                <dt>Cycle checkpoint</dt>
-                <dd>{loop.checkpoint?.step ?? loop.cycleStep ?? "settled"}</dd>
-              </div>
-            {/if}
-            {#if loop?.reason}
-              <div>
-                <dt>{host.copy.reason}</dt>
-                <dd>{loop.reason}</dd>
+                <dt>{host.copy.blocker}</dt>
+                <dd>{repro.blockingReason}</dd>
               </div>
             {/if}
           </dl>
         </aside>
-
-        {#if repro.latestVerification}
-          <article class="work-card verification-receipt">
-            <div class="receipt-heading">
-              <Icon name="check" size={16} />
-              <div>
-                <p class="field-label">{host.copy.latestVerification}</p>
-                <h3>{repro.latestVerification.stepId}</h3>
-              </div>
-            </div>
-            <p class="receipt-kind">{repro.latestVerification.proofKind}</p>
-            <ul>
-              {#each repro.latestVerification.verifiedDoneWhen as condition}
-                <li>{condition}</li>
-              {/each}
-            </ul>
-            <div class="evidence-refs" aria-label={host.copy.evidenceReferences}>
-              {#each repro.latestVerification.evidenceRefs as reference}
-                <code>{reference}</code>
-              {/each}
-            </div>
-          </article>
-        {/if}
 
         {#if repro.tokenUsage}
           <ReproTokenUsage
@@ -345,7 +307,6 @@
 
   .step-meta,
   .field-block,
-  .work-card li,
   .work-context dd {
     color: var(--color-ink-muted);
     font-size: 13px;
@@ -356,13 +317,6 @@
     display: grid;
     gap: 5px;
     margin-top: 4px;
-  }
-
-  ul {
-    display: grid;
-    gap: 4px;
-    margin: 0;
-    padding-left: 18px;
   }
 
   .blocker {

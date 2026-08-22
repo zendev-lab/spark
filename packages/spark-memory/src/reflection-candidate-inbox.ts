@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { sparkWorkspaceStatePath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+
 import {
   isLikelyReflectionHarnessText,
   type ReflectionObservation,
@@ -61,8 +63,12 @@ export interface ReflectionCandidateBuildOptions {
   includeHarnessPrompts?: boolean;
 }
 
-export function reflectionCandidateStorePath(cwd: string, name = "candidates"): string {
-  return join(cwd, ".spark", "memory", "reflections", `${name}.json`);
+export function reflectionCandidateStorePath(
+  cwd: string,
+  name = "candidates",
+  ctx?: SparkStateRootContext,
+): string {
+  return sparkWorkspaceStatePath(cwd, ["memory", "reflections", `${name}.json`], ctx);
 }
 
 export function emptyReflectionCandidateStore(

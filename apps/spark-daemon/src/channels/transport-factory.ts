@@ -1,21 +1,22 @@
 import {
+  channelAdapterAccountIdentity,
   createQqbotTransport as createDefaultQqbotTransport,
   type ChannelAdapterConfig,
   type ChannelTransport,
   type QqbotAdapterConfig,
   type QqbotTransportOptions,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import type { DatabaseSync } from "node:sqlite";
 import { SparkQqbotGatewayCursorStore } from "../store/qqbot-gateway-cursors.ts";
 
 export interface DaemonChannelTransportContext {
-  workspaceId: string;
   adapterId: string;
   config: ChannelAdapterConfig;
 }
 
 export type DaemonChannelTransportFactory = (
-  context: DaemonChannelTransportContext,
+  adapterId: string,
+  config: ChannelAdapterConfig,
 ) => ChannelTransport | undefined;
 
 export interface DaemonChannelTransportFactoryOptions {
@@ -26,18 +27,19 @@ export interface DaemonChannelTransportFactoryOptions {
   ) => ChannelTransport;
 }
 
-/** Keep workspace identity and SQLite ownership out of spark-channels. */
+/** Keep SQLite cursor ownership out of dsh-channels. */
 export function createDaemonChannelTransportFactory(
   db: DatabaseSync,
   options: DaemonChannelTransportFactoryOptions = {},
 ): DaemonChannelTransportFactory {
   const cursors = options.cursorStore ?? new SparkQqbotGatewayCursorStore(db);
   const createQqbot = options.createQqbotTransport ?? createDefaultQqbotTransport;
-  return ({ workspaceId, adapterId, config }) => {
+  return (adapterId, config) => {
     if (config.type !== "qqbot") return undefined;
+    const adapterAccountIdentity = channelAdapterAccountIdentity(config);
     return createQqbot(config, {
-      loadCursor: () => cursors.get(workspaceId, adapterId) ?? null,
-      saveCursor: (cursor) => cursors.save(workspaceId, adapterId, cursor),
+      loadCursor: () => cursors.get(adapterAccountIdentity, adapterId) ?? null,
+      saveCursor: (cursor) => cursors.save(adapterAccountIdentity, cursor),
     });
   };
 }

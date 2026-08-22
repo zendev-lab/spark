@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-lab/spark-channels";
+import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-lab/dsh-channels";
 import {
+  isSparkInvocationTerminalStatus,
   parseSparkSessionView,
-  sparkInvocationListRequestSchema,
   sparkTurnResultSchema,
   type SparkInvocationStatus,
   type SparkSessionMailChannelDeliveryView,
@@ -23,7 +23,6 @@ import {
 import { RegistrationGrantRefusedError } from "../registration.js";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
-import { invocationListControlResult } from "../session-control.ts";
 import {
   SparkDaemonHumanWaitLookupError,
   type SparkDaemonHumanWaitRegistry,
@@ -34,18 +33,23 @@ import { SparkDaemonControlError } from "../control-error.ts";
 import { isRecord } from "./is-record.ts";
 import {
   SparkDaemonStillStartingError,
-  type LocalInvocationListResult,
   type LocalRpcErrorPayload,
   type LocalRpcHandlerOptions,
   type LocalTurnResult,
   type LocalWorkspaceClientResult,
 } from "./types.ts";
 
-export {
-  deliverSessionNotificationFromLocalRpc,
-  requireChannelIngress,
-  requireSessionRegistry,
-} from "./session-notification-helpers.ts";
+export function requireChannelIngress(
+  options: LocalRpcHandlerOptions,
+): NonNullable<LocalRpcHandlerOptions["channelIngress"]> {
+  if (!options.channelIngress) {
+    throw new SparkDaemonControlError(
+      "channel_runtime_unavailable",
+      "Spark daemon channel runtime is not available.",
+    );
+  }
+  return options.channelIngress;
+}
 
 export function isLocalRpcSafeWhileAdmissionClosed(method: string): boolean {
   return (
@@ -220,7 +224,7 @@ export function invocationResult(
   invocationId: string,
 ): LocalTurnResult {
   const invocation = store.require(invocationId);
-  if (!isTerminalInvocationStatus(invocation.status)) {
+  if (!isSparkInvocationTerminalStatus(invocation.status)) {
     throw new SparkDaemonControlError(
       "invocation_not_terminal",
       `Invocation ${invocationId} is ${invocation.status}, not terminal.`,
@@ -248,13 +252,6 @@ export function boundedAssistantText(result: unknown): string | undefined {
   if (!isRecord(result) || typeof result.assistantText !== "string") return undefined;
   const text = result.assistantText.trim();
   return text ? text.slice(0, 262_144) : undefined;
-}
-
-export function invocationListResult(
-  store: SparkInvocationStore,
-  params: ReturnType<typeof sparkInvocationListRequestSchema.parse>,
-): LocalInvocationListResult {
-  return invocationListControlResult(store, params);
 }
 
 export function isTerminalInvocationStatus(status: SparkInvocationStatus): boolean {

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { sparkWorkspaceStatePath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+
 export const REFLECTION_SCAN_CURSOR_VERSION = 1;
 
 export interface ReflectionScanCursorFile {
@@ -84,7 +86,11 @@ interface SessionHeaderLike {
   type?: unknown;
   id?: unknown;
   cwd?: unknown;
+  version?: unknown;
+  createdAt?: unknown;
 }
+
+const SPARK_DSH_RECORD_EVENT_TYPE = "spark/record";
 
 interface SessionEntryLike {
   type?: unknown;
@@ -95,6 +101,12 @@ interface SessionEntryLike {
   customType?: unknown;
   content?: unknown;
   summary?: unknown;
+  data?: unknown;
+  seq?: unknown;
+  time?: unknown;
+  version?: unknown;
+  createdAt?: unknown;
+  cwd?: unknown;
 }
 
 interface MessageLike {
@@ -106,8 +118,12 @@ export function emptyReflectionScanCursor(_since?: string): ReflectionScanCursor
   return { version: REFLECTION_SCAN_CURSOR_VERSION, files: {} };
 }
 
-export function reflectionScanCursorPath(cwd: string, name = "session-scan-cursor"): string {
-  return join(cwd, ".spark", "memory", "reflections", `${name}.json`);
+export function reflectionScanCursorPath(
+  cwd: string,
+  name = "session-scan-cursor",
+  ctx?: SparkStateRootContext,
+): string {
+  return sparkWorkspaceStatePath(cwd, ["memory", "reflections", `${name}.json`], ctx);
 }
 
 export async function loadReflectionScanCursor(path: string): Promise<ReflectionScanCursor> {
@@ -205,10 +221,12 @@ export async function scanSparkSessionHistory(
     for (let index = startLine; index < endLineExclusive; index += 1) {
       const line = lines[index];
       if (!line?.trim()) continue;
-      const entry = parseJsonLine<SessionEntryLike>(file, index + 1, line, parseErrors);
-      if (!entry) continue;
+      const raw = parseJsonLine<SessionEntryLike>(file, index + 1, line, parseErrors);
+      if (!raw) continue;
       advanced = true;
       stats.linesScanned += 1;
+      const entry = sparkTranscriptEntryFromLine(raw);
+      if (!entry) continue;
       if (typeof entry.id === "string") lastEntryId = entry.id;
       if (entry.type !== "session") stats.entriesScanned += 1;
 
@@ -418,11 +436,35 @@ function parseSessionHeader(
 ): { sessionId?: string; cwd?: string } {
   if (!line) return {};
   const parsed = parseJsonLine<SessionHeaderLike>(file, 1, line, parseErrors);
-  if (!parsed || parsed.type !== "session") return {};
-  return {
-    sessionId: typeof parsed.id === "string" ? parsed.id : undefined,
-    cwd: typeof parsed.cwd === "string" ? parsed.cwd : undefined,
-  };
+  if (!parsed) return {};
+  if (parsed.type === "session" || isDshSessionHeader(parsed)) {
+    return {
+      sessionId: typeof parsed.id === "string" ? parsed.id : undefined,
+      cwd: typeof parsed.cwd === "string" ? parsed.cwd : undefined,
+    };
+  }
+  return {};
+}
+
+function isDshSessionHeader(value: SessionHeaderLike): boolean {
+  return (
+    value.type !== "session" &&
+    typeof value.version === "number" &&
+    typeof value.id === "string" &&
+    typeof value.createdAt === "number"
+  );
+}
+
+function sparkTranscriptEntryFromLine(value: SessionEntryLike): SessionEntryLike | undefined {
+  if (isDshSessionHeader(value)) return undefined;
+  if (value.type === SPARK_DSH_RECORD_EVENT_TYPE) {
+    if (!isRecord(value.data)) return undefined;
+    return value.data.entry as SessionEntryLike;
+  }
+  if (typeof value.seq === "number" && typeof value.time === "number" && "data" in value) {
+    return undefined;
+  }
+  return value;
 }
 
 function parseJsonLine<T>(

@@ -228,6 +228,7 @@ function makeContext(
     config,
     db: harness.db,
     runtimeId: "rt_11111111111111111111111111111111",
+    sparkHome: harness.sparkHome,
     runtimeSessionId: undefined,
     setRuntimeSessionId() {},
     ensureHeartbeat() {},
@@ -382,6 +383,69 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
+  it("skips Administrator Session ensure when the caller already provisioned them", async () => {
+    const harness = makeHarness();
+    const sessionRegistry = createDaemonSessionRegistry(harness.sparkHome, {
+      resolveWorkspaceCwd: (workspaceId) => getWorkspaceById(harness.db, workspaceId)?.localPath,
+    });
+    const ensureAdministrator = vi.spyOn(sessionRegistry, "ensureWorkspaceAdministrator");
+
+    try {
+      await startSparkDaemon({
+        paths: harness.paths,
+        sparkHome: harness.sparkHome,
+        db: harness.db,
+        config: {
+          installationId: "skip-admin-ensure-startup-test",
+          displayName: "Skip admin ensure startup test daemon",
+        },
+        sessionRegistry,
+        skipWorkspaceAdministratorEnsure: true,
+        once: true,
+        runScheduler: false,
+      });
+
+      expect(ensureAdministrator).not.toHaveBeenCalled();
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it("binds local control before waiting for execution runtime preload", async () => {
+    const harness = makeHarness();
+    const hold = deferred<void>();
+    const events: string[] = [];
+    const ready = deferred<void>();
+
+    try {
+      const running = startSparkDaemon({
+        paths: harness.paths,
+        sparkHome: harness.sparkHome,
+        db: harness.db,
+        config: {
+          installationId: "preload-before-admission-test",
+          displayName: "Preload before admission test daemon",
+        },
+        once: true,
+        runScheduler: false,
+        beforeAdmission: hold.promise.then(() => {
+          events.push("admission");
+        }),
+        onReady: () => {
+          events.push("ready");
+          ready.resolve();
+        },
+      });
+      await ready.promise;
+      expect(events).toEqual(["ready"]);
+      hold.resolve();
+      await running;
+      expect(events).toEqual(["ready", "admission"]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   it.each([
     {
       name: "configured five-slot capacity",
@@ -484,7 +548,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -528,8 +592,11 @@ describe("Spark daemon handleCommand task.start.request", () => {
       sessionId: "loop-owner-close",
       scope: { kind: "workspace", workspaceId: harness.workspace.id },
       cwd: harness.workspace.localPath,
-      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
-      stateBinding: { kind: "session", ref: administrator.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: administrator.sessionId,
+        origin: { kind: "session" },
+      },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "task_run",
@@ -669,7 +736,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 2,
+        protocolVersion: 4,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1365,8 +1432,11 @@ describe("Spark daemon handleCommand task.start.request", () => {
         sessionId: "closed-delivery-repair",
         scope: { kind: "workspace", workspaceId: harness.workspace.id },
         cwd: harness.workspace.localPath,
-        owner: { kind: "session", supervisorSessionId: administrator.sessionId },
-        stateBinding: { kind: "session", ref: administrator.sessionId },
+        lineage: {
+          kind: "child",
+          parentSessionId: administrator.sessionId,
+          origin: { kind: "session" },
+        },
         visibility: "internal",
         retention: "discard_on_close",
         purpose: "task_run",
@@ -1728,7 +1798,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("rejects another Hub's workspace-scoped ephemeral secret request", async () => {
+  it("rejects Workspace routing on daemon-scoped Channel secret requests", async () => {
     const harness = makeHarness();
     try {
       const otherWorkspace = registerSecondHubWorkspace(harness);
@@ -1755,35 +1825,25 @@ describe("Spark daemon handleCommand task.start.request", () => {
         },
       };
 
-      await handleServerMessage(ws, JSON.stringify(request), context);
-
-      expect(ws.sent).toEqual([
-        expect.objectContaining({
-          type: "runtime.ephemeral_secret.result",
-          workspaceBindingId: otherWorkspace.id,
-          payload: expect.objectContaining({
-            operation: "channel.configure",
-            status: "failed",
-            reasonCode: "SECRET_ROUTE_INVALID",
-          }),
-        }),
-      ]);
+      await expect(handleServerMessage(ws, JSON.stringify(request), context)).rejects.toThrow(
+        /Secret requests are daemon-scoped/u,
+      );
+      expect(ws.sent).toEqual([]);
     } finally {
       harness.cleanup();
     }
   });
 
-  it("stores channel secrets under the daemon binding and projects the Hub workspace id", async () => {
+  it("stores Channel secrets through the daemon-global runtime", async () => {
     const harness = makeHarness();
     try {
       const ws = new CapturingSocket();
       const context = makeContext(harness, vi.fn<RunSparkCommandFn>());
       context.serverUrl = "https://hub.example.test/";
-      const configure = vi.fn(async (workspaceId: string) => ({
+      const configure = vi.fn(async () => ({
         plane: "daemon" as const,
         resource: "channel" as const,
-        workspaceId,
-        configPath: `/tmp/${workspaceId}/channels/config.json`,
+        configPath: "/tmp/channels.json",
         available: true,
         configured: true,
         ingressEnabled: true,
@@ -1795,11 +1855,10 @@ describe("Spark daemon handleCommand task.start.request", () => {
       }));
       context.channelIngress = {
         configure,
-        status: (workspaceId: string) => ({
+        status: () => ({
           plane: "daemon",
           resource: "channel",
-          workspaceId,
-          configPath: `/tmp/${workspaceId}/channels/config.json`,
+          configPath: "/tmp/channels.json",
           available: true,
           configured: true,
           ingressEnabled: true,
@@ -1816,8 +1875,6 @@ describe("Spark daemon handleCommand task.start.request", () => {
         type: "server.ephemeral_secret.request",
         sentAt: "2026-08-03T00:00:00.000Z",
         runtimeId: context.runtimeId,
-        workspaceBindingId: harness.workspace.serverBindingId,
-        workspaceId: harness.workspace.serverWorkspaceId,
         ephemeralRequestId: createId("eph"),
         actorUserId: "usr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         browserRequestId: createId("msg"),
@@ -1825,7 +1882,6 @@ describe("Spark daemon handleCommand task.start.request", () => {
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         payload: {
           operation: "channel.configure",
-          workspaceId: harness.workspace.serverWorkspaceId,
           config: {
             adapters: {
               qqbot: {
@@ -1845,20 +1901,15 @@ describe("Spark daemon handleCommand task.start.request", () => {
       await handleServerMessage(ws, JSON.stringify(request), context);
 
       expect(configure).toHaveBeenCalledWith(
-        harness.workspace.id,
         expect.objectContaining({ adapters: expect.any(Object) }),
       );
       expect(ws.sent).toEqual([
         expect.objectContaining({
           type: "runtime.ephemeral_secret.result",
-          workspaceId: harness.workspace.serverWorkspaceId,
-          workspaceBindingId: harness.workspace.serverBindingId,
           payload: expect.objectContaining({
             operation: "channel.configure",
             status: "succeeded",
-            result: expect.objectContaining({
-              workspaceId: harness.workspace.serverWorkspaceId,
-            }),
+            result: expect.not.objectContaining({ workspaceId: expect.anything() }),
           }),
         }),
       ]);

@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createSparkProviderControl } from "@zendev-lab/spark-ai/control";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
+import { createId, type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol";
+import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
 import {
+  ensureChannelSessionWorkspace,
   resolveSparkPaths,
   resolveSparkUserPaths,
   writePrivateFile,
@@ -26,12 +28,8 @@ import { createSparkDaemonUplinkControl } from "./daemon.js";
 import { startSparkDaemon } from "./daemon-start.js";
 import { getSparkDaemonServerProfile } from "./server-profiles.js";
 import { createSparkDaemonModelControl } from "./model-control.ts";
-import {
-  createEd25519ReproFormalEvidenceVerifier,
-  parseReproFormalEvidencePublicKeys,
-} from "./repro-formal-evidence-verifier.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
-import { migrateSessionRegistryOwnership } from "./session-registry-migration.ts";
+import { migrateSessionRegistryLineage } from "./session-registry-migration.ts";
 import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";
 import { migrateRoleSessionSqliteData } from "./role-session-sqlite-migration.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
@@ -43,7 +41,6 @@ import {
   SparkDaemonInvocationRegistry,
   INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
   acquireSparkDaemonLock,
-  legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
   type SparkDaemonHumanInteractionResponder,
   type SparkDaemonLifecycleSnapshot,
@@ -62,9 +59,10 @@ import {
   type LocalHumanInteractionRespondParams,
   type LocalHumanInteractionRespondResult,
   requestTurnSubmit,
+  requestWorkspaceEnsureLocal,
   startLocalRpcServer,
 } from "./local-rpc.js";
-import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
+import { localRpcRequest } from "./local-rpc/client-transport.ts";
 import { SparkLoopStore } from "./store/loops.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -112,6 +110,7 @@ import {
   startSparkDaemonProcess,
   errorMessage,
 } from "./cli-shared.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
 
 // logs is provided by the caller to avoid a cycle with cli.ts
 let logsCommand: (
@@ -164,14 +163,25 @@ export async function start(
     );
   }
   console.error("[spark-daemon] opening database and preparing process ownership");
+  console.error("[spark-daemon] preloading execution runtime");
+  const executionRuntimePreload = preloadSparkDaemonExecutionRuntime();
+  void executionRuntimePreload.then(undefined, () => undefined);
   const db = openSparkDaemonDatabase(paths);
   const userPaths = resolveSparkUserPaths();
   const sparkHome = userPaths.dataRoot;
+  const config = existsSync(paths.configFile)
+    ? readSparkDaemonConfig(paths)
+    : defaultSparkDaemonConfig();
+  if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
   try {
     // The daemon process lock is held and the registry owner does not exist yet,
     // so the migration has exclusive mutation authority over registry.json.
     console.error("[spark-daemon] migrating session registry ownership");
-    await migrateSessionRegistryOwnership({ sparkHome });
+    await migrateSessionRegistryLineage({
+      sparkHome,
+      daemonId: config.installationId,
+      resolveChannelSessionCwd: (sessionId) => ensureChannelSessionWorkspace(paths, sessionId),
+    });
     console.error("[spark-daemon] migrating role session sqlite data");
     await migrateRoleSessionSqliteData({
       db,
@@ -216,19 +226,7 @@ export async function start(
   process.once("SIGTERM", onSigterm);
   const localEventBus = createSparkDaemonLocalEventBus();
   const invocationRegistry = new SparkDaemonInvocationRegistry();
-  await migrateLegacyQueueHistory({ db, queueRoot: legacySparkDaemonQueueRoot({ paths }) });
-  const config = existsSync(paths.configFile)
-    ? readSparkDaemonConfig(paths)
-    : defaultSparkDaemonConfig();
-  if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
   const invocationConcurrency = resolveSparkDaemonInvocationConcurrency(config);
-  const reproFormalEvidencePublicKeys = parseReproFormalEvidencePublicKeys(
-    config.reproFormalEvidencePublicKeysJson,
-  );
-  const reproFormalEvidenceVerifier =
-    Object.keys(reproFormalEvidencePublicKeys).length > 0
-      ? createEd25519ReproFormalEvidenceVerifier(reproFormalEvidencePublicKeys)
-      : undefined;
   const roleInvocationStore = new SparkInvocationStore(db);
   const roleLoopStore = new SparkLoopStore(db, roleInvocationStore);
   const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
@@ -239,6 +237,7 @@ export async function start(
       roleInvocationStore.sessionActivity(sessionId).active ||
       roleLoopStore.list({ ownerSessionId: sessionId }).length > 0,
     resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
+    resolveChannelSessionCwd: (sessionId) => ensureChannelSessionWorkspace(paths, sessionId),
   });
   for (const workspace of listWorkspaces(db)) {
     await ensureWorkspaceAdministratorSession(db, sessionRegistry, workspace.id);
@@ -380,7 +379,6 @@ export async function start(
       ...(sessionSupervisor ? { sessionSupervisor } : {}),
       modelControl,
       humanWaits,
-      ...(reproFormalEvidenceVerifier ? { reproFormalEvidenceVerifier } : {}),
       leaseTransfers,
       onHumanRequestOutboxReady: () => {
         flushHumanRequestOutbox?.();
@@ -401,13 +399,8 @@ export async function start(
     console.error("[spark-daemon] unifying session transcripts");
     const transcriptMigration = await unifyDaemonSessionTranscripts({
       registry: sessionRegistry,
-      transcriptSparkHome: paths.piAgentDir ?? join(paths.dataDir, "pi-agent"),
-      backupRoot: join(
-        paths.dataDir,
-        "backups",
-        "session-transcript-unification",
-        new Date().toISOString().replaceAll(":", "-"),
-      ),
+      transcriptSparkHome: paths.sessionRuntimeDir ?? join(paths.dataDir, "pi-agent"),
+      backupRoot: join(paths.dataDir, "backups", "session-transcript-v4"),
       apply: true,
     });
     const migratedSessions = transcriptMigration.sessions.filter((session) => session.changed);
@@ -416,11 +409,6 @@ export async function start(
         `[spark-daemon] unified ${migratedSessions.length} session transcripts; backup: ${transcriptMigration.backupRoot}`,
       );
     }
-    // The headless host is intentionally loaded through a dynamic owner seam.
-    // Resolve that graph before the local socket binds so the first concurrent
-    // turn cannot stall oRPC admission with module compilation and evaluation.
-    console.error("[spark-daemon] preloading execution runtime");
-    await preloadSparkDaemonExecutionRuntime();
     console.error("[spark-daemon] starting runtime admission and local RPC");
     await startSparkDaemon({
       paths,
@@ -437,6 +425,8 @@ export async function start(
       modelControl,
       uplinkControl,
       managePidFile: false,
+      beforeAdmission: executionRuntimePreload,
+      skipWorkspaceAdministratorEnsure: true,
       onDrainProgress: (progress) => {
         drainProgress = progress;
       },
@@ -1386,11 +1376,17 @@ export async function daemonSubmit(
   io: CliIo,
 ): Promise<number> {
   prepareSparkDaemonState(paths);
+  if (!io.turnSubmitToService) {
+    await ensureSparkDaemonRunning({ paths });
+  }
   const flags = parseFlags(args);
   const sessionId = flags.session?.trim();
   const prompt = (flags.prompt ?? positionalArgs(args).join(" ")).trim();
   if (!sessionId) throw new Error(STRINGS.submitRequiresSession);
   if (!prompt) throw new Error(STRINGS.submitRequiresPrompt);
+  if (!io.turnSubmitToService) {
+    await ensureDaemonSubmitSession(paths, sessionId);
+  }
   const idempotencyKey = flags["idempotency-key"]?.trim() || createId("idem");
   const submit = io.turnSubmitToService ?? requestTurnSubmit;
   const input = { sessionId, prompt, idempotencyKey };
@@ -1403,12 +1399,108 @@ export async function daemonSubmit(
     // invocation. Retrying once with the same key recovers that invocation.
     result = await submit(paths, input);
   }
+  if (flags.wait === "true") {
+    const waited = await waitForDaemonInvocation(paths, result.invocationId);
+    if (flags.json === "true") {
+      io.stdout.write(`${JSON.stringify(waited, null, 2)}\n`);
+    } else {
+      io.stdout.write(`${waited.status} ${waited.invocationId}\n`);
+    }
+    if (waited.status === "succeeded") return 0;
+    if (waited.status === "cancelled") return 2;
+    return 1;
+  }
   if (flags.json === "true") {
     io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
   io.stdout.write(`queued ${result.invocationId}\n`);
   return 0;
+}
+
+async function ensureDaemonSubmitSession(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  sessionId: string,
+): Promise<void> {
+  const cwd = process.cwd();
+  const workspace = await requestWorkspaceEnsureLocal(paths, { localPath: cwd });
+  const sessions = await localRpcRequest(paths, "session.list", { includeArchived: true });
+  const existing = sessions.find((session) => session.sessionId === sessionId);
+  if (existing?.placement === "archived") {
+    throw new Error(`cannot submit to archived session: ${sessionId}`);
+  }
+  if (existing && existing.lifecycle !== "open") {
+    throw new Error(`cannot submit to ${existing.lifecycle} session: ${sessionId}`);
+  }
+  if (
+    existing &&
+    (existing.scope.kind === "daemon" || existing.scope.workspaceId !== workspace.id)
+  ) {
+    throw new Error(
+      `session ${sessionId} belongs to ${
+        existing.scope.kind === "daemon"
+          ? "the daemon scope"
+          : `workspace ${existing.scope.workspaceId}`
+      }, not workspace ${workspace.id}`,
+    );
+  }
+  if (existing) return;
+  const administrator = sessions.find(
+    (session) =>
+      session.scope.kind === "workspace" &&
+      session.scope.workspaceId === workspace.id &&
+      session.lineage.kind === "root",
+  );
+  if (!administrator) {
+    throw new Error(`workspace ${workspace.id} has no reconciled Administrator Session`);
+  }
+  await localRpcRequest(paths, "session.create", {
+    sessionId,
+    scope: { kind: "workspace", workspaceId: workspace.id },
+    supervisorSessionId: administrator.sessionId,
+    roleBinding: { kind: "none" },
+    cwd,
+  });
+}
+
+const WAIT_POLL_INTERVAL_MS = 500;
+const WAIT_POLL_MAX_INTERVAL_MS = 5_000;
+const WAIT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+
+async function waitForDaemonInvocation(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  invocationId: string,
+): Promise<{ invocationId: string; status: string }> {
+  const deadline = Date.now() + WAIT_DEFAULT_TIMEOUT_MS;
+  let interval = WAIT_POLL_INTERVAL_MS;
+  let failureCount = 0;
+  while (Date.now() < deadline) {
+    try {
+      const status = await localRpcRequest(paths, "turn.status", { invocationId });
+      failureCount = 0;
+      if (
+        status.status === "succeeded" ||
+        status.status === "failed" ||
+        status.status === "cancelled"
+      ) {
+        return await localRpcRequest(paths, "turn.result", { invocationId });
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await delay(Math.min(interval, remaining));
+      interval = Math.min(interval * 1.5, WAIT_POLL_MAX_INTERVAL_MS);
+    } catch {
+      failureCount += 1;
+      if (failureCount > 10) {
+        throw new Error(`Too many consecutive failures polling invocation ${invocationId}`);
+      }
+      await delay(Math.min(1000 * failureCount, 5000));
+    }
+  }
+  return {
+    invocationId,
+    status: "failed",
+  };
 }
 
 export async function daemonAsk(
@@ -1456,7 +1548,7 @@ export async function daemonAsk(
   return 0;
 }
 
-function parseAnswers(raw: string | undefined): Record<string, unknown> {
+function parseAnswers(raw: string | undefined): Record<string, SparkProtocolJsonValue> {
   if (!raw) throw new Error("spark daemon ask answer requires --answers <json>");
   let parsed: unknown;
   try {
@@ -1467,11 +1559,7 @@ function parseAnswers(raw: string | undefined): Record<string, unknown> {
   if (!isRecord(parsed)) {
     throw new Error("spark daemon ask answer requires a JSON object in --answers");
   }
-  return parsed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return parsed as Record<string, SparkProtocolJsonValue>;
 }
 
 function renderHumanInteractionList(result: LocalHumanInteractionListResult): string {

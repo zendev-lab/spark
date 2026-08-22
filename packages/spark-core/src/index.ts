@@ -6,19 +6,20 @@ import { isNativeError } from "node:util/types";
 /**
  * spark-core — Spark host contract + lightweight primitives.
  *
- * This package centralises the SparkHostAPI shape that Spark extension hosts
+ * This package centralises the SparkHostAPI shape that daemon product composition
  * and retained Pi-compatible adapters in this workspace speak to. Both the
  * upstream pi-coding-agent runtime and the Spark native host family implement
- * (a superset of) this surface; extensions stay portable as long as they only
+ * (a superset of) this surface; capability adapters stay portable as long as they only
  * depend on the names exported from here.
  *
  * Runtime impact: intentionally tiny. Besides type declarations, this package
  * exposes dependency-light generic helpers for refs, stable IDs, JSON file IO,
- * and copy-language detection. This is not a revival of the retired spark-core
- * capability bag — only the host contract and those small primitives live here.
+ * copy-language detection, and workspace Spark state path helpers. This is not
+ * a revival of the retired spark-core capability bag — only the host contract
+ * and those small primitives live here.
  *
  * Design rules:
- *   - Every method is `optional` so extensions must guard each call. This lets
+ *   - Every method is `optional` so adapters must guard each call. This lets
  *     a host implement only the slice it cares about while still satisfying the
  *     contract (e.g. a roles-only host might omit `registerTool`).
  *   - SparkHostContext is a union of capabilities observed across pi-coding-agent
@@ -132,8 +133,20 @@ export interface SparkHostHookOptions {
 /** Pi-compatible per-tool sibling-call execution mode. */
 export type ToolExecutionMode = "sequential" | "parallel";
 
-/** Static approval requirement declared by the tool owner. */
-export type ToolApprovalPolicy = "none" | "required";
+/**
+ * Static approval requirement declared by the tool owner.
+ *
+ * `manual_only` is a narrow capability grant: a daemon-owned continuation
+ * driver may execute the call without another approval only after the owning
+ * Session has a persisted `driverAuthority: "granted"` fact. A manually
+ * submitted turn still requires approval until that fact exists. It must only
+ * be used for bounded, reversible low-risk effects; high-risk effects remain
+ * `required`.
+ */
+export type ToolApprovalPolicy = "none" | "manual_only" | "required";
+
+/** Session-scoped consent for driver `manual_only` bypass. */
+export type SparkDriverAuthority = "granted" | "denied";
 
 /**
  * Declarative tool policy owned by the package that implements the tool.
@@ -146,6 +159,12 @@ export interface ToolPolicy {
   readonly domains?: readonly string[];
   readonly modes?: readonly string[];
   readonly approval?: ToolApprovalPolicy;
+}
+
+/** Spark policy carried by a Cordis-native DSH tool definition. */
+export interface SparkDshToolPolicyMetadata extends ToolPolicy {
+  /** Which owner can reconcile an uncertain post-dispatch outcome. */
+  readonly reconcile: "none" | "tool_owner";
 }
 
 export type ResolvedToolEffect = ToolEffect | "unknown";
@@ -286,13 +305,16 @@ export function resolveToolPolicyForArgs(
   if (!config.resolvePolicy) return resolveToolPolicy(config);
   try {
     const policy = config.resolvePolicy(args);
+    const {
+      resolvePolicy: _resolvePolicy,
+      effect: _effect,
+      executionMode: _executionMode,
+      requiresApproval: _requiresApproval,
+      ...canonical
+    } = config;
     const resolved = resolveToolPolicy({
-      ...config,
+      ...canonical,
       policy,
-      resolvePolicy: undefined,
-      effect: undefined,
-      executionMode: undefined,
-      requiresApproval: undefined,
     });
     return resolved.effect === "unknown" ? unknownRequiredToolPolicy() : resolved;
   } catch {
@@ -345,6 +367,7 @@ function resolveToolApproval(
 ): ToolApprovalPolicy {
   if (malformedPolicy || (legacy !== undefined && typeof legacy !== "boolean")) return "required";
   if (legacy === true || canonical === "required") return "required";
+  if (canonical === "manual_only" && legacy === undefined) return "manual_only";
   if (canonical === undefined || canonical === "none") return "none";
   return "required";
 }
@@ -372,7 +395,7 @@ function isOptionalToolExecutionMode(value: unknown): value is ToolExecutionMode
 }
 
 function isOptionalToolApproval(value: unknown): value is ToolApprovalPolicy | undefined {
-  return value === undefined || value === "none" || value === "required";
+  return value === undefined || value === "none" || value === "manual_only" || value === "required";
 }
 
 function isOptionalPolicyLabels(value: unknown): value is readonly string[] | undefined {
@@ -718,6 +741,29 @@ export async function callLeafOrDegrade(
   return result;
 }
 
+/**
+ * Invocation-scoped Spark authority exposed to Cordis capability plugins.
+ *
+ * This is runtime context, not durable state. The daemon/host creates one
+ * frozen snapshot for an Agent handle; plugins consume it through
+ * `ctx.sparkExecution` and must not construct stores, schedulers, or provider
+ * registries of their own.
+ */
+export interface SparkExecutionService {
+  readonly workspaceId?: string;
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly invocationId?: string;
+  readonly role?: Readonly<{ id: string; revision?: string }>;
+  readonly mode?: "plan" | "execute" | "fleet";
+  readonly driverAuthority?: SparkDriverAuthority;
+  readonly model?: SessionModelRef;
+  readonly runLeaf?: LeafCapabilityRunner;
+  readonly interaction?: (
+    request: ExtensionInteractionRequest,
+  ) => Promise<ExtensionInteractionResponse>;
+}
+
 export type ExtensionRoleLaunchMode = "fresh" | "forked";
 export type ExtensionRoleRunStatus =
   | "queued"
@@ -853,8 +899,6 @@ export interface SparkHostLoopContext {
   };
   generation: number;
   ownerSessionId: string;
-  /** @deprecated Compatibility projection; host execution uses Session stateBinding. */
-  stateOwnerSessionId?: string;
   schedule(input: {
     delayMs?: number;
     dueAt?: string;
@@ -862,6 +906,17 @@ export interface SparkHostLoopContext {
     prompt?: string;
   }): Promise<unknown>;
   stop(input?: { reason?: string }): Promise<unknown>;
+}
+
+/**
+ * True when this loop binding is a continuation driver that *may* receive
+ * `manual_only` bypass. Binding alone is not consent; callers must also read
+ * the Session `driverAuthority` fact.
+ */
+export function hasActiveDriverBinding(loop?: SparkHostLoopContext): boolean {
+  if (!loop) return false;
+  const { goalId, reproId, workflowRunId } = loop.binding;
+  return Boolean(goalId || reproId || !workflowRunId);
 }
 
 export interface SparkSessionLeaseIdentity {
@@ -874,6 +929,15 @@ export interface SparkSessionLeaseIdentity {
 /** Host-private immutable write boundary for one daemon-owned Task Invocation. */
 export interface SparkTaskExecutionScope {
   isolation: TaskExecutionIsolation;
+  /** Daemon-validated TaskRun provenance for project-bound tools and owner callbacks. */
+  binding?: {
+    ownerSessionId: string;
+    projectRef: ProjectRef;
+    taskRef: TaskRef;
+    runRef: RunRef;
+    jobId: string;
+    attempt: number;
+  };
   primaryArtifactRef?: ArtifactRef;
   writableArtifactRefs: ArtifactRef[];
   writableRoots: string[];
@@ -920,6 +984,11 @@ export interface SparkHostContext {
   /** Present only inside a daemon-owned autonomous loop tick. */
   loop?: SparkHostLoopContext;
   /**
+   * Persisted Session consent for driver `manual_only` bypass. Absent means
+   * unresolved; a live loop binding must not be treated as a grant.
+   */
+  driverAuthority?: SparkDriverAuthority;
+  /**
    * Host-resolved current-Session delegation authority. Child execution must
    * fail closed when this envelope is absent rather than infer parent policy.
    */
@@ -948,7 +1017,7 @@ export interface SparkHostContext {
   ui?: ExtensionUi;
   isIdle?: () => boolean;
   /**
-   * Optional single-shot spark-ai leaf runner supplied by Spark hosts. High-level
+   * Optional single-shot spark-llm leaf runner supplied by Spark hosts. High-level
    * tools call `ctx.runLeaf?.(request)` to add bounded reasoning (synthesis,
    * rerank, extraction) and fall back to mechanical output when it is absent or
    * returns `{ degraded: true }`.
@@ -973,6 +1042,15 @@ export interface SparkStateRootContext {
 /** Resolve the durable workspace-owned Spark state directory for a host context. */
 export function sparkStateRootPath(cwd: string, ctx?: SparkStateRootContext): string {
   return ctx?.sparkStateRoot?.trim() || join(cwd, ".spark");
+}
+
+/** Resolve a path under the workspace Spark state root, honoring `sparkStateRoot`. */
+export function sparkWorkspaceStatePath(
+  cwd: string,
+  segments: readonly string[],
+  ctx?: SparkStateRootContext,
+): string {
+  return join(sparkStateRootPath(cwd, ctx), ...segments);
 }
 
 /** Convert the explicit `.spark` state root back to the owning workspace directory. */
@@ -1023,7 +1101,7 @@ export type CueJobRef = Ref<"cue-job">;
 export type SubgoalRef = Ref<"subgoal">;
 
 export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
-export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
+export type SparkSubgoalAuthority = "safe_local" | "driver_local" | "ask_decision" | "ask_approval";
 
 export interface SparkSubgoalDefinition {
   goal: string;
@@ -1422,7 +1500,11 @@ export interface TaskPlan {
 }
 
 export type TaskExecutionContinuity = "reuse_within_revision" | "fresh";
-export type TaskExecutionIsolation = "readonly" | "isolated_worktree" | "isolated_results";
+export type TaskExecutionIsolation =
+  | "readonly"
+  | "workspace"
+  | "isolated_worktree"
+  | "isolated_results";
 export type TaskExecutionComparison = "single_side" | "reference" | "target" | "paired";
 
 export interface TaskResourceRequest {
@@ -1444,10 +1526,14 @@ export interface TaskWorktreeTarget {
 export interface TaskExecutionPolicy {
   /** Canonical owner-bounded Session lifetime for Task attempts. */
   sessionLifetime: "task_run" | "task_revision";
+  /** When the owner closes a reusable Session. Defaults to Task terminality. */
+  sessionRetention?: "task_terminal" | "owner_terminal";
   /** Legacy compatibility projection; runtime dispatch uses sessionLifetime. */
   continuity?: TaskExecutionContinuity;
   isolation: TaskExecutionIsolation;
   comparison: TaskExecutionComparison;
+  /** Completion evidence owner. Omitted means the generic Artifact Lens gate. */
+  completionGate?: "artifact_lens" | "task_evidence";
   resources?: TaskResourceRequest;
   worktreeTarget?: TaskWorktreeTarget;
   concurrencyKeys: string[];

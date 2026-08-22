@@ -23,17 +23,19 @@ const require = __sparkCreateRequire(import.meta.url);`,
   bundle: true,
   entryPoints: ["src/cli.ts"],
   external: [
+    "@zendev-lab/cue",
     "@ast-grep/napi",
     "ws",
     "@core-workspace/infoflow-sdk-nodejs",
     "axios",
     "protobufjs",
     "lodash.merge",
+    "sharp",
   ],
   format: "esm",
   outfile: temporaryCli,
   platform: "node",
-  target: "node26",
+  target: "node24",
 });
 
 await chmod(temporaryCli, 0o755);

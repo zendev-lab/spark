@@ -50,14 +50,7 @@ type SessionNotificationDeliveryDeps = {
   deliveryQueue?: SessionNotificationDeliveryQueue;
 };
 
-export async function deliverSessionNotification(
-  input: { sessionId: string; messageId: string },
-  deps: SessionNotificationDeliveryDeps,
-): Promise<SessionNotificationDeliveryResult> {
-  return await deliverSelectedSessionNotificationTargets(input, deps);
-}
-
-async function deliverSelectedSessionNotificationTargets(
+export async function deliverSelectedSessionNotificationTargets(
   input: { sessionId: string; messageId: string },
   deps: SessionNotificationDeliveryDeps,
   selectedTargets?: ReadonlySet<string>,
@@ -66,10 +59,10 @@ async function deliverSelectedSessionNotificationTargets(
   if (!session) {
     throw new SparkSessionRegistryError("session_not_found", `unknown session: ${input.sessionId}`);
   }
-  if (session.scope.kind !== "workspace") {
+  if (session.scope.kind !== "daemon" || session.purpose !== "channel") {
     throw new SparkSessionRegistryError(
       "session_scope_mismatch",
-      `channel notification target is not a workspace session: ${input.sessionId}`,
+      `channel notification target is not a daemon Channel Session: ${input.sessionId}`,
     );
   }
   const message = await deps.mailStore.get(input.sessionId, input.messageId);
@@ -108,7 +101,7 @@ async function deliverSelectedSessionNotificationTargets(
       continue;
     }
     if (deps.deliveryQueue) {
-      const status = deps.channelIngress.status(session.scope.workspaceId);
+      const status = deps.channelIngress.status();
       const resolvedAdapter = resolveNotificationAdapter(status, target);
       const idempotencyKey = sessionNotificationDeliveryIdempotencyKey({
         sessionId: input.sessionId,
@@ -186,7 +179,6 @@ async function deliverSelectedSessionNotificationTargets(
           {
             sessionId: input.sessionId,
             messageId: input.messageId,
-            workspaceId: session.scope.workspaceId,
             body: message.body,
             target,
           },
@@ -211,10 +203,10 @@ async function deliverSelectedSessionNotificationTargets(
     }
     let receipt: unknown;
     try {
-      const status = deps.channelIngress.status(session.scope.workspaceId);
+      const status = deps.channelIngress.status();
       const { adapterId } = resolveNotificationAdapter(status, target);
       const recipient = notificationRecipient(target.externalKey, target.adapter);
-      receipt = await deps.channelIngress.notify(session.scope.workspaceId, {
+      receipt = await deps.channelIngress.notify({
         action: "send",
         adapter: adapterId,
         recipient,
@@ -254,7 +246,43 @@ export async function reconcileSessionNotificationDeliveries(
   },
   limit = 50,
 ): Promise<{ attempted: number; delivered: number; failed: number }> {
-  const pending = await deps.mailStore.pendingChannelDeliveries(limit);
+  const pending = await deps.mailStore.pendingChannelDeliveries(limit, {
+    // Targets already owned by a live channel_deliveries row have no
+    // actionable work this pass (their terminal projection still happens when
+    // the row settles), so they must not consume the bounded scan window.
+    isEnqueued: deps.deliveryQueue
+      ? async (message, target) => {
+          const session = await deps.sessionRegistry.get(message.toSessionId);
+          if (!session || session.scope.kind !== "daemon" || session.purpose !== "channel") {
+            return false;
+          }
+          const status = deps.channelIngress.status();
+          const resolvedAdapter = resolveNotificationAdapter(status, target);
+          const idempotencyKey = sessionNotificationDeliveryIdempotencyKey({
+            sessionId: message.toSessionId,
+            messageId: message.id,
+            correlationId: message.correlationId,
+            adapter: target.adapter,
+            externalKey: target.externalKey,
+            adapterAccountIdentity: resolvedAdapter.adapterAccountIdentity,
+          });
+          const row = [
+            idempotencyKey,
+            ...accountlessCompatibilityKeys({
+              sessionId: message.toSessionId,
+              messageId: message.id,
+              correlationId: message.correlationId,
+              target,
+              status,
+              idempotencyKey,
+            }),
+          ]
+            .map((key) => deps.deliveryQueue!.store.findByIdempotencyKey(key))
+            .find((delivery) => delivery !== undefined);
+          return row !== undefined && row.status !== "delivered" && row.status !== "uncertain";
+        }
+      : undefined,
+  });
   const messages = new Map<
     string,
     {
@@ -351,7 +379,6 @@ function notificationOutboxInput(
   input: {
     sessionId: string;
     messageId: string;
-    workspaceId: string;
     body: string;
     target: SparkSessionMailChannelTarget;
   },
@@ -362,7 +389,6 @@ function notificationOutboxInput(
     idempotencyKey,
     sessionId: input.sessionId,
     messageId: input.messageId,
-    workspaceId: input.workspaceId,
     adapterId: resolvedAdapter.adapterId,
     ...(resolvedAdapter.adapterAccountIdentity
       ? { adapterAccountIdentity: resolvedAdapter.adapterAccountIdentity }
