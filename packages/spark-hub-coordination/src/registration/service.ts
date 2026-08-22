@@ -3,8 +3,10 @@ import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
   createId,
+  runtimeDaemonAttachScope,
   runtimeDeviceAuthorizationRequestSchema,
   runtimeProtocolVersion,
+  runtimeWorkspaceRegisterScope,
   type RuntimeDeviceAuthorizationRequest,
   type RuntimeRegistrationRequest,
   type RuntimeWorkspaceRegistrationRequest,
@@ -328,6 +330,7 @@ export function exchangeRuntimeDeviceAuthorization(
       runtimeId,
       registration,
       grantScopes,
+      grantScopes,
       workspaceGrant,
       preparedWorkspace,
       polledAt,
@@ -364,6 +367,8 @@ export function createRuntimeEnrollmentToken(
     workspaceId?: string | null;
     ttlMs?: number;
     createdAt?: string;
+    /** Authorize the daemon itself (one enrollment per machine) instead of a single workspace. */
+    daemonScope?: boolean;
   } = {},
 ): RuntimeEnrollmentToken {
   const createdAtDate = input.createdAt ? new Date(input.createdAt) : new Date();
@@ -371,6 +376,14 @@ export function createRuntimeEnrollmentToken(
   const expiresAt = new Date(createdAtDate.getTime() + (input.ttlMs ?? 86_400_000)).toISOString();
   const refreshToken = `spark_wsreg_${randomBytes(32).toString("base64url")}`;
   const id = createId("rtetok");
+  const scopes = input.daemonScope
+    ? [runtimeDaemonAttachScope, "runtime:refresh"]
+    : [runtimeWorkspaceRegisterScope, "runtime:refresh"];
+  // A daemon-scoped token authorizes the daemon installation itself; it must
+  // not carry a workspace grant (workspace binding follows the daemon).
+  const workspaceName = input.daemonScope ? null : (input.workspaceName ?? null);
+  const workspaceSlug = input.daemonScope ? null : (input.workspaceSlug ?? null);
+  const workspaceId = input.daemonScope ? null : (input.workspaceId ?? null);
 
   db.prepare(
     `INSERT INTO runtime_enrollment_tokens
@@ -379,12 +392,15 @@ export function createRuntimeEnrollmentToken(
   ).run(
     id,
     hashSecret(refreshToken),
-    input.label ?? "Spark workspace registration token",
-    JSON.stringify(["workspace:register", "runtime:refresh"]),
+    input.label ??
+      (input.daemonScope
+        ? "Spark daemon registration token"
+        : "Spark workspace registration token"),
+    JSON.stringify(scopes),
     input.createdByUserId ?? null,
-    input.workspaceName ?? null,
-    input.workspaceSlug ?? null,
-    input.workspaceId ?? null,
+    workspaceName,
+    workspaceSlug,
+    workspaceId,
     createdAt,
     expiresAt,
   );
@@ -394,8 +410,8 @@ export function createRuntimeEnrollmentToken(
     refreshToken,
     createdAt,
     expiresAt,
-    workspaceName: input.workspaceName ?? null,
-    workspaceSlug: input.workspaceSlug ?? null,
+    workspaceName,
+    workspaceSlug,
   };
 }
 
@@ -503,6 +519,7 @@ export function registerRuntime(
       runtimeId,
       request,
       [],
+      enrollment.scopes,
       workspaceGrant,
       preparedWorkspace,
       now,
@@ -527,8 +544,17 @@ export function registerRuntimeWorkspace(
   return withRuntimeRegistrationTransaction(db, () => {
     authenticateRuntimeAccessToken(db, runtimeId, runtimeToken, now, ["runtime:connect"]);
 
-    const enrollment = consumeRuntimeEnrollmentToken(db, request.registrationToken, now);
-    const workspaceGrant = workspaceGrantFromEnrollment(enrollment);
+    // The daemon is the binding unit: an authenticated daemon may attach one
+    // of its local workspaces under its own runtime identity. A
+    // workspace-scoped enrollment token remains an explicit auth-owner grant
+    // (and the only way to move an existing origin lease), but it is no longer
+    // required for a daemon to attach a workspace that runs on it.
+    const consumedEnrollment = request.registrationToken
+      ? consumeRuntimeEnrollmentToken(db, request.registrationToken, now)
+      : null;
+    const workspaceGrant = consumedEnrollment
+      ? workspaceGrantFromEnrollment(consumedEnrollment)
+      : emptyWorkspaceGrant();
 
     const preparedWorkspace = prepareWorkspaceRegistration(
       db,
@@ -537,18 +563,23 @@ export function registerRuntimeWorkspace(
       request.workspaceRegistration,
       now,
     );
-    const consumed = db
-      .prepare(
-        `UPDATE runtime_enrollment_tokens
-           SET used_at = ?, created_runtime_id = ?
-           WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL`,
-      )
-      .run(now, runtimeId, workspaceGrant.enrollmentTokenId);
-    if (consumed.changes !== 1) {
-      throw new RuntimeEnrollmentError(
-        "Workspace registration token was already consumed.",
-        "WORKSPACE_REGISTRATION_TOKEN_USED",
-      );
+
+    // The enrollment token is one-shot regardless of scope: consume it even
+    // when a daemon-scoped token carries no workspace grant.
+    if (consumedEnrollment) {
+      const consumed = db
+        .prepare(
+          `UPDATE runtime_enrollment_tokens
+             SET used_at = ?, created_runtime_id = ?
+             WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL`,
+        )
+        .run(now, runtimeId, consumedEnrollment.id);
+      if (consumed.changes !== 1) {
+        throw new RuntimeEnrollmentError(
+          "Workspace registration token was already consumed.",
+          "WORKSPACE_REGISTRATION_TOKEN_USED",
+        );
+      }
     }
 
     const workspaceBinding = completeWorkspaceRegistration(
@@ -864,14 +895,16 @@ function consumeRuntimeEnrollmentToken(
   }
 
   const scopes = parseScopes(enrollment.scopesJson);
-  if (!scopes.includes("workspace:register")) {
+  const isDaemonGrant = scopes.includes(runtimeDaemonAttachScope);
+  const isWorkspaceGrant = scopes.includes(runtimeWorkspaceRegisterScope);
+  if (!isDaemonGrant && !isWorkspaceGrant) {
     throw new RuntimeEnrollmentError(
-      "Workspace registration token does not grant workspace registration.",
+      "Workspace registration token does not grant registration or daemon attachment.",
       "WORKSPACE_REGISTRATION_TOKEN_SCOPE_INVALID",
     );
   }
 
-  return { ...enrollment, scopes };
+  return { ...enrollment, scopes, isDaemonGrant };
 }
 
 function createRuntimeCredentials(nowIso: string) {
@@ -896,6 +929,8 @@ function registerRuntimeInTransaction(
   runtimeId: string,
   request: RuntimeRegistrationRequest,
   grantScopes: string[],
+  /** Scopes of the enrollment credential that authorized this daemon binding. */
+  enrollmentScopes: string[],
   workspaceGrant: RuntimeWorkspaceGrant,
   preparedWorkspace: PreparedWorkspaceRegistration | undefined,
   now: string,
@@ -908,21 +943,23 @@ function registerRuntimeInTransaction(
   if (existing) {
     db.prepare(
       `UPDATE runtime_connections
-       SET name = ?, protocol_version = ?, capabilities_json = ?, labels_json = ?, updated_at = ?
+       SET name = ?, protocol_version = ?, capabilities_json = ?, labels_json = ?,
+           enrollment_scopes_json = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       request.displayName,
       runtimeProtocolVersion,
       JSON.stringify({ supportedFeatures: request.supportedFeatures }),
       JSON.stringify(request.labels),
+      JSON.stringify(enrollmentScopes),
       now,
       runtimeId,
     );
   } else {
     db.prepare(
       `INSERT INTO runtime_connections
-        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
-       VALUES (?, ?, ?, 'offline', ?, ?, ?, ?, ?)`,
+        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, enrollment_scopes_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'offline', ?, ?, ?, ?, ?, ?)`,
     ).run(
       runtimeId,
       request.installationId,
@@ -930,6 +967,7 @@ function registerRuntimeInTransaction(
       runtimeProtocolVersion,
       JSON.stringify({ supportedFeatures: request.supportedFeatures }),
       JSON.stringify(request.labels),
+      JSON.stringify(enrollmentScopes),
       now,
       now,
     );
@@ -1003,6 +1041,11 @@ interface RuntimeWorkspaceGrant {
 }
 
 function workspaceGrantFromEnrollment(enrollment: RuntimeEnrollmentRow): RuntimeWorkspaceGrant {
+  // A daemon-scoped enrollment authorizes the daemon installation, not a
+  // specific workspace; its grant carries no workspace fields.
+  if (enrollment.isDaemonGrant) {
+    return emptyWorkspaceGrant();
+  }
   return {
     enrollmentTokenId: enrollment.id,
     workspaceId: enrollment.workspaceId,

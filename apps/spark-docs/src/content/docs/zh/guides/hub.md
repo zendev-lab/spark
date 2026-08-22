@@ -101,7 +101,7 @@ streaming response，并拒绝未知公网 host。
 loopback proxy 后使用。公网 origin 改变会改变 daemon 的 server identity，因此应
 显式重新注册受影响的 workspace。
 
-## 注册远程 workspace
+## 连接 daemon 并附加 workspace
 
 workspace 身份在 daemon 上。先授权 daemon 机器；Hub 投影由 daemon 调度，不是 workspace 属性：
 
@@ -111,4 +111,8 @@ spark daemon workspace register . --name <workspace-name>
 spark daemon workspace register . --token <workspace-token>
 ```
 
-机器连接凭据和一次性 workspace registration token 的 scope 不同，不能互相复用。
+`spark daemon login` 把 daemon 安装（每台机器一个）绑定到 Hub；第一条
+`workspace register` 在本地登记 workspace，带 token 的形式则通过同一个 daemon
+绑定宣告它的 Hub 投影。Hub 以 daemon 安装为绑定单位：workspace 都运行在该
+daemon 上，并作为它的会话组织形式呈现。宣告 Hub 投影仍需要 enrollment token；
+不带 token 时 workspace 保持 daemon 本地，直到被附加。

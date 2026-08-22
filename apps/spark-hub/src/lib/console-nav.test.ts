@@ -54,6 +54,27 @@ describe("console nav", () => {
     ]);
   });
 
+  it("merges daemon settings into the workspace group when unified", () => {
+    const result = buildConsoleNavGroups({
+      workspaceHrefPrefix: "/local",
+      workspaceSlug: "local",
+      includeControlPlaneNav: true,
+      includeWorkspaceNav: true,
+      mergeDaemonIntoWorkspace: true,
+      nav,
+      groups,
+    });
+
+    expect(result.map((group) => group.id)).toEqual(["hub", "workspace"]);
+    expect(result[1]?.items.map((item) => item.href)).toEqual([
+      "/local/settings",
+      "/local/settings/registration",
+      "/settings/channels",
+      "/settings/models?workspace=local",
+      "/settings/invocations?workspace=local",
+    ]);
+  });
+
   it("shows only workspace settings without control-plane permission", () => {
     const result = buildConsoleNavGroups({
       workspaceHrefPrefix: "/local",

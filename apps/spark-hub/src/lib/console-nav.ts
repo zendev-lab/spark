@@ -58,10 +58,13 @@ export function buildConsoleNavGroups(input: {
   includeControlPlaneNav?: boolean;
   includeWorkspaceNav?: boolean;
   includeDaemonNav?: boolean;
+  /** Show daemon settings under the workspace group instead of a separate Daemon group. */
+  mergeDaemonIntoWorkspace?: boolean;
 }): ConsoleNavGroup[] {
   const includeControlPlaneNav = input.includeControlPlaneNav ?? true;
   const includeWorkspaceNav = input.includeWorkspaceNav ?? true;
   const includeDaemonNav = input.includeDaemonNav ?? true;
+  const mergeDaemonIntoWorkspace = input.mergeDaemonIntoWorkspace ?? false;
   const groups: ConsoleNavGroup[] = [];
 
   if (includeControlPlaneNav) {
@@ -78,17 +81,36 @@ export function buildConsoleNavGroups(input: {
 
   if (includeWorkspaceNav && input.workspaceHrefPrefix) {
     const prefix = input.workspaceHrefPrefix;
+    const items: ConsoleNavItem[] = [
+      { href: `${prefix}/settings`, label: input.nav.workspaceDetails, icon: "folder" },
+      { href: `${prefix}/settings/registration`, label: input.nav.registration, icon: "play" },
+    ];
+    if (mergeDaemonIntoWorkspace && includeDaemonNav) {
+      const workspaceQuery = input.workspaceSlug
+        ? `?workspace=${encodeURIComponent(input.workspaceSlug)}`
+        : "";
+      items.push(
+        { href: "/settings/channels", label: input.nav.channels, icon: "activity" },
+        {
+          href: `/settings/models${workspaceQuery}`,
+          label: input.nav.modelsProviders,
+          icon: "spark",
+        },
+        {
+          href: `/settings/invocations${workspaceQuery}`,
+          label: input.nav.invocationDiagnostics,
+          icon: "activity",
+        },
+      );
+    }
     groups.push({
       id: "workspace",
       label: input.groups.workspace,
-      items: [
-        { href: `${prefix}/settings`, label: input.nav.workspaceDetails, icon: "folder" },
-        { href: `${prefix}/settings/registration`, label: input.nav.registration, icon: "play" },
-      ],
+      items,
     });
   }
 
-  if (includeDaemonNav) {
+  if (includeDaemonNav && !mergeDaemonIntoWorkspace) {
     const workspaceQuery = input.workspaceSlug
       ? `?workspace=${encodeURIComponent(input.workspaceSlug)}`
       : "";

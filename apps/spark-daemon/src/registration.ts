@@ -230,12 +230,6 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   let current = existingProfile
     ? sparkDaemonConfigForServerProfile(identity, existingProfile)
     : identity;
-  if (!input.registrationToken) {
-    throw new SparkDaemonControlError(
-      "workspace_registration_invalid",
-      `Workspace registration for ${serverUrl} requires a new one-time workspace token. Hub machine credentials do not grant access to additional workspaces.`,
-    );
-  }
   if (!input.workspaceRegistration) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
@@ -250,7 +244,7 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
       serverUrl,
       runtimeId: current.runtimeId!,
       runtimeToken: current.runtimeToken!,
-      registrationToken: input.registrationToken,
+      ...(input.registrationToken ? { registrationToken: input.registrationToken } : {}),
       workspaceRegistration: input.workspaceRegistration,
     });
     return {
@@ -258,6 +252,13 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
       workspaceBinding: registered.workspaceBinding,
       workspaceAuthorization: registered.workspaceAuthorization,
     };
+  }
+
+  if (!input.registrationToken) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      `The daemon is not yet connected to ${serverUrl}. Register it first with spark daemon login, then attach this workspace with the same command and no token.`,
+    );
   }
 
   const registered = await registerSparkDaemonWithToken(paths, {
@@ -617,7 +618,7 @@ async function registerWorkspaceWithRuntime(input: {
   serverUrl: string;
   runtimeId: string;
   runtimeToken: string;
-  registrationToken: string;
+  registrationToken?: string;
   workspaceRegistration: NonNullable<SparkDaemonRegistrationInput["workspaceRegistration"]>;
 }) {
   const url = new URL(
@@ -631,7 +632,7 @@ async function registerWorkspaceWithRuntime(input: {
       authorization: `Bearer ${input.runtimeToken}`,
     },
     body: JSON.stringify({
-      registrationToken: input.registrationToken,
+      ...(input.registrationToken ? { registrationToken: input.registrationToken } : {}),
       workspaceRegistration: input.workspaceRegistration,
     }),
   });

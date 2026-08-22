@@ -124,10 +124,12 @@ spark hub web status --json
 ```bash
 spark daemon login --server-url http://127.0.0.1:5174
 spark daemon workspace register . --name <workspace-name>
-spark daemon workspace register . --token <one-time-workspace-token>
+spark daemon workspace register . --token <enrollment-token>
 ```
 
-Token 只显示一次，只授权一个目录。它不是 provider 凭证，也不是可复用的 daemon login。
+`spark daemon login` 把 daemon 安装（每台机器一个）绑定到 Hub。第一条
+`workspace register` 在本地登记 workspace；带 token 的形式通过同一个 daemon
+绑定宣告它的 Hub 投影。Token 只显示一次，不是 provider 凭证。
 
 检查 daemon 拥有的绑定：
 
