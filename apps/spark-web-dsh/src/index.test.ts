@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -8,10 +18,19 @@ import {
   apply,
   compactHistoryResponse,
   estimateHistoryResponseBytes,
+  inject,
+  installSymlinkTraversalGuard,
   maxColdHistoryArtifactBytes,
   maxHistoryResponseBytes,
   predictedHistoryPageSize,
 } from "./index.ts";
+
+function inertFileSystem() {
+  return {
+    lstat: async () => undefined,
+    listDir: async () => [],
+  };
+}
 
 interface Request {
   rpcId: unknown;
@@ -66,8 +85,76 @@ function successfulResponse(request: Request, text = "ok"): unknown {
   };
 }
 
-test("spark-web-dsh host half exposes the history safety plugin", () => {
+test("spark-web-dsh host half exposes safety policies with the filesystem dependency", () => {
   assert.equal(typeof apply, "function");
+  assert.deepEqual(inject, ["apiProxy", "fs", "sessionPersistence", "sessions"]);
+});
+
+test("filesystem listing stops at directory symlinks instead of following a cycle", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "spark-web-dsh-symlink-"));
+  const child = join(directory, "child");
+  const loop = join(directory, "loop");
+  await mkdir(child);
+  await symlink(directory, loop, "dir");
+
+  const fs = {
+    async lstat(path: string) {
+      const info = await lstat(path);
+      const type: "file" | "directory" | "symlink" | "other" = info.isSymbolicLink()
+        ? "symlink"
+        : info.isDirectory()
+          ? "directory"
+          : info.isFile()
+            ? "file"
+            : "other";
+      return { type };
+    },
+    async listDir(target: { displayPath: string; targetKey: string }) {
+      const entries = await readdir(target.targetKey, { withFileTypes: true });
+      return await Promise.all(
+        entries.map(async (entry) => {
+          const displayPath = join(target.displayPath, entry.name);
+          const targetKey = await realpath(displayPath);
+          const info = await stat(targetKey);
+          const type: "file" | "directory" | "other" = info.isDirectory()
+            ? "directory"
+            : info.isFile()
+              ? "file"
+              : "other";
+          return { name: entry.name, type, target: { displayPath, targetKey } };
+        }),
+      );
+    },
+  };
+  const restore = installSymlinkTraversalGuard(fs);
+  const visited: string[] = [];
+
+  async function walk(target: { displayPath: string; targetKey: string }): Promise<void> {
+    visited.push(target.displayPath);
+    if (visited.length > 10) throw new Error("directory traversal did not terminate");
+    const entries = await fs.listDir(target);
+    for (const entry of entries) {
+      if (entry.type === "directory") await walk(entry.target);
+    }
+  }
+
+  try {
+    await walk({ displayPath: directory, targetKey: await realpath(directory) });
+    assert.deepEqual(visited.sort(), [child, directory].sort());
+    const rootEntries = await fs.listDir({
+      displayPath: directory,
+      targetKey: await realpath(directory),
+    });
+    assert.equal(rootEntries.find((entry) => entry.name === "loop")?.type, "other");
+  } finally {
+    restore();
+    try {
+      const restoredEntries = await fs.listDir({ displayPath: loop, targetKey: directory });
+      assert.equal(restoredEntries.find((entry) => entry.name === "loop")?.type, "directory");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 });
 
 test("history limits accept positive integers and reject invalid values", () => {
@@ -148,6 +235,7 @@ test.sequential("cold artifacts over the physical fence are refused before histo
               },
             },
           },
+          fs: inertFileSystem(),
           sessions: { get: () => undefined },
           sessionPersistence: {
             list: async () => [{ id: "cold" }],
@@ -188,6 +276,7 @@ test.sequential("large live artifacts are preflighted at two messages", async ()
               },
             },
           },
+          fs: inertFileSystem(),
           sessions: { get: () => ({ header: { id: "live" } }) },
           sessionPersistence: {
             list: async () => [],
@@ -228,6 +317,7 @@ test.sequential("oversized prepared pages back off until the response fits", asy
               },
             },
           },
+          fs: inertFileSystem(),
           sessions: { get: () => ({ header: { id: "live" } }) },
           sessionPersistence: {
             list: async () => [],
@@ -263,6 +353,7 @@ test.sequential("a huge final message is returned as a marked preview instead of
               history: async (request: Request) => successfulResponse(request, "x".repeat(50_000)),
             },
           },
+          fs: inertFileSystem(),
           sessions: { get: () => ({ header: { id: "live" } }) },
           sessionPersistence: {
             list: async () => [],
