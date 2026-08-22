@@ -255,7 +255,8 @@ function validateExecutionSpec(value: unknown, path: string): void {
   );
   validateExecutionPlan(record.plan, `${path}.plan`);
   validateLaunchContext(record.launch_context, `${path}.launch_context`);
-  if (record.start_scope !== undefined) stringField(record, "start_scope", path);
+  if (record.start_scope !== undefined)
+    validateScopeHash(record.start_scope, `${path}.start_scope`);
   if (record.source !== undefined) validateSourceMetadata(record.source, `${path}.source`);
   if (record.retry_of !== undefined) usizeField(record, "retry_of", path);
 }
@@ -456,18 +457,20 @@ function validateOutputEncoding(record: WireRecord, path: string): void {
 }
 
 function validatePong(value: unknown, path: string): void {
-  const record = exactRecord(
-    value,
-    path,
-    ["version", "protocol_version", "capabilities"],
-    ["instance_id", "generation_id", "ready"],
-  );
+  const record = exactRecord(value, path, [
+    "version",
+    "protocol_version",
+    "capabilities",
+    "instance_id",
+    "generation_id",
+    "ready",
+  ]);
   stringField(record, "version", path);
   u32Field(record, "protocol_version", path);
   stringArrayField(record, "capabilities", path);
-  if (record.instance_id !== undefined) stringField(record, "instance_id", path);
-  if (record.generation_id !== undefined) stringField(record, "generation_id", path);
-  if (record.ready !== undefined) booleanField(record, "ready", path);
+  stringField(record, "instance_id", path);
+  stringField(record, "generation_id", path);
+  booleanField(record, "ready", path);
 }
 
 function validateOutputChunk(value: unknown, path: string): void {
@@ -597,6 +600,13 @@ function validateUsize(value: unknown, path: string): void {
   validateInteger(value, path, 0, Number.MAX_SAFE_INTEGER);
 }
 
+function validateScopeHash(value: unknown, path: string): void {
+  if (!Array.isArray(value) || value.length !== 32) {
+    throw invalidIpc(path, "expected a 32-byte scope hash");
+  }
+  value.forEach((byte, index) => validateInteger(byte, `${path}[${index}]`, 0, 255));
+}
+
 function validateI32(value: unknown, path: string): void {
   validateInteger(value, path, -0x8000_0000, 0x7fff_ffff);
 }
@@ -640,5 +650,5 @@ function singleVariant(value: unknown, path: string): [string, unknown] {
 }
 
 function invalidIpc(path: string, message: string): Error {
-  return new Error(`invalid cue-shell IPC message at ${path}: ${message}`);
+  return new Error(`invalid Cue IPC message at ${path}: ${message}`);
 }

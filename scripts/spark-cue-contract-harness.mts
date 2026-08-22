@@ -29,7 +29,7 @@ export interface CueContractHarnessReport {
   strict: boolean;
   durationMs: number;
   paths: {
-    cueShellRoot: string | null;
+    cueRoot: string | null;
     cuedBin: string | null;
     tempRoot: string | null;
     socketPath: string | null;
@@ -50,7 +50,7 @@ export interface CueContractHarnessReport {
 export interface CueContractHarnessOptions {
   strict?: boolean;
   outputPath?: string;
-  cueShellRoot?: string;
+  cueRoot?: string;
   cuedBin?: string;
   startupTimeoutMs?: number;
   retainTemp?: boolean;
@@ -114,37 +114,37 @@ function absoluteFrom(root: string, candidate: string): string {
 }
 
 async function resolveCuedBinary(options: CueContractHarnessOptions): Promise<{
-  cueShellRoot: string | null;
+  cueRoot: string | null;
   cuedBin: string | null;
   searched: string[];
 }> {
-  const rootInput = options.cueShellRoot ?? process.env.CUE_SHELL_ROOT;
-  const cueShellRoot = rootInput ? resolve(rootInput) : null;
+  const rootInput = options.cueRoot ?? process.env.CUE_ROOT;
+  const cueRoot = rootInput ? resolve(rootInput) : null;
   const explicitBin = options.cuedBin ?? process.env.CUED_BIN;
   const searched: string[] = [];
 
   if (explicitBin) {
-    const candidate = absoluteFrom(cueShellRoot ?? process.cwd(), explicitBin);
+    const candidate = absoluteFrom(cueRoot ?? process.cwd(), explicitBin);
     searched.push(candidate);
     return {
-      cueShellRoot,
+      cueRoot,
       cuedBin: (await executable(candidate)) ? candidate : null,
       searched,
     };
   }
 
-  if (cueShellRoot) {
+  if (cueRoot) {
     for (const relative of ["target/debug/cued", "target/release/cued"]) {
-      const candidate = join(cueShellRoot, relative);
+      const candidate = join(cueRoot, relative);
       searched.push(candidate);
-      if (await executable(candidate)) return { cueShellRoot, cuedBin: candidate, searched };
+      if (await executable(candidate)) return { cueRoot, cuedBin: candidate, searched };
     }
-    return { cueShellRoot, cuedBin: null, searched };
+    return { cueRoot, cuedBin: null, searched };
   }
 
   const pathCandidate = await executableOnPath("cued");
   searched.push("PATH:cued");
-  return { cueShellRoot, cuedBin: pathCandidate, searched };
+  return { cueRoot, cuedBin: pathCandidate, searched };
 }
 
 async function waitForSocket(
@@ -293,7 +293,7 @@ export async function runSparkCueContractHarness(
     strict,
     durationMs: 0,
     paths: {
-      cueShellRoot: binary.cueShellRoot,
+      cueRoot: binary.cueRoot,
       cuedBin: binary.cuedBin,
       tempRoot: null,
       socketPath: null,
@@ -313,7 +313,7 @@ export async function runSparkCueContractHarness(
 
   if (!binary.cuedBin) {
     report.blockers.push(
-      `cued binary is unavailable; set CUED_BIN or CUE_SHELL_ROOT (searched: ${binary.searched.join(", ")})`,
+      `cued binary is unavailable; set CUED_BIN or CUE_ROOT (searched: ${binary.searched.join(", ")})`,
     );
     report.durationMs = Date.now() - harnessStartedAt;
     await writeReport(outputPath, report);
@@ -399,11 +399,15 @@ export async function runSparkCueContractHarness(
       requireContract(versionA === versionB, "sessions observed different daemon versions");
       return {
         daemonVersion: versionA,
-        protocolVersionAtLeast: 2,
+        protocolVersion: 3,
         requiredCapabilities: [
+          "execution-v3",
           "session-handshake-required",
-          "script-item-created",
           "cancel-execution",
+          "operation-idempotency",
+          "graceful-restart",
+          "named-sessions",
+          "session-archive",
         ],
         sessionIds: ["spark-cue-contract-a", "spark-cue-contract-b"],
       };
@@ -412,9 +416,9 @@ export async function runSparkCueContractHarness(
     if (!handshakePassed || !clientA || !clientB) {
       const reason = "requires two initialized CueClient sessions";
       for (const name of [
-        "jobResult",
+        "executionResult",
         "twoSessionConcurrency",
-        "runScriptItemAuthority",
+        "runScriptExecutionAuthority",
         "abortCancellation",
       ]) {
         skipCheck(report, name, reason);
@@ -423,22 +427,23 @@ export async function runSparkCueContractHarness(
       const first = clientA;
       const second = clientB;
 
-      await recordCheck(report, "jobResult", async () => {
-        const result = await first.runJob("printf spark-cue-contract-job", {
+      await recordCheck(report, "executionResult", async () => {
+        const result = await first.runExecution("printf spark-cue-contract-execution", {
           timeout: 10,
           pty: false,
         });
-        requireContract(result.status === "Done", `expected Done, got ${result.status}`);
+        requireContract(result.status === "succeeded", `expected succeeded, got ${result.status}`);
         requireContract(
           result.exitCode === 0,
           `expected exitCode=0, got ${String(result.exitCode)}`,
         );
         requireContract(
-          result.stdout === "spark-cue-contract-job",
+          result.stdout === "spark-cue-contract-execution",
           `unexpected stdout ${JSON.stringify(result.stdout)}`,
         );
         return {
-          jobId: result.jobId,
+          executionId: result.executionId,
+          stepIds: result.stepIds,
           status: result.status,
           exitCode: result.exitCode,
           stdout: result.stdout,
@@ -447,8 +452,8 @@ export async function runSparkCueContractHarness(
 
       await recordCheck(report, "twoSessionConcurrency", async () => {
         const [resultA, resultB] = await Promise.all([
-          first.runJob("printf spark-cue-contract-session-a", { timeout: 10 }),
-          second.runJob("printf spark-cue-contract-session-b", { timeout: 10 }),
+          first.runExecution("printf spark-cue-contract-session-a", { timeout: 10 }),
+          second.runExecution("printf spark-cue-contract-session-b", { timeout: 10 }),
         ]);
         requireContract(
           resultA.stdout === "spark-cue-contract-session-a",
@@ -461,23 +466,23 @@ export async function runSparkCueContractHarness(
         requireContract(!first.isClosed && !second.isClosed, "one session closed the other");
         await Promise.all([first.ping(), second.ping()]);
         return {
-          sessionAJobId: resultA.jobId,
-          sessionBJobId: resultB.jobId,
+          sessionAExecutionId: resultA.executionId,
+          sessionBExecutionId: resultB.executionId,
           bothConnectionsRemainOpen: true,
         };
       });
 
-      await recordCheck(report, "runScriptItemAuthority", async () => {
-        const scriptPromise = first.runScript({
-          path: join(workspaceA, "two-items.cue"),
-          input: "sleep 0.4\nprintf spark-cue-contract-script-second",
-          timeout: 10,
-        });
-        await delay(75);
-        const outsiderPromise = second.runJob("printf spark-cue-contract-outsider", {
-          timeout: 10,
-        });
-        const [script, outsider] = await Promise.all([scriptPromise, outsiderPromise]);
+      await recordCheck(report, "runScriptExecutionAuthority", async () => {
+        const [script, outsider] = await Promise.all([
+          first.runScript({
+            path: join(workspaceA, "two-items.cue"),
+            input: "sleep 0.4\nprintf spark-cue-contract-script-second",
+            timeout: 10,
+          }),
+          delay(75).then(() =>
+            second.runExecution("printf spark-cue-contract-outsider", { timeout: 10 }),
+          ),
+        ]);
         requireContract(
           script.status === "done",
           `expected script status done, got ${script.status}`,
@@ -487,39 +492,29 @@ export async function runSparkCueContractHarness(
           `expected script exitCode=0, got ${script.exitCode}`,
         );
         requireContract(
-          script.items.length === 2,
-          `expected 2 script items, got ${script.items.length}`,
+          script.stepIds.length === 2,
+          `expected 2 steps, got ${script.stepIds.length}`,
         );
         requireContract(
-          script.items[0]?.source === "sleep 0.4",
-          `unexpected first item source ${JSON.stringify(script.items[0]?.source)}`,
+          script.executionId !== outsider.executionId,
+          `outsider execution ${outsider.executionId} reused script identity ${script.executionId}`,
         );
         requireContract(
-          script.items[1]?.source === "printf spark-cue-contract-script-second",
-          `unexpected second item source ${JSON.stringify(script.items[1]?.source)}`,
-        );
-        const scriptJobIds = script.items.flatMap((item) => item.jobIds);
-        requireContract(
-          !scriptJobIds.includes(outsider.jobId),
-          `outsider job ${outsider.jobId} was attributed to script ${script.scriptId}`,
-        );
-        requireContract(
-          script.items[1]?.stdout === "spark-cue-contract-script-second",
-          `unexpected second item stdout ${JSON.stringify(script.items[1]?.stdout)}`,
+          script.stdout === "spark-cue-contract-script-second",
+          `unexpected script stdout ${JSON.stringify(script.stdout)}`,
         );
         return {
-          scriptId: script.scriptId,
-          scriptJobIds,
-          outsiderJobId: outsider.jobId,
-          itemSources: script.items.map((item) => item.source),
-          itemStdout: script.items.map((item) => item.stdout),
+          executionId: script.executionId,
+          stepIds: script.stepIds,
+          outsiderExecutionId: outsider.executionId,
+          stdout: script.stdout,
         };
       });
 
       await recordCheck(report, "abortCancellation", async () => {
         const controller = new AbortController();
         const startedAt = Date.now();
-        const running = first.runJob("sleep 29", {
+        const running = first.runExecution("sleep 29", {
           timeout: 10,
           signal: controller.signal,
         });
@@ -538,22 +533,27 @@ export async function runSparkCueContractHarness(
         const elapsedMs = Date.now() - startedAt;
         requireContract(
           abortError instanceof Error,
-          "aborted runJob resolved instead of rejecting",
+          "aborted runExecution resolved instead of rejecting",
         );
         requireContract(
           abortError.name === "AbortError",
           `expected AbortError, got ${abortError.name}: ${abortError.message}`,
         );
         requireContract(elapsedMs < 5_000, `abort took ${elapsedMs}ms`);
-        const cancelledJob = (await first.listJobs()).find((job) => job.pipeline === "sleep 29");
-        requireContract(cancelledJob, "cancelled job was not visible in the durable job list");
+        const cancelledExecution = (await first.listExecutionSummaries()).find(
+          (execution) => execution.pipeline === "sleep 29",
+        );
         requireContract(
-          ["Killed", "Cancelled"].includes(cancelledJob.status),
-          `cancelled job remained ${cancelledJob.status}`,
+          cancelledExecution,
+          "cancelled execution was not visible in the durable execution list",
+        );
+        requireContract(
+          cancelledExecution.status === "cancelled",
+          `cancelled execution remained ${cancelledExecution.status}`,
         );
         return {
-          jobId: cancelledJob.id,
-          status: cancelledJob.status,
+          executionId: cancelledExecution.id,
+          status: cancelledExecution.status,
           elapsedMs,
           errorName: abortError.name,
         };
@@ -595,12 +595,12 @@ export async function runSparkCueContractHarness(
           );
           requireContract(background.ok && background.executionId, background.text);
           const executionId = background.executionId;
-          const listedJobs = await runtime.execute(
+          const listedExecutions = await runtime.execute(
             "cue_jobs",
             { action: "list", status: "running" },
             context(),
           );
-          const jobStatus = await runtime.execute(
+          const executionSummary = await runtime.execute(
             "cue_jobs",
             { action: "status", id: executionId },
             context(),
@@ -688,8 +688,8 @@ export async function runSparkCueContractHarness(
           );
           requireContract(history.shownChars <= history.rawChars, history.text);
           requireContract(
-            listedJobs.action === "list" && jobStatus.action === "status",
-            "bad jobs union",
+            listedExecutions.action === "list" && executionSummary.action === "status",
+            "bad executions union",
           );
 
           return {
@@ -699,13 +699,13 @@ export async function runSparkCueContractHarness(
               cueScript.tool,
               scriptRun.tool,
               scriptEval.tool,
-              listedJobs.tool,
+              listedExecutions.tool,
               providers.tool,
               scheduled.tool,
               scopeStatus.tool,
               history.tool,
             ],
-            jobActions: ["list", "status", "wait", "stop"],
+            executionActions: ["list", "status", "wait", "stop"],
             scheduleActions: ["add", "list", "pause", "resume", "remove"],
             scopeActions: [
               "list",
@@ -774,10 +774,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       typeof args.get("output") === "string"
         ? String(args.get("output"))
         : "/tmp/spark-cue-contract-harness-report.json",
-    cueShellRoot:
-      typeof args.get("cue-shell-root") === "string"
-        ? String(args.get("cue-shell-root"))
-        : undefined,
+    cueRoot: typeof args.get("cue-root") === "string" ? String(args.get("cue-root")) : undefined,
     cuedBin: typeof args.get("cued-bin") === "string" ? String(args.get("cued-bin")) : undefined,
     startupTimeoutMs:
       typeof args.get("startup-timeout-ms") === "string"

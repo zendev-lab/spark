@@ -71,19 +71,19 @@ function validOutput(name: string): Record<string, unknown> {
       timedOut: false,
       cancelled: false,
       stepIds: [],
-      items: [],
+      stdout: stream,
+      stderr: stream,
     };
   }
   if (name === "script_run" || name === "script_eval") {
     return {
       ...base,
       language: "python",
-      kind: "python-job",
+      kind: "python-execution",
       stepIds: [],
       status: "finished",
       timedOut: false,
       cancelled: false,
-      items: [],
       stdout: stream,
       stderr: stream,
     };
@@ -139,6 +139,20 @@ describe("dsh-tool-cue plugin", () => {
         cueScript!.output!.schema,
         {
           ...validOutput("cue_script"),
+          ok: false,
+          status: "cancelled",
+          cancelled: true,
+          cancelReason: "forced",
+        },
+        "",
+      ),
+    ).toEqual([]);
+    const cueExec = tools.find((tool) => tool.name === "cue_exec");
+    expect(
+      validateJsonSchemaValue(
+        cueExec!.output!.schema,
+        {
+          ...validOutput("cue_exec"),
           ok: false,
           status: "cancelled",
           cancelled: true,

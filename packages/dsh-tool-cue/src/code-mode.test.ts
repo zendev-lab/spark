@@ -36,12 +36,12 @@ describe("DSH Code Mode contract", () => {
 
     const execute = vi.fn(async () => ({
       tool: "cue_exec" as const,
-      text: "Execution E1: Done\nhello",
+      text: "Execution E1: succeeded\nhello",
       ok: true,
       kind: "foreground" as const,
       executionId: "E1",
       stepIds: ["E1/S1"],
-      status: "Done",
+      status: "succeeded",
       exitCode: 0,
       timedOut: false,
       detached: false,

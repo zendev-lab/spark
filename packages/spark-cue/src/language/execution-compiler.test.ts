@@ -32,7 +32,7 @@ describe("Cue execution compiler", () => {
     );
   });
 
-  it("matches Cue precedence: job logic, then parallel, then serial", () => {
+  it("matches Cue precedence: conditional, then parallel, then serial", () => {
     expect(compileExecution("a -> b ||| c && d").plan).toEqual({
       kind: "on_success",
       left: {
@@ -131,7 +131,7 @@ describe("Cue execution compiler", () => {
   );
 
   it("keeps a quoted colon executable as an ordinary word", () => {
-    expect(compileExecution('\":echo\" ok').plan).toMatchObject({
+    expect(compileExecution('":echo" ok').plan).toMatchObject({
       pipeline: { segments: [{ command: [":echo", "ok"] }] },
     });
   });

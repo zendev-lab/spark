@@ -31,7 +31,7 @@ export const CUE_TOOL_NAMES = [
 ] as const;
 
 export type CueToolName = (typeof CUE_TOOL_NAMES)[number];
-export type CueScriptLanguage = "cue-shell" | "python";
+export type CueScriptLanguage = "cue" | "python";
 
 export interface CueExecArgs {
   command: string;
@@ -149,6 +149,7 @@ export interface CueExecResult extends CueCanonicalBase {
   timedOut: boolean;
   detached: boolean;
   cancelled: boolean;
+  cancelReason?: ExecutionCancelReason;
   stdout: CueTextStream;
   stderr: CueTextStream;
   warnings: string[];
@@ -161,17 +162,18 @@ export interface CueScriptResult extends CueCanonicalBase {
   source?: unknown;
   status: string;
   exitCode?: number | null;
-  failedItemIndex?: number | null;
+  failedStepIndex?: number | null;
   timedOut: boolean;
   cancelled: boolean;
   cancelReason?: ExecutionCancelReason;
-  items: unknown[];
+  stdout: CueTextStream;
+  stderr: CueTextStream;
 }
 
 export interface CueLanguageResult extends CueCanonicalBase {
   tool: "script_run" | "script_eval";
   language: CueScriptLanguage;
-  kind: "cue-shell-script" | "python-job";
+  kind: "cue-script" | "python-execution";
   executionId?: string;
   stepIds: string[];
   status: string;
@@ -179,7 +181,6 @@ export interface CueLanguageResult extends CueCanonicalBase {
   timedOut: boolean;
   cancelled: boolean;
   cancelReason?: ExecutionCancelReason;
-  items: unknown[];
   stdout: CueTextStream;
   stderr: CueTextStream;
 }
@@ -290,7 +291,7 @@ function stream(details: Record<string, unknown>, key: "stdout" | "stderr"): Cue
 }
 
 function recordsOf(details: Record<string, unknown>): unknown[] {
-  for (const key of ["jobs", "crons", "scopes", "providers", "resources", "items"]) {
+  for (const key of ["executions", "schedules", "scopes", "providers", "resources"]) {
     const value = details[key];
     if (Array.isArray(value)) return value;
   }
@@ -341,22 +342,27 @@ function canonicalize<Name extends CueToolName>(
 ): CueToolResultMap[Name] {
   if (name === "cue_exec") {
     const background = (args as CueExecArgs).background === true;
+    const status = optionalString(details.status);
+    const wasCancelled = cancelled || status?.toLowerCase() === "cancelled";
     return {
       tool: name,
       text,
-      ok,
+      ok: ok && !wasCancelled,
       kind: background ? "background" : "foreground",
       ...(optionalString(details.executionId)
         ? { executionId: optionalString(details.executionId) }
         : {}),
       stepIds: stringArray(details.stepIds),
-      ...(optionalString(details.status) ? { status: optionalString(details.status) } : {}),
+      ...(status ? { status } : {}),
       ...(optionalNumber(details.exitCode) !== undefined
         ? { exitCode: optionalNumber(details.exitCode) }
         : {}),
       timedOut: details.timedOut === true,
       detached: background || details.switchedToBackground === true,
-      cancelled,
+      cancelled: wasCancelled,
+      ...(details.cancelReason === "user" || details.cancelReason === "forced"
+        ? { cancelReason: details.cancelReason }
+        : {}),
       stdout: stream(details, "stdout"),
       stderr: stream(details, "stderr"),
       warnings: Array.isArray(details.warnings)
@@ -382,15 +388,16 @@ function canonicalize<Name extends CueToolName>(
       ...(optionalNumber(details.exitCode) !== undefined
         ? { exitCode: optionalNumber(details.exitCode) }
         : {}),
-      ...(optionalNumber(details.failedItemIndex) !== undefined
-        ? { failedItemIndex: optionalNumber(details.failedItemIndex) }
+      ...(optionalNumber(details.failedStepIndex) !== undefined
+        ? { failedStepIndex: optionalNumber(details.failedStepIndex) }
         : {}),
       timedOut: details.timedOut === true,
       cancelled: wasCancelled,
       ...(details.cancelReason === "user" || details.cancelReason === "forced"
         ? { cancelReason: details.cancelReason }
         : {}),
-      items: Array.isArray(details.items) ? details.items : [],
+      stdout: stream(details, "stdout"),
+      stderr: stream(details, "stderr"),
     } as CueToolResultMap[Name];
   }
 
@@ -404,7 +411,7 @@ function canonicalize<Name extends CueToolName>(
       text,
       ok: ok && !wasCancelled,
       language,
-      kind: language === "python" ? "python-job" : "cue-shell-script",
+      kind: language === "python" ? "python-execution" : "cue-script",
       ...(optionalString(details.executionId)
         ? { executionId: optionalString(details.executionId) }
         : {}),
@@ -418,7 +425,6 @@ function canonicalize<Name extends CueToolName>(
       ...(details.cancelReason === "user" || details.cancelReason === "forced"
         ? { cancelReason: details.cancelReason }
         : {}),
-      items: Array.isArray(details.items) ? details.items : [],
       stdout: stream(details, "stdout"),
       stderr: stream(details, "stderr"),
     } as CueToolResultMap[Name];

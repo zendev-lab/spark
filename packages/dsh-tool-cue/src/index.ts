@@ -59,9 +59,9 @@ export const Config = z.object({
  * owns only the host ABI, spark-cue remains the semantic owner.
  */
 const CUE_BASH_NOTICE =
-  "cue-shell is direct-exec (execvp), not bash — do not use raw '|', ';', '<', '>', '$()' or backticks. " +
-  "Composition operators: '|>' pipes stdout in one job, '&&'/'||' are job-internal logic, " +
-  "'->' serial-on-success, '~>' serial ignoring failure, '|||' parallel, '|?|' any-success race. " +
+  "Cue is direct-exec (execvp), not bash — do not use raw '|', ';', '<', '>', '$()' or backticks. " +
+  "Composition operators compile one ExecutionPlan: '|>' pipeline, '&&'/'->' on-success, " +
+  "'||' on-failure, '~>' always, '|||' parallel-all, '|?|' any-success. " +
   "Example: 'cargo build |> grep error -> cargo test'. Rewrite bash-style pipes/redirection before calling.";
 
 const streamSchema = {
@@ -109,6 +109,7 @@ const execOutput = {
     timedOut: { type: "boolean", required: true },
     detached: { type: "boolean", required: true },
     cancelled: { type: "boolean", required: true },
+    cancelReason: { type: "string", enum: ["user", "forced"] },
     stdout: { ...streamSchema, required: true },
     stderr: { ...streamSchema, required: true },
     warnings: { type: "array", items: { type: "string" }, required: true },
@@ -126,11 +127,12 @@ function scriptOutput<const Name extends "cue_run" | "cue_script">(tool: Name) {
       source: { type: "json" },
       status: { type: "string", required: true },
       exitCode: { oneOf: [{ type: "integer" }, { type: "null" }] },
-      failedItemIndex: { oneOf: [{ type: "integer" }, { type: "null" }] },
+      failedStepIndex: { oneOf: [{ type: "integer" }, { type: "null" }] },
       timedOut: { type: "boolean", required: true },
       cancelled: { type: "boolean", required: true },
       cancelReason: { type: "string", enum: ["user", "forced"] },
-      items: { type: "array", items: { type: "json" }, required: true },
+      stdout: { ...streamSchema, required: true },
+      stderr: { ...streamSchema, required: true },
     },
   } as const;
 }
@@ -141,8 +143,8 @@ function languageOutput<const Name extends "script_run" | "script_eval">(tool: N
     additionalProperties: false,
     properties: {
       ...baseProperties(tool),
-      language: { type: "string", enum: ["cue-shell", "python"], required: true },
-      kind: { type: "string", enum: ["cue-shell-script", "python-job"], required: true },
+      language: { type: "string", enum: ["cue", "python"], required: true },
+      kind: { type: "string", enum: ["cue-script", "python-execution"], required: true },
       executionId: { type: "string" },
       stepIds: { type: "array", items: { type: "string" }, required: true },
       status: { type: "string", required: true },
@@ -150,7 +152,6 @@ function languageOutput<const Name extends "script_run" | "script_eval">(tool: N
       timedOut: { type: "boolean", required: true },
       cancelled: { type: "boolean", required: true },
       cancelReason: { type: "string", enum: ["user", "forced"] },
-      items: { type: "array", items: { type: "json" }, required: true },
       stdout: { ...streamSchema, required: true },
       stderr: { ...streamSchema, required: true },
     },
@@ -239,7 +240,7 @@ const historyOutput = {
 const definitions = {
   cue_exec: {
     description:
-      "Execute a direct command or Cue composition through cued; timeout detaches rather than killing the job. " +
+      "Execute a direct command or Cue composition through cued; timeout detaches rather than cancelling the execution. " +
       CUE_BASH_NOTICE,
     parameters: {
       command: { type: "string", required: true },
@@ -264,7 +265,7 @@ const definitions = {
     output: scriptOutput("cue_run"),
   },
   cue_script: {
-    description: "Run an inline cue-shell script through cued.",
+    description: "Run an inline Cue script through cued.",
     parameters: {
       script: { type: "string", required: true },
       pathLabel: { type: "string" },
@@ -275,10 +276,10 @@ const definitions = {
     output: scriptOutput("cue_script"),
   },
   script_run: {
-    description: "Run a cue-shell or Python script file through cued.",
+    description: "Run a Cue or Python script file through cued.",
     parameters: {
       path: { type: "string", required: true },
-      language: { type: "string", enum: ["cue-shell", "python"], required: true },
+      language: { type: "string", enum: ["cue", "python"], required: true },
       timeout: { type: "number" },
       tail_bytes: { type: "number" },
       venv: { type: "string" },
@@ -287,10 +288,10 @@ const definitions = {
     output: languageOutput("script_run"),
   },
   script_eval: {
-    description: "Evaluate an inline cue-shell or Python script through cued.",
+    description: "Evaluate an inline Cue or Python script through cued.",
     parameters: {
       script: { type: "string", required: true },
-      language: { type: "string", enum: ["cue-shell", "python"], required: true },
+      language: { type: "string", enum: ["cue", "python"], required: true },
       pathLabel: { type: "string" },
       timeout: { type: "number" },
       tail_bytes: { type: "number" },
@@ -300,7 +301,7 @@ const definitions = {
     output: languageOutput("script_eval"),
   },
   cue_jobs: {
-    description: "List, inspect, wait for, or stop cued jobs and chains.",
+    description: "List, inspect, wait for, or cancel cued executions.",
     parameters: {
       action: { type: "string", enum: ["list", "status", "wait", "stop"], required: true },
       id: { type: "string" },
@@ -362,7 +363,7 @@ const definitions = {
     output: scopeOutput,
   },
   cue_history: {
-    description: "Read bounded cued command, job, chain, or script history.",
+    description: "Read bounded cued execution history.",
     parameters: {
       id: { type: "string" },
       limit: { type: "number" },
@@ -731,10 +732,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: "tool:cue",
     order: 105,
     text:
-      "Use Cue tools for command, script, job, resource, schedule, scope, and history operations. " +
+      "Use Cue tools for command, script, execution, resource, schedule, scope, and history operations. " +
       "Cue is direct-exec rather than Bash; use Cue composition operators. " +
       "If a command contains bash-style pipe/redirection/semicolon, rewrite it to Cue operators first — never retry raw bash syntax. " +
-      "A foreground timeout detaches the durable job instead of killing it.",
+      "A foreground timeout detaches the durable execution instead of cancelling it.",
   });
 
   registerCueToolDefinitions(ctx, runtime, brokerRegistry);

@@ -18,7 +18,7 @@ function send(socket: Socket, id: number, ok: unknown): void {
   socket.write(encodeFrame({ type: "response", id, payload: { Ok: ok } }));
 }
 
-test("CueClient accepts a compatible v3 Pong without instance_id", async () => {
+test("CueClient rejects a v3 Pong without required runtime identity", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cue-instance-id-"));
   const socketPath = join(dir, "cued.sock");
   const sockets = new Set<Socket>();
@@ -56,14 +56,13 @@ test("CueClient accepts a compatible v3 Pong without instance_id", async () => {
       server.once("error", reject);
       server.listen(socketPath, resolve);
     });
-    const client = await CueClient.connect(socketPath, {
-      sessionId: "compat-session",
-      cwd: dir,
-    });
-    assert.equal(client.daemonInstanceId, null);
-    assert.equal(await client.pingForVersion(), "0.1.0");
-    client.close();
-    await client.closed;
+    await assert.rejects(
+      CueClient.connect(socketPath, {
+        sessionId: "strict-v3-session",
+        cwd: dir,
+      }),
+      /Pong\.instance_id: missing field instance_id/,
+    );
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));

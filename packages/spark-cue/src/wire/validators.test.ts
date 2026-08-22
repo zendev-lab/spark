@@ -8,6 +8,7 @@ import {
 } from "./validators.ts";
 
 const stepId = { execution: 7, index: 0 };
+const scopeHash = Array.from({ length: 32 }, (_, index) => index);
 const spec = {
   plan: {
     kind: "pipeline",
@@ -21,6 +22,7 @@ const spec = {
       ],
     },
   },
+  start_scope: scopeHash,
   launch_context: {
     pty: false,
     needs: { cpu: { kind: "count", value: 1 } },
@@ -146,6 +148,22 @@ test("accepts strict error payloads", () => {
   assert.equal(validateCueErrorPayload(payload), payload);
 });
 
+test("requires every IPC v3 Pong identity and readiness field", () => {
+  const pong = (
+    okPayloads.find((payload) => "Pong" in (payload as object)) as {
+      Pong: Record<string, unknown>;
+    }
+  ).Pong;
+  for (const field of ["instance_id", "generation_id", "ready"]) {
+    const malformed = { ...pong };
+    delete malformed[field];
+    assert.throws(
+      () => validateCueOkPayload({ Pong: malformed }),
+      new RegExp(`missing field ${field}`),
+    );
+  }
+});
+
 test("rejects removed v2 response and event variants", () => {
   for (const payload of [
     { JobCreated: { job_id: "J1" } },
@@ -195,6 +213,13 @@ test("rejects unknown fields at every typed boundary", () => {
 });
 
 test("rejects invalid execution states and adapter handles", () => {
+  assert.throws(
+    () =>
+      validateCueOkPayload({
+        ExecutionInfo: { ...execution, spec: { ...spec, start_scope: [0, 1] } },
+      }),
+    /expected a 32-byte scope hash/,
+  );
   assert.throws(
     () => validateCueOkPayload({ ExecutionInfo: { ...execution, state: { status: "killed" } } }),
     /unknown execution status killed/,

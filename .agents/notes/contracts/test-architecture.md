@@ -12,7 +12,7 @@ its normal check and mutation evaluation can exercise it.
 | App unit / integration | `apps/*/src/**/*.test.ts` | App-owned composition, persistence, process, route, and rendering behavior |
 | Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/` and `test/journey/`) | Behavior that genuinely crosses package or app ownership boundaries |
 | Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
-| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and cue-shell |
+| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and Cue |
 | Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
 | Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
 | Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
@@ -42,7 +42,7 @@ and generated npm product from drifting while keeping failures attributable to d
 `pnpm run check` remains the serial local gate. Static CI runs maintained workflow validators,
 architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
 complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
-with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
+with a pinned compatible Cue source build, plus the browser suite for pull requests and
 `merge_group`. Those source, process, journey, and browser jobs are independent because each owns
 its checkout, installation, and runtime setup. Merge-gate workflows do not run on branch pushes.
 The repository-wide benchmark workflow runs every CPU benchmark on `main`. Pull requests, merge

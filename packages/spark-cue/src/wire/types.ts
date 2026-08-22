@@ -1,4 +1,4 @@
-/** cue-shell IPC message types and client error classes. */
+/** Cue IPC message types and client error classes. */
 
 export type CueResolvedTransport =
   | {
@@ -18,7 +18,7 @@ export type CueResolvedTransport =
 
 /** Stable inputs used to derive a bounded daemon operation id. */
 export interface CueOperationKey {
-  /** Logical Spark/cue-shell session identity, not a transport connection id. */
+  /** Logical Spark/Cue session identity, not a transport connection id. */
   sessionId: string;
   /** Pi's stable tool-call id. */
   toolCallId: string;
@@ -27,8 +27,6 @@ export interface CueOperationKey {
 }
 
 // ── IPC message types (mirrors cue_core::ipc) ──────────────────────────────
-
-export type Mode = "Job" | "Cron";
 
 export interface RequestEnvelope {
   type: "request";
@@ -136,20 +134,17 @@ export interface ForegroundAttachmentInfo {
 
 /**
  * Daemon Pong payload.
- *
- * Core IPC v2 fields are required. Daemons may omit the newer process-lifetime
- * identity, in which case reconnect replay remains disabled for safety.
  */
 export interface PongPayload {
   version: string;
   protocol_version: number;
   capabilities: string[];
-  /** Unique to one daemon process lifetime when supported by the daemon. */
-  instance_id?: string;
-  /** Restart generation fence added by newer daemons; absent on compatible v2 peers. */
-  generation_id?: string;
-  /** Explicit startup-readiness hint; omission preserves legacy ready behavior. */
-  ready?: boolean;
+  /** Unique to one daemon process lifetime. */
+  instance_id: string;
+  /** Restart generation fence for exact successor matching. */
+  generation_id: string;
+  /** Startup-readiness fence. */
+  ready: boolean;
 }
 
 export interface ScopeCreatedPayload {
@@ -161,7 +156,7 @@ export interface CueSessionOptions {
   sessionId?: string;
   cwd?: string;
   env?: Record<string, string | undefined>;
-  /** Explicitly refresh an existing cue-shell session from this cwd/env snapshot. */
+  /** Explicitly refresh an existing Cue session from this cwd/env snapshot. */
   refresh?: boolean;
   /** Forward keys normally treated as sensitive. Defaults to false. */
   forwardSensitiveEnv?: boolean;
@@ -205,11 +200,14 @@ export interface LaunchContext {
 
 export interface ExecutionSpec {
   plan: ExecutionPlan;
-  start_scope?: string;
+  start_scope?: ScopeHash;
   launch_context: LaunchContext;
   source?: { name: string; line?: number; column?: number };
   retry_of?: number;
 }
+
+/** Full content-addressed scope hash as serialized by cue-core. */
+export type ScopeHash = number[];
 
 export type CancelMode = "graceful" | "force";
 export type ExecutionCancelReason = "user" | "forced";
@@ -286,138 +284,28 @@ export interface ResourceProviderInfo {
   units: ResourceUnitInfo[];
 }
 
-export interface JobCreatedPayload {
-  job_id: string;
-  start_scope?: string;
-  open_hint: "stream" | "fg";
-  chain_id?: string;
-  chain_index?: number;
-  chain_total?: number;
-  warnings: string[];
-}
-
-export interface ChainCreatedPayload {
-  chain_id: string;
-  job_ids: string[];
-  chain: ChainInfo;
-  warnings: string[];
-}
-
 export type ScriptSource = { kind: "inline" } | { kind: "file"; path: string };
-
-export type ScriptItemResult =
-  | {
-      kind: "job";
-      job_id: string;
-      start_scope?: string;
-      open_hint: "stream" | "fg";
-    }
-  | {
-      kind: "chain";
-      chain_id: string;
-      job_ids: string[];
-      chain: ChainInfo;
-    }
-  | { kind: "cron"; cron_id: string }
-  | { kind: "message"; text: string };
-
-export interface ScriptItemInfo {
-  index: number;
-  source: string;
-  result: ScriptItemResult;
-}
-
-export interface ScriptSubmitError {
-  index: number;
-  source: string;
-  code: string;
-  message: string;
-}
-
-export interface ScriptCreatedPayload {
-  script_id: string;
-  source: ScriptSource;
-  items: ScriptItemInfo[];
-  submit_error: ScriptSubmitError | null;
-}
 
 export type ScriptRunStatus = "done" | "failed" | "cancelled";
 
 export type ScriptInfoStatus = "running" | ScriptRunStatus;
-
-export interface ScriptInfoPayload {
-  script_id: string;
-  status: ScriptInfoStatus;
-  items: ScriptItemInfo[];
-  exit_code: number | null;
-  failed_item_index: number | null;
-  submit_error: ScriptSubmitError | null;
-  cancelReason?: ExecutionCancelReason;
-}
-
-export interface ScriptFinishedEvent {
-  script_id: string;
-  status: ScriptRunStatus;
-  exit_code: number;
-  failed_item_index: number | null;
-}
-
-export interface ScriptTerminalState {
-  status: ScriptRunStatus;
-  exit_code: number | null;
-  failed_item_index: number | null;
-}
-
-export interface ScriptItemCreatedEvent {
-  script_id: string;
-  item: ScriptItemInfo;
-}
-
-export interface ChainInfo {
-  id: string;
-  pipeline: string;
-  total_jobs: number;
-  jobs: ChainJobInfo[];
-}
-
-export interface ChainJobInfo {
-  index: number;
-  pipeline: string;
-  status: JobStatus;
-  job_id?: string;
-  start_scope?: string;
-  end_scope?: string;
-  open_hint?: "stream" | "fg";
-  /** Structured reason when status is Cancelled. */
-  cancelReason?: CancelReason;
-}
-
 export type CronStatus = "scheduled" | "paused" | "completed" | "expired" | "failed";
 
-export interface CronInfo {
+export interface ScheduleSummary {
   id: string;
   schedule: string;
   command: string;
   status: CronStatus;
 }
 
-export type JobStatus = "Pending" | "Running" | "Done" | "Failed" | "Killed" | "Cancelled";
-export type CancelReason = "User" | "Forced" | "ChainAborted" | "Timeout";
-
-export interface JobInfo {
+export interface ExecutionSummary {
   id: string;
-  status: JobStatus;
+  stepIds: string[];
+  status: ExecutionState["status"];
   pipeline: string;
-  exit_code?: number | null;
-  start_scope?: string;
-  end_scope?: string;
-  open_hint: "stream" | "fg";
-  chain_id?: number | string | null;
-  chain_index?: number;
-  chain_total?: number;
-  pending_reason?: string | null;
-  /** Structured reason when status is Cancelled. */
-  cancelReason?: CancelReason;
+  exitCode: number | null;
+  pty: boolean;
+  cancelReason?: ExecutionCancelReason;
 }
 
 export interface ScopeInfo {
@@ -455,27 +343,6 @@ export type EventPayload =
   | { FgExited: { id: StepId; attachment_id: number; reason: string } }
   | { ShuttingDown: { reason: string } };
 
-export interface JobStateChangedEvent {
-  job_id: string;
-  old_state: JobStatus;
-  new_state: JobStatus;
-  end_scope?: string;
-  chain_id?: string;
-  chain_index?: number;
-  /** Structured reason for new_state when new_state is Cancelled. */
-  cancelReason?: CancelReason;
-}
-
-export interface JobCreatedEvent {
-  job_id: string;
-  pipeline: string;
-  start_scope?: string;
-  open_hint: "stream" | "fg";
-  chain_id?: string;
-  chain_index?: number;
-  chain_total?: number;
-}
-
 export interface OutputChunkEvent {
   id: StepId;
   stream: "stdout" | "stderr";
@@ -499,46 +366,13 @@ export interface StreamText {
 
 export type OutputEncoding = "utf8" | "base64";
 
-export type CompletionKind = "Command" | "Param" | "Id" | "Path" | "Operator";
-
-export interface CompletionItem {
-  label: string;
-  insert_text: string;
-  kind: CompletionKind;
-  detail: string | null;
-}
-
-export type HighlightKind =
-  | "CommandPrefix"
-  | "CommandName"
-  | "ModeParam"
-  | "Operator"
-  | "IdRef"
-  | "Word"
-  | "String"
-  | "Number"
-  | "Error";
-
-export interface HighlightSpan {
-  start: number;
-  end: number;
-  kind: HighlightKind;
-}
-
 export type CueMessage = RequestEnvelope | ResponseEnvelope | EventEnvelope;
-
-export interface JobOutputPayload {
-  id: string;
-  stdout: StreamText;
-  stderr: StreamText;
-  stderr_pty_merged: boolean;
-}
 
 // ── Public types ───────────────────────────────────────────────────────────
 
 export type ResourceNeeds = Record<string, string | number>;
 
-export interface RunEvalOptions {
+export interface ExecutionOptions {
   /** Working directory override. */
   cwd?: string;
   /** Whether to allocate a PTY. Defaults to false for API/tool runs. */
@@ -551,14 +385,14 @@ export interface RunEvalOptions {
   operation?: CueOperationKey;
 }
 
-export interface RunJobOptions extends RunEvalOptions {
-  /** Foreground wait budget in seconds (default: 300). Expiry detaches; the job keeps running. */
+export interface RunExecutionOptions extends ExecutionOptions {
+  /** Foreground wait budget in seconds (default: 300). Expiry detaches; execution continues. */
   timeout?: number;
   /** Cancels the daemon-side foreground execution and waits for it to stop. */
   signal?: AbortSignal;
 }
 
-export interface StartJobOptions extends RunEvalOptions {}
+export interface StartExecutionOptions extends ExecutionOptions {}
 
 export interface RunScriptOptions {
   /** Source path to associate with the script (display label only when input is inline). */
@@ -575,23 +409,8 @@ export interface RunScriptOptions {
   spawnAdapter?: SpawnAdapterHandle;
 }
 
-export interface ScriptItemSummary {
-  index: number;
-  source: string;
-  kind: ScriptItemResult["kind"];
-  jobIds: string[];
-  chainId: string | null;
-  cronId: string | null;
-  message?: string;
-  stdout: string;
-  stderr: string;
-  status: JobStatus;
-  exitCode: number | null;
-  jobs: JobInfo[];
-}
-
 export interface ScriptResult {
-  scriptId: string;
+  executionId: string;
   stepIds: string[];
   source: ScriptSource;
   /** Terminal execution status, or `running` when the wait budget expired. */
@@ -599,12 +418,15 @@ export interface ScriptResult {
   cancelReason?: ExecutionCancelReason;
   /** Aggregated exit code derived from the execution's failed steps. */
   exitCode: number | null;
-  failedItemIndex: number | null;
-  items: ScriptItemSummary[];
+  failedStepIndex: number | null;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
   timedOut: boolean;
 }
 
-export interface JobOutputResult {
+export interface ExecutionTextOutput {
   /** Backward-compatible UTF-8 view. Lossy when the corresponding encoding is base64. */
   stdout: string;
   stderr: string;
@@ -616,11 +438,11 @@ export interface JobOutputResult {
   stderrTruncated: boolean;
 }
 
-export interface JobResult {
-  jobId: string;
+export interface ExecutionResult {
+  executionId: string;
   stepIds: string[];
-  status: JobStatus;
-  cancelReason?: CancelReason;
+  status: ExecutionState["status"];
+  cancelReason?: ExecutionCancelReason;
   stdout: string;
   stderr: string;
   stdoutEncoding: OutputEncoding;
@@ -634,16 +456,11 @@ export interface JobResult {
   warnings: string[];
 }
 
-/** Result from startJob (background mode). */
-export interface StartJobResult {
-  jobId: string;
+/** Result from startExecution (background mode). */
+export interface StartExecutionResult {
+  executionId: string;
   stepIds: string[];
-  /** "job" for single commands, "chain" for chain syntax. */
-  kind: "job" | "chain";
-  /** Pipeline text for single jobs. */
-  pipeline?: string;
-  /** Full chain info for chain commands. */
-  chain?: ChainInfo;
+  pipeline: string;
   warnings: string[];
 }
 
@@ -651,7 +468,7 @@ export class CueError extends Error {
   code: string;
 
   constructor(code: string, message: string) {
-    super(`cue-shell error [${code}]: ${message}`);
+    super(`Cue error [${code}]: ${message}`);
     this.name = "CueError";
     this.code = code;
   }

@@ -5,7 +5,7 @@
  *
  *   Execution:
  *     cue_exec / cue_run / cue_script / script_run / script_eval
- *   Jobs:
+ *   Executions:
  *     cue_jobs
  *   Schedules:
  *     cue_schedule
@@ -43,17 +43,14 @@ export type {
   CueOperationKey,
   CueResolvedTransport,
   CueSessionOptions,
-  CancelReason,
-  JobInfo,
-  JobOutputResult,
-  JobResult,
-  JobStatus,
+  ExecutionSummary,
+  ExecutionTextOutput,
+  ExecutionResult,
   OutputEncoding,
   ResourceNeeds,
   SpawnAdapterHandle,
-  ScriptItemSummary,
   ScriptResult,
-  StartJobResult,
+  StartExecutionResult,
 } from "./client/cue-client.ts";
 
 export {
@@ -90,8 +87,8 @@ export {
   resolveCueWorkingDirectory,
   normalizeCueResourceNeeds,
   resolvePythonRunner,
-  cueShellCommandIssue,
-  cueShellCommandSyntaxIssue,
+  cueCommandIssue,
+  cueCommandSyntaxIssue,
 } from "./tools/register.ts";
 
 export { default } from "./tools/register.ts";

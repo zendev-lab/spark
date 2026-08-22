@@ -5,8 +5,8 @@ import { registerCueOperationDefinitions } from "../operations/definitions.ts";
 import type { SparkCueHostApi, SparkCueToolRegistration } from "./host-types.ts";
 
 export {
-  cueShellCommandIssue,
-  cueShellCommandSyntaxIssue,
+  cueCommandIssue,
+  cueCommandSyntaxIssue,
   normalizeCueBoolean,
   normalizeCueLimit,
   normalizeCueResourceNeeds,

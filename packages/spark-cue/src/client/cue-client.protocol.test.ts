@@ -203,7 +203,7 @@ describe("Cue IPC v3 client", () => {
       }
     });
     const client = await CueClient.connect(server.socketPath);
-    const result = await client.runJob("A=one printf ok |> B=two cat", {
+    const result = await client.runExecution("A=one printf ok |> B=two cat", {
       spawnAdapter: { endpoint: "/tmp/cue/adapters/dsh.sock", token: "opaque" },
     });
 
@@ -220,7 +220,7 @@ describe("Cue IPC v3 client", () => {
         ],
       },
     });
-    expect(result).toMatchObject({ jobId: "E1", status: "Done", stdout: "ok\n" });
+    expect(result).toMatchObject({ executionId: "E1", status: "succeeded", stdout: "ok\n" });
     client.close();
   });
 
@@ -238,7 +238,9 @@ describe("Cue IPC v3 client", () => {
       }
     });
     const client = await CueClient.connect(server.socketPath);
-    await expect(client.runJob("sleep 10", { signal: controller.signal })).rejects.toMatchObject({
+    await expect(
+      client.runExecution("sleep 10", { signal: controller.signal }),
+    ).rejects.toMatchObject({
       name: "AbortError",
     });
     expect(
@@ -267,7 +269,7 @@ describe("Cue IPC v3 client", () => {
     const client = await CueClient.connect(server.socketPath);
     const result = await client.runScript({ path: "build.cue", input: "A=1 first\nsecond" });
     expect(submitted?.plan.kind).toBe("on_success");
-    expect(result).toMatchObject({ scriptId: "E1", status: "done" });
+    expect(result).toMatchObject({ executionId: "E1", status: "done" });
     expect(server.requests.some((request) => "RunScript" in requestPayload(request))).toBe(false);
     client.close();
   });
@@ -291,16 +293,11 @@ describe("Cue IPC v3 client", () => {
 
     const result = await client.runScript({ path: "build.cue", input: "true" });
     expect(result).toMatchObject({
-      scriptId: "E1",
+      executionId: "E1",
       status: "cancelled",
       cancelReason: "forced",
     });
-    expect(result.items[0]?.jobs[0]?.cancelReason).toBe("Forced");
-    await expect(client.scriptInfo("E1")).resolves.toMatchObject({
-      script_id: "E1",
-      status: "cancelled",
-      cancelReason: "forced",
-    });
+    expect(result).not.toHaveProperty("items");
     client.close();
   });
 
@@ -324,8 +321,8 @@ describe("Cue IPC v3 client", () => {
       }
     });
     const client = await CueClient.connect(server.socketPath);
-    await expect(client.addCron("every 5m", "true")).resolves.toBe("T9");
-    await expect(client.listCrons()).resolves.toEqual([]);
+    await expect(client.addSchedule("every 5m", "true")).resolves.toBe("T9");
+    await expect(client.listScheduleSummaries()).resolves.toEqual([]);
     client.close();
   });
 
