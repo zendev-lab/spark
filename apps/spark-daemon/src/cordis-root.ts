@@ -8,18 +8,24 @@
  * is passed. Agent handles remain invocation-owned and are mounted only after
  * transcript migration makes their surface native DSH.
  */
-import { dirname } from "node:path";
+import { lstatSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { Context } from "@deepseek-ai/cordis";
+import { Context, type Plugin } from "@deepseek-ai/cordis";
 import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
 import { SessionStore } from "@deepseek-ai/dsh-session";
+import SkillRegistry from "@deepseek-ai/dsh-skill";
+import * as SkillFileSystem from "@deepseek-ai/dsh-skill-filesystem";
 import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
+import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
+import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
 import sparkSessionSubagentPlugin, {
   type SparkSubagentHost,
 } from "@zendev-lab/spark-session/subagent";
@@ -68,6 +74,8 @@ export interface SparkDaemonCordisRoot {
 
 export interface SparkDaemonCordisRootOptions {
   sessionsRoot: string;
+  /** Root containing the verified product-owned `cue` Skill directory. */
+  cueSkillRoot?: string;
   /** Reuse the process root opened before daemon adapters are constructed. */
   ctx?: Context;
   subagentHost?: SparkSubagentHost;
@@ -75,9 +83,33 @@ export interface SparkDaemonCordisRootOptions {
 
 export interface SparkDaemonHeadlessCordisRootOptions {
   dshHome: string;
+  /** Root containing the verified product-owned `cue` Skill directory. */
+  cueSkillRoot?: string;
   /** Test-only reuse seam. Production workers open their own process root. */
   ctx?: Context;
 }
+
+const CUE_SKILL_NAME = "cue";
+const SPARK_DAEMON_SKILL_PROVIDER = "spark-daemon";
+const SPARK_SKILL_TOOL_POLICY = Object.freeze({
+  effect: "read",
+  executionMode: "sequential",
+  domains: ["skills"],
+  modes: ["plan", "execute"],
+  approval: "none",
+  reconcile: "none",
+} as const satisfies SparkDshToolPolicyMetadata);
+
+const SPARK_SKILL_TOOL_PLUGIN: Plugin = {
+  name: SkillTool.name,
+  inject: SkillTool.inject,
+  apply(ctx: Context) {
+    SkillTool.apply(ctx);
+    const definition = ctx.tools.get("skill");
+    if (!definition) throw new Error("Spark daemon failed to register the DSH skill tool");
+    Object.assign(definition, { sparkPolicy: SPARK_SKILL_TOOL_POLICY });
+  },
+};
 
 const STORE_NAMES = [
   "sparkInvocations",
@@ -125,6 +157,7 @@ export async function createSparkDaemonCordisRoot(
     await mountSparkDshRuntime(ctx, {
       dshHome: dirname(options.sessionsRoot),
       sessionsRoot: options.sessionsRoot,
+      cueSkillRoot: resolveCueSkillRoot(options.cueSkillRoot),
     });
     await ctx.plugin(SubagentRuntime);
     if (options.subagentHost) {
@@ -151,7 +184,10 @@ export async function createSparkDaemonHeadlessCordisRoot(
   const ctx = options.ctx ?? openSparkDaemonCordisContext();
   const dispose = createSparkDaemonCordisDispose(ctx);
   try {
-    await mountSparkDshRuntime(ctx, { dshHome: options.dshHome });
+    await mountSparkDshRuntime(ctx, {
+      dshHome: options.dshHome,
+      cueSkillRoot: resolveCueSkillRoot(options.cueSkillRoot),
+    });
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;
@@ -161,7 +197,7 @@ export async function createSparkDaemonHeadlessCordisRoot(
 
 async function mountSparkDshRuntime(
   ctx: Context,
-  options: { dshHome: string; sessionsRoot?: string },
+  options: { dshHome: string; sessionsRoot?: string; cueSkillRoot: string },
 ): Promise<void> {
   await ctx.plugin(SessionStore);
   if (options.sessionsRoot) {
@@ -171,11 +207,46 @@ async function mountSparkDshRuntime(
   await ctx.plugin(LlmRuntime);
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
+  await ctx.plugin(SkillRegistry);
+  await ctx.plugin(SkillFileSystem, {
+    providerName: SPARK_DAEMON_SKILL_PROVIDER,
+    includeDefaultRoots: false,
+    bundledSkillDir: options.cueSkillRoot,
+    dshHome: options.dshHome,
+    watch: false,
+  });
   await ctx.plugin(AgentRegistry);
+  await ctx.plugin(SPARK_SKILL_TOOL_PLUGIN);
   await ctx.plugin(AgentLoop, {
     agents: [],
     maxParallelToolCalls: DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS,
   });
+}
+
+export function resolveCueSkillRoot(explicitRoot?: string): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
+  const candidates = explicitRoot
+    ? [resolve(explicitRoot)]
+    : [
+        ...(productDist ? [resolve(productDist, "../skills")] : []),
+        resolve(moduleDir, "../skills"),
+        resolve(moduleDir, "../../../vendor/cue/skills"),
+        resolve(process.cwd(), "vendor/cue/skills"),
+      ];
+  for (const root of new Set(candidates)) {
+    try {
+      const skillFile = lstatSync(join(root, CUE_SKILL_NAME, "SKILL.md"));
+      if (skillFile.isFile() && !skillFile.isSymbolicLink()) return root;
+    } catch {
+      // Try the next product/source layout candidate.
+    }
+  }
+  throw new Error(
+    `Spark daemon could not find the verified ${CUE_SKILL_NAME} Skill under: ${[
+      ...new Set(candidates),
+    ].join(", ")}`,
+  );
 }
 
 export function sparkDaemonStoresFromContext(ctx: Context): SparkDaemonStoreServices {

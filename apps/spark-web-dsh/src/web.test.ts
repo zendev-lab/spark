@@ -25,6 +25,7 @@ import {
   prepareSparkWebDispatch,
   resolveDshProfileDir,
   resolveFromDirectory,
+  resolveCueSkillsDir,
   resolveSparkLlmPackageDir,
   resolveSparkSessionPackageDir,
   resolveSparkWebDshPackageDir,
@@ -170,10 +171,13 @@ test("spark-session package resolves from the workspace and exposes the subagent
   assert.ok(existsSync(join(sessionDir, "src", "subagent.ts")), "plugin entry exists");
 });
 
-test("spark-web-dsh application resolves as the DSH client plugin package root", () => {
+test("spark-web-dsh resolves its package root and verified source Skill snapshot", () => {
   const webDir = resolveSparkWebDshPackageDir();
   assert.ok(existsSync(join(webDir, "src", "client.tsx")), "client plugin entry exists");
   assert.ok(existsSync(join(webDir, "bin", "spark-web-dsh")), "spark-web-dsh executable exists");
+  const skills = resolveCueSkillsDir(webDir);
+  assert.ok(existsSync(join(skills, "cue", "SKILL.md")), "verified cue Skill snapshot exists");
+  assert.ok(skills.endsWith(join("vendor", "cue", "skills")));
 });
 
 test("resolveDshProfileDir honors DSH_HOME", () => {

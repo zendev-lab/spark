@@ -44,6 +44,7 @@ catalogs:
     "@deepseek-ai/dsh-brand": *dsh-version
     "@deepseek-ai/dsh-code-runtime": *dsh-version
     "@deepseek-ai/dsh-code-runtime-worker-thread": *dsh-version
+    "@deepseek-ai/dsh-fs": *dsh-version
     "@deepseek-ai/dsh-invariants": *dsh-version
     "@deepseek-ai/dsh-home-paths": *dsh-version
     "@deepseek-ai/dsh-llm": *dsh-version
@@ -51,11 +52,14 @@ catalogs:
     "@deepseek-ai/dsh-scope": *dsh-version
     "@deepseek-ai/dsh-session": *dsh-version
     "@deepseek-ai/dsh-session-persistence": *dsh-version
+    "@deepseek-ai/dsh-skill": *dsh-version
+    "@deepseek-ai/dsh-skill-filesystem": *dsh-version
     "@deepseek-ai/dsh-settings": *dsh-version
     "@deepseek-ai/dsh-shell-env": *dsh-version
     "@deepseek-ai/dsh-subagent": *dsh-version
     "@deepseek-ai/dsh-system-prompt": *dsh-version
     "@deepseek-ai/dsh-timeout": *dsh-version
+    "@deepseek-ai/dsh-tool-skill": *dsh-version
     "@deepseek-ai/dsh-tools": *dsh-version
 
 minimumReleaseAgeExclude:
