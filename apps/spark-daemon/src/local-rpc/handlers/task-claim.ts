@@ -1,6 +1,6 @@
 import {
   acquireMainTaskClaim,
-  recoverMainTaskClaim,
+  recoverTaskClaim,
   releaseMainTaskClaim,
 } from "../../task-claims/authority.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
@@ -23,6 +23,6 @@ export async function handleTaskClaimRequest(
     case "task.claim.release":
       return await releaseMainTaskClaim(ctx.db, request.params);
     case "task.claim.recover":
-      return await recoverMainTaskClaim(ctx.db, request.params);
+      return await recoverTaskClaim(ctx.db, request.params);
   }
 }
