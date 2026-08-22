@@ -17,6 +17,7 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "session.compact",
   "session.prompt-history",
   "session.model.set",
+  "session.mode.set",
   "session.thinking.set",
   "session.retry-target",
   "turn.submit",

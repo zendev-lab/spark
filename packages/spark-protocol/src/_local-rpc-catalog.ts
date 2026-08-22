@@ -122,6 +122,7 @@ import {
   sparkSessionSendRequestSchema,
   sparkSessionSendResultSchema,
 } from "./session-mail.ts";
+import { sparkSessionModeResultSchema, sparkSessionSetModeRequestSchema } from "./session-mode.ts";
 import type { SparkSessionRegistryErrorCode } from "./session-errors.ts";
 import {
   sparkSideThreadConfigureRequestSchema,
@@ -679,6 +680,14 @@ const sparkLocalRpcReadinessSessionModelOrpcErrors = {
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
   model_not_enabled: sparkLocalRpcModelOrpcErrors.model_not_enabled,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
+} as const;
+
+const sparkLocalRpcReadinessSessionModeOrpcErrors = {
+  ...sparkLocalRpcSessionRegistryBaseOrpcErrors,
+  invalid_scope: sparkLocalRpcSessionOrpcErrors.invalid_scope,
+  session_archived: sparkLocalRpcSessionOrpcErrors.session_archived,
+  session_not_found: sparkLocalRpcSessionOrpcErrors.session_not_found,
+  workspace_cwd_unavailable: sparkLocalRpcSessionOrpcErrors.workspace_cwd_unavailable,
 } as const;
 
 const sparkLocalRpcReadinessSessionChannelOrpcErrors = {
@@ -1766,6 +1775,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionSetModelRequestSchema,
     output: sparkSessionProjectionSchema,
   },
+  "session.mode.set": {
+    input: sparkSessionSetModeRequestSchema,
+    output: sparkSessionModeResultSchema,
+  },
   "session.thinking.set": {
     input: sparkSessionSetThinkingRequestSchema,
     output: sparkSessionProjectionSchema,
@@ -1879,6 +1892,7 @@ export const sparkLocalRpcOrpcOnlyMethods = [
   "session.media.read",
   "session.prompt-history",
   "session.retry-target",
+  "session.mode.set",
 ] as const satisfies readonly SparkLocalRpcMethod[];
 
 export type SparkLocalRpcInput<M extends SparkLocalRpcMethod> = z.input<
@@ -2362,6 +2376,14 @@ export const sparkLocalRpcOrpcContract = {
         "/session/model/set",
         p["session.model.set"],
         sparkLocalRpcReadinessSessionModelOrpcErrors,
+      ),
+    },
+    mode: {
+      set: procedure(
+        "POST",
+        "/session/mode/set",
+        p["session.mode.set"],
+        sparkLocalRpcReadinessSessionModeOrpcErrors,
       ),
     },
     thinking: {

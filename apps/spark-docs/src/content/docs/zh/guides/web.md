@@ -37,6 +37,11 @@ realpath 与 symlink 边界做校验。
 Session、Artifact、credential 或导出数据。本地 Share 是随机、只读、仅当前进程
 有效的 HTML 预览，不上传也不持久化。
 
+Session Action Bar 中的 `/plan`、`/execute` 和 `/fleet` 会调用 daemon 的 typed
+Session mode controller。所选 mode 随 Session workspace state 持久化，刷新不会
+产生浏览器自有的 mode。此控制只选择 mode；Plan review 尚未完成，后续必须复用
+daemon 的 Ask/Approval owner，不能由浏览器编造状态。
+
 ## DSH 宿主的 Spark 工作台
 
 `spark web-dsh` 启动独立打包、基于 DeepSeek Harness 宿主的 Spark 产品界面；

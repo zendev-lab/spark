@@ -18,7 +18,7 @@ import {
   sparkSessionKey,
   sparkStateRootPath,
   setSparkSessionMode,
-  writeSparkSessionWorkspaceState,
+  updateSparkSessionWorkspaceState,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
@@ -72,16 +72,15 @@ export async function saveCurrentProjectRef(
   currentTaskRef?: TaskRef,
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
-  await saveCurrentProjectState(
-    cwd,
-    ctx,
-    sparkSessionWorkspaceState({
+  await updateSparkSessionWorkspaceState(cwd, ctx, (current) => {
+    const latest = current ?? existing;
+    return sparkSessionWorkspaceState({
       projectRef,
       ...(currentTaskRef ? { currentTaskRef } : {}),
-      ...(existing?.mode ? { mode: existing.mode } : {}),
-      ...(existing?.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
-    }),
-  );
+      ...(latest?.mode ? { mode: latest.mode } : {}),
+      ...(latest?.driverAuthority ? { driverAuthority: latest.driverAuthority } : {}),
+    });
+  });
 }
 
 export function sparkRunStrategyMaxConcurrency(strategy: SparkRunStrategy): number {
@@ -97,19 +96,14 @@ export async function clearCurrentProjectRef(
   ctx: SparkSessionContext | undefined,
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
-  if (existing?.mode) {
-    await saveCurrentProjectState(
-      cwd,
-      ctx,
-      sparkSessionWorkspaceState({
-        mode: existing.mode,
-        ...(existing.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
-      }),
-    );
-    return;
-  }
-  await rm(currentProjectStorePath(cwd, ctx), { force: true });
-  await rebuildSessionIndex(cwd, ctx);
+  await updateSparkSessionWorkspaceState(cwd, ctx, (current) => {
+    const latest = current ?? existing;
+    if (!latest?.mode && !latest?.driverAuthority) return undefined;
+    return sparkSessionWorkspaceState({
+      ...(latest.mode ? { mode: latest.mode } : {}),
+      ...(latest.driverAuthority ? { driverAuthority: latest.driverAuthority } : {}),
+    });
+  });
 }
 
 export async function saveSessionMode(
@@ -164,5 +158,16 @@ async function saveCurrentProjectState(
   ctx: SparkSessionContext | undefined,
   snapshot: CurrentProjectStoreSnapshot,
 ): Promise<void> {
-  await writeSparkSessionWorkspaceState(cwd, ctx, snapshot);
+  await updateSparkSessionWorkspaceState(cwd, ctx, (current) => {
+    const projectRef = current?.projectRef ?? snapshot.projectRef;
+    const currentTaskRef = current?.currentTaskRef ?? snapshot.currentTaskRef;
+    const mode = current?.mode ?? snapshot.mode;
+    const driverAuthority = current?.driverAuthority ?? snapshot.driverAuthority;
+    return sparkSessionWorkspaceState({
+      ...(projectRef ? { projectRef } : {}),
+      ...(currentTaskRef ? { currentTaskRef } : {}),
+      ...(mode ? { mode } : {}),
+      ...(driverAuthority ? { driverAuthority } : {}),
+    });
+  });
 }

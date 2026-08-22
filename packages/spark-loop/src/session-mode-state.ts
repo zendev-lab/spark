@@ -1,5 +1,7 @@
 import type { ProjectRef, SparkDriverAuthority, TaskRef } from "@zendev-lab/spark-core";
+import { rm } from "node:fs/promises";
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
+import { withPathMutation } from "./path-mutation.ts";
 import { rebuildSessionIndex, sessionStateStorePath } from "./session-directory-store.ts";
 import type { SparkSessionContext } from "./session-identity.ts";
 
@@ -67,22 +69,54 @@ export async function loadSparkSessionWorkspaceState(
   ctx?: SparkSessionContext,
 ): Promise<SparkSessionWorkspaceState | undefined> {
   const filePath = sessionStateStorePath(cwd, ctx);
-  const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);
-  if (!raw) return undefined;
-  const snapshot = normalizeSparkSessionWorkspaceState(raw, filePath);
-  if (raw.version !== SPARK_SESSION_WORKSPACE_STATE_VERSION) {
-    await writeSparkSessionWorkspaceState(cwd, ctx, snapshot);
+  const loaded = await loadSparkSessionWorkspaceStateFile(filePath);
+  if (!loaded || loaded.version === SPARK_SESSION_WORKSPACE_STATE_VERSION) {
+    return loaded?.snapshot;
   }
-  return snapshot;
+  return withPathMutation(filePath, async () => {
+    const latest = await loadSparkSessionWorkspaceStateFile(filePath);
+    if (!latest) return undefined;
+    if (latest.version !== SPARK_SESSION_WORKSPACE_STATE_VERSION) {
+      await writeSparkSessionWorkspaceStateFile(cwd, ctx, latest.snapshot);
+    }
+    return latest.snapshot;
+  });
 }
 
-export async function writeSparkSessionWorkspaceState(
+export function updateSparkSessionWorkspaceState(
   cwd: string,
   ctx: SparkSessionContext | undefined,
-  snapshot: SparkSessionWorkspaceState,
-): Promise<void> {
-  await writeJsonFileAtomic(sessionStateStorePath(cwd, ctx), sparkSessionWorkspaceState(snapshot));
-  await rebuildSessionIndex(cwd, ctx);
+  update: (
+    current: SparkSessionWorkspaceState | undefined,
+  ) => SparkSessionWorkspaceState | Promise<SparkSessionWorkspaceState>,
+): Promise<SparkSessionWorkspaceState>;
+export function updateSparkSessionWorkspaceState(
+  cwd: string,
+  ctx: SparkSessionContext | undefined,
+  update: (
+    current: SparkSessionWorkspaceState | undefined,
+  ) => SparkSessionWorkspaceState | undefined | Promise<SparkSessionWorkspaceState | undefined>,
+): Promise<SparkSessionWorkspaceState | undefined>;
+export async function updateSparkSessionWorkspaceState(
+  cwd: string,
+  ctx: SparkSessionContext | undefined,
+  update: (
+    current: SparkSessionWorkspaceState | undefined,
+  ) => SparkSessionWorkspaceState | undefined | Promise<SparkSessionWorkspaceState | undefined>,
+): Promise<SparkSessionWorkspaceState | undefined> {
+  const filePath = sessionStateStorePath(cwd, ctx);
+  return withPathMutation(filePath, async () => {
+    const current = (await loadSparkSessionWorkspaceStateFile(filePath))?.snapshot;
+    const next = await update(current);
+    if (!next) {
+      await rm(filePath, { force: true });
+      await rebuildSessionIndex(cwd, ctx);
+      return undefined;
+    }
+    const snapshot = sparkSessionWorkspaceState(next);
+    await writeSparkSessionWorkspaceStateFile(cwd, ctx, snapshot);
+    return snapshot;
+  });
 }
 
 export async function setSparkSessionMode(
@@ -90,15 +124,14 @@ export async function setSparkSessionMode(
   ctx: SparkSessionContext,
   mode: SparkSessionMode,
 ): Promise<SparkSessionWorkspaceState> {
-  const existing = await loadSparkSessionWorkspaceState(cwd, ctx);
-  const snapshot = sparkSessionWorkspaceState({
-    ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
-    ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
-    mode,
-    ...(existing?.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
-  });
-  await writeSparkSessionWorkspaceState(cwd, ctx, snapshot);
-  return snapshot;
+  return updateSparkSessionWorkspaceState(cwd, ctx, (existing) =>
+    sparkSessionWorkspaceState({
+      ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
+      ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
+      mode,
+      ...(existing?.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
+    }),
+  );
 }
 
 export async function setSparkSessionDriverAuthority(
@@ -106,15 +139,31 @@ export async function setSparkSessionDriverAuthority(
   ctx: SparkSessionContext | undefined,
   driverAuthority: SparkDriverAuthority,
 ): Promise<SparkSessionWorkspaceState> {
-  const existing = await loadSparkSessionWorkspaceState(cwd, ctx);
-  const snapshot = sparkSessionWorkspaceState({
-    ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
-    ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
-    ...(existing?.mode ? { mode: existing.mode } : {}),
-    driverAuthority,
-  });
-  await writeSparkSessionWorkspaceState(cwd, ctx, snapshot);
-  return snapshot;
+  return updateSparkSessionWorkspaceState(cwd, ctx, (existing) =>
+    sparkSessionWorkspaceState({
+      ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
+      ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
+      ...(existing?.mode ? { mode: existing.mode } : {}),
+      driverAuthority,
+    }),
+  );
+}
+
+async function loadSparkSessionWorkspaceStateFile(
+  filePath: string,
+): Promise<{ snapshot: SparkSessionWorkspaceState; version: unknown } | undefined> {
+  const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);
+  if (!raw) return undefined;
+  return { snapshot: normalizeSparkSessionWorkspaceState(raw, filePath), version: raw.version };
+}
+
+async function writeSparkSessionWorkspaceStateFile(
+  cwd: string,
+  ctx: SparkSessionContext | undefined,
+  snapshot: SparkSessionWorkspaceState,
+): Promise<void> {
+  await writeJsonFileAtomic(sessionStateStorePath(cwd, ctx), sparkSessionWorkspaceState(snapshot));
+  await rebuildSessionIndex(cwd, ctx);
 }
 
 function state(

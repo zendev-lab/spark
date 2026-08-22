@@ -138,6 +138,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session",
       "retryTarget",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.mode.set"]).toEqual(["session", "mode", "set"]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
       "artifact.list",
       "artifact.read",
@@ -156,6 +157,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session.media.read",
       "session.prompt-history",
       "session.retry-target",
+      "session.mode.set",
     ]);
   });
 
@@ -444,6 +446,10 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["session.export", "session_transcript_changed"],
       ["session.prompt-history", "invalid_session_snapshot"],
       ["session.retry-target", "session_not_found"],
+      ["session.mode.set", "invalid_scope"],
+      ["session.mode.set", "session_archived"],
+      ["session.mode.set", "session_not_found"],
+      ["session.mode.set", "workspace_cwd_unavailable"],
       ["turn.submit", "side_thread_direct_submit_forbidden"],
       ["turn.submit", "session_cwd_unavailable"],
     ] as const;
@@ -455,6 +461,12 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
         "session.prompt-history",
         "session_snapshot_cursor_not_found",
       ),
+    ).toBe(false);
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("session.mode.set", "side_thread_mutation_forbidden"),
+    ).toBe(false);
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("session.mode.set", "session_scope_mismatch"),
     ).toBe(false);
 
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "session_not_found")).toBe(false);

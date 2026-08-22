@@ -52,6 +52,7 @@ catalogs:
     "@deepseek-ai/dsh-sandbox": *dsh-version
     "@deepseek-ai/dsh-sandbox-policy": *dsh-version
     "@deepseek-ai/dsh-scope": *dsh-version
+    "@deepseek-ai/dsh-schedule": *dsh-version
     "@deepseek-ai/dsh-session": *dsh-version
     "@deepseek-ai/dsh-session-persistence": *dsh-version
     "@deepseek-ai/dsh-skill": *dsh-version

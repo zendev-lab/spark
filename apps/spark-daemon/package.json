@@ -40,6 +40,7 @@
     "@deepseek-ai/dsh-invariants": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox-policy": "catalog:dsh",
+    "@deepseek-ai/dsh-schedule": "catalog:dsh",
     "@deepseek-ai/dsh-scope": "catalog:dsh",
     "@deepseek-ai/dsh-session": "catalog:dsh",
     "@deepseek-ai/dsh-session-persistence": "catalog:dsh",

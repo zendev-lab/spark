@@ -121,6 +121,44 @@ function sessionDataWithMemoryRef(sessionId: string) {
   return data;
 }
 
+function sessionDataWithModels(sessionId: string) {
+  const data = sessionData(sessionId);
+  data.window.snapshot.model = {
+    providerName: "provider",
+    modelId: "owner",
+    modelLabel: "Owner",
+  };
+  data.catalog = {
+    diagnostics: [],
+    providers: [
+      {
+        providerName: "provider",
+        label: "Provider",
+        auth: { providerName: "provider", kind: "none", configured: true },
+        models: [
+          {
+            model: { providerName: "provider", modelId: "owner", modelLabel: "Owner" },
+            reasoning: false,
+            input: ["text"],
+            available: true,
+          },
+          {
+            model: {
+              providerName: "provider",
+              modelId: "candidate",
+              modelLabel: "Candidate",
+            },
+            reasoning: false,
+            input: ["text"],
+            available: true,
+          },
+        ],
+      },
+    ],
+  };
+  return data;
+}
+
 function earlierPage(sessionId: string, messageId: string, text: string) {
   const page = sessionData(sessionId);
   page.window.snapshot.messages = [
@@ -304,6 +342,171 @@ describe("Session page owner state", () => {
       .element(screen.getByRole("status"))
       .toHaveTextContent("Memory feedback submitted as a visible Session turn.");
     await expect.element(helpfulButton()).toBeEnabled();
+    await screen.unmount();
+  });
+
+  it("applies the enabled Plan action to its owning Session", async () => {
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.mode.set") {
+        return Promise.resolve({ sessionId: "a", mode: "plan" });
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    const enterPlan = screen.getByRole("button", { name: "Enter Plan" });
+    await expect.element(enterPlan).toBeEnabled();
+    await enterPlan.click();
+
+    await expect
+      .poll(() =>
+        mocks.webRpc.mock.calls.some(
+          ([method, input]) =>
+            method === "session.mode.set" && input.sessionId === "a" && input.mode === "plan",
+        ),
+      )
+      .toBe(true);
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Session mode set to plan.");
+    await screen.unmount();
+  });
+
+  it("does not let an old mode response overwrite a newer A to B to A request", async () => {
+    const previousResponse = deferred<{ sessionId: string; mode: "plan" }>();
+    const currentResponse = deferred<{ sessionId: string; mode: "fleet" }>();
+    let modeSubmits = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.mode.set") {
+        modeSubmits += 1;
+        return modeSubmits === 1 ? previousResponse.promise : currentResponse.promise;
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.rerender({ data: sessionData("b") });
+    await screen.rerender({ data: sessionData("a") });
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/fleet");
+    await screen.getByRole("button", { name: "Enter Fleet" }).click();
+    await expect.poll(() => modeSubmits).toBe(2);
+
+    currentResponse.resolve({ sessionId: "a", mode: "fleet" });
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Session mode set to fleet.");
+    previousResponse.reject(new Error("stale Plan failure"));
+
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Session mode set to fleet.");
+    expect(screen.container.textContent).not.toContain("stale Plan failure");
+    await screen.unmount();
+  });
+
+  it("does not let an old mode response overwrite a newer status action", async () => {
+    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.mode.set") return modeResponse.promise;
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/status");
+    await screen.getByRole("button", { name: "Refresh status" }).click();
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Session status: idle.");
+
+    modeResponse.reject(new Error("stale Plan failure"));
+
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Session status: idle.");
+    expect(screen.container.textContent).not.toContain("stale Plan failure");
+    await screen.unmount();
+  });
+
+  it("does not let an old mode response overwrite a newer compaction", async () => {
+    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "session.compact") {
+        return Promise.resolve({ invocationId: "compact-current" });
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/compact");
+    await screen.getByRole("button", { name: "Send" }).click();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Compaction queued as compact-current.");
+
+    modeResponse.reject(new Error("stale Plan failure"));
+
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Compaction queued as compact-current.");
+    expect(screen.container.textContent).not.toContain("stale Plan failure");
+    await screen.unmount();
+  });
+
+  it("does not let an old mode response overwrite a newer control failure", async () => {
+    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "session.retry-target") {
+        return Promise.reject(new Error("current retry failure"));
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Retry" }).click();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
+
+    modeResponse.resolve({ sessionId: "a", mode: "plan" });
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
+    expect(screen.container.textContent).not.toContain("Session mode set to plan.");
+    await screen.unmount();
+  });
+
+  it("keeps a newer model failure and restores the owner selection", async () => {
+    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+    const modelResponse = deferred<unknown>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "session.model.set") return modelResponse.promise;
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionDataWithModels("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Model", exact: true }).click();
+    await screen.getByText("Candidate", { exact: true }).click();
+    modelResponse.reject(new Error("current model failure"));
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current model failure");
+    await expect
+      .element(screen.getByRole("button", { name: "Model", exact: true }))
+      .toHaveAttribute("title", "Owner");
+
+    modeResponse.resolve({ sessionId: "a", mode: "plan" });
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current model failure");
+    expect(screen.container.textContent).not.toContain("Session mode set to plan.");
     await screen.unmount();
   });
 });

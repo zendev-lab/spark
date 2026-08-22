@@ -104,6 +104,7 @@
   let artifactPreviewRequestToken = 0;
   let modelValue = $state("");
   let ownerModelValue = $state<string | null>(null);
+  let modelCommitRequestToken = 0;
   let searchOpen = $state(false);
   let searchQuery = $state("");
   let searchResults = $state<
@@ -117,9 +118,18 @@
   let sharing = $state(false);
   let memoryFeedbackBusy = $state("");
   let memoryFeedbackRequestToken = 0;
+  let actionFeedbackRequestToken = 0;
   let activeOwnerSessionId: string | undefined;
   let detachSessionEvents: (() => void) | undefined;
   const notifiedAskIds = new Set<string>();
+
+  function ownsActionFeedback(ownerSessionId: string, requestToken: number): boolean {
+    return (
+      data.window.snapshot.sessionId === ownerSessionId &&
+      requestToken === actionFeedbackRequestToken
+    );
+  }
+
   $effect(() => {
     const selected = snapshot.model
       ? `${snapshot.model.providerName}/${snapshot.model.modelId}`
@@ -264,6 +274,8 @@
     searchRequestToken += 1;
     revealSearchRequestToken += 1;
     memoryFeedbackRequestToken += 1;
+    actionFeedbackRequestToken += 1;
+    modelCommitRequestToken += 1;
     memoryFeedbackBusy = "";
     shareHref = null;
     sharing = false;
@@ -318,6 +330,7 @@
     const text = prompt.trim();
     if ((!text && pendingAttachments.length === 0) || submitting) return;
     const ownerSessionId = snapshot.sessionId;
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
     const attachments = pendingAttachments;
     submitting = true;
     try {
@@ -326,7 +339,7 @@
         if (pendingAttachments.length > 0) {
           throw new Error("Slash commands cannot include attachments.");
         }
-        await applySlash(text, ownerSessionId);
+        await applySlash(text, ownerSessionId, feedbackRequestToken);
       } else {
         await webRpc("turn.submit", {
           sessionId: ownerSessionId,
@@ -341,10 +354,12 @@
       attachmentError = null;
     } catch (error) {
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
-      actionFeedback = {
-        tone: "error",
-        message: error instanceof Error ? error.message : String(error),
-      };
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
+        actionFeedback = {
+          tone: "error",
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
     } finally {
       if (data.window.snapshot.sessionId === ownerSessionId) submitting = false;
     }
@@ -365,6 +380,7 @@
     if (memoryFeedbackBusy) return;
     const ownerSessionId = snapshot.sessionId;
     const requestToken = ++memoryFeedbackRequestToken;
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
     memoryFeedbackBusy = feedbackKey;
     actionFeedback = { tone: "status", message: copy.memoryFeedbackSending };
     try {
@@ -379,7 +395,9 @@
       ) {
         return;
       }
-      actionFeedback = { tone: "status", message: copy.memoryFeedbackSent };
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
+        actionFeedback = { tone: "status", message: copy.memoryFeedbackSent };
+      }
     } catch (caught) {
       if (
         data.window.snapshot.sessionId !== ownerSessionId ||
@@ -387,10 +405,12 @@
       ) {
         return;
       }
-      actionFeedback = {
-        tone: "error",
-        message: caught instanceof Error ? caught.message : String(caught),
-      };
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
+        actionFeedback = {
+          tone: "error",
+          message: caught instanceof Error ? caught.message : String(caught),
+        };
+      }
     } finally {
       if (
         data.window.snapshot.sessionId === ownerSessionId &&
@@ -402,7 +422,11 @@
     }
   }
 
-  async function applySlash(text: string, ownerSessionId: string) {
+  async function applySlash(
+    text: string,
+    ownerSessionId: string,
+    feedbackRequestToken: number,
+  ) {
     const [name, ...rest] = text.slice(1).split(/\s+/u);
     const argument = rest.join(" ");
     if (name === "model" && argument.includes("/")) {
@@ -422,7 +446,7 @@
         ...(argument ? { customInstructions: argument } : {}),
         idempotencyKey: globalThis.crypto.randomUUID(),
       });
-      if (data.window.snapshot.sessionId === ownerSessionId) {
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
         actionFeedback = {
           tone: "status",
           message: `Compaction queued as ${result.invocationId}.`,
@@ -436,18 +460,19 @@
     const view = sparkSlashActionBarForInput(text);
     const action = view ? sparkActionBarDefaultAction(view) : undefined;
     if (!action) throw new Error(`Unsupported Spark Web command: /${name}`);
-    await handleSlashAction(action, ownerSessionId);
+    await handleSlashAction(action, ownerSessionId, feedbackRequestToken);
   }
 
   async function handleSlashAction(
     action: SparkActionView,
-    ownerSessionId = snapshot.sessionId,
+    ownerSessionId: string,
+    feedbackRequestToken: number,
   ) {
     const ownerSnapshot = snapshot;
     const ownerActivity = activity;
     const ownerTreeSessions = treeSessions;
     const feedback = (message: string) => {
-      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      if (!ownsActionFeedback(ownerSessionId, feedbackRequestToken)) return;
       actionFeedback = { tone: "status", message };
       prompt = "";
     };
@@ -530,7 +555,19 @@
         feedback("Composer: Cmd/Ctrl+Enter sends. Escape closes open dialogs. Tab moves through controls.");
         return;
       case "mode.select":
-        throw new Error("Plan/execute/fleet mode switching requires the pending DSH rc.8 daemon-root adapter.");
+        if (
+          action.payload.mode !== "plan" &&
+          action.payload.mode !== "execute" &&
+          action.payload.mode !== "fleet"
+        ) {
+          throw new Error(copy.modeUnsupported);
+        }
+        await webRpc("session.mode.set", {
+          sessionId: ownerSessionId,
+          mode: action.payload.mode,
+        });
+        feedback(`${copy.modeSet} ${action.payload.mode}.`);
+        return;
       case "goal.start":
       case "goal.restart":
       case "goal.stop":
@@ -545,7 +582,6 @@
 
   function resolveSlashAction(action: SparkActionView) {
     switch (action.intent) {
-      case "mode.select":
       case "goal.start":
       case "goal.restart":
       case "goal.stop":
@@ -562,8 +598,9 @@
 
   function invokeSlashAction(action: SparkActionView) {
     const ownerSessionId = snapshot.sessionId;
-    void handleSlashAction(action, ownerSessionId).catch((error) => {
-      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
+    void handleSlashAction(action, ownerSessionId, feedbackRequestToken).catch((error) => {
+      if (!ownsActionFeedback(ownerSessionId, feedbackRequestToken)) return;
       actionFeedback = {
         tone: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -573,6 +610,7 @@
 
   async function cancelQueuedTurn(invocationId: string) {
     const ownerSessionId = snapshot.sessionId;
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
     try {
       actionFeedback = null;
       await webRpc("turn.cancel", {
@@ -580,7 +618,7 @@
         reason: "Removed from Spark Web queue",
       });
     } catch (error) {
-      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      if (!ownsActionFeedback(ownerSessionId, feedbackRequestToken)) return;
       actionFeedback = {
         tone: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -711,6 +749,7 @@
   async function createLocalShare() {
     if (sharing) return;
     const ownerSessionId = snapshot.sessionId;
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
     sharing = true;
     actionFeedback = null;
     try {
@@ -722,12 +761,14 @@
       const result = (await response.json()) as { href: string };
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
       shareHref = result.href;
-      actionFeedback = {
-        tone: "status",
-        message: "Created a random read-only Share for this Spark Web process.",
-      };
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
+        actionFeedback = {
+          tone: "status",
+          message: "Created a random read-only Share for this Spark Web process.",
+        };
+      }
     } catch (error) {
-      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      if (!ownsActionFeedback(ownerSessionId, feedbackRequestToken)) return;
       actionFeedback = {
         tone: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -794,9 +835,12 @@
     operation: () => Promise<void>,
     onError?: () => void,
   ) {
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
+    actionFeedback = null;
     void operation().catch((error) => {
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
       onError?.();
+      if (!ownsActionFeedback(ownerSessionId, feedbackRequestToken)) return;
       actionFeedback = {
         tone: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -806,10 +850,12 @@
 
   function commitModelValue(value: string) {
     const ownerSessionId = snapshot.sessionId;
+    const requestToken = ++modelCommitRequestToken;
     invokeSessionControl(
       ownerSessionId,
       () => setModelValue(value, ownerSessionId),
       () => {
+        if (requestToken !== modelCommitRequestToken) return;
         modelValue = ownerModelValue ?? "";
       },
     );
@@ -926,10 +972,13 @@
 
   async function openArtifact(artifactRef: string) {
     const ownerSessionId = snapshot.sessionId;
+    const feedbackRequestToken = ++actionFeedbackRequestToken;
     const workspaceId = currentWorkspaceId;
     const requestToken = ++artifactPreviewRequestToken;
     if (!workspaceId) {
-      actionFeedback = { tone: "error", message: "Artifact preview requires a workspace-scoped Session." };
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
+        actionFeedback = { tone: "error", message: "Artifact preview requires a workspace-scoped Session." };
+      }
       return;
     }
     const artifact = snapshot.artifacts.find((entry) => entry.ref === artifactRef);
@@ -964,7 +1013,9 @@
       ) {
         return;
       }
-      actionFeedback = { tone: "error", message: error instanceof Error ? error.message : String(error) };
+      if (ownsActionFeedback(ownerSessionId, feedbackRequestToken)) {
+        actionFeedback = { tone: "error", message: error instanceof Error ? error.message : String(error) };
+      }
     }
   }
 

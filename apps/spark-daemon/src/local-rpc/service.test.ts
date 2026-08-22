@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   sparkLocalRpcProcedureSchemas,
@@ -516,6 +517,36 @@ describe("transport-neutral local RPC service", () => {
     );
     expect((await store.load(parent.path)).entries).toHaveLength(3);
     expect(new SparkInvocationStore(db).list()).toEqual([]);
+    db.close();
+  });
+
+  it("routes Session mode changes through the persisted workspace owner", async () => {
+    const { paths, db } = createFixture();
+    const cwd = join(paths.dataDir, "session-mode-workspace");
+    mkdirSync(cwd, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: cwd });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "session-mode-service-test",
+      daemonCwd: cwd,
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-mode-service",
+      workspaceId: workspace.id,
+      cwd,
+    });
+
+    await expect(
+      invokeLocalRpcService(
+        "session.mode.set",
+        { sessionId: "session-mode-service", mode: "plan" },
+        { paths, db, handlerOptions: { sessionRegistry: registry } },
+      ),
+    ).resolves.toEqual({ sessionId: "session-mode-service", mode: "plan" });
+    await expect(
+      loadSparkSessionWorkspaceState(cwd, { sessionId: "session-mode-service" }),
+    ).resolves.toMatchObject({ version: 4, mode: "plan" });
     db.close();
   });
 

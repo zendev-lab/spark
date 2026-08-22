@@ -19,6 +19,7 @@
   let createdSessionId = $state<string | null>(null);
   let sessionName = $state("");
   let roleRef = $state("role:builtin-executor");
+  let sessionMode = $state<"plan" | "execute" | "fleet">("plan");
   let modelValue = $state("");
   let thinkingLevel = $state<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">("high");
   let cwdArtifactRef = $state("");
@@ -78,6 +79,7 @@
     createdSessionId = null;
     sessionName = "";
     roleRef = "role:builtin-executor";
+    sessionMode = "plan";
     modelValue = "";
     thinkingLevel = "high";
     cwdArtifactRef = "";
@@ -120,11 +122,12 @@
     try {
       requestedModel = modelValue ? parseSparkModelValue(modelValue) : undefined;
     } catch {
-      if (ownsPage()) createError = "Select a valid provider/model before creating the Session.";
+      if (ownsPage()) createError = copy.validModelRequired;
       return;
     }
     const requestedName = sessionName.trim();
     const requestedRoleRef = roleRef;
+    const requestedSessionMode = sessionMode;
     const requestedCwdArtifactRef = cwdArtifactRef;
     const requestedCwdRelativePath = cwdRelativePath;
     const requestedThinkingLevel = thinkingLevel;
@@ -152,6 +155,10 @@
 
     if (ownsPage()) createdSessionId = created.sessionId;
     try {
+      await webRpc("session.mode.set", {
+        sessionId: created.sessionId,
+        mode: requestedSessionMode,
+      });
       if (requestedModel) {
         await webRpc("session.model.set", {
           sessionId: created.sessionId,
@@ -165,7 +172,7 @@
     } catch (caught) {
       if (ownsPage()) {
         const message = caught instanceof Error ? caught.message : String(caught);
-        createError = `Session ${created.sessionId} was created, but its model or thinking configuration failed: ${message}`;
+        createError = `${copy.sessionLabel} ${created.sessionId} ${copy.createdButConfigurationFailed}: ${message}`;
         creating = false;
       }
       return;
@@ -177,7 +184,7 @@
     } catch (caught) {
       if (ownsPage()) {
         const message = caught instanceof Error ? caught.message : String(caught);
-        createError = `Session ${created.sessionId} is ready, but navigation failed: ${message}`;
+        createError = `${copy.sessionLabel} ${created.sessionId} ${copy.readyButNavigationFailed}: ${message}`;
         creating = false;
       }
     }
@@ -423,7 +430,7 @@
       <h2>{copy.context}</h2>
       <label>{copy.name}<input type="text" bind:value={sessionName} placeholder={data.messages.web.home.optional} /></label>
       <label>{copy.role}<select bind:value={roleRef}>{#each data.roleCatalog.roles as role (role.ref)}<option value={role.ref}>{role.id} · {role.source}</option>{/each}</select></label>
-      <label>{copy.mode}<select disabled title={copy.modeBlocked}><option>{copy.execute}</option></select></label>
+      <label>{copy.mode}<select aria-label={copy.mode} bind:value={sessionMode}><option value="plan">{copy.plan}</option><option value="execute">{copy.execute}</option><option value="fleet">{copy.fleet}</option></select></label>
       <label>{copy.model}<select bind:value={modelValue}><option value="">{copy.inheritDefault}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>{copy.thinking}<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
       <label>{copy.workingDirectory}<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">{copy.workspaceDefault}</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · {copy.owningWorktree}</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</button>{#if cwdRelativePath}<small>{copy.selected}: {cwdRelativePath}</small>{/if}</label>
@@ -450,7 +457,7 @@
     <p class="error">{createError}</p>
   {/if}
   {#if createdSessionId}
-    <p><a href={`/sessions/${createdSessionId}`}>Open created Session</a></p>
+    <p><a href={`/sessions/${createdSessionId}`}>{copy.openCreatedSession}</a></p>
   {/if}
   {#if sessions.length === 0}
     <p>{copy.noSessions}</p>

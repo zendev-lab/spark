@@ -173,6 +173,7 @@ describe("Workspace page owner state", () => {
   it("keeps a partially configured Session recoverable without creating a duplicate", async () => {
     mocks.webRpc.mockImplementation(async (method: string) => {
       if (method === "session.create") return { sessionId: "created-session" };
+      if (method === "session.mode.set") return { sessionId: "created-session", mode: "plan" };
       if (method === "session.thinking.set") throw new Error("thinking policy rejected");
       throw new Error(`unexpected RPC ${method}`);
     });
@@ -184,12 +185,32 @@ describe("Workspace page owner state", () => {
     await expect
       .element(screen.getByRole("link", { name: "Open created Session" }))
       .toHaveAttribute("href", "/sessions/created-session");
-    await expect.element(screen.getByText(/was created, but its model or thinking/)).toBeVisible();
+    await expect
+      .element(screen.getByText(/was created, but its mode, model, or thinking/))
+      .toBeVisible();
     await expect.element(screen.getByRole("button", { name: "Create Session" })).toBeDisabled();
     expect(mocks.webRpc.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(
       1,
     );
+    expect(mocks.webRpc).toHaveBeenCalledWith("session.mode.set", {
+      sessionId: "created-session",
+      mode: "plan",
+    });
     expect(mocks.goto).not.toHaveBeenCalled();
+    await screen.unmount();
+  });
+
+  it("does not carry an unsaved Session mode into another workspace", async () => {
+    const screen = await render(WorkspacePage, { data: workspaceData("a") });
+
+    await screen.getByRole("button", { name: "New session" }).click();
+    await screen.getByRole("combobox", { name: "Mode", exact: true }).selectOptions("plan");
+    await screen.rerender({ data: workspaceData("b") });
+    await screen.getByRole("button", { name: "New session" }).click();
+
+    await expect
+      .element(screen.getByRole("combobox", { name: "Mode", exact: true }))
+      .toHaveValue("plan");
     await screen.unmount();
   });
 

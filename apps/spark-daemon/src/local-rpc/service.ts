@@ -124,6 +124,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.mail.read",
     "session.mail.ack",
     "session.model.set",
+    "session.mode.set",
     "session.thinking.set",
   ],
   sideThread: [

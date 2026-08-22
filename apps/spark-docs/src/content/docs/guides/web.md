@@ -43,6 +43,12 @@ Artifact, credential, and export data are never available offline. A local
 Share is a random, read-only, process-lifetime HTML preview; it is not uploaded
 or persisted.
 
+The Session Action Bar sends `/plan`, `/execute`, and `/fleet` through the
+daemon's typed Session mode controller. The selected mode is persisted with
+the Session workspace state, so reloads do not create a browser-owned mode.
+This control selects mode only; Plan review remains pending and must use the
+daemon's Ask and approval owners rather than browser-invented state.
+
 ## DSH-hosted Spark workbench
 
 `spark web-dsh` starts the separately packaged Spark product surface hosted by

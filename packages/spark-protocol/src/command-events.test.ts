@@ -108,6 +108,7 @@ describe("SparkCommand vocabulary", () => {
       "session.mail.read",
       "session.mail.ack",
       "session.model.set",
+      "session.mode.set",
       "session.thinking.set",
       "side-thread.ensure",
       "side-thread.snapshot",

@@ -372,6 +372,7 @@ export const localRpcMethodToSparkCommandKind = {
   "session.mail.read": "session.mail.read.request",
   "session.mail.ack": "session.mail.ack.request",
   "session.model.set": "session.model.set.request",
+  "session.mode.set": "session.mode.set.request",
   "session.thinking.set": "session.thinking.set.request",
   "side-thread.ensure": "side-thread.ensure.request",
   "side-thread.snapshot": "side-thread.snapshot.request",

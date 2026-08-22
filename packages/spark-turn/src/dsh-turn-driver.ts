@@ -549,7 +549,41 @@ function sparkDshToolPolicy(
   scope: unknown,
 ): SparkDshToolPolicyMetadata | undefined {
   const definition = ctx.tools.get(name, scope as Parameters<typeof ctx.tools.get>[1]);
-  return (definition as { sparkPolicy?: SparkDshToolPolicyMetadata } | undefined)?.sparkPolicy;
+  if (!definition) return undefined;
+  return (
+    (definition as { sparkPolicy?: SparkDshToolPolicyMetadata }).sparkPolicy ??
+    sparkNativeDshToolPolicy(name)
+  );
+}
+
+/**
+ * Spark-owned admission metadata for canonical DSH tools whose upstream
+ * definition intentionally carries no product-specific policy. Exact names
+ * keep third-party tools fail-closed while letting the DSH implementation own
+ * execution, durability, and reconciliation.
+ */
+function sparkNativeDshToolPolicy(name: string): SparkDshToolPolicyMetadata | undefined {
+  if (name === "schedule_list") {
+    return {
+      effect: "read",
+      executionMode: "sequential",
+      domains: ["session", "schedule"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+      reconcile: "tool_owner",
+    };
+  }
+  if (name === "schedule_create" || name === "schedule_delete") {
+    return {
+      effect: "control",
+      executionMode: "sequential",
+      domains: ["session", "schedule"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "required",
+      reconcile: "tool_owner",
+    };
+  }
+  return undefined;
 }
 
 function installNativeDshToolResultProjection(
