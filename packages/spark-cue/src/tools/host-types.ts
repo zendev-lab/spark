@@ -7,7 +7,7 @@ import type {
   ToolPolicy,
 } from "@zendev-lab/spark-core";
 import { ToolCallText } from "@zendev-lab/spark-text";
-import type { CueClient, CueResolvedTransport } from "../client/cue-client.ts";
+import type { CueClient, CueResolvedTransport, SpawnAdapterHandle } from "../client/cue-client.ts";
 
 export interface SparkCueHostApi {
   registerTool(config: SparkCueToolConfig): void;
@@ -35,6 +35,8 @@ export interface SparkCueToolContext {
   cueAutoStartLocal?: boolean;
   /** Explicit per-host override for forwarding sensitive environment variables. */
   cueForwardSensitiveEnv?: boolean;
+  /** Opaque per-execution launch lease; policy remains owned by the host adapter. */
+  cueSpawnAdapter?: SpawnAdapterHandle;
   taskExecutionScope?: SparkTaskExecutionScope;
   ui?: { notify?: (msg: string, level: SparkCueNotifyLevel) => void };
 }
