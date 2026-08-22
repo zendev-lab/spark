@@ -10,7 +10,7 @@ import {
 } from "@zendev-lab/spark-artifacts";
 import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { currentSparkReproCheckpoint } from "@zendev-lab/spark-repro";
-import { registerSparkReproRoles } from "@zendev-lab/spark-extension/repro-roles";
+import { registerSparkReproRoles } from "./product/policy/spark-repro-roles.ts";
 import { gitCommand } from "@zendev-lab/spark-system";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";

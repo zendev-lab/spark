@@ -41,6 +41,11 @@ export interface ManagedPresetResult {
   contentDigest: string;
 }
 
+export interface ManagedCuePresetOptions {
+  /** Relative or absolute plugin specifier replacing the upstream file-tool row. */
+  toolFsPluginSpecifier?: string;
+}
+
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -133,6 +138,18 @@ export function addCueSkillProvider(source: string, skillDir: string): string {
   );
 }
 
+export function replaceDshToolFsRow(source: string, specifier: string): string {
+  if (specifier.trim() === "") throw new Error("spark web: file tool plugin specifier is empty");
+  const row = "  name: '@deepseek-ai/dsh-tool-fs'";
+  const occurrences = source.split(row).length - 1;
+  if (occurrences !== 1) {
+    throw new Error(
+      `spark web: expected one upstream dsh-tool-fs row, found ${occurrences}; update the managed preset transform`,
+    );
+  }
+  return source.replace(row, `  name: ${JSON.stringify(specifier)}`);
+}
+
 function managedMetadata(source: string, id: SparkCuePreset): string {
   const mode = id === "spark-standard" ? "标准" : "PTC";
   const description =
@@ -148,12 +165,16 @@ function generatePreset(
   upstream: Record<keyof typeof UPSTREAM_FILES, string>,
   id: SparkCuePreset,
   skillDir: string,
+  options: ManagedCuePresetOptions,
 ): Record<"agent.cordis.yml" | "preset.yml", string> {
   const base: UpstreamPreset = id === "spark-standard" ? "standard" : "code";
-  const composition = addCueSkillProvider(
+  let composition = addCueSkillProvider(
     removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]),
     skillDir,
   );
+  if (options.toolFsPluginSpecifier !== undefined) {
+    composition = replaceDshToolFsRow(composition, options.toolFsPluginSpecifier);
+  }
   for (const forbidden of ["id: tool-bash", "id: tool-pwsh", "id: tool-jobs"]) {
     if (composition.includes(forbidden)) {
       throw new Error(`spark web: preset transformation failed to remove ${forbidden}`);
@@ -284,6 +305,7 @@ export function installManagedCuePresets(
   dshHome: string,
   dshPackageDir: string,
   skillDir: string,
+  options: ManagedCuePresetOptions = {},
 ): ManagedPresetResult[] {
   const dshVersion = readDshPackageVersion(dshPackageDir);
   const skillPath = join(skillDir, "cue", "SKILL.md");
@@ -295,7 +317,7 @@ export function installManagedCuePresets(
   const sourceDigest = digestFiles(upstream);
   const generated = SPARK_CUE_PRESETS.map((id) => ({
     id,
-    files: generatePreset(upstream, id, skillDir),
+    files: generatePreset(upstream, id, skillDir, options),
   }));
   const root = join(dshHome, ".agent-presets");
   // Validate both targets before changing either one.

@@ -89,7 +89,7 @@ Mutation CE selection is also package-owned: either a `test:mutation` script or 
 
 ## Concurrency and expensive boundaries
 
-The root integration suite and `spark-extension` use the fork pool with at most two workers. Their
+The root integration suite and daemon product tests use the fork pool with at most two workers. Their
 shared hermetic setup assigns every worker an isolated HOME, Spark home, and XDG root, so files may
 run concurrently without sharing runtime state. Workspace test discovery remains serial: running
 complete workspaces concurrently makes transform-heavy Svelte suites and SQLite/process suites

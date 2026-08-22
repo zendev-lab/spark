@@ -17,8 +17,10 @@ import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
+import SandboxPolicy from "@deepseek-ai/dsh-sandbox-policy";
 import * as ScheduleRuntime from "@deepseek-ai/dsh-schedule";
 import { SessionStore } from "@deepseek-ai/dsh-session";
+import * as ShellEnv from "@deepseek-ai/dsh-shell-env";
 import SkillRegistry from "@deepseek-ai/dsh-skill";
 import * as SkillFileSystem from "@deepseek-ai/dsh-skill-filesystem";
 import SubagentRuntime from "@deepseek-ai/dsh-subagent";
@@ -208,6 +210,11 @@ async function mountSparkDshRuntime(
   await ctx.plugin(LlmRuntime);
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
+  await ctx.plugin(SandboxPolicy, {
+    mode: "danger-full-access",
+    workspaceRoot: process.cwd(),
+  });
+  await ctx.plugin(ShellEnv, { dshHome: options.dshHome });
   await ctx.plugin(SkillRegistry);
   await ctx.plugin(SkillFileSystem, {
     providerName: SPARK_DAEMON_SKILL_PROVIDER,

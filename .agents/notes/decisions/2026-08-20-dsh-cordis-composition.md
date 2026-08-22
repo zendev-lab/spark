@@ -1,5 +1,11 @@
 # 2026-08-20: Cordis composition across daemon, LLM, and turns
 
+**Current composition-owner follow-up:**
+[`2026-08-21-daemon-product-composition.md`](./2026-08-21-daemon-product-composition.md)
+removes `spark-extension`, moves its product policy into the daemon, and defines
+the daemon / DSH-web / native-web plugin mounting matrix. The lifecycle and
+state-ownership decision below remains current.
+
 ## Decision
 
 Cordis is Spark's composition runtime for one process-local daemon root. It is
