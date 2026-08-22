@@ -37,7 +37,7 @@ catalog:
 
 catalogs:
   dsh:
-    "@deepseek-ai/dsh-agent": &dsh-version "0.1.1-rc.1"
+    "@deepseek-ai/dsh-agent": &dsh-version "0.1.1-rc.2"
     "@deepseek-ai/dsh-agent-loop": *dsh-version
     "@deepseek-ai/dsh-attachment": *dsh-version
     "@deepseek-ai/dsh-attachment-local": *dsh-version
