@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type {
     SparkModelCatalogProvider,
     SparkModelControlSnapshot,
@@ -24,6 +25,11 @@
   let piOverwrite = $state(false);
   let busy = $state("");
   let status = $state<{ tone: "status" | "error"; message: string } | null>(null);
+  let notificationPermission = $state<NotificationPermission | "unsupported">("unsupported");
+
+  onMount(() => {
+    notificationPermission = "Notification" in globalThis ? Notification.permission : "unsupported";
+  });
 
   const allModels = $derived(catalog.providers.flatMap((provider) => provider.models));
 
@@ -128,6 +134,11 @@
       return `Daemon restart ${result.restartId} accepted; active work is draining.`;
     });
   }
+
+  async function enableNotifications() {
+    if (!("Notification" in globalThis)) return;
+    notificationPermission = await Notification.requestPermission();
+  }
 </script>
 
 <section class="page">
@@ -197,6 +208,12 @@
     <h2 id="daemon-heading">Daemon</h2>
     <dl><div><dt>Lifecycle</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>Build</dt><dd>{daemon.buildFingerprint ?? "Unavailable"}</dd></div><div><dt>Invocations</dt><dd>{daemon.invocations.running} running · {daemon.invocations.queued} queued · {daemon.invocations.failed} failed</dd></div><div><dt>Observed</dt><dd>{daemon.observedAt}</dd></div></dl>
     <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>Refresh</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>Restart after drain</button></div>
+  </section>
+
+  <section class="settings-card" aria-labelledby="notification-heading">
+    <h2 id="notification-heading">Notifications</h2>
+    <p>Online-only notifications are sent for completed turns and pending Ask interactions. Spark Web never caches Session data for notification delivery.</p>
+    <div class="row"><button type="button" class="secondary" disabled={notificationPermission === "unsupported" || notificationPermission === "granted"} onclick={() => void enableNotifications()}>{notificationPermission === "granted" ? "Notifications enabled" : notificationPermission === "unsupported" ? "Notifications unavailable" : "Enable notifications"}</button><span>{notificationPermission}</span></div>
   </section>
 </section>
 

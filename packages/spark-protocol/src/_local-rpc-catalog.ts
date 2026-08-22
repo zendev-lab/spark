@@ -154,6 +154,16 @@ import {
   workspaceDelegationExecuteRequestSchema,
   workspaceDelegationExecuteResultSchema,
 } from "./workspace-delegation.ts";
+import {
+  sparkGlobalSearchRequestSchema,
+  sparkGlobalSearchResultSchema,
+  sparkSessionExportRequestSchema,
+  sparkSessionExportResultSchema,
+  sparkSessionSearchRequestSchema,
+  sparkSessionSearchResultSchema,
+  sparkWorkspaceDirectoryListRequestSchema,
+  sparkWorkspaceDirectoryListResultSchema,
+} from "./web-workbench-control.ts";
 
 export type SparkLocalRpcMethod = keyof typeof localRpcMethodToSparkCommandKind;
 /** @deprecated Prefer {@link SparkLocalRpcMethod}. */
@@ -426,6 +436,11 @@ const sparkLocalRpcSessionSnapshotOrpcErrors = {
     sparkLocalRpcSessionOrpcErrors.session_snapshot_cursor_not_found,
   session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
   session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
+} as const;
+
+const sparkLocalRpcSessionExportOrpcErrors = {
+  ...sparkLocalRpcSessionSnapshotOrpcErrors,
+  session_transcript_changed: sparkLocalRpcSessionOrpcErrors.session_transcript_changed,
 } as const;
 
 const sparkLocalRpcSessionPromptHistoryOrpcErrors = {
@@ -1530,6 +1545,14 @@ export const sparkLocalRpcProcedureSchemas = {
       observedAt: isoDateTimeSchema,
     }),
   },
+  "workspace.directory.list": {
+    input: sparkWorkspaceDirectoryListRequestSchema,
+    output: sparkWorkspaceDirectoryListResultSchema,
+  },
+  "search.global": {
+    input: sparkGlobalSearchRequestSchema,
+    output: sparkGlobalSearchResultSchema,
+  },
   "workspace.register": {
     input: sparkLocalRpcWorkspaceRegisterRequestSchema,
     output: sparkLocalRpcWorkspaceSchema,
@@ -1629,6 +1652,14 @@ export const sparkLocalRpcProcedureSchemas = {
   "session.snapshot": {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
+  },
+  "session.search": {
+    input: sparkSessionSearchRequestSchema,
+    output: sparkSessionSearchResultSchema,
+  },
+  "session.export": {
+    input: sparkSessionExportRequestSchema,
+    output: sparkSessionExportResultSchema,
   },
   "session.snapshot-page": {
     input: sparkSessionSnapshotRequestSchema,
@@ -1794,6 +1825,10 @@ export const sparkLocalRpcOrpcOnlyMethods = [
   "role.list",
   "role.create",
   "skill.list",
+  "workspace.directory.list",
+  "search.global",
+  "session.search",
+  "session.export",
   "session.snapshot-page",
   "session.media.read",
   "session.prompt-history",
@@ -1974,6 +2009,14 @@ export const sparkLocalRpcOrpcContract = {
       p["workspace.list"],
       sparkLocalRpcReadinessOrpcErrors,
     ),
+    directory: {
+      list: procedure(
+        "GET",
+        "/workspace/directory/list",
+        p["workspace.directory.list"],
+        sparkLocalRpcWorkspaceEnsureOrpcErrors,
+      ),
+    },
     register: procedure(
       "POST",
       "/workspace/register",
@@ -2059,6 +2102,14 @@ export const sparkLocalRpcOrpcContract = {
       ),
     },
   },
+  search: {
+    global: procedure(
+      "GET",
+      "/search/global",
+      p["search.global"],
+      sparkLocalRpcReadinessOrpcErrors,
+    ),
+  },
   delegation: {
     execute: procedure(
       "POST",
@@ -2124,6 +2175,18 @@ export const sparkLocalRpcOrpcContract = {
       "/session/snapshot",
       p["session.snapshot"],
       sparkLocalRpcSessionSnapshotOrpcErrors,
+    ),
+    search: procedure(
+      "GET",
+      "/session/search",
+      p["session.search"],
+      sparkLocalRpcSessionSnapshotOrpcErrors,
+    ),
+    export: procedure(
+      "GET",
+      "/session/export",
+      p["session.export"],
+      sparkLocalRpcSessionExportOrpcErrors,
     ),
     snapshotPage: procedure(
       "GET",

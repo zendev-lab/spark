@@ -41,7 +41,7 @@ function workspaceData(workspaceId: string) {
       artifacts: [
         {
           ref: `artifact:${workspaceId}`,
-          kind: "document",
+          kind: "git_change",
           title: `Artifact ${workspaceId}`,
           format: "text",
           sizeBytes: 8,
@@ -152,6 +152,52 @@ describe("Workspace page owner state", () => {
       1,
     );
     expect(mocks.goto).not.toHaveBeenCalled();
+    await screen.unmount();
+  });
+
+  it("keeps a selected GitChange root with its relative Session directory", async () => {
+    let createInput: Record<string, unknown> | undefined;
+    mocks.webRpc.mockImplementation(async (method: string, input: Record<string, unknown>) => {
+      if (method === "workspace.directory.list") {
+        return {
+          workspaceId: "a",
+          rootRef: "directory-root:git-change",
+          cwdArtifactRef: "artifact:a",
+          current: { ref: "directory:nested", relativePath: "nested" },
+          entries: [],
+          truncated: false,
+          observedAt: "2026-08-22T00:00:00.000Z",
+        };
+      }
+      if (method === "session.create") {
+        createInput = input;
+        return { sessionId: "created-in-worktree" };
+      }
+      if (method === "session.thinking.set") throw new Error("stop after create");
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const screen = await render(WorkspacePage, { data: workspaceData("a") });
+
+    await screen.getByRole("button", { name: "New session" }).click();
+    await screen.getByRole("combobox", { name: "Working directory" }).selectOptions("artifact:a");
+    await screen.getByRole("button", { name: "Browse subdirectory" }).click();
+    await screen.getByRole("button", { name: "Use this directory" }).click();
+    await screen.getByRole("button", { name: "Create Session" }).click();
+
+    expect(createInput).toMatchObject({ cwdArtifactRef: "artifact:a", cwd: "nested" });
+    await screen.unmount();
+  });
+
+  it("surfaces the first directory read failure", async () => {
+    mocks.webRpc.mockRejectedValue(new Error("directory owner unavailable"));
+    const screen = await render(WorkspacePage, { data: workspaceData("a") });
+
+    await screen.getByRole("button", { name: "New session" }).click();
+    await screen.getByRole("button", { name: "Browse subdirectory" }).click();
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("directory owner unavailable");
     await screen.unmount();
   });
 });

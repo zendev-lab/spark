@@ -29,6 +29,7 @@ import { handleTurnRequest } from "./handlers/turn.ts";
 import { handleUplinkRequest } from "./handlers/uplink.ts";
 import { handleUsageRequest } from "./handlers/usage.ts";
 import { handleWorkspaceRequest } from "./handlers/workspace.ts";
+import { handleWorkbenchRequest } from "./handlers/workbench.ts";
 import { isLocalRpcSafeWhileAdmissionClosed } from "./helpers.ts";
 import type { LocalRpcDispatchContext } from "./handlers/context.ts";
 import {
@@ -52,6 +53,7 @@ export interface LocalRpcServiceOptions {
  */
 export const localRpcServiceHandlerMethodGroups = {
   daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
+  workbench: ["search.global", "session.search", "session.export"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],
   artifact: ["artifact.list", "artifact.read"],
   agentCatalog: ["role.list", "role.create", "skill.list"],
@@ -75,6 +77,7 @@ export const localRpcServiceHandlerMethodGroups = {
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],
   workspace: [
     "workspace.list",
+    "workspace.directory.list",
     "workspace.ensure-local",
     "workspace.resolve-session-cwd",
     "workspace.relocate",
@@ -218,6 +221,9 @@ async function dispatchLocalRpcServiceRequest(
 ): Promise<LocalRpcServiceOutput<LocalRpcServiceRequest>> {
   if (requestBelongsToHandlerGroup(request, "daemon")) {
     return handleDaemonRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "workbench")) {
+    return handleWorkbenchRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "toolExecution")) {
     return handleToolExecutionRequest(context, request);

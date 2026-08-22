@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import { parseSparkWebBindArgs, sparkWebBrowserAuthority } from "./bind.ts";
-import { sparkWebRequestTrustError, tokensMatch, tokenFromRequest } from "./auth.ts";
+import {
+  isSparkWebReadOnlyShareRequest,
+  sparkWebRequestTrustError,
+  sparkWebShareRequestTrustError,
+  tokensMatch,
+  tokenFromRequest,
+} from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
 import {
   invokeSparkWebRpc,
@@ -98,6 +104,37 @@ test("request trust enforces Host, Origin, Fetch Metadata, and cookie mutation C
       trust,
     }),
     null,
+  );
+});
+
+test("cross-site document navigation is allowed only for read-only share URLs", () => {
+  const trust = { bindHost: "0.0.0.0", bindPort: 4310, trustedHosts: ["spark.lan"] };
+  const request = new Request("http://spark.lan:4310/share/12345678901234567890123456789012", {
+    headers: {
+      host: "spark.lan:4310",
+      "sec-fetch-site": "cross-site",
+      "sec-fetch-mode": "navigate",
+      "sec-fetch-dest": "document",
+    },
+  });
+  assert.equal(
+    isSparkWebReadOnlyShareRequest(request, "/share/12345678901234567890123456789012"),
+    true,
+  );
+  assert.equal(sparkWebShareRequestTrustError({ request, trust }), null);
+  assert.match(
+    sparkWebRequestTrustError({ request, authSource: "none", trust }) ?? "",
+    /cross-site/u,
+  );
+  assert.equal(isSparkWebReadOnlyShareRequest(request, "/api/v1/rpc"), false);
+  assert.match(
+    sparkWebShareRequestTrustError({
+      request: new Request(request, {
+        headers: { ...Object.fromEntries(request.headers), "sec-fetch-dest": "empty" },
+      }),
+      trust,
+    }) ?? "",
+    /cross-site/u,
   );
 });
 

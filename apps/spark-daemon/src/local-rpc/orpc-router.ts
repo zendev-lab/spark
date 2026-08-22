@@ -160,6 +160,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       list: os.workspace.list.handler(async ({ input: params }) =>
         invoke("workspace.list", params),
       ),
+      directory: {
+        list: os.workspace.directory.list.handler(async ({ input: params }) =>
+          invoke("workspace.directory.list", params),
+        ),
+      },
       register: os.workspace.register.handler(async ({ input: params }) =>
         invoke("workspace.register", params),
       ),
@@ -206,6 +211,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         ),
       },
     },
+    search: {
+      global: os.search.global.handler(async ({ input: params }) =>
+        invoke("search.global", params),
+      ),
+    },
     delegation: {
       execute: os.delegation.execute.handler(async ({ input: params }) =>
         invoke("delegation.execute", params),
@@ -242,6 +252,12 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ),
       snapshot: os.session.snapshot.handler(async ({ input: params }) =>
         invoke("session.snapshot", params),
+      ),
+      search: os.session.search.handler(async ({ input: params }) =>
+        invoke("session.search", params),
+      ),
+      export: os.session.export.handler(async ({ input: params }) =>
+        invoke("session.export", params),
       ),
       snapshotPage: os.session.snapshotPage.handler(async ({ input: params }) =>
         invoke("session.snapshot-page", params),

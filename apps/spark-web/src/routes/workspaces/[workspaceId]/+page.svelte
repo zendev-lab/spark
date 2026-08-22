@@ -20,6 +20,23 @@
   let modelValue = $state("");
   let thinkingLevel = $state<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">("high");
   let cwdArtifactRef = $state("");
+  let cwdRelativePath = $state("");
+  let directoryOpen = $state(false);
+  let directoryLoading = $state(false);
+  let directoryError = $state("");
+  let directoryRequestToken = 0;
+  let directoryView = $state<{
+    cwdArtifactRef?: string;
+    current: { relativePath: string };
+    entries: Array<{
+      ref: string;
+      name: string;
+      relativePath: string;
+      kind: "directory" | "file" | "symlink";
+      selectable: boolean;
+      blockedReason?: string;
+    }>;
+  } | null>(null);
   let roleId = $state("");
   let roleDescription = $state("");
   let rolePrompt = $state("");
@@ -42,6 +59,7 @@
     sessionCreateToken += 1;
     roleCreateToken += 1;
     artifactRequestToken += 1;
+    directoryRequestToken += 1;
     creating = false;
     showCreate = false;
     createError = "";
@@ -51,6 +69,11 @@
     modelValue = "";
     thinkingLevel = "high";
     cwdArtifactRef = "";
+    cwdRelativePath = "";
+    directoryOpen = false;
+    directoryLoading = false;
+    directoryError = "";
+    directoryView = null;
     roleId = "";
     roleDescription = "";
     rolePrompt = "";
@@ -86,6 +109,7 @@
     const requestedName = sessionName.trim();
     const requestedRoleRef = roleRef;
     const requestedCwdArtifactRef = cwdArtifactRef;
+    const requestedCwdRelativePath = cwdRelativePath;
     const requestedThinkingLevel = thinkingLevel;
     creating = true;
     createError = "";
@@ -98,6 +122,7 @@
         placement: "child",
         roleBinding: { kind: "explicit", roleRef: requestedRoleRef },
         ...(requestedName ? { name: requestedName } : {}),
+        ...(requestedCwdRelativePath ? { cwd: requestedCwdRelativePath } : {}),
         ...(requestedCwdArtifactRef ? { cwdArtifactRef: requestedCwdArtifactRef } : {}),
       });
     } catch (caught) {
@@ -139,6 +164,52 @@
         creating = false;
       }
     }
+  }
+
+  async function browseDirectory(relativePath = "") {
+    if (directoryLoading) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const ownerArtifactRef = cwdArtifactRef;
+    const requestToken = ++directoryRequestToken;
+    directoryLoading = true;
+    directoryError = "";
+    try {
+      const view = await webRpc("workspace.directory.list", {
+        workspaceId: ownerWorkspaceId,
+        ...(ownerArtifactRef ? { cwdArtifactRef: ownerArtifactRef } : {}),
+        relativePath,
+        limit: 300,
+      });
+      if (
+        requestToken !== directoryRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
+      directoryView = view;
+      directoryOpen = true;
+    } catch (caught) {
+      if (
+        requestToken !== directoryRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
+      directoryError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (
+        requestToken === directoryRequestToken &&
+        data.workspace.id === ownerWorkspaceId
+      ) {
+        directoryLoading = false;
+      }
+    }
+  }
+
+  function parentDirectory(path: string): string {
+    const segments = path.split("/").filter(Boolean);
+    segments.pop();
+    return segments.join("/");
   }
 
   async function createRole() {
@@ -234,10 +305,25 @@
       <label>Mode<select disabled title="Plan and Fleet require the pending DSH rc.8 daemon-root adapter"><option>execute</option></select></label>
       <label>Model<select bind:value={modelValue}><option value="">Inherit default</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>Thinking<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
-      <label>Working directory<select bind:value={cwdArtifactRef}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select></label>
+      <label>Working directory<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? "Loading…" : "Browse subdirectory"}</button>{#if cwdRelativePath}<small>Selected: {cwdRelativePath}</small>{/if}</label>
       <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? "Creating…" : "Create Session"}</button>
       <p class="hint">Directory choices are daemon-owned Workspace roots or GitChange owning worktrees. Plan/Fleet mode remains disabled until the DSH rc.8 adapter lands.</p>
     </form>
+  {/if}
+  {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
+  {#if directoryOpen && directoryView}
+    <dialog open class="directory-picker" aria-label="Choose Session working directory">
+      <header><div><h2>Choose directory</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => (directoryOpen = false)}>Close</button></header>
+      <div class="directory-actions">
+        <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>Up</button>
+        <button type="button" onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; directoryOpen = false; }}>Use this directory</button>
+      </div>
+      <ul>
+        {#each directoryView.entries as entry (entry.ref)}
+          <li><button type="button" class="directory-entry" disabled={!entry.selectable} title={entry.blockedReason} onclick={() => void browseDirectory(entry.relativePath)}><span>{entry.kind === "symlink" ? "↪" : entry.kind === "directory" ? "▸" : "·"}</span><strong>{entry.name}</strong>{#if entry.blockedReason}<small>{entry.blockedReason}</small>{/if}</button></li>
+        {/each}
+      </ul>
+    </dialog>
   {/if}
   {#if createError}
     <p class="error">{createError}</p>
@@ -425,6 +511,42 @@
   .checkbox span {
     display: grid;
     gap: 2px;
+  }
+  .directory-picker {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card-raised);
+    display: grid;
+    gap: 10px;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 16px;
+  }
+  .directory-picker h2 {
+    margin: 0;
+  }
+  .directory-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .directory-picker li {
+    padding: 0;
+  }
+  .directory-entry {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--color-ink);
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto 1fr auto;
+    text-align: start;
+    width: 100%;
+  }
+  .directory-entry:disabled {
+    color: var(--color-ink-muted);
+    cursor: not-allowed;
   }
   .artifacts, .artifact-preview { display: grid; gap: 12px; }
   .artifacts h2, .artifact-preview h2 { margin: 0; }

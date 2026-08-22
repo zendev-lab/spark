@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { goto } from "$app/navigation";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
@@ -36,6 +37,9 @@
     sparkSlashActionBarForInput,
     sparkSlashCommandDescriptors,
     sparkThinkingLevelOptions,
+    SPARK_TURN_ATTACHMENT_MAX_BYTES,
+    SPARK_TURN_ATTACHMENT_MAX_COUNT,
+    SPARK_TURN_ATTACHMENT_MAX_TOTAL_BYTES,
     type SparkSessionSnapshotPage,
     type SparkSessionProjection,
     type SparkActionView,
@@ -71,6 +75,16 @@
   let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
   let prompt = $state("");
+  let pendingAttachments = $state<
+    Array<{
+      kind: "image" | "file";
+      name: string;
+      mediaType: string;
+      size: number;
+      data: string;
+    }>
+  >([]);
+  let attachmentError = $state<string | null>(null);
   let submitting = $state(false);
   let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
   let artifactPreview = $state<{
@@ -85,6 +99,20 @@
   let artifactPreviewRequestToken = 0;
   let modelValue = $state("");
   let ownerModelValue = $state<string | null>(null);
+  let searchOpen = $state(false);
+  let searchQuery = $state("");
+  let searchResults = $state<
+    Array<{ messageId: string; ref: string; role: string; excerpt: string }>
+  >([]);
+  let searching = $state(false);
+  let searchError = $state<string | null>(null);
+  let searchRequestToken = 0;
+  let revealSearchRequestToken = 0;
+  let shareHref = $state<string | null>(null);
+  let sharing = $state(false);
+  let activeOwnerSessionId: string | undefined;
+  let detachSessionEvents: (() => void) | undefined;
+  const notifiedAskIds = new Set<string>();
   $effect(() => {
     const selected = snapshot.model
       ? `${snapshot.model.providerName}/${snapshot.model.modelId}`
@@ -156,7 +184,18 @@
       ) {
         return;
       }
-      askWaits = parsePendingHumanInteractions(listed);
+      const pending = parsePendingHumanInteractions(listed);
+      for (const wait of pending) {
+        if (notifiedAskIds.has(wait.interactionRequestId)) continue;
+        notifiedAskIds.add(wait.interactionRequestId);
+        void notifyWhenHidden(
+          "Spark is waiting for you",
+          wait.title,
+          `ask-${wait.interactionRequestId}`,
+          sessionId,
+        );
+      }
+      askWaits = pending;
       askError = null;
     } catch (error) {
       if (
@@ -172,6 +211,9 @@
 
   $effect(() => {
     const sessionId = data.window.snapshot.sessionId;
+    if (activeOwnerSessionId === sessionId) return;
+    activeOwnerSessionId = sessionId;
+    detachSessionEvents?.();
     windowOverride = null;
     treeSessionsOverride = null;
     busySessionId = undefined;
@@ -179,32 +221,78 @@
     loadingEarlier = false;
     historyError = null;
     prompt = "";
+    pendingAttachments = [];
+    attachmentError = null;
     submitting = false;
     actionFeedback = null;
     artifactPreview = null;
     artifactPreviewRequestToken += 1;
+    searchOpen = false;
+    searchQuery = "";
+    searchResults = [];
+    searching = false;
+    searchError = null;
+    searchRequestToken += 1;
+    revealSearchRequestToken += 1;
+    shareHref = null;
+    sharing = false;
+    notifiedAskIds.clear();
     askWaits = [];
     askError = null;
     void refreshAsks(sessionId);
-    return attachWebSessionEvents(sessionId, (latest) => {
+    detachSessionEvents = attachWebSessionEvents(sessionId, (latest) => {
       if (latest.snapshot.sessionId !== sessionId) return;
+      const wasBusy = ["queued", "running", "streaming"].includes(snapshot.status);
       adoptLiveSnapshot(latest);
+      if (
+        wasBusy &&
+        !["queued", "running", "streaming"].includes(latest.snapshot.status)
+      ) {
+        void notifyWhenHidden(
+          "Spark turn completed",
+          currentSession?.name ?? sessionId,
+          `turn-${sessionId}`,
+          sessionId,
+        );
+      }
       void refreshAsks(sessionId);
     });
+  });
+
+  $effect(() => () => detachSessionEvents?.());
+
+  $effect(() => {
+    const ownerSessionId = data.window.snapshot.sessionId;
+    const messageId = data.requestedMessageId;
+    if (messageId) void revealSearchMatch(messageId, ownerSessionId);
+    else revealSearchRequestToken += 1;
   });
 
   async function submitPrompt(event?: Event) {
     event?.preventDefault();
     const text = prompt.trim();
-    if (!text || submitting) return;
+    if ((!text && pendingAttachments.length === 0) || submitting) return;
     const ownerSessionId = snapshot.sessionId;
+    const attachments = pendingAttachments;
     submitting = true;
     try {
       actionFeedback = null;
-      if (text.startsWith("/")) await applySlash(text, ownerSessionId);
-      else await webRpc("turn.submit", { sessionId: ownerSessionId, prompt: text });
+      if (text.startsWith("/")) {
+        if (pendingAttachments.length > 0) {
+          throw new Error("Slash commands cannot include attachments.");
+        }
+        await applySlash(text, ownerSessionId);
+      } else {
+        await webRpc("turn.submit", {
+          sessionId: ownerSessionId,
+          prompt: text,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        });
+      }
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
       prompt = "";
+      pendingAttachments = [];
+      attachmentError = null;
     } catch (error) {
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
       actionFeedback = {
@@ -382,6 +470,198 @@
         tone: "error",
         message: error instanceof Error ? error.message : String(error),
       };
+    });
+  }
+
+  async function cancelQueuedTurn(invocationId: string) {
+    const ownerSessionId = snapshot.sessionId;
+    try {
+      actionFeedback = null;
+      await webRpc("turn.cancel", {
+        invocationId,
+        reason: "Removed from Spark Web queue",
+      });
+    } catch (error) {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      actionFeedback = {
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async function addAttachments(event: Event) {
+    const ownerSessionId = snapshot.sessionId;
+    const input = event.currentTarget as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = "";
+    if (files.length === 0) return;
+    attachmentError = null;
+    try {
+      if (pendingAttachments.length + files.length > SPARK_TURN_ATTACHMENT_MAX_COUNT) {
+        throw new Error(`A turn supports at most ${SPARK_TURN_ATTACHMENT_MAX_COUNT} attachments.`);
+      }
+      const added = [];
+      for (const file of files) {
+        if (file.size > SPARK_TURN_ATTACHMENT_MAX_BYTES) {
+          throw new Error(`${file.name} exceeds the 6 MiB per-file limit.`);
+        }
+        added.push({
+          kind: file.type.startsWith("image/") ? ("image" as const) : ("file" as const),
+          name: file.name,
+          mediaType: file.type || "application/octet-stream",
+          size: file.size,
+          data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
+        });
+      }
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      const currentAttachments = pendingAttachments;
+      if (currentAttachments.length + added.length > SPARK_TURN_ATTACHMENT_MAX_COUNT) {
+        throw new Error(`A turn supports at most ${SPARK_TURN_ATTACHMENT_MAX_COUNT} attachments.`);
+      }
+      const totalBytes = [...currentAttachments, ...added].reduce(
+        (total, item) => total + item.size,
+        0,
+      );
+      if (totalBytes > SPARK_TURN_ATTACHMENT_MAX_TOTAL_BYTES) {
+        throw new Error("Turn attachments exceed the 12 MiB total limit.");
+      }
+      pendingAttachments = [...currentAttachments, ...added];
+    } catch (error) {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      attachmentError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  function bytesToBase64(bytes: Uint8Array): string {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  async function searchHistory(event?: Event) {
+    event?.preventDefault();
+    const query = searchQuery.trim();
+    if (!query || searching) return;
+    const ownerSessionId = snapshot.sessionId;
+    const requestToken = ++searchRequestToken;
+    searching = true;
+    searchError = null;
+    try {
+      const result = await webRpc("session.search", {
+        sessionId: ownerSessionId,
+        query,
+        limit: 100,
+      });
+      if (
+        requestToken !== searchRequestToken ||
+        data.window.snapshot.sessionId !== ownerSessionId
+      ) {
+        return;
+      }
+      searchResults = result.matches;
+    } catch (error) {
+      if (
+        requestToken !== searchRequestToken ||
+        data.window.snapshot.sessionId !== ownerSessionId
+      ) {
+        return;
+      }
+      searchError = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (
+        requestToken === searchRequestToken &&
+        data.window.snapshot.sessionId === ownerSessionId
+      ) {
+        searching = false;
+      }
+    }
+  }
+
+  async function revealSearchMatch(messageId: string, ownerSessionId = snapshot.sessionId) {
+    const requestToken = ++revealSearchRequestToken;
+    const ownsReveal = () =>
+      requestToken === revealSearchRequestToken &&
+      data.window.snapshot.sessionId === ownerSessionId;
+    let current = window;
+    try {
+      while (
+        !current.snapshot.messages.some((message) => message.id === messageId) &&
+        current.history.nextBeforeMessageId
+      ) {
+        const page = await webRpc("session.snapshot-page", {
+          sessionId: ownerSessionId,
+          messageLimit: 100,
+          beforeMessageId: current.history.nextBeforeMessageId,
+        });
+        if (!ownsReveal()) return;
+        current = mergeEarlierSparkSessionSnapshotWindow(current, page);
+      }
+      if (!ownsReveal()) return;
+      windowOverride = current;
+      await tick();
+      if (!ownsReveal()) return;
+      document.getElementById(messageId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (error) {
+      if (!ownsReveal()) return;
+      searchError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function createLocalShare() {
+    if (sharing) return;
+    const ownerSessionId = snapshot.sessionId;
+    sharing = true;
+    actionFeedback = null;
+    try {
+      const response = await fetch(
+        `/api/v1/sessions/${encodeURIComponent(ownerSessionId)}/share`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(`Local Share failed: ${response.status}`);
+      const result = (await response.json()) as { href: string };
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      shareHref = result.href;
+      actionFeedback = {
+        tone: "status",
+        message: "Created a random read-only Share for this Spark Web process.",
+      };
+    } catch (error) {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      actionFeedback = {
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      if (data.window.snapshot.sessionId === ownerSessionId) sharing = false;
+    }
+  }
+
+  async function notifyWhenHidden(
+    title: string,
+    body: string,
+    tag: string,
+    sessionId = snapshot.sessionId,
+  ) {
+    if (
+      !document.hidden ||
+      !("Notification" in globalThis) ||
+      Notification.permission !== "granted" ||
+      !("serviceWorker" in navigator)
+    ) {
+      return;
+    }
+    const registration = await navigator.serviceWorker.ready;
+    registration.active?.postMessage({
+      type: "spark.notification",
+      notification: {
+        title,
+        body,
+        tag,
+        url: `/sessions/${encodeURIComponent(sessionId)}`,
+      },
     });
   }
 
@@ -601,6 +881,12 @@
   );
 </script>
 
+{#snippet queueActions(item: { id: string })}
+  <button type="button" class="queue-remove" onclick={() => void cancelQueuedTurn(item.id)}>
+    Remove
+  </button>
+{/snippet}
+
 <div class="workbench-shell">
   <aside>
     <SessionTree
@@ -628,6 +914,39 @@
     {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
   </aside>
   <section class="workbench">
+  <div class="session-actions" aria-label="Session actions">
+    <button type="button" onclick={() => (searchOpen = !searchOpen)}>Search history</button>
+    <details>
+      <summary>Export</summary>
+      <div class="export-menu">
+        {#each ["jsonl", "json", "text", "html"] as format}
+          <a href={`/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/export?format=${format}`}>{format.toUpperCase()}</a>
+        {/each}
+      </div>
+    </details>
+    <button type="button" onclick={() => void createLocalShare()} disabled={sharing}>
+      {sharing ? "Sharing…" : "Local Share"}
+    </button>
+    {#if shareHref}<a href={shareHref} target="_blank" rel="noreferrer">Open read-only Share</a>{/if}
+  </div>
+  {#if searchOpen}
+    <section class="history-search" aria-label="Full Session history search">
+      <form onsubmit={(event) => void searchHistory(event)}>
+        <label for="session-history-search">Search every durable message</label>
+        <div><input id="session-history-search" type="search" bind:value={searchQuery} required /><button type="submit" disabled={searching}>{searching ? "Searching…" : "Search"}</button></div>
+      </form>
+      {#if searchError}<p role="alert">{searchError}</p>{/if}
+      {#if searchResults.length > 0}
+        <ul>
+          {#each searchResults as result (result.ref)}
+            <li><button type="button" onclick={() => void revealSearchMatch(result.messageId)}><strong>{result.role}</strong><span>{result.excerpt}</span></button></li>
+          {/each}
+        </ul>
+      {:else if searchQuery && !searching}
+        <p>No matching messages.</p>
+      {/if}
+    </section>
+  {/if}
   {#if window.history.hasEarlierMessages}
     <div class="history-controls">
       <button type="button" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
@@ -730,6 +1049,7 @@
     items={activity.pendingTurns.map((turn) => ({ id: turn.invocationId, text: turn.prompt }))}
     labels={{ region: "Queue", queued: "Queued", next: "Running" }}
     hasRunningTurn={activity.phase === "running"}
+    actions={queueActions}
   />
 
   {#if askError}<p class="error" role="alert">{askError}</p>{/if}
@@ -768,6 +1088,23 @@
       multilineHint="⌘/Ctrl+Enter sends"
       submitting={submitting}
     >
+      {#snippet attachments()}
+        <div class="attachment-list">
+          {#each pendingAttachments as attachment, index (`${attachment.name}:${attachment.size}:${index}`)}
+            <span>
+              {attachment.name} · {Math.ceil(attachment.size / 1024)} KiB
+              <button type="button" aria-label={`Remove ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+            </span>
+          {/each}
+          {#if attachmentError}<span class="attachment-error" role="alert">{attachmentError}</span>{/if}
+        </div>
+      {/snippet}
+      {#snippet actions()}
+        <label class="attach-button">
+          <span>Add files</span>
+          <input type="file" multiple onchange={(event) => void addAttachments(event)} />
+        </label>
+      {/snippet}
       {#snippet header()}
         <div class="controls">
           <ModelSelector
@@ -904,10 +1241,87 @@
   }
   .workbench {
     min-height: 0;
-    display: grid;
-    grid-template-rows: 1fr auto auto auto;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
     padding: 12px;
+  }
+  .session-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .session-actions button,
+  .session-actions summary,
+  .session-actions a,
+  .queue-remove,
+  .attach-button {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-sm);
+    color: var(--color-ink);
+    cursor: pointer;
+    font: inherit;
+    padding: 5px 8px;
+    text-decoration: none;
+  }
+  .session-actions details {
+    position: relative;
+  }
+  .session-actions summary {
+    list-style: none;
+  }
+  .export-menu {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-sm);
+    box-shadow: var(--shadow-card-raised);
+    display: grid;
+    gap: 4px;
+    padding: 6px;
+    position: absolute;
+    z-index: 4;
+  }
+  .history-search {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    display: grid;
+    gap: 8px;
+    max-height: 34vh;
+    overflow: auto;
+    padding: 10px;
+  }
+  .history-search form,
+  .history-search form div {
+    display: flex;
+    gap: 8px;
+  }
+  .history-search form {
+    flex-direction: column;
+  }
+  .history-search input {
+    flex: 1;
+    min-width: 0;
+  }
+  .history-search ul {
+    display: grid;
+    gap: 4px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .history-search li button {
+    background: transparent;
+    border: 0;
+    color: var(--color-ink);
+    cursor: pointer;
+    display: grid;
+    gap: 2px;
+    padding: 6px;
+    text-align: start;
+    width: 100%;
   }
   .history-controls {
     align-items: center;
@@ -933,6 +1347,35 @@
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+  .attachment-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .attachment-list > span {
+    align-items: center;
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border-soft);
+    border-radius: 999px;
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px 8px;
+  }
+  .attachment-list button {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+  }
+  .attachment-error {
+    color: var(--color-danger);
+  }
+  .attach-button input {
+    block-size: 1px;
+    inline-size: 1px;
+    opacity: 0;
+    position: absolute;
   }
   .action-feedback {
     color: var(--color-ink-muted);
