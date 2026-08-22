@@ -24,7 +24,6 @@ describe("CodSpeed benchmark selection", () => {
     expect(requiresFullBenchmarkRun(["pnpm-lock.yaml"])).toBe(true);
     expect(requiresFullBenchmarkRun(["packages/spark-session/package.json"])).toBe(true);
     expect(requiresFullBenchmarkRun(["packages/spark-session/tsconfig.json"])).toBe(true);
-    expect(requiresFullBenchmarkRun([".github/actionlint.yaml"])).toBe(true);
     expect(requiresFullBenchmarkRun(["scripts/select-benchmark-files.mts"])).toBe(true);
     expect(requiresFullBenchmarkRun(["packages/spark-session/src/index.ts"])).toBe(false);
     expect(requiresFullBenchmarkRun(["apps/spark-docs/src/content/docs/index.mdx"])).toBe(false);

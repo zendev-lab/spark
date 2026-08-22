@@ -14,7 +14,6 @@ export const WALLTIME_BENCHMARK_SUFFIX = ".walltime.bench.ts";
 export type BenchmarkLane = "simulation" | "walltime";
 
 const fullRunPaths = new Set<string>([
-  ".github/actionlint.yaml",
   ".github/workflows/ci-benchmarks.yml",
   ".node-version",
   "benchmarks/vitest.config.ts",
