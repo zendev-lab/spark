@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sparkRoleCreateRequestSchema, sparkSkillGetResultSchema } from "./agent-catalog.ts";
+import { sparkRoleCreateRequestSchema } from "./agent-catalog.ts";
 
 describe("Role and Skill catalog contract", () => {
   it("accepts bounded project Role proposals and rejects unsafe ids", () => {
@@ -23,20 +23,5 @@ describe("Role and Skill catalog contract", () => {
         modelType: "custom",
       }),
     ).toThrow();
-  });
-
-  it("returns Skill content without a host filesystem path", () => {
-    const result = sparkSkillGetResultSchema.parse({
-      workspaceId: "workspace-1",
-      skill: {
-        name: "browser-check",
-        description: "Verify a browser surface",
-        layer: "cwd",
-        disableModelInvocation: false,
-        content: "---\nname: browser-check\n---\n",
-      },
-    });
-    expect(result.skill).not.toHaveProperty("filePath");
-    expect(result.skill).not.toHaveProperty("baseDir");
   });
 });

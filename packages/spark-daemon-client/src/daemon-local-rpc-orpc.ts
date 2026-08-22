@@ -146,11 +146,6 @@ const agentCatalogInvokers = {
       sparkLocalRpcProcedureSchemas["role.list"].output,
       client.role.list(input, options),
     ),
-  "role.get": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["role.get"].output,
-      client.role.get(input, options),
-    ),
   "role.create": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["role.create"].output,
@@ -161,15 +156,7 @@ const agentCatalogInvokers = {
       sparkLocalRpcProcedureSchemas["skill.list"].output,
       client.skill.list(input, options),
     ),
-  "skill.get": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["skill.get"].output,
-      client.skill.get(input, options),
-    ),
-} satisfies Pick<
-  SparkDaemonOrpcProcedureInvokerMap,
-  "role.list" | "role.get" | "role.create" | "skill.list" | "skill.get"
->;
+} satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "role.list" | "role.create" | "skill.list">;
 
 const daemonChannelTurnInvokers = {
   "daemon.status": (client, input, options) =>

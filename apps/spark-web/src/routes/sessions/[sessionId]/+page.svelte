@@ -82,6 +82,7 @@
   let askError = $state<string | null>(null);
   let askWaits = $state<PendingHumanInteraction[]>([]);
   let askRefreshToken = 0;
+  let artifactPreviewRequestToken = 0;
   let modelValue = $state("");
   let ownerModelValue = $state<string | null>(null);
   $effect(() => {
@@ -180,6 +181,8 @@
     prompt = "";
     submitting = false;
     actionFeedback = null;
+    artifactPreview = null;
+    artifactPreviewRequestToken += 1;
     askWaits = [];
     askError = null;
     void refreshAsks(sessionId);
@@ -544,22 +547,39 @@
   }
 
   async function openArtifact(artifactRef: string) {
-    if (!currentWorkspaceId) {
+    const ownerSessionId = snapshot.sessionId;
+    const workspaceId = currentWorkspaceId;
+    const requestToken = ++artifactPreviewRequestToken;
+    if (!workspaceId) {
       actionFeedback = { tone: "error", message: "Artifact preview requires a workspace-scoped Session." };
       return;
     }
     const artifact = snapshot.artifacts.find((entry) => entry.ref === artifactRef);
     actionFeedback = null;
+    artifactPreview = null;
     try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(currentWorkspaceId)}/artifacts/${encodeURIComponent(artifactRef)}`);
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactRef)}`);
       if (!response.ok) throw new Error(`Artifact preview failed: ${response.status}`);
+      const content = await response.text();
+      if (
+        requestToken !== artifactPreviewRequestToken ||
+        data.window.snapshot.sessionId !== ownerSessionId
+      ) {
+        return;
+      }
       artifactPreview = {
         ref: artifactRef,
         title: artifact?.title ?? artifactRef,
         format: artifact?.format ?? "text",
-        content: await response.text(),
+        content,
       };
     } catch (error) {
+      if (
+        requestToken !== artifactPreviewRequestToken ||
+        data.window.snapshot.sessionId !== ownerSessionId
+      ) {
+        return;
+      }
       actionFeedback = { tone: "error", message: error instanceof Error ? error.message : String(error) };
     }
   }

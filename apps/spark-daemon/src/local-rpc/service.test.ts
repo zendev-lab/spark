@@ -126,32 +126,30 @@ describe("transport-neutral local RPC service", () => {
     expect(roles.roles.some((role) => role.ref === "role:builtin-administrator")).toBe(true);
     expect(roles.roles[0]).not.toHaveProperty("systemPrompt");
 
-    const created = await invokeLocalRpcService(
-      "role.create",
-      {
-        workspaceId: workspace.id,
-        id: "web-reviewer",
-        description: "Review Web owner boundaries",
-        systemPrompt: "Verify the implementation against its owner APIs.",
-        capabilities: ["read"],
-        skills: ["browser-check"],
-        modelType: "verification",
-      },
-      { paths, db },
+    const [firstCreate, secondCreate] = await Promise.all(
+      ["Review Web owner boundaries", "Do not overwrite the concurrent winner"].map((description) =>
+        invokeLocalRpcService(
+          "role.create",
+          {
+            workspaceId: workspace.id,
+            id: "web-reviewer",
+            description,
+            systemPrompt: "Verify the implementation against its owner APIs.",
+            capabilities: ["read"],
+            skills: ["browser-check"],
+            modelType: "verification",
+          },
+          { paths, db },
+        ),
+      ),
     );
-    expect(created).toMatchObject({ created: true, role: { source: "project" } });
-    const duplicate = await invokeLocalRpcService(
-      "role.create",
-      {
-        workspaceId: workspace.id,
-        id: "web-reviewer",
-        description: "Different",
-        systemPrompt: "Do not overwrite.",
-        modelType: "verification",
-      },
-      { paths, db },
-    );
-    expect(duplicate).toMatchObject({ created: false, role: { ref: created.role.ref } });
+    expect([firstCreate, secondCreate].filter((result) => result.created)).toHaveLength(1);
+    expect(firstCreate.role.ref).toBe(secondCreate.role.ref);
+    expect(firstCreate.role.source).toBe("project");
+    for (const result of [firstCreate, secondCreate]) {
+      expect(result.role).not.toHaveProperty("systemPrompt");
+      expect(result.role.origin).not.toHaveProperty("sourcePath");
+    }
 
     const skills = await invokeLocalRpcService(
       "skill.list",
@@ -164,13 +162,7 @@ describe("transport-neutral local RPC service", () => {
     expect(skills.skills.find((skill) => skill.name === "browser-check")).not.toHaveProperty(
       "filePath",
     );
-    const loaded = await invokeLocalRpcService(
-      "skill.get",
-      { workspaceId: workspace.id, name: "browser-check" },
-      { paths, db },
-    );
-    expect(loaded.skill?.content).toContain("# Browser check");
-    expect(loaded.skill).not.toHaveProperty("filePath");
+    expect(skills).not.toHaveProperty("diagnostics");
     db.close();
   });
 

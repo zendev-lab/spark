@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { parseSparkModelValue } from "@zendev-lab/spark-protocol";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import { Artifact } from "@zendev-lab/spark-ui/workbench";
   import {
@@ -13,6 +14,7 @@
   let creating = $state(false);
   let showCreate = $state(false);
   let createError = $state("");
+  let createdSessionId = $state<string | null>(null);
   let sessionName = $state("");
   let roleRef = $state("role:builtin-executor");
   let modelValue = $state("");
@@ -28,56 +30,126 @@
   let artifactContent = $state<{ ref: string; title: string; format: string; content: string } | null>(null);
   let artifactError = $state("");
   let artifactLoading = $state(false);
+  let sessionCreateToken = 0;
+  let roleCreateToken = 0;
+  let artifactRequestToken = 0;
   const sessions = $derived(
     ordinarySessionsForWorkspace(data.sessions as SparkWebSession[], data.workspace.id),
   );
 
+  $effect(() => {
+    data.workspace.id;
+    sessionCreateToken += 1;
+    roleCreateToken += 1;
+    artifactRequestToken += 1;
+    creating = false;
+    showCreate = false;
+    createError = "";
+    createdSessionId = null;
+    sessionName = "";
+    roleRef = "role:builtin-executor";
+    modelValue = "";
+    thinkingLevel = "high";
+    cwdArtifactRef = "";
+    roleId = "";
+    roleDescription = "";
+    rolePrompt = "";
+    roleModelType = "custom";
+    selectedRoleSkills = [];
+    roleCreating = false;
+    roleStatus = "";
+    artifactContent = null;
+    artifactError = "";
+    artifactLoading = false;
+  });
+
   async function createSession() {
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++sessionCreateToken;
+    const ownsPage = () =>
+      requestToken === sessionCreateToken && data.workspace.id === ownerWorkspaceId;
     const supervisorSessionId = workspaceAdministratorSessionId(
       data.sessions as SparkWebSession[],
-      data.workspace.id,
+      ownerWorkspaceId,
     );
     if (!supervisorSessionId) {
       createError = "Workspace administrator session is missing on this daemon.";
       return;
     }
+    let requestedModel: ReturnType<typeof parseSparkModelValue> | undefined;
+    try {
+      requestedModel = modelValue ? parseSparkModelValue(modelValue) : undefined;
+    } catch {
+      if (ownsPage()) createError = "Select a valid provider/model before creating the Session.";
+      return;
+    }
+    const requestedName = sessionName.trim();
+    const requestedRoleRef = roleRef;
+    const requestedCwdArtifactRef = cwdArtifactRef;
+    const requestedThinkingLevel = thinkingLevel;
     creating = true;
     createError = "";
+    createdSessionId = null;
+    let created: { sessionId: string };
     try {
-      const created = await webRpc("session.create", {
-        scope: { kind: "workspace", workspaceId: data.workspace.id },
+      created = await webRpc("session.create", {
+        scope: { kind: "workspace", workspaceId: ownerWorkspaceId },
         supervisorSessionId,
         placement: "child",
-        roleBinding: { kind: "explicit", roleRef },
-        ...(sessionName.trim() ? { name: sessionName.trim() } : {}),
-        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+        roleBinding: { kind: "explicit", roleRef: requestedRoleRef },
+        ...(requestedName ? { name: requestedName } : {}),
+        ...(requestedCwdArtifactRef ? { cwdArtifactRef: requestedCwdArtifactRef } : {}),
       });
-      if (modelValue.includes("/")) {
-        const separator = modelValue.indexOf("/");
+    } catch (caught) {
+      if (ownsPage()) {
+        createError = caught instanceof Error ? caught.message : String(caught);
+        creating = false;
+      }
+      return;
+    }
+
+    if (ownsPage()) createdSessionId = created.sessionId;
+    try {
+      if (requestedModel) {
         await webRpc("session.model.set", {
           sessionId: created.sessionId,
-          model: {
-            providerName: modelValue.slice(0, separator),
-            modelId: modelValue.slice(separator + 1),
-          },
+          model: requestedModel,
         });
       }
-      await webRpc("session.thinking.set", { sessionId: created.sessionId, thinkingLevel });
+      await webRpc("session.thinking.set", {
+        sessionId: created.sessionId,
+        thinkingLevel: requestedThinkingLevel,
+      });
+    } catch (caught) {
+      if (ownsPage()) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        createError = `Session ${created.sessionId} was created, but its model or thinking configuration failed: ${message}`;
+        creating = false;
+      }
+      return;
+    }
+
+    if (!ownsPage()) return;
+    try {
       await goto(`/sessions/${created.sessionId}`);
     } catch (caught) {
-      createError = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      creating = false;
+      if (ownsPage()) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        createError = `Session ${created.sessionId} is ready, but navigation failed: ${message}`;
+        creating = false;
+      }
     }
   }
 
   async function createRole() {
     if (!roleId.trim() || !roleDescription.trim() || !rolePrompt.trim() || roleCreating) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleCreateToken;
     roleCreating = true;
     roleStatus = "";
     try {
       const result = await webRpc("role.create", {
-        workspaceId: data.workspace.id,
+        workspaceId: ownerWorkspaceId,
         id: roleId.trim(),
         description: roleDescription.trim(),
         systemPrompt: rolePrompt.trim(),
@@ -85,34 +157,56 @@
         ...(selectedRoleSkills.length > 0 ? { skills: selectedRoleSkills } : {}),
         modelType: roleModelType.trim() || "custom",
       });
+      if (requestToken !== roleCreateToken || data.workspace.id !== ownerWorkspaceId) return;
       roleStatus = result.created
         ? `Created ${result.role.ref}. Reload this page to select it.`
         : `Role name already exists as ${result.role.ref}; no file was changed.`;
     } catch (caught) {
+      if (requestToken !== roleCreateToken || data.workspace.id !== ownerWorkspaceId) return;
       roleStatus = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      roleCreating = false;
+      if (requestToken === roleCreateToken && data.workspace.id === ownerWorkspaceId) {
+        roleCreating = false;
+      }
     }
   }
 
   async function openArtifact(artifactRef: string) {
+    const ownerWorkspaceId = data.workspace.id;
     const artifact = data.artifactCatalog.artifacts.find((entry) => entry.ref === artifactRef);
     if (!artifact || artifactLoading) return;
+    const requestToken = ++artifactRequestToken;
     artifactLoading = true;
     artifactError = "";
+    artifactContent = null;
     try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(data.workspace.id)}/artifacts/${encodeURIComponent(artifactRef)}`);
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(ownerWorkspaceId)}/artifacts/${encodeURIComponent(artifactRef)}`);
       if (!response.ok) throw new Error(`Artifact preview failed: ${response.status}`);
+      const content = await response.text();
+      if (
+        requestToken !== artifactRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       artifactContent = {
         ref: artifact.ref,
         title: artifact.title,
         format: artifact.format,
-        content: await response.text(),
+        content,
       };
     } catch (caught) {
+      if (
+        requestToken !== artifactRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       artifactError = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      artifactLoading = false;
+      if (requestToken === artifactRequestToken && data.workspace.id === ownerWorkspaceId) {
+        artifactLoading = false;
+      }
     }
   }
 </script>
@@ -141,12 +235,15 @@
       <label>Model<select bind:value={modelValue}><option value="">Inherit default</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>Thinking<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
       <label>Working directory<select bind:value={cwdArtifactRef}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select></label>
-      <button type="submit" disabled={creating}>{creating ? "Creating…" : "Create Session"}</button>
+      <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? "Creating…" : "Create Session"}</button>
       <p class="hint">Directory choices are daemon-owned Workspace roots or GitChange owning worktrees. Plan/Fleet mode remains disabled until the DSH rc.8 adapter lands.</p>
     </form>
   {/if}
   {#if createError}
     <p class="error">{createError}</p>
+  {/if}
+  {#if createdSessionId}
+    <p><a href={`/sessions/${createdSessionId}`}>Open created Session</a></p>
   {/if}
   {#if sessions.length === 0}
     <p>No sessions in this workspace yet.</p>

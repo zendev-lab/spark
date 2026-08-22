@@ -387,10 +387,8 @@ export const localRpcMethodToSparkCommandKind = {
   "artifact.list": "artifact.content.request",
   "artifact.read": "artifact.content.request",
   "role.list": "role.catalog.request",
-  "role.get": "role.catalog.request",
   "role.create": "role.create.request",
   "skill.list": "skill.catalog.request",
-  "skill.get": "skill.catalog.request",
   "git.execute": "git.execute.request",
   "lens.execute": "lens.execute.request",
 } as const satisfies Record<string, SparkCommandKind>;

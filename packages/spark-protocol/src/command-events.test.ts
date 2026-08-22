@@ -128,10 +128,8 @@ describe("SparkCommand vocabulary", () => {
       "artifact.list",
       "artifact.read",
       "role.list",
-      "role.get",
       "role.create",
       "skill.list",
-      "skill.get",
       "git.execute",
       "lens.execute",
     ]);
