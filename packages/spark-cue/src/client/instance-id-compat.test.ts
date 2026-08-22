@@ -18,7 +18,7 @@ function send(socket: Socket, id: number, ok: unknown): void {
   socket.write(encodeFrame({ type: "response", id, payload: { Ok: ok } }));
 }
 
-test("CueClient accepts a compatible v2 Pong without instance_id", async () => {
+test("CueClient accepts a compatible v3 Pong without instance_id", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cue-instance-id-"));
   const socketPath = join(dir, "cued.sock");
   const sockets = new Set<Socket>();
@@ -42,14 +42,8 @@ test("CueClient accepts a compatible v2 Pong without instance_id", async () => {
           send(socket, request.id, {
             Pong: {
               version: "0.1.0",
-              protocol_version: 2,
-              capabilities: [
-                "session-handshake-required",
-                "script-item-created",
-                "cancel-execution",
-                "operation-idempotency",
-                "script-info-recovery",
-              ],
+              protocol_version: 3,
+              capabilities: ["execution-v3", "session-handshake-required", "operation-idempotency"],
             },
           });
         }

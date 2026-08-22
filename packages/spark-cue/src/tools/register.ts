@@ -14,7 +14,6 @@ export {
   normalizeCueTailBytes,
   normalizeCueTerminalOutput,
   normalizeCueTimeoutSeconds,
-  renderCueChainStatus,
   renderCueScriptResult,
   resolveCueExecTarget,
   resolveCueWorkingDirectory,

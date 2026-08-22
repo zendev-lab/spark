@@ -25,5 +25,4 @@ export type {
   ScriptItemSummary,
   ScriptResult,
   StartJobResult,
-  JobStateChangedEvent,
 } from "./cue-client.ts";

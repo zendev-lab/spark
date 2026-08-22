@@ -593,8 +593,8 @@ export async function runSparkCueContractHarness(
             { command: "sleep 29", background: true },
             context(),
           );
-          requireContract(background.ok && background.jobId, background.text);
-          const jobId = background.jobId;
+          requireContract(background.ok && background.executionId, background.text);
+          const executionId = background.executionId;
           const listedJobs = await runtime.execute(
             "cue_jobs",
             { action: "list", status: "running" },
@@ -602,16 +602,16 @@ export async function runSparkCueContractHarness(
           );
           const jobStatus = await runtime.execute(
             "cue_jobs",
-            { action: "status", id: jobId },
+            { action: "status", id: executionId },
             context(),
           );
           const wait = await runtime.execute(
             "cue_jobs",
-            { action: "wait", id: jobId, timeout: 0.05 },
+            { action: "wait", id: executionId, timeout: 0.05 },
             context(),
           );
           requireContract(wait.timedOut, `expected wait timeout, got ${wait.text}`);
-          await runtime.execute("cue_jobs", { action: "stop", id: jobId }, context());
+          await runtime.execute("cue_jobs", { action: "stop", id: executionId }, context());
 
           const cueRun = await runtime.execute("cue_run", { path: cuePath }, context());
           const cueScript = await runtime.execute(
@@ -651,12 +651,12 @@ export async function runSparkCueContractHarness(
             { action: "add", schedule: "in 1h", command: "true" },
             context(),
           );
-          requireContract(scheduled.cronId, scheduled.text);
-          const cronId = scheduled.cronId;
+          requireContract(scheduled.scheduleId, scheduled.text);
+          const scheduleId = scheduled.scheduleId;
           await runtime.execute("cue_schedule", { action: "list" }, context());
-          await runtime.execute("cue_schedule", { action: "pause", id: cronId }, context());
-          await runtime.execute("cue_schedule", { action: "resume", id: cronId }, context());
-          await runtime.execute("cue_schedule", { action: "remove", id: cronId }, context());
+          await runtime.execute("cue_schedule", { action: "pause", id: scheduleId }, context());
+          await runtime.execute("cue_schedule", { action: "resume", id: scheduleId }, context());
+          await runtime.execute("cue_schedule", { action: "remove", id: scheduleId }, context());
 
           await runtime.execute("cue_scope", { action: "list", includeEnv: true }, context());
           await runtime.execute("cue_scope", { action: "env", tail_bytes: 4096 }, context());
@@ -683,7 +683,7 @@ export async function runSparkCueContractHarness(
 
           const history = await runtime.execute(
             "cue_history",
-            { id: foreground.jobId, limit: 20, tail_bytes: 4096 },
+            { id: foreground.executionId, limit: 20, tail_bytes: 4096 },
             context(),
           );
           requireContract(history.shownChars <= history.rawChars, history.text);
@@ -718,9 +718,9 @@ export async function runSparkCueContractHarness(
               "refresh",
               "status",
             ],
-            foregroundJobId: foreground.jobId,
-            backgroundJobId: jobId,
-            scheduleId: cronId,
+            foregroundExecutionId: foreground.executionId,
+            backgroundExecutionId: executionId,
+            scheduleId,
           };
         } finally {
           runtime.releaseSession(sessionId);

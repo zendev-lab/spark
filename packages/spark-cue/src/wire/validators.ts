@@ -5,26 +5,9 @@ import { Buffer } from "node:buffer";
 type WireRecord = Record<string, unknown>;
 type Validator = (value: unknown, path: string) => void;
 
-const JOB_STATUS_VARIANTS = new Set(["Pending", "Running", "Done", "Failed", "Killed"]);
-const CANCEL_REASON_VARIANTS = new Set(["User", "ChainAborted", "Timeout"]);
-const CRON_STATUS_VARIANTS = new Set(["scheduled", "paused", "completed", "expired", "failed"]);
-const OPEN_HINT_VARIANTS = new Set(["stream", "fg"]);
-const SCRIPT_RUN_STATUS_VARIANTS = new Set(["done", "failed"]);
-const SCRIPT_INFO_STATUS_VARIANTS = new Set(["running", "done", "failed"]);
+const SCHEDULE_STATUS_VARIANTS = new Set(["scheduled", "paused", "completed", "expired", "failed"]);
 const STREAM_VARIANTS = new Set(["stdout", "stderr"]);
 const OUTPUT_ENCODING_VARIANTS = new Set(["utf8", "base64"]);
-const COMPLETION_KIND_VARIANTS = new Set(["Command", "Param", "Id", "Path", "Operator"]);
-const HIGHLIGHT_KIND_VARIANTS = new Set([
-  "CommandPrefix",
-  "CommandName",
-  "ModeParam",
-  "Operator",
-  "IdRef",
-  "Word",
-  "String",
-  "Number",
-  "Error",
-]);
 
 export function validateCueOkPayload<T>(value: T, path = "response.payload.Ok"): T {
   const [variant, body] = singleVariant(value, path);
@@ -32,38 +15,36 @@ export function validateCueOkPayload<T>(value: T, path = "response.payload.Ok"):
     case "Ack":
       exactRecord(body, `${path}.Ack`, []);
       break;
-    case "ScriptCreated":
-      validateScriptCreated(body, `${path}.ScriptCreated`);
+    case "ExecutionCreated": {
+      const record = exactRecord(body, `${path}.ExecutionCreated`, ["execution"]);
+      validateExecutionInfo(record.execution, `${path}.ExecutionCreated.execution`);
       break;
-    case "ScriptInfo":
-      validateScriptInfo(body, `${path}.ScriptInfo`);
+    }
+    case "ExecutionInfo":
+      validateExecutionInfo(body, `${path}.ExecutionInfo`);
       break;
-    case "JobCreated":
-      validateJobCreatedResponse(body, `${path}.JobCreated`);
+    case "ExecutionList":
+      validateArray(body, `${path}.ExecutionList`, validateExecutionInfo);
       break;
-    case "ChainCreated":
-      validateChainCreated(body, `${path}.ChainCreated`);
+    case "ExecutionOutput": {
+      const record = exactRecord(body, `${path}.ExecutionOutput`, ["id", "steps"]);
+      usizeField(record, "id", `${path}.ExecutionOutput`);
+      validateArray(record.steps, `${path}.ExecutionOutput.steps`, validateStepOutput);
       break;
-    case "CronAdded":
-      validateSingleStringField(body, `${path}.CronAdded`, "cron_id");
+    }
+    case "ScheduleCreated": {
+      const record = exactRecord(body, `${path}.ScheduleCreated`, ["schedule"]);
+      validateScheduleInfo(record.schedule, `${path}.ScheduleCreated.schedule`);
+      break;
+    }
+    case "ScheduleList":
+      validateArray(body, `${path}.ScheduleList`, validateScheduleInfo);
+      break;
+    case "ResourceList":
+      validateArray(body, `${path}.ResourceList`, validateResourceProviderInfo);
       break;
     case "ScopeCreated":
       validateScopeCreated(body, `${path}.ScopeCreated`);
-      break;
-    case "JobInfo":
-      validateJobInfo(body, `${path}.JobInfo`);
-      break;
-    case "JobList":
-      validateArray(body, `${path}.JobList`, validateJobInfo);
-      break;
-    case "JobListPage":
-      validateListPage(body, `${path}.JobListPage`, "jobs", validateJobInfo);
-      break;
-    case "CronList":
-      validateArray(body, `${path}.CronList`, validateCronInfo);
-      break;
-    case "CronListPage":
-      validateListPage(body, `${path}.CronListPage`, "crons", validateCronInfo);
       break;
     case "ScopeInfo":
       validateScopeInfo(body, `${path}.ScopeInfo`);
@@ -74,23 +55,8 @@ export function validateCueOkPayload<T>(value: T, path = "response.payload.Ok"):
     case "ScopeListPage":
       validateListPage(body, `${path}.ScopeListPage`, "scopes", validateScopeInfo);
       break;
-    case "Output":
-      validateOutput(body, `${path}.Output`);
-      break;
-    case "JobOutput":
-      validateJobOutput(body, `${path}.JobOutput`);
-      break;
-    case "EvalText":
-      validateSingleStringField(body, `${path}.EvalText`, "text");
-      break;
     case "TextOutput":
       validateTextOutput(body, `${path}.TextOutput`);
-      break;
-    case "CompletionList":
-      validateCompletionList(body, `${path}.CompletionList`);
-      break;
-    case "HighlightResult":
-      validateHighlightResult(body, `${path}.HighlightResult`);
       break;
     case "FgAttached":
       validateSingleStringField(body, `${path}.FgAttached`, "id");
@@ -104,33 +70,65 @@ export function validateCueOkPayload<T>(value: T, path = "response.payload.Ok"):
   return value;
 }
 
+function validateResourceProviderInfo(value: unknown, path: string): void {
+  const record = exactRecord(value, path, [
+    "id",
+    "keys",
+    "active_reservations",
+    "captured_at_ms",
+    "units",
+  ]);
+  stringField(record, "id", path);
+  validateArray(record.keys, `${path}.keys`, (item, itemPath) => {
+    if (typeof item !== "string") throw invalidIpc(itemPath, "expected string");
+  });
+  usizeField(record, "active_reservations", path);
+  usizeField(record, "captured_at_ms", path);
+  validateArray(record.units, `${path}.units`, validateResourceUnitInfo);
+}
+
+function validateResourceUnitInfo(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "attrs"]);
+  stringField(record, "id", path);
+  const attrs = recordValue(record.attrs, `${path}.attrs`);
+  for (const [key, quantity] of Object.entries(attrs)) {
+    const item = exactRecord(quantity, `${path}.attrs.${key}`, ["kind", "value"]);
+    enumField(item, "kind", `${path}.attrs.${key}`, new Set(["count", "bytes"]));
+    usizeField(item, "value", `${path}.attrs.${key}`);
+  }
+}
+
 export function validateCueEventPayload<T>(value: T, path = "event.payload"): T {
   const [variant, body] = singleVariant(value, path);
   switch (variant) {
-    case "JobStateChanged":
-      validateJobStateChanged(body, `${path}.JobStateChanged`);
+    case "ExecutionCreated":
+    case "ExecutionFinished": {
+      const record = exactRecord(body, `${path}.${variant}`, ["execution"]);
+      validateExecutionInfo(record.execution, `${path}.${variant}.execution`);
       break;
-    case "JobCreated":
-      validateJobCreatedEvent(body, `${path}.JobCreated`);
+    }
+    case "ExecutionStateChanged": {
+      const record = exactRecord(body, `${path}.ExecutionStateChanged`, [
+        "id",
+        "old_state",
+        "new_state",
+      ]);
+      usizeField(record, "id", `${path}.ExecutionStateChanged`);
+      validateExecutionState(record.old_state, `${path}.ExecutionStateChanged.old_state`);
+      validateExecutionState(record.new_state, `${path}.ExecutionStateChanged.new_state`);
       break;
-    case "ChainProgress":
-      validateChainProgress(body, `${path}.ChainProgress`);
+    }
+    case "StepStateChanged": {
+      const record = exactRecord(body, `${path}.StepStateChanged`, [
+        "id",
+        "old_state",
+        "new_state",
+      ]);
+      validateStepId(record.id, `${path}.StepStateChanged.id`);
+      validateStepState(record.old_state, `${path}.StepStateChanged.old_state`);
+      validateStepState(record.new_state, `${path}.StepStateChanged.new_state`);
       break;
-    case "ScriptItemCreated":
-      validateScriptItemCreated(body, `${path}.ScriptItemCreated`);
-      break;
-    case "ScriptFinished":
-      validateScriptFinished(body, `${path}.ScriptFinished`);
-      break;
-    case "JobRemoved":
-      validateSingleStringField(body, `${path}.JobRemoved`, "job_id");
-      break;
-    case "CronTriggered":
-      validateCronTriggered(body, `${path}.CronTriggered`);
-      break;
-    case "CronRemoved":
-      validateSingleStringField(body, `${path}.CronRemoved`, "cron_id");
-      break;
+    }
     case "OutputChunk":
       validateOutputChunk(body, `${path}.OutputChunk`);
       break;
@@ -162,56 +160,239 @@ export function validateCueErrorPayload<T>(value: T, path = "response.payload.Er
   return value;
 }
 
-function validateScriptCreated(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["script_id", "source", "items", "submit_error"]);
-  stringField(record, "script_id", path);
-  validateScriptSource(record.source, `${path}.source`);
-  validateArray(record.items, `${path}.items`, validateScriptItemInfo);
-  nullable(record.submit_error, `${path}.submit_error`, validateScriptSubmitError);
+const EXECUTION_STATUS_VARIANTS = new Set(["queued", "running", "succeeded", "failed"]);
+const EXECUTION_CANCEL_REASONS = new Set(["user", "forced"]);
+const STEP_STATUS_VARIANTS = new Set(["queued", "running", "succeeded"]);
+const STEP_CANCEL_REASONS = new Set([
+  "user",
+  "forced",
+  "condition_not_met",
+  "any_success_satisfied",
+]);
+const STEP_FAILURE_KINDS = new Set(["exit", "signal", "spawn", "infrastructure"]);
+const PIPE_OPERATORS = new Set(["Stdout", "StdoutStderr", "StderrOnly"]);
+const CRON_PRESETS = new Set(["Hourly", "Daily", "Weekly", "Monthly"]);
+
+function validateExecutionInfo(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "state", "steps", "spec"]);
+  usizeField(record, "id", path);
+  validateExecutionState(record.state, `${path}.state`);
+  validateArray(record.steps, `${path}.steps`, validateExecutionStepInfo);
+  validateExecutionSpec(record.spec, `${path}.spec`);
 }
 
-function validateScriptInfo(value: unknown, path: string): void {
-  const record = exactRecord(value, path, [
-    "script_id",
-    "status",
-    "items",
-    "exit_code",
-    "failed_item_index",
-    "submit_error",
-  ]);
-  stringField(record, "script_id", path);
-  enumField(record, "status", path, SCRIPT_INFO_STATUS_VARIANTS);
-  validateArray(record.items, `${path}.items`, validateScriptItemInfo);
-  nullable(record.exit_code, `${path}.exit_code`, validateI32);
-  nullableUsizeField(record, "failed_item_index", path);
-  nullable(record.submit_error, `${path}.submit_error`, validateScriptSubmitError);
+function validateExecutionState(value: unknown, path: string): void {
+  const record = recordValue(value, path);
+  const status = stringField(record, "status", path);
+  if (EXECUTION_STATUS_VARIANTS.has(status)) {
+    exactRecord(record, path, ["status"]);
+    return;
+  }
+  if (status === "cancelled") {
+    const cancelled = exactRecord(record, path, ["status", "reason"]);
+    enumField(cancelled, "reason", path, EXECUTION_CANCEL_REASONS);
+    return;
+  }
+  throw invalidIpc(`${path}.status`, `unknown execution status ${status}`);
 }
 
-function validateJobCreatedResponse(value: unknown, path: string): void {
-  const record = exactRecord(value, path, [
-    "job_id",
-    "start_scope",
-    "open_hint",
-    "chain_id",
-    "chain_index",
-    "chain_total",
-    "warnings",
-  ]);
-  stringField(record, "job_id", path);
-  nullableStringField(record, "start_scope", path);
-  openHintField(record, "open_hint", path);
-  nullableStringField(record, "chain_id", path);
-  nullableUsizeField(record, "chain_index", path);
-  nullableUsizeField(record, "chain_total", path);
-  stringArrayField(record, "warnings", path);
+function validateExecutionStepInfo(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "state", "pipeline"]);
+  validateStepId(record.id, `${path}.id`);
+  validateStepState(record.state, `${path}.state`);
+  stringField(record, "pipeline", path);
 }
 
-function validateChainCreated(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["chain_id", "job_ids", "chain", "warnings"]);
-  stringField(record, "chain_id", path);
-  stringArrayField(record, "job_ids", path);
-  validateChainInfo(record.chain, `${path}.chain`);
-  stringArrayField(record, "warnings", path);
+function validateStepId(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["execution", "index"]);
+  usizeField(record, "execution", path);
+  usizeField(record, "index", path);
+}
+
+function validateStepState(value: unknown, path: string): void {
+  const record = recordValue(value, path);
+  const status = stringField(record, "status", path);
+  if (STEP_STATUS_VARIANTS.has(status)) {
+    exactRecord(record, path, ["status"]);
+    return;
+  }
+  if (status === "failed") {
+    const failed = exactRecord(record, path, ["status", "failure"]);
+    validateStepFailure(failed.failure, `${path}.failure`);
+    return;
+  }
+  if (status === "cancelled") {
+    const cancelled = exactRecord(record, path, ["status", "reason"]);
+    enumField(cancelled, "reason", path, STEP_CANCEL_REASONS);
+    return;
+  }
+  throw invalidIpc(`${path}.status`, `unknown step status ${status}`);
+}
+
+function validateStepFailure(value: unknown, path: string): void {
+  const record = recordValue(value, path);
+  const kind = enumField(record, "kind", path, STEP_FAILURE_KINDS);
+  if (kind === "exit") {
+    const failure = exactRecord(record, path, ["kind", "code"]);
+    validateI32(failure.code, `${path}.code`);
+    return;
+  }
+  if (kind === "signal") {
+    const failure = exactRecord(record, path, ["kind", "signal"]);
+    validateI32(failure.signal, `${path}.signal`);
+    return;
+  }
+  const failure = exactRecord(record, path, ["kind", "message"]);
+  stringField(failure, "message", path);
+}
+
+function validateExecutionSpec(value: unknown, path: string): void {
+  const record = exactRecord(
+    value,
+    path,
+    ["plan", "launch_context"],
+    ["start_scope", "source", "retry_of"],
+  );
+  validateExecutionPlan(record.plan, `${path}.plan`);
+  validateLaunchContext(record.launch_context, `${path}.launch_context`);
+  if (record.start_scope !== undefined) stringField(record, "start_scope", path);
+  if (record.source !== undefined) validateSourceMetadata(record.source, `${path}.source`);
+  if (record.retry_of !== undefined) usizeField(record, "retry_of", path);
+}
+
+function validateExecutionPlan(value: unknown, path: string): void {
+  const record = recordValue(value, path);
+  const kind = stringField(record, "kind", path);
+  if (kind === "pipeline") {
+    const plan = exactRecord(record, path, ["kind", "pipeline"]);
+    const pipeline = exactRecord(plan.pipeline, `${path}.pipeline`, ["segments"]);
+    validateArray(pipeline.segments, `${path}.pipeline.segments`, validatePipeSegment);
+    return;
+  }
+  if (kind === "context_delta") {
+    const plan = exactRecord(record, path, ["kind", "delta"]);
+    validateEnvDelta(plan.delta, `${path}.delta`);
+    return;
+  }
+  if (["on_success", "on_failure", "always"].includes(kind)) {
+    const plan = exactRecord(record, path, ["kind", "left", "right"]);
+    validateExecutionPlan(plan.left, `${path}.left`);
+    validateExecutionPlan(plan.right, `${path}.right`);
+    return;
+  }
+  if (["parallel_all", "any_success"].includes(kind)) {
+    const plan = exactRecord(record, path, ["kind", "branches"]);
+    validateArray(plan.branches, `${path}.branches`, validateExecutionPlan);
+    return;
+  }
+  throw invalidIpc(`${path}.kind`, `unknown execution plan ${kind}`);
+}
+
+function validatePipeSegment(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["command", "pipe_to_next"], ["env"]);
+  stringArrayField(record, "command", path);
+  if (record.env !== undefined) validateStringMap(record.env, `${path}.env`);
+  nullable(record.pipe_to_next, `${path}.pipe_to_next`, (pipe, pipePath) => {
+    validateEnum(pipe, pipePath, PIPE_OPERATORS);
+  });
+}
+
+function validateEnvDelta(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["set", "unset", "cwd"]);
+  validateStringMap(record.set, `${path}.set`);
+  stringArrayField(record, "unset", path);
+  nullableStringField(record, "cwd", path);
+}
+
+function validateLaunchContext(value: unknown, path: string): void {
+  const record = exactRecord(
+    value,
+    path,
+    [],
+    ["pty", "needs", "workspace_view", "wrapper_enabled", "spawn_adapter"],
+  );
+  if (record.pty !== undefined) booleanField(record, "pty", path);
+  if (record.wrapper_enabled !== undefined) booleanField(record, "wrapper_enabled", path);
+  if (record.needs !== undefined) validateResourceNeeds(record.needs, `${path}.needs`);
+  if (record.workspace_view !== undefined)
+    recordValue(record.workspace_view, `${path}.workspace_view`);
+  if (record.spawn_adapter !== undefined) {
+    const adapter = exactRecord(record.spawn_adapter, `${path}.spawn_adapter`, [
+      "endpoint",
+      "token",
+    ]);
+    stringField(adapter, "endpoint", `${path}.spawn_adapter`);
+    stringField(adapter, "token", `${path}.spawn_adapter`);
+  }
+}
+
+function validateResourceNeeds(value: unknown, path: string): void {
+  const record = recordValue(value, path);
+  for (const [key, quantity] of Object.entries(record)) {
+    const itemPath = `${path}.${key}`;
+    const item = exactRecord(quantity, itemPath, ["kind", "value"]);
+    enumField(item, "kind", itemPath, new Set(["count", "bytes"]));
+    usizeField(item, "value", itemPath);
+  }
+}
+
+function validateSourceMetadata(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["name"], ["line", "column"]);
+  stringField(record, "name", path);
+  if (record.line !== undefined) u32Field(record, "line", path);
+  if (record.column !== undefined) u32Field(record, "column", path);
+}
+
+function validateStepOutput(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "stdout", "stderr", "stderr_pty_merged"]);
+  validateStepId(record.id, `${path}.id`);
+  validateStreamText(record.stdout, `${path}.stdout`);
+  validateStreamText(record.stderr, `${path}.stderr`);
+  booleanField(record, "stderr_pty_merged", path);
+}
+
+function validateScheduleInfo(value: unknown, path: string): void {
+  const record = exactRecord(
+    value,
+    path,
+    ["id", "schedule", "execution", "status"],
+    ["next_trigger_at_ms"],
+  );
+  usizeField(record, "id", path);
+  validateCronSchedule(record.schedule, `${path}.schedule`);
+  validateExecutionSpec(record.execution, `${path}.execution`);
+  enumField(record, "status", path, SCHEDULE_STATUS_VARIANTS);
+  if (record.next_trigger_at_ms !== undefined) {
+    nullable(record.next_trigger_at_ms, `${path}.next_trigger_at_ms`, validateSafeInteger);
+  }
+}
+
+function validateCronSchedule(value: unknown, path: string): void {
+  const [variant, body] = singleVariant(value, path);
+  if (variant === "Interval" || variant === "Delay") {
+    const duration = exactRecord(body, `${path}.${variant}`, ["secs", "nanos"]);
+    usizeField(duration, "secs", `${path}.${variant}`);
+    u32Field(duration, "nanos", `${path}.${variant}`);
+    return;
+  }
+  if (variant === "Preset") {
+    validateEnum(body, `${path}.Preset`, CRON_PRESETS);
+    return;
+  }
+  if (variant === "TimeOfDay" || variant === "Crontab") {
+    recordValue(body, `${path}.${variant}`);
+    return;
+  }
+  throw invalidIpc(path, `unknown schedule variant ${variant}`);
+}
+
+function validateStringMap(value: unknown, path: string): void {
+  const record = recordValue(value, path);
+  for (const [key, item] of Object.entries(record)) validateString(item, `${path}.${key}`);
+}
+
+function validateSafeInteger(value: unknown, path: string): void {
+  validateInteger(value, path, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
 }
 
 function validateScopeCreated(value: unknown, path: string): void {
@@ -220,143 +401,12 @@ function validateScopeCreated(value: unknown, path: string): void {
   stringField(record, "summary", path);
 }
 
-function validateJobInfo(value: unknown, path: string): void {
-  const record = exactRecord(
-    value,
-    path,
-    [
-      "id",
-      "status",
-      "pipeline",
-      "exit_code",
-      "start_scope",
-      "end_scope",
-      "open_hint",
-      "chain_id",
-      "chain_index",
-      "chain_total",
-    ],
-    ["pending_reason"],
-  );
-  stringField(record, "id", path);
-  validateJobStatus(record.status, `${path}.status`);
-  stringField(record, "pipeline", path);
-  nullable(record.exit_code, `${path}.exit_code`, validateI32);
-  nullableStringField(record, "start_scope", path);
-  nullableStringField(record, "end_scope", path);
-  openHintField(record, "open_hint", path);
-  nullableStringField(record, "chain_id", path);
-  nullableUsizeField(record, "chain_index", path);
-  nullableUsizeField(record, "chain_total", path);
-  if ("pending_reason" in record) stringField(record, "pending_reason", path);
-}
-
-function validateCronInfo(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["id", "schedule", "command", "status"]);
-  stringField(record, "id", path);
-  stringField(record, "schedule", path);
-  stringField(record, "command", path);
-  enumField(record, "status", path, CRON_STATUS_VARIANTS);
-}
-
 function validateScopeInfo(value: unknown, path: string): void {
   const record = exactRecord(value, path, ["hash", "parent", "cwd", "env_count"]);
   stringField(record, "hash", path);
   nullableStringField(record, "parent", path);
   stringField(record, "cwd", path);
   usizeField(record, "env_count", path);
-}
-
-function validateChainInfo(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["id", "pipeline", "total_jobs", "jobs"]);
-  stringField(record, "id", path);
-  stringField(record, "pipeline", path);
-  usizeField(record, "total_jobs", path);
-  validateArray(record.jobs, `${path}.jobs`, validateChainJobInfo);
-}
-
-function validateChainJobInfo(value: unknown, path: string): void {
-  const record = exactRecord(value, path, [
-    "index",
-    "pipeline",
-    "status",
-    "job_id",
-    "start_scope",
-    "end_scope",
-    "open_hint",
-  ]);
-  usizeField(record, "index", path);
-  stringField(record, "pipeline", path);
-  validateJobStatus(record.status, `${path}.status`);
-  nullableStringField(record, "job_id", path);
-  nullableStringField(record, "start_scope", path);
-  nullableStringField(record, "end_scope", path);
-  nullable(record.open_hint, `${path}.open_hint`, validateOpenHint);
-}
-
-function validateScriptItemInfo(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["index", "source", "result"]);
-  usizeField(record, "index", path);
-  stringField(record, "source", path);
-  validateScriptItemResult(record.result, `${path}.result`);
-}
-
-function validateScriptSource(value: unknown, path: string): void {
-  const record = recordValue(value, path);
-  if (!Object.hasOwn(record, "kind")) throw invalidIpc(`${path}.kind`, "missing field kind");
-  const kind = stringField(record, "kind", path);
-  if (kind === "inline") {
-    exactRecord(record, path, ["kind"]);
-    return;
-  }
-  if (kind === "file") {
-    const file = exactRecord(record, path, ["kind", "path"]);
-    stringField(file, "path", path);
-    return;
-  }
-  throw invalidIpc(`${path}.kind`, `unknown script source ${kind}`);
-}
-
-function validateScriptItemResult(value: unknown, path: string): void {
-  const record = recordValue(value, path);
-  if (!Object.hasOwn(record, "kind")) throw invalidIpc(`${path}.kind`, "missing field kind");
-  const kind = stringField(record, "kind", path);
-  switch (kind) {
-    case "job": {
-      const job = exactRecord(record, path, ["kind", "job_id", "start_scope", "open_hint"]);
-      stringField(job, "job_id", path);
-      nullableStringField(job, "start_scope", path);
-      openHintField(job, "open_hint", path);
-      return;
-    }
-    case "chain": {
-      const chain = exactRecord(record, path, ["kind", "chain_id", "job_ids", "chain"]);
-      stringField(chain, "chain_id", path);
-      stringArrayField(chain, "job_ids", path);
-      validateChainInfo(chain.chain, `${path}.chain`);
-      return;
-    }
-    case "cron": {
-      const cron = exactRecord(record, path, ["kind", "cron_id"]);
-      stringField(cron, "cron_id", path);
-      return;
-    }
-    case "message": {
-      const message = exactRecord(record, path, ["kind", "text"]);
-      stringField(message, "text", path);
-      return;
-    }
-    default:
-      throw invalidIpc(`${path}.kind`, `unknown script item result ${kind}`);
-  }
-}
-
-function validateScriptSubmitError(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["index", "source", "code", "message"]);
-  usizeField(record, "index", path);
-  stringField(record, "source", path);
-  stringField(record, "code", path);
-  stringField(record, "message", path);
 }
 
 function validatePageInfo(value: unknown, path: string): void {
@@ -370,20 +420,12 @@ function validatePageInfo(value: unknown, path: string): void {
 function validateListPage(
   value: unknown,
   path: string,
-  listKey: "jobs" | "crons" | "scopes",
+  listKey: "scopes",
   itemValidator: Validator,
 ): void {
   const record = exactRecord(value, path, [listKey, "page"]);
   validateArray(record[listKey], `${path}.${listKey}`, itemValidator);
   validatePageInfo(record.page, `${path}.page`);
-}
-
-function validateOutput(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["id", "data", "truncated"], ["encoding", "base64"]);
-  stringField(record, "id", path);
-  stringField(record, "data", path);
-  booleanField(record, "truncated", path);
-  validateOutputEncoding(record, path);
 }
 
 function validateTextOutput(value: unknown, path: string): void {
@@ -413,39 +455,6 @@ function validateOutputEncoding(record: WireRecord, path: string): void {
   }
 }
 
-function validateJobOutput(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["id", "stdout", "stderr", "stderr_pty_merged"]);
-  stringField(record, "id", path);
-  validateStreamText(record.stdout, `${path}.stdout`);
-  validateStreamText(record.stderr, `${path}.stderr`);
-  booleanField(record, "stderr_pty_merged", path);
-}
-
-function validateCompletionList(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["items"]);
-  validateArray(record.items, `${path}.items`, validateCompletionItem);
-}
-
-function validateCompletionItem(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["label", "insert_text", "kind", "detail"]);
-  stringField(record, "label", path);
-  stringField(record, "insert_text", path);
-  enumField(record, "kind", path, COMPLETION_KIND_VARIANTS);
-  nullableStringField(record, "detail", path);
-}
-
-function validateHighlightResult(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["spans"]);
-  validateArray(record.spans, `${path}.spans`, validateHighlightSpan);
-}
-
-function validateHighlightSpan(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["start", "end", "kind"]);
-  usizeField(record, "start", path);
-  usizeField(record, "end", path);
-  enumField(record, "kind", path, HIGHLIGHT_KIND_VARIANTS);
-}
-
 function validatePong(value: unknown, path: string): void {
   const record = exactRecord(
     value,
@@ -459,72 +468,6 @@ function validatePong(value: unknown, path: string): void {
   if (record.instance_id !== undefined) stringField(record, "instance_id", path);
   if (record.generation_id !== undefined) stringField(record, "generation_id", path);
   if (record.ready !== undefined) booleanField(record, "ready", path);
-}
-
-function validateJobStateChanged(value: unknown, path: string): void {
-  const record = exactRecord(value, path, [
-    "job_id",
-    "old_state",
-    "new_state",
-    "end_scope",
-    "chain_id",
-    "chain_index",
-  ]);
-  stringField(record, "job_id", path);
-  validateJobStatus(record.old_state, `${path}.old_state`);
-  validateJobStatus(record.new_state, `${path}.new_state`);
-  nullableStringField(record, "end_scope", path);
-  nullableStringField(record, "chain_id", path);
-  nullableUsizeField(record, "chain_index", path);
-}
-
-function validateJobCreatedEvent(value: unknown, path: string): void {
-  const record = exactRecord(value, path, [
-    "job_id",
-    "pipeline",
-    "start_scope",
-    "open_hint",
-    "chain_id",
-    "chain_index",
-    "chain_total",
-  ]);
-  stringField(record, "job_id", path);
-  stringField(record, "pipeline", path);
-  nullableStringField(record, "start_scope", path);
-  openHintField(record, "open_hint", path);
-  nullableStringField(record, "chain_id", path);
-  nullableUsizeField(record, "chain_index", path);
-  nullableUsizeField(record, "chain_total", path);
-}
-
-function validateChainProgress(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["chain"]);
-  validateChainInfo(record.chain, `${path}.chain`);
-}
-
-function validateScriptItemCreated(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["script_id", "item"]);
-  stringField(record, "script_id", path);
-  validateScriptItemInfo(record.item, `${path}.item`);
-}
-
-function validateScriptFinished(value: unknown, path: string): void {
-  const record = exactRecord(value, path, [
-    "script_id",
-    "status",
-    "exit_code",
-    "failed_item_index",
-  ]);
-  stringField(record, "script_id", path);
-  enumField(record, "status", path, SCRIPT_RUN_STATUS_VARIANTS);
-  validateI32(record.exit_code, `${path}.exit_code`);
-  nullableUsizeField(record, "failed_item_index", path);
-}
-
-function validateCronTriggered(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["cron_id", "job_id"]);
-  stringField(record, "cron_id", path);
-  stringField(record, "job_id", path);
 }
 
 function validateOutputChunk(value: unknown, path: string): void {
@@ -555,19 +498,6 @@ function validateFgExited(value: unknown, path: string): void {
 function validateSingleStringField(value: unknown, path: string, key: string): void {
   const record = exactRecord(value, path, [key]);
   stringField(record, key, path);
-}
-
-function validateJobStatus(value: unknown, path: string): void {
-  if (typeof value === "string") {
-    if (JOB_STATUS_VARIANTS.has(value)) return;
-    throw invalidIpc(path, `unknown job status ${value}`);
-  }
-  const record = exactRecord(value, path, ["Cancelled"]);
-  enumField(record, "Cancelled", path, CANCEL_REASON_VARIANTS);
-}
-
-function validateOpenHint(value: unknown, path: string): void {
-  validateEnum(value, path, OPEN_HINT_VARIANTS);
 }
 
 function validateCanonicalBase64(value: unknown, path: string): void {
@@ -620,10 +550,6 @@ function nullableUsizeField(record: WireRecord, key: string, path: string): void
 
 function u32Field(record: WireRecord, key: string, path: string): void {
   validateInteger(record[key], `${path}.${key}`, 0, 0xffff_ffff);
-}
-
-function openHintField(record: WireRecord, key: string, path: string): void {
-  validateOpenHint(record[key], `${path}.${key}`);
 }
 
 function enumField(

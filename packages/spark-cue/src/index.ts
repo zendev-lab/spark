@@ -50,6 +50,7 @@ export type {
   JobStatus,
   OutputEncoding,
   ResourceNeeds,
+  SpawnAdapterHandle,
   ScriptItemSummary,
   ScriptResult,
   StartJobResult,
@@ -80,7 +81,6 @@ export {
 export {
   registerSparkCueTools,
   renderCueScriptResult,
-  renderCueChainStatus,
   normalizeCueTerminalOutput,
   normalizeCueStderrForDisplay,
   normalizeCueTailBytes,

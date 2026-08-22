@@ -148,8 +148,8 @@ function renderCuedStartFailure(input: {
 
 function cueConfigDirHint(): string {
   if (process.env.XDG_CONFIG_HOME?.trim()) {
-    return nodePath.join(process.env.XDG_CONFIG_HOME, "cue-shell");
+    return nodePath.join(process.env.XDG_CONFIG_HOME, "cue");
   }
-  if (process.env.HOME?.trim()) return nodePath.join(process.env.HOME, ".config", "cue-shell");
+  if (process.env.HOME?.trim()) return nodePath.join(process.env.HOME, ".config", "cue");
   return "<unknown: HOME unset>";
 }

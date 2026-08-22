@@ -13,7 +13,8 @@ function runtimeWithRunJob(result: Record<string, unknown>) {
 describe("host-neutral Cue operation runtime", () => {
   it("returns structured foreground streams and domain failure without the Spark envelope", async () => {
     const success = runtimeWithRunJob({
-      jobId: "J1",
+      jobId: "E1",
+      stepIds: ["E1/S1"],
       status: "Done",
       stdout: "hello\n",
       stderr: "",
@@ -34,7 +35,8 @@ describe("host-neutral Cue operation runtime", () => {
       tool: "cue_exec",
       kind: "foreground",
       ok: true,
-      jobId: "J1",
+      executionId: "E1",
+      stepIds: ["E1/S1"],
       status: "Done",
       exitCode: 0,
       stdout: { text: "hello\n", encoding: "utf8", truncated: false },
@@ -45,7 +47,8 @@ describe("host-neutral Cue operation runtime", () => {
     success.runtime.dispose();
 
     const failed = runtimeWithRunJob({
-      jobId: "J2",
+      jobId: "E2",
+      stepIds: ["E2/S1"],
       status: "Failed",
       stdout: "partial\n",
       stderr: "bad\n",
@@ -76,7 +79,8 @@ describe("host-neutral Cue operation runtime", () => {
 
   it("treats foreground timeout as a detached domain result", async () => {
     const { runtime } = runtimeWithRunJob({
-      jobId: "J3",
+      jobId: "E3",
+      stepIds: ["E3/S1"],
       status: "Running",
       stdout: "so far",
       stderr: "",
@@ -95,6 +99,72 @@ describe("host-neutral Cue operation runtime", () => {
         { sessionId: "dsh:s3", cwd: "/work" },
       ),
     ).resolves.toMatchObject({ timedOut: true, detached: true, status: "Running" });
+    runtime.dispose();
+  });
+
+  it("projects cancelled scripts as cancellation instead of success", async () => {
+    const runtime = createCueToolRuntime({
+      client: {
+        isClosed: false,
+        runScript: vi.fn(async () => ({
+          scriptId: "E4",
+          stepIds: ["E4/S1"],
+          source: { kind: "file", path: "<inline>" },
+          status: "cancelled",
+          cancelReason: "forced",
+          exitCode: null,
+          failedItemIndex: null,
+          items: [],
+          timedOut: false,
+        })),
+      } as unknown as CueClient,
+    });
+
+    await expect(
+      runtime.execute(
+        "cue_script",
+        { script: "true" },
+        { sessionId: "dsh:s-cancel", cwd: "/work" },
+      ),
+    ).resolves.toMatchObject({
+      tool: "cue_script",
+      ok: false,
+      status: "cancelled",
+      cancelled: true,
+      cancelReason: "forced",
+    });
+    runtime.dispose();
+  });
+
+  it("projects cancelled Python jobs with their forced reason", async () => {
+    const { runtime } = runtimeWithRunJob({
+      jobId: "E5",
+      stepIds: ["E5/S1"],
+      status: "Cancelled",
+      cancelReason: "Forced",
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      timedOut: false,
+      warnings: [],
+      stdoutEncoding: "utf8",
+      stderrEncoding: "utf8",
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    });
+    await expect(
+      runtime.execute(
+        "script_eval",
+        { language: "python", script: "print('never')" },
+        { sessionId: "dsh:s-python-cancel", cwd: "/work" },
+      ),
+    ).resolves.toMatchObject({
+      tool: "script_eval",
+      ok: false,
+      status: "Cancelled",
+      cancelled: true,
+      cancelReason: "forced",
+    });
     runtime.dispose();
   });
 
