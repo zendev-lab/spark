@@ -27,8 +27,8 @@ Hub, or workflow.
 | Surface | Purpose | Discovery |
 | --- | --- | --- |
 | `spark` | Print help or invoke top-level foreground, background, installation, diagnostic, and version workflows | `spark --help` |
-| `spark web` | Open the local loopback browser workbench bound to the daemon | `spark web --help` |
-| `spark web-dsh` | Open the Spark product workbench hosted by DeepSeek Harness | `spark web-dsh --help` |
+| `spark web` | Start the local loopback browser workbench bound to the daemon | `spark web --help` |
+| `spark web-dsh` | Start the Spark product workbench hosted by DeepSeek Harness | `spark web-dsh --help` |
 | `spark daemon` | Operate the daemon-owned execution, session, workspace, model, authentication, and channel state | `spark daemon --help` |
 | `spark hub` | Run and administer Hub coordination and Web surfaces | `spark hub --help` |
 | ACP and MCP adapters | Connect compatible clients through their configured Spark adapter | See [collaboration and clients](/guides/collaboration/) |
@@ -74,9 +74,11 @@ the multi-daemon proxy and management UI.
 
 ```bash
 spark web
-spark web --port 4310 --no-open
-spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
+spark web --port 4310
+spark web --host 0.0.0.0 --trusted-host spark.lan
 ```
+
+The command prints the tokenized workbench URL without opening a browser.
 
 The additional `spark web-dsh` command starts the separately packaged
 DSH-hosted Spark product app without changing `spark web`. It remains available
@@ -85,6 +87,8 @@ until the native Spark Web replacement gate has passed:
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
+
+This command also prints its server URL without opening a browser.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.

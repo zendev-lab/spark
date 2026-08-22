@@ -29,13 +29,12 @@ test("bind arguments default HMR off and accept explicit HMR opt-in", () => {
   assert.equal(parseSparkWebBindArgs(["--hmr"]).hmr, true);
 });
 
-test("bind arguments default to loopback and require an explicit trusted network host", () => {
+test("bind arguments accept the legacy no-open flag and require a trusted network host", () => {
   assert.deepEqual(
     parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311", "--trusted-host", "spark.lan"]),
     {
       host: "0.0.0.0",
       port: 4311,
-      open: true,
       trustedHosts: ["spark.lan"],
       hmr: false,
       argv: [],
@@ -44,7 +43,6 @@ test("bind arguments default to loopback and require an explicit trusted network
   assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open", "--hmr"]), {
     host: "127.0.0.1",
     port: 4311,
-    open: false,
     trustedHosts: [],
     hmr: true,
     argv: [],
