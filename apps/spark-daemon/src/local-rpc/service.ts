@@ -13,6 +13,8 @@ import {
   verifySparkDaemonWorkspaceConnection,
 } from "../registration.js";
 import { handleChannelRequest } from "./handlers/channel.ts";
+import { handleArtifactRequest } from "./handlers/artifact.ts";
+import { handleAgentCatalogRequest } from "./handlers/agent-catalog.ts";
 import { handleDaemonRequest } from "./handlers/daemon.ts";
 import { handleLoopRequest } from "./handlers/loop.ts";
 import { handleDelegationRequest } from "./handlers/delegation.ts";
@@ -51,6 +53,8 @@ export interface LocalRpcServiceOptions {
 export const localRpcServiceHandlerMethodGroups = {
   daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],
+  artifact: ["artifact.list", "artifact.read"],
+  agentCatalog: ["role.list", "role.create", "skill.list"],
   channel: ["channel.status", "channel.configure", "channel.reload", "channel.notify"],
   human: ["human.interaction.list", "human.interaction.respond"],
   turn: [
@@ -217,6 +221,12 @@ async function dispatchLocalRpcServiceRequest(
   }
   if (requestBelongsToHandlerGroup(request, "toolExecution")) {
     return handleToolExecutionRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "artifact")) {
+    return handleArtifactRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "agentCatalog")) {
+    return handleAgentCatalogRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "channel")) {
     return handleChannelRequest(context, request);

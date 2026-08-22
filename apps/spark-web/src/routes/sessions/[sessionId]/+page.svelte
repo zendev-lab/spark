@@ -25,7 +25,7 @@
     type ConversationPartLabels,
     type SlashCommandSuggestion,
   } from "@zendev-lab/spark-ui/conversation";
-  import { SessionTree } from "@zendev-lab/spark-ui/workbench";
+  import { SessionTree, SessionWorkPanel } from "@zendev-lab/spark-ui/workbench";
   import {
     mergeEarlierSparkSessionSnapshotWindow,
     isTerminalSparkHumanInteractionDelivery,
@@ -73,9 +73,16 @@
   let prompt = $state("");
   let submitting = $state(false);
   let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
+  let artifactPreview = $state<{
+    ref: string;
+    title: string;
+    format: string;
+    content: string;
+  } | null>(null);
   let askError = $state<string | null>(null);
   let askWaits = $state<PendingHumanInteraction[]>([]);
   let askRefreshToken = 0;
+  let artifactPreviewRequestToken = 0;
   let modelValue = $state("");
   let ownerModelValue = $state<string | null>(null);
   $effect(() => {
@@ -103,6 +110,8 @@
   let slashActionBar = $derived(sparkSlashActionBarForInput(prompt));
   let messages = $derived(snapshot.messages.map(conversationMessageFromView));
   let activity = $derived(resolveSessionActivityState({ session: snapshot, projectedTurns: [] }));
+  let currentSession = $derived(treeSessions.find((session) => session.sessionId === snapshot.sessionId));
+  let currentWorkspaceId = $derived(currentSession?.scope.kind === "workspace" ? currentSession.scope.workspaceId : undefined);
   const partLabels: ConversationPartLabels = {
     reasoning: "Reasoning",
     reasoningStreaming: "Reasoning",
@@ -172,6 +181,8 @@
     prompt = "";
     submitting = false;
     actionFeedback = null;
+    artifactPreview = null;
+    artifactPreviewRequestToken += 1;
     askWaits = [];
     askError = null;
     void refreshAsks(sessionId);
@@ -535,6 +546,44 @@
     }
   }
 
+  async function openArtifact(artifactRef: string) {
+    const ownerSessionId = snapshot.sessionId;
+    const workspaceId = currentWorkspaceId;
+    const requestToken = ++artifactPreviewRequestToken;
+    if (!workspaceId) {
+      actionFeedback = { tone: "error", message: "Artifact preview requires a workspace-scoped Session." };
+      return;
+    }
+    const artifact = snapshot.artifacts.find((entry) => entry.ref === artifactRef);
+    actionFeedback = null;
+    artifactPreview = null;
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactRef)}`);
+      if (!response.ok) throw new Error(`Artifact preview failed: ${response.status}`);
+      const content = await response.text();
+      if (
+        requestToken !== artifactPreviewRequestToken ||
+        data.window.snapshot.sessionId !== ownerSessionId
+      ) {
+        return;
+      }
+      artifactPreview = {
+        ref: artifactRef,
+        title: artifact?.title ?? artifactRef,
+        format: artifact?.format ?? "text",
+        content,
+      };
+    } catch (error) {
+      if (
+        requestToken !== artifactPreviewRequestToken ||
+        data.window.snapshot.sessionId !== ownerSessionId
+      ) {
+        return;
+      }
+      actionFeedback = { tone: "error", message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   function mediaHref(item: ConversationMessageView, contentIndex: number): string {
     return `/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/media/${encodeURIComponent(item.sourceMessageId ?? item.id)}/${contentIndex}`;
   }
@@ -793,12 +842,52 @@
     outputTokens={snapshot.usage?.outputTokens}
   />
   </section>
+  <SessionWorkPanel
+    {snapshot}
+    labels={{
+      region: "Session workbench",
+      work: "Work",
+      activity: "Activity",
+      details: "Details",
+      emptyWork: "No Goal, Repro, Loop, or Task is bound to this Session.",
+      emptyActivity: "No Tool or Workflow activity is projected.",
+      emptyDetails: "No Artifacts are projected.",
+      goal: "Goal",
+      repro: "Repro",
+      loop: "Loop",
+      workflow: "Workflow",
+      task: "Task",
+      toolInput: "Input",
+      toolOutput: "Output",
+      toolError: "Error",
+      toolEmpty: "No Tool details",
+      artifactPreview: "Preview",
+      openArtifact: "Open",
+    }}
+    onOpenArtifact={currentWorkspaceId ? openArtifact : undefined}
+  />
 </div>
+
+{#if artifactPreview}
+  <div class="preview-backdrop" role="presentation">
+    <div class="artifact-preview" role="dialog" aria-modal="true" tabindex="-1" aria-label={`Artifact preview: ${artifactPreview.title}`}>
+      <header>
+        <div><strong>{artifactPreview.title}</strong><code>{artifactPreview.ref}</code></div>
+        <button type="button" onclick={() => (artifactPreview = null)}>Close</button>
+      </header>
+      {#if artifactPreview.format === "markdown"}
+        <SafeMarkdown source={artifactPreview.content} />
+      {:else}
+        <pre>{artifactPreview.content}</pre>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
   .workbench-shell {
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 340px);
     height: calc(100vh - 53px);
     min-height: 0;
   }
@@ -853,4 +942,10 @@
   .action-feedback.action-error {
     color: var(--color-danger);
   }
+  .preview-backdrop { align-items: center; background: color-mix(in srgb, var(--color-canvas) 72%, transparent); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 20; }
+  .artifact-preview { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--rounded-lg); box-shadow: var(--shadow-lg); display: grid; gap: 12px; max-height: min(80vh, 760px); max-width: min(900px, 92vw); overflow: auto; padding: 16px; width: 100%; }
+  .artifact-preview header { align-items: start; display: flex; justify-content: space-between; }
+  .artifact-preview header div { display: grid; gap: 3px; }
+  .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; white-space: pre-wrap; }
+  .artifact-preview button { background: transparent; border: 1px solid var(--color-border); border-radius: var(--rounded-sm); color: var(--color-ink); cursor: pointer; padding: 5px 8px; }
 </style>

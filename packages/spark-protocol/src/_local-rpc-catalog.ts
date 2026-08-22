@@ -1,6 +1,20 @@
 import { type ContractRouterClient, type ErrorMap, oc } from "@orpc/contract";
 import { z } from "zod";
 import {
+  sparkArtifactListRequestSchema,
+  sparkArtifactListResultSchema,
+  sparkArtifactReadRequestSchema,
+  sparkArtifactReadResultSchema,
+} from "./artifact-control.ts";
+import {
+  sparkRoleCreateRequestSchema,
+  sparkRoleCreateResultSchema,
+  sparkRoleListRequestSchema,
+  sparkRoleListResultSchema,
+  sparkSkillListRequestSchema,
+  sparkSkillListResultSchema,
+} from "./agent-catalog.ts";
+import {
   sparkDirectAnswerProvenanceSchema,
   sparkEvidenceAnswerEventSchema,
   sparkEvidenceRequestBindingSchema,
@@ -1417,6 +1431,17 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
     output: sparkLocalRpcToolExecutionResultSchema,
   },
+  "artifact.list": {
+    input: sparkArtifactListRequestSchema,
+    output: sparkArtifactListResultSchema,
+  },
+  "artifact.read": {
+    input: sparkArtifactReadRequestSchema,
+    output: sparkArtifactReadResultSchema,
+  },
+  "role.list": { input: sparkRoleListRequestSchema, output: sparkRoleListResultSchema },
+  "role.create": { input: sparkRoleCreateRequestSchema, output: sparkRoleCreateResultSchema },
+  "skill.list": { input: sparkSkillListRequestSchema, output: sparkSkillListResultSchema },
   "git.execute": {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
     output: sparkLocalRpcToolExecutionResultSchema,
@@ -1764,6 +1789,11 @@ export const sparkLocalRpcOrpcLiveMethods = Object.keys(
 
 /** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
 export const sparkLocalRpcOrpcOnlyMethods = [
+  "artifact.list",
+  "artifact.read",
+  "role.list",
+  "role.create",
+  "skill.list",
   "session.snapshot-page",
   "session.media.read",
   "session.prompt-history",
@@ -1819,6 +1849,15 @@ export const sparkLocalRpcOrpcContract = {
   },
   artifact: {
     execute: procedure("POST", "/artifact/execute", p["artifact.execute"]),
+    list: procedure("GET", "/artifact/list", p["artifact.list"], sparkLocalRpcWorkspaceOrpcErrors),
+    read: procedure("GET", "/artifact/read", p["artifact.read"], sparkLocalRpcWorkspaceOrpcErrors),
+  },
+  role: {
+    list: procedure("GET", "/role/list", p["role.list"], sparkLocalRpcWorkspaceOrpcErrors),
+    create: procedure("POST", "/role/create", p["role.create"], sparkLocalRpcWorkspaceOrpcErrors),
+  },
+  skill: {
+    list: procedure("GET", "/skill/list", p["skill.list"], sparkLocalRpcWorkspaceOrpcErrors),
   },
   git: {
     execute: procedure("POST", "/git/execute", p["git.execute"]),

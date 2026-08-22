@@ -1,4 +1,6 @@
 export * from "./protocol.ts";
+export * from "./artifact-control.ts";
+export * from "./agent-catalog.ts";
 export * from "./session-activity.ts";
 export * from "./session-live-cursor.ts";
 export * from "./session-projection.ts";

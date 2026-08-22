@@ -83,6 +83,15 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       execute: os.artifact.execute.handler(async ({ input: params }) =>
         invoke("artifact.execute", params),
       ),
+      list: os.artifact.list.handler(async ({ input: params }) => invoke("artifact.list", params)),
+      read: os.artifact.read.handler(async ({ input: params }) => invoke("artifact.read", params)),
+    },
+    role: {
+      list: os.role.list.handler(async ({ input: params }) => invoke("role.list", params)),
+      create: os.role.create.handler(async ({ input: params }) => invoke("role.create", params)),
+    },
+    skill: {
+      list: os.skill.list.handler(async ({ input: params }) => invoke("skill.list", params)),
     },
     git: {
       execute: os.git.execute.handler(async ({ input: params }) => invoke("git.execute", params)),

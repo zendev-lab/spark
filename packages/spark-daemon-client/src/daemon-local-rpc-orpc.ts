@@ -110,6 +110,16 @@ const toolExecutionInvokers = {
       sparkLocalRpcProcedureSchemas["artifact.execute"].output,
       client.artifact.execute(input, options),
     ),
+  "artifact.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["artifact.list"].output,
+      client.artifact.list(input, options),
+    ),
+  "artifact.read": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["artifact.read"].output,
+      client.artifact.read(input, options),
+    ),
   "git.execute": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["git.execute"].output,
@@ -122,8 +132,31 @@ const toolExecutionInvokers = {
     ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
-  "file.execute" | "artifact.execute" | "git.execute" | "lens.execute"
+  | "file.execute"
+  | "artifact.execute"
+  | "artifact.list"
+  | "artifact.read"
+  | "git.execute"
+  | "lens.execute"
 >;
+
+const agentCatalogInvokers = {
+  "role.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.list"].output,
+      client.role.list(input, options),
+    ),
+  "role.create": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.create"].output,
+      client.role.create(input, options),
+    ),
+  "skill.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["skill.list"].output,
+      client.skill.list(input, options),
+    ),
+} satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "role.list" | "role.create" | "skill.list">;
 
 const daemonChannelTurnInvokers = {
   "daemon.status": (client, input, options) =>
@@ -698,6 +731,7 @@ const delegationInvokers = {
 
 const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
+  ...agentCatalogInvokers,
   ...daemonChannelTurnInvokers,
   ...invocationLoopInvokers,
   ...workspaceInvokers,

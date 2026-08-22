@@ -50,6 +50,11 @@ describe("side-thread local RPC parsing", () => {
     const methods = Object.keys(sparkLocalRpcProcedureSchemas);
     expect(methods.every(isSparkLocalRpcMethod)).toBe(true);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "artifact.list",
+      "artifact.read",
+      "role.list",
+      "role.create",
+      "skill.list",
       "session.snapshot-page",
       "session.media.read",
       "session.prompt-history",

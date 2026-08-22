@@ -138,6 +138,11 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "retryTarget",
     ]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "artifact.list",
+      "artifact.read",
+      "role.list",
+      "role.create",
+      "skill.list",
       "session.snapshot-page",
       "session.media.read",
       "session.prompt-history",

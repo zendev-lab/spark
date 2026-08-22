@@ -1,6 +1,9 @@
 <script lang="ts">
-  import { invalidateAll } from "$app/navigation";
-  import type { SparkModelCatalogProvider } from "@zendev-lab/spark-protocol";
+  import type {
+    SparkModelCatalogProvider,
+    SparkModelControlSnapshot,
+    SparkModelRef,
+  } from "@zendev-lab/spark-protocol";
   import {
     oauthHref,
     providerAuthKindLabel,
@@ -9,66 +12,34 @@
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
+  let catalogOverride = $state<SparkModelControlSnapshot | null>(null);
+  let catalog = $derived(catalogOverride ?? data.catalog);
+  let daemonOverride = $state<typeof data.daemon | null>(null);
+  let daemon = $derived(daemonOverride ?? data.daemon);
   let keyByProvider = $state<Record<string, string>>({});
-  let status = $state("");
-  let errorText = $state("");
+  let enabledValues = $state<string[]>([]);
+  let defaultValue = $state("");
+  let modelPolicyInitialized = $state(false);
+  let piSourcePath = $state("");
+  let piOverwrite = $state(false);
   let busy = $state("");
-  let importPath = $state("");
-  let importOverwrite = $state(false);
+  let status = $state<{ tone: "status" | "error"; message: string } | null>(null);
 
-  async function refresh(message: string) {
-    status = message;
-    errorText = "";
-    await invalidateAll();
+  const allModels = $derived(catalog.providers.flatMap((provider) => provider.models));
+
+  $effect(() => {
+    if (modelPolicyInitialized) return;
+    enabledValues = catalog.enabledModels?.map(modelValue) ?? [];
+    defaultValue = catalog.defaultModel ? modelValue(catalog.defaultModel) : "";
+    modelPolicyInitialized = true;
+  });
+
+  function modelValue(model: SparkModelRef) {
+    return `${model.providerName}/${model.modelId}`;
   }
 
-  async function saveKey(providerName: string) {
-    const apiKey = keyByProvider[providerName]?.trim();
-    if (!apiKey) return;
-    busy = `key:${providerName}`;
-    errorText = "";
-    try {
-      await webRpc("provider.auth.api-key.set", { providerName, apiKey });
-      keyByProvider[providerName] = "";
-      await refresh(`Saved ${providerName} API key.`);
-    } catch (caught) {
-      errorText = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      busy = "";
-    }
-  }
-
-  async function logout(providerName: string) {
-    busy = `logout:${providerName}`;
-    errorText = "";
-    try {
-      await webRpc("provider.auth.logout", { providerName });
-      await refresh(`Signed out ${providerName}.`);
-    } catch (caught) {
-      errorText = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      busy = "";
-    }
-  }
-
-  async function importPi() {
-    const sourcePath = importPath.trim();
-    if (!sourcePath) return;
-    busy = "import";
-    errorText = "";
-    try {
-      const report = await webRpc("provider.auth.import.pi", {
-        sourcePath,
-        overwrite: importOverwrite,
-      });
-      await refresh(
-        `Imported ${report.totals.imported}, overwritten ${report.totals.overwritten}, skipped ${report.totals.skipped}.`,
-      );
-    } catch (caught) {
-      errorText = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      busy = "";
-    }
+  function modelForValue(value: string): SparkModelRef | undefined {
+    return allModels.find((entry) => modelValue(entry.model) === value)?.model;
   }
 
   function configuredSource(provider: SparkModelCatalogProvider): string {
@@ -77,228 +48,188 @@
     if (provider.auth.source === "literal") return "literal";
     return "stored";
   }
+
+  async function run(label: string, operation: () => Promise<string | void>) {
+    if (busy) return;
+    busy = label;
+    status = null;
+    try {
+      const message = await operation();
+      status = { tone: "status", message: message ?? `${label} completed.` };
+    } catch (error) {
+      status = { tone: "error", message: error instanceof Error ? error.message : String(error) };
+    } finally {
+      busy = "";
+    }
+  }
+
+  async function saveKey(providerName: string) {
+    const apiKey = keyByProvider[providerName]?.trim();
+    if (!apiKey) return;
+    await run(`Save ${providerName}`, async () => {
+      catalogOverride = await webRpc("provider.auth.api-key.set", { providerName, apiKey });
+      keyByProvider[providerName] = "";
+      return `Saved ${providerName} API key. The secret was not returned to the browser.`;
+    });
+  }
+
+  async function logout(providerName: string) {
+    await run(`Logout ${providerName}`, async () => {
+      const result = await webRpc("provider.auth.logout", { providerName });
+      catalogOverride = result.snapshot;
+      return result.removed ? `Logged out ${providerName}.` : `${providerName} had no stored credential.`;
+    });
+  }
+
+  async function saveDefaultModel() {
+    const model = modelForValue(defaultValue);
+    if (!model) return;
+    await run("Default model", async () => {
+      catalogOverride = await webRpc("model.default.set", { model });
+      return `Default model set to ${modelValue(model)}.`;
+    });
+  }
+
+  async function saveEnabledModels() {
+    const models = enabledValues.flatMap((value) => {
+      const model = modelForValue(value);
+      return model ? [model] : [];
+    });
+    await run("Enabled models", async () => {
+      catalogOverride = await webRpc("model.enabled.set", {
+        models,
+        intent: { kind: "user-initiated", via: "settings-ui" },
+      });
+      return `Saved ${models.length} enabled model${models.length === 1 ? "" : "s"}.`;
+    });
+  }
+
+  async function importPiAuth() {
+    const sourcePath = piSourcePath.trim();
+    if (!sourcePath) return;
+    await run("Pi import", async () => {
+      const report = await webRpc("provider.auth.import.pi", { sourcePath, overwrite: piOverwrite });
+      catalogOverride = await webRpc("model.catalog", {});
+      return `Pi import: ${report.totals.imported} imported, ${report.totals.overwritten} overwritten, ${report.totals.skipped} skipped.`;
+    });
+  }
+
+  async function refreshDaemon() {
+    await run("Daemon status", async () => {
+      daemonOverride = await webRpc("daemon.status", {});
+      return `Daemon is ${daemonOverride.lifecycle.state}.`;
+    });
+  }
+
+  async function restartDaemon() {
+    if (typeof globalThis.confirm === "function" && !globalThis.confirm("Restart Spark daemon after draining active work?")) return;
+    await run("Daemon restart", async () => {
+      const result = await webRpc("daemon.restart", {});
+      return `Daemon restart ${result.restartId} accepted; active work is draining.`;
+    });
+  }
 </script>
 
 <section class="page">
   <header>
-    <p class="crumb"><a href="/">Workspaces</a></p>
-    <h1>Providers</h1>
-    <p>
-      Credentials stay in the daemon auth store. API-key providers can be saved here. OAuth
-      providers use a dedicated login page. Spark web never echoes a stored secret.
-    </p>
+    <h1>Settings</h1>
+    <p>Credentials stay in the daemon auth store. Spark Web never echoes a stored secret.</p>
   </header>
-  {#if status}<p class="status">{status}</p>{/if}
-  {#if errorText}<p class="error">{errorText}</p>{/if}
-  <ul>
-    {#each data.catalog.providers as provider (provider.providerName)}
-      <li>
-        <div class="heading">
-          <div>
-            <h2>{provider.label}</h2>
-            <p>
-              {providerAuthKindLabel(provider.auth.kind)}
-              {#if provider.auth.reference}· {provider.auth.reference}{/if}
-              {#if configuredSource(provider)}· {configuredSource(provider)}{/if}
-            </p>
-          </div>
-          <span class:configured={provider.auth.configured} class:neutral={provider.auth.kind === "none"} class="badge">
-            {providerAuthStatusLabel(provider)}
-          </span>
-        </div>
+  {#if status}
+    <p class:error={status.tone === "error"} class="status" role={status.tone === "error" ? "alert" : "status"}>{status.message}</p>
+  {/if}
 
-        {#if provider.auth.kind === "api_key"}
-          <form
-            onsubmit={(event) => {
-              event.preventDefault();
-              void saveKey(provider.providerName);
-            }}
-          >
-            <label>
-              API key
-              <input
-                type="password"
-                autocomplete="off"
-                placeholder={provider.auth.configured ? "Replace stored key" : "Paste API key"}
-                bind:value={keyByProvider[provider.providerName]}
-              />
-            </label>
-            <button type="submit" disabled={busy === `key:${provider.providerName}`}>
-              {busy === `key:${provider.providerName}` ? "Saving…" : "Save"}
-            </button>
-          </form>
-          {#if provider.auth.configured && provider.auth.source === "stored"}
-            <button
-              type="button"
-              class="secondary"
-              disabled={busy === `logout:${provider.providerName}`}
-              onclick={() => void logout(provider.providerName)}
-            >
-              {busy === `logout:${provider.providerName}` ? "Signing out…" : "Sign out"}
-            </button>
+  <section class="settings-card" aria-labelledby="model-policy-heading">
+    <h2 id="model-policy-heading">Model policy</h2>
+    <label>Default model
+      <select bind:value={defaultValue}>
+        <option value="">Choose a default</option>
+        {#each allModels as entry (modelValue(entry.model))}
+          <option value={modelValue(entry.model)} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {entry.model.providerLabel ?? entry.model.providerName}</option>
+        {/each}
+      </select>
+    </label>
+    <button type="button" disabled={!defaultValue || Boolean(busy)} onclick={() => void saveDefaultModel()}>Save default</button>
+    <fieldset>
+      <legend>Enabled models</legend>
+      <div class="model-grid">
+        {#each allModels as entry (modelValue(entry.model))}
+          <label class="checkbox"><input type="checkbox" bind:group={enabledValues} value={modelValue(entry.model)} disabled={!entry.available} /><span>{entry.model.modelLabel ?? entry.model.modelId}<small>{entry.model.providerLabel ?? entry.model.providerName}</small></span></label>
+        {/each}
+      </div>
+    </fieldset>
+    <button type="button" disabled={Boolean(busy)} onclick={() => void saveEnabledModels()}>Save enabled models</button>
+    {#if catalog.diagnostics.length > 0}<ul class="diagnostics">{#each catalog.diagnostics as diagnostic}<li>{diagnostic}</li>{/each}</ul>{/if}
+  </section>
+
+  <section aria-labelledby="providers-heading">
+    <h2 id="providers-heading">Providers</h2>
+    <div class="provider-grid">
+      {#each catalog.providers as provider (provider.providerName)}
+        <article>
+          <header><div><h3>{provider.label}</h3><code>{provider.providerName}</code></div><span>{providerAuthStatusLabel(provider)}</span></header>
+          <p>{providerAuthKindLabel(provider.auth.kind)}{#if provider.auth.reference} · {provider.auth.reference}{/if}{#if configuredSource(provider)} · {configuredSource(provider)}{/if}</p>
+          {#if provider.auth.kind === "api_key"}
+            <form onsubmit={(event) => { event.preventDefault(); void saveKey(provider.providerName); }}>
+              <label>API key<input type="password" autocomplete="new-password" bind:value={keyByProvider[provider.providerName]} /></label>
+              <button type="submit" disabled={Boolean(busy)}>Save key</button>
+            </form>
+          {:else if provider.auth.kind === "oauth"}
+            <a class="button" href={oauthHref(provider.providerName)}>{provider.auth.configured ? "Re-authenticate" : "Sign in with OAuth"}</a>
           {/if}
-        {:else if provider.auth.kind === "oauth"}
-          <div class="actions">
-            <a class="button" href={oauthHref(provider.providerName)}>
-              {provider.auth.configured ? "Re-authenticate" : "Sign in with OAuth"}
-            </a>
-            {#if provider.auth.configured}
-              <button
-                type="button"
-                class="secondary"
-                disabled={busy === `logout:${provider.providerName}`}
-                onclick={() => void logout(provider.providerName)}
-              >
-                {busy === `logout:${provider.providerName}` ? "Signing out…" : "Sign out"}
-              </button>
-            {/if}
-          </div>
-        {:else}
-          <p class="muted">This provider does not need a credential.</p>
-        {/if}
-      </li>
-    {/each}
-  </ul>
+          {#if provider.auth.configured}<button type="button" class="secondary danger" disabled={Boolean(busy)} onclick={() => void logout(provider.providerName)}>Logout</button>{/if}
+        </article>
+      {/each}
+    </div>
+  </section>
 
-  <section class="import">
-    <h2>Import from Pi</h2>
-    <p>Copy supported API keys and OAuth records from a Pi `auth.json` into Spark's store.</p>
-    <form
-      onsubmit={(event) => {
-        event.preventDefault();
-        void importPi();
-      }}
-    >
-      <label>
-        Source path
-        <input type="text" placeholder="~/.pi/agent/auth.json" bind:value={importPath} />
-      </label>
-      <label class="check">
-        <input type="checkbox" bind:checked={importOverwrite} />
-        Overwrite existing Spark credentials
-      </label>
-      <button type="submit" disabled={busy === "import"}>
-        {busy === "import" ? "Importing…" : "Import"}
-      </button>
+  <section class="settings-card" aria-labelledby="pi-import-heading">
+    <h2 id="pi-import-heading">Import Pi credentials</h2>
+    <p>The daemon reads the selected Pi auth file and returns only a credential-free report.</p>
+    <form onsubmit={(event) => { event.preventDefault(); void importPiAuth(); }}>
+      <label>Source path<input type="text" autocomplete="off" bind:value={piSourcePath} required /></label>
+      <label class="checkbox"><input type="checkbox" bind:checked={piOverwrite} />Overwrite existing stored credentials</label>
+      <button type="submit" disabled={Boolean(busy)}>Import</button>
     </form>
+  </section>
+
+  <section class="settings-card" aria-labelledby="daemon-heading">
+    <h2 id="daemon-heading">Daemon</h2>
+    <dl><div><dt>Lifecycle</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>Build</dt><dd>{daemon.buildFingerprint ?? "Unavailable"}</dd></div><div><dt>Invocations</dt><dd>{daemon.invocations.running} running · {daemon.invocations.queued} queued · {daemon.invocations.failed} failed</dd></div><div><dt>Observed</dt><dd>{daemon.observedAt}</dd></div></dl>
+    <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>Refresh</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>Restart after drain</button></div>
   </section>
 </section>
 
 <style>
-  .page {
-    padding: 24px;
-    display: grid;
-    gap: 16px;
-    max-width: 880px;
-  }
-  .crumb {
-    margin: 0;
-    color: var(--color-ink-muted);
-  }
-  .crumb a {
-    color: inherit;
-  }
-  header p,
-  .muted {
-    color: var(--color-ink-muted);
-    margin: 0;
-  }
-  h1,
-  h2 {
-    margin: 0;
-  }
-  ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 16px;
-  }
-  li,
-  .import {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    padding: 16px;
-    display: grid;
-    gap: 12px;
-  }
-  .heading {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: start;
-  }
-  .heading p {
-    margin: 4px 0 0;
-    color: var(--color-ink-muted);
-  }
-  .badge {
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    font-size: 12px;
-    padding: 4px 8px;
-    color: var(--color-ink-muted);
-    white-space: nowrap;
-  }
-  .badge.configured {
-    color: var(--color-success-strong, #15803d);
-    border-color: var(--color-success-soft, #86efac);
-  }
-  .badge.neutral {
-    color: var(--color-ink-muted);
-  }
-  form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: end;
-    margin: 0;
-  }
-  label {
-    display: grid;
-    gap: 4px;
-    font-size: 13px;
-  }
-  input[type="password"],
-  input[type="text"] {
-    display: block;
-    min-width: 240px;
-  }
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  button,
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 36px;
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px solid var(--color-border);
-    background: var(--color-ink);
-    color: var(--color-canvas);
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .secondary {
-    background: transparent;
-    color: inherit;
-  }
-  .status {
-    color: var(--color-success-strong, #15803d);
-    margin: 0;
-  }
-  .error {
-    color: var(--color-danger, #b91c1c);
-    margin: 0;
-  }
+  .page { display: grid; gap: 20px; margin: 0 auto; max-width: 1120px; padding: 24px; }
+  h1, h2, h3, p { margin: 0; }
+  .page > header, .settings-card, article, form, label { display: grid; gap: 8px; }
+  .page > header p, article p, .settings-card > p { color: var(--color-ink-muted); }
+  .settings-card, article { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; }
+  .provider-grid, .model-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+  article > header { align-items: start; display: flex; justify-content: space-between; }
+  article > header div { display: grid; gap: 3px; }
+  article > header span { color: var(--color-ink-muted); font-size: 12px; }
+  input, select { background: var(--color-canvas); border: 1px solid var(--color-border); border-radius: 7px; box-sizing: border-box; color: var(--color-ink); min-width: 0; padding: 8px; width: 100%; }
+  button, .button { background: var(--color-primary); border: 1px solid transparent; border-radius: 8px; color: var(--color-on-primary); cursor: pointer; justify-self: start; padding: 8px 12px; text-decoration: none; }
+  button.secondary { background: transparent; border-color: var(--color-border); color: var(--color-ink); }
+  button.danger { background: var(--color-danger); color: white; }
+  button.secondary.danger { background: transparent; border-color: var(--color-danger); color: var(--color-danger); }
+  button:disabled { cursor: not-allowed; opacity: 0.55; }
+  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { box-shadow: var(--shadow-focus); outline: none; }
+  .checkbox { align-items: start; display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .checkbox input { margin-top: 2px; width: auto; }
+  .checkbox span { display: grid; }
+  .checkbox small { color: var(--color-ink-muted); }
+  fieldset { border: 0; margin: 0; padding: 0; }
+  legend { font-weight: 650; margin-bottom: 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .status { background: var(--color-success-soft); border-radius: 8px; color: var(--color-success-strong); padding: 10px; }
+  .status.error, .error { background: var(--color-danger-soft); color: var(--color-danger-strong); }
+  .diagnostics { color: var(--color-warning-strong); }
+  dl { display: grid; gap: 5px; margin: 0; }
+  dl div { display: grid; gap: 8px; grid-template-columns: 110px minmax(0, 1fr); }
+  dt { color: var(--color-ink-muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  @media (max-width: 640px) { .page { padding: 14px; } .provider-grid, .model-grid { grid-template-columns: 1fr; } }
 </style>
