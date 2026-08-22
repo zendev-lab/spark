@@ -26,6 +26,7 @@ export interface SparkWebDevelopmentServerOptions {
   appDir: string;
   host: string;
   port: number;
+  hmr: boolean;
 }
 
 export interface SparkWebCliOptions {
@@ -91,7 +92,7 @@ export async function runSparkWebCli(
   });
 
   const handlerPath = join(appDir, "build", "handler.js");
-  if (existsSync(handlerPath)) {
+  if (!bind.hmr && existsSync(handlerPath)) {
     const { handler } = (await import(handlerPath)) as {
       handler: (
         request: import("node:http").IncomingMessage,
@@ -104,7 +105,12 @@ export async function runSparkWebCli(
       server.listen(bind.port, bind.host, () => resolveListen());
     });
   } else if (options.startDevelopmentServer) {
-    await options.startDevelopmentServer({ appDir, host: bind.host, port: bind.port });
+    await options.startDevelopmentServer({
+      appDir,
+      host: bind.host,
+      port: bind.port,
+      hmr: bind.hmr,
+    });
   } else {
     throw new SparkCliError({
       code: "WEB_BUILD_MISSING",
@@ -202,10 +208,12 @@ export function sparkWebHelpText(): string {
   return `spark-web - local Spark daemon workbench
 
 Usage:
-  spark-web [--host 127.0.0.1] [--port 4310] [--trusted-host HOST] [--no-open]
+  spark-web [--host 127.0.0.1] [--port 4310] [--trusted-host HOST] [--no-open] [--hmr]
 
 Binds to 127.0.0.1 by default. A non-loopback --host requires one or more
 --trusted-host values; Host, same-origin metadata, and the token are all checked.
+Pass --hmr to use the Vite development server;
+the default serves the prebuilt handler without HMR for long-lived use.
 Shows every workspace bound to the local daemon.
 Hub remains the multi-daemon proxy and management plane.
 `;

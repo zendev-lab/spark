@@ -8,6 +8,7 @@ import {
   installManagedCuePresets,
   readDshPackageVersion,
   removeDshShellAndJobsRows,
+  replaceDshToolFsRow,
   verifyDshPresetSources,
 } from "./cue-presets.ts";
 
@@ -59,8 +60,11 @@ describe("managed Cue-first presets", () => {
 
   it("installs deterministic presets, is idempotent, and removes DSH execution tools", () => {
     const home = mkdtempSync(join(tmpdir(), "spark-cue-presets-"));
+    const options = {
+      toolFsPluginSpecifier: "../../profiles/web/plugins/spark-files/index.mjs",
+    };
     try {
-      const first = installManagedCuePresets(home, dshPackageDir, skillDir);
+      const first = installManagedCuePresets(home, dshPackageDir, skillDir, options);
       expect(first.map((item) => item.updated)).toEqual([true, true]);
       for (const item of first) {
         const composition = readFileSync(join(item.path, "agent.cordis.yml"), "utf8");
@@ -78,6 +82,8 @@ describe("managed Cue-first presets", () => {
             "    watch: false",
           ].join("\n"),
         );
+        expect(composition).not.toContain("name: '@deepseek-ai/dsh-tool-fs'");
+        expect(composition).toContain('name: "../../profiles/web/plugins/spark-files/index.mjs"');
         expect(readFileSync(join(item.path, ".spark-managed.json"), "utf8")).toContain(
           "@zendev-lab/spark-web-dsh",
         );
@@ -86,7 +92,9 @@ describe("managed Cue-first presets", () => {
         );
       }
       expect(
-        installManagedCuePresets(home, dshPackageDir, skillDir).map((item) => item.updated),
+        installManagedCuePresets(home, dshPackageDir, skillDir, options).map(
+          (item) => item.updated,
+        ),
       ).toEqual([false, false]);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -150,5 +158,17 @@ describe("managed Cue-first presets", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  it("replaces exactly one upstream file-tool row", () => {
+    expect(
+      replaceDshToolFsRow(
+        "- id: tool-fs\n  name: '@deepseek-ai/dsh-tool-fs'\n",
+        "./spark-files.mjs",
+      ),
+    ).toBe('- id: tool-fs\n  name: "./spark-files.mjs"\n');
+    expect(() => replaceDshToolFsRow("- id: other\n  name: other\n", "./plugin.mjs")).toThrow(
+      /expected one upstream dsh-tool-fs row/u,
+    );
   });
 });

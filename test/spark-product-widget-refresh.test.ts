@@ -1,0 +1,571 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "vitest";
+
+import registerSparkProduct from "../apps/spark-daemon/src/product/policy/index.ts";
+import type { SparkWidgetTheme, SparkWidgetTui } from "@zendev-lab/spark-host/spark-widget";
+import {
+  RoleRegistry,
+  builtinRoleRef,
+  defaultProjectRoleModelSettingsStore,
+} from "@zendev-lab/spark-roles";
+import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
+import {
+  killActiveSparkRoleRunProcesses,
+  listActiveSparkRoleRunProcesses,
+  runSparkTask,
+} from "@zendev-lab/spark-runtime";
+import { stableId, type RunRef, type TaskPlan } from "@zendev-lab/spark-core";
+import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import { setSessionGoal, updateSessionGoalStatus } from "@zendev-lab/spark-loop";
+
+type SparkPi = Parameters<typeof registerSparkProduct>[0];
+type SparkToolConfig = Parameters<NonNullable<SparkPi["registerTool"]>>[0];
+type SparkEventHandler = Parameters<NonNullable<SparkPi["on"]>>[1];
+type WidgetComponent = { render(): string[]; invalidate(): void };
+type WidgetFactory = (tui: SparkWidgetTui, theme: SparkWidgetTheme) => WidgetComponent;
+
+type WidgetCall = {
+  key: string;
+  cb: unknown;
+  opts?: { placement?: string };
+};
+
+type TestSparkContext = {
+  cwd: string;
+  hasUI: true;
+  sessionManager: {
+    getSessionFile(): string;
+    getLeafId(): string;
+  };
+  ui: {
+    setWidget(key: string, cb: unknown, opts?: { placement?: string }): void;
+  };
+};
+
+const theme: SparkWidgetTheme = {
+  fg: (_color, text) => text,
+  bold: (text) => text,
+  strikethrough: (text) => text,
+};
+
+function isWidgetFactory(value: unknown): value is WidgetFactory {
+  return typeof value === "function";
+}
+
+function requireTool(tools: Map<string, SparkToolConfig>, name: string): SparkToolConfig {
+  const tool = tools.get(name);
+  assert.ok(tool, `missing tool registration: ${name}`);
+  return tool;
+}
+
+function widgetTaskClaimDaemonClient(): NonNullable<SparkPi["taskClaimDaemonClient"]> {
+  return {
+    async acquire(ctx, input) {
+      const sessionFile = ctx.sessionManager?.getSessionFile?.();
+      assert.ok(sessionFile);
+      const sessionId = `session:${stableId(sessionFile)}`;
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) =>
+        graph.claimTask(input.taskRef as `task:${string}`, {
+          kind: "main",
+          claimedBy: sessionId,
+          sessionId,
+          leaseMs: 3 * 60_000,
+        }),
+      );
+      const task = updated.result;
+      return {
+        taskRef: task.ref,
+        projectRef: task.projectRef,
+        sessionId,
+        outcome: "acquired",
+        changed: true,
+        observedAt: task.claim!.heartbeatAt,
+        claim: task.claim!,
+      };
+    },
+    async recover() {
+      throw new Error("not used by widget refresh test");
+    },
+    async release() {
+      throw new Error("not used by widget refresh test");
+    },
+  };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(predicate(), true, "condition was not met before timeout");
+}
+
+function executionReadyPlan(objective: string): TaskPlan {
+  return {
+    objective,
+    contextRefs: [],
+    constraints: [],
+    nonGoals: [],
+    successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
+    evidenceRequired: [
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
+    ],
+    steps: [objective],
+    riskLevel: "normal",
+    openQuestions: [],
+    askRefs: [],
+  };
+}
+
+async function executeTool(
+  tool: SparkToolConfig,
+  params: Record<string, unknown>,
+  ctx: TestSparkContext,
+): Promise<Awaited<ReturnType<SparkToolConfig["execute"]>>> {
+  return tool.execute("tool-call", params, new AbortController().signal, () => {}, ctx);
+}
+
+test("Spark product policy widget hides acknowledged and actionable DAG history", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-product-widget-dag-history-"));
+  try {
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Widget DAG project", description: "widget dag" });
+    await defaultTaskGraphStore(dir).save(graph);
+
+    const tools = new Map<string, SparkToolConfig>();
+    const handlers = new Map<string, SparkEventHandler>();
+    let widgetComponent: WidgetComponent | undefined;
+    const widgetTui: SparkWidgetTui = {
+      terminal: { columns: 160 },
+      requestRender() {},
+    };
+    const ctx: TestSparkContext = {
+      cwd: dir,
+      hasUI: true,
+      sessionManager: {
+        getSessionFile: () => join(dir, "session.json"),
+        getLeafId: () => "leaf-widget-dag-history",
+      },
+      ui: {
+        setWidget(key, cb) {
+          if (key === "spark-status")
+            widgetComponent = isWidgetFactory(cb) ? cb(widgetTui, theme) : undefined;
+        },
+      },
+    };
+    const pi: SparkPi = {
+      registerCommand() {},
+      registerTool(config) {
+        tools.set(config.name, config);
+      },
+      on(event, handler) {
+        handlers.set(event, handler);
+      },
+      sendMessage() {},
+    };
+    registerSparkProduct(pi);
+
+    await executeTool(
+      requireTool(tools, "task_write"),
+      { action: "project_use", project: project.ref },
+      ctx,
+    );
+    assert.equal(widgetComponent, undefined);
+
+    const dagStore = defaultWorkflowRunStore(dir);
+    const acknowledgedRun = await dagStore.startRun({
+      projectRef: project.ref,
+      dryRun: false,
+      maxConcurrency: 1,
+      timeoutMs: 100,
+    });
+    await dagStore.finishRun(acknowledgedRun.ref, {
+      scheduled: 1,
+      completed: 0,
+      failed: 1,
+      cancelled: 0,
+      timedOut: false,
+    });
+    await dagStore.acknowledgeFailures({ runRef: acknowledgedRun.ref, sessionId: "session:test" });
+    await handlers.get("session_tree")?.({}, ctx);
+    assert.equal(widgetComponent, undefined);
+
+    const actionableRun = await dagStore.startRun({
+      projectRef: project.ref,
+      dryRun: false,
+      maxConcurrency: 1,
+      timeoutMs: 100,
+    });
+    await dagStore.finishRun(actionableRun.ref, {
+      scheduled: 2,
+      completed: 1,
+      failed: 1,
+      cancelled: 0,
+      timedOut: false,
+    });
+    await handlers.get("session_tree")?.({}, ctx);
+    assert.equal(widgetComponent, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Spark product policy widget reconciles stale DAG records when an owned child run is still active", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-product-widget-dag-reconcile-"));
+  let runPromise: Promise<unknown> | undefined;
+  let activeRunRef: RunRef | undefined;
+  try {
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    const graph = new TaskGraph();
+    const project = graph.createProject({
+      title: "Widget DAG reconcile",
+      description: "widget dag",
+    });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Long running widget task",
+      description: "Keep the child process active while the widget refreshes.",
+      roleRef: builtinRoleRef("executor"),
+      plan: executionReadyPlan("Keep the widget DAG active"),
+    });
+    const graphStore = defaultTaskGraphStore(dir);
+    await graphStore.save(graph);
+
+    const tools = new Map<string, SparkToolConfig>();
+    const handlers = new Map<string, SparkEventHandler>();
+    let widgetComponent: WidgetComponent | undefined;
+    const widgetTui: SparkWidgetTui = {
+      terminal: { columns: 160 },
+      requestRender() {},
+    };
+    const ctx: TestSparkContext = {
+      cwd: dir,
+      hasUI: true,
+      sessionManager: {
+        getSessionFile: () => join(dir, "session.json"),
+        getLeafId: () => "leaf-widget-dag-reconcile",
+      },
+      ui: {
+        setWidget(key, cb) {
+          if (key === "spark-status")
+            widgetComponent = isWidgetFactory(cb) ? cb(widgetTui, theme) : undefined;
+        },
+      },
+    };
+    const pi: SparkPi = {
+      registerCommand() {},
+      registerTool(config) {
+        tools.set(config.name, config);
+      },
+      on(event, handler) {
+        handlers.set(event, handler);
+      },
+      sendMessage() {},
+    };
+    registerSparkProduct(pi);
+    await executeTool(
+      requireTool(tools, "task_write"),
+      { action: "project_use", project: project.ref },
+      ctx,
+    );
+    assert.ok(widgetComponent);
+
+    const dagStore = defaultWorkflowRunStore(dir);
+    const dagRun = await dagStore.startRun({
+      projectRef: project.ref,
+      dryRun: false,
+      maxConcurrency: 1,
+      timeoutMs: 100,
+    });
+    await dagStore.recordSchedule(dagRun.ref, { taskRef: task.ref, scheduled: 1 });
+    await dagStore.reconcile({ graph, activeRunRefs: [] });
+    await handlers.get("session_tree")?.({}, ctx);
+    assert.doesNotMatch(widgetComponent.render().join("\n"), /Background work:/);
+
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
+    runPromise = runSparkTask({
+      graph,
+      taskRef: task.ref,
+      registry: new RoleRegistry(),
+      cwd: dir,
+      dryRun: false,
+      timeoutMs: 10_000,
+      roleExecutor: async (input) => {
+        if (input.signal && !input.signal.aborted) {
+          await new Promise<void>((resolve) =>
+            input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        }
+        return {
+          record: { ...input.record, status: "cancelled", finishedAt: new Date().toISOString() },
+          stdout: "",
+          stderr: "",
+          jsonEvents: [],
+        };
+      },
+      claim: { sessionId: "session:widget" },
+    }).catch((error: unknown) => error);
+    await waitFor(() => listActiveSparkRoleRunProcesses().some((process) => process.cwd === dir));
+    const activeProcess = listActiveSparkRoleRunProcesses().find((process) => process.cwd === dir);
+    assert.ok(activeProcess);
+    activeRunRef = activeProcess.runRef;
+    await graphStore.update((latest) => {
+      latest.mergeTaskProgressFrom(graph, [task.ref]);
+    });
+
+    await handlers.get("session_tree")?.({}, ctx);
+
+    assert.match(
+      widgetComponent.render().join("\n"),
+      /Background work: 0\/1 tasks finished · running/,
+    );
+    const revived = await dagStore.load();
+    const [record] = revived.runs;
+    assert.equal(record?.status, "running");
+    assert.deepEqual(record?.taskRunRefs, [activeProcess.runRef]);
+  } finally {
+    if (activeRunRef)
+      await killActiveSparkRoleRunProcesses({
+        runRef: activeRunRef,
+        forceAfterMs: 0,
+        waitMs: 1_000,
+      });
+    await killActiveSparkRoleRunProcesses({ forceAfterMs: 0, waitMs: 1_000 });
+    await runPromise?.catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Spark product policy widget shows session goal without project state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-product-widget-goal-no-project-"));
+  try {
+    await mkdir(join(dir, ".spark"), { recursive: true });
+
+    const handlers = new Map<string, SparkEventHandler>();
+    let widgetComponent: WidgetComponent | undefined;
+    const widgetTui: SparkWidgetTui = {
+      terminal: { columns: 160 },
+      requestRender() {},
+    };
+    const ctx: TestSparkContext = {
+      cwd: dir,
+      hasUI: true,
+      sessionManager: {
+        getSessionFile: () => join(dir, "session.json"),
+        getLeafId: () => "leaf-widget-goal-no-project",
+      },
+      ui: {
+        setWidget(key, cb) {
+          if (key === "spark-status")
+            widgetComponent = isWidgetFactory(cb) ? cb(widgetTui, theme) : undefined;
+        },
+      },
+    };
+    const pi: SparkPi = {
+      registerCommand() {},
+      registerTool() {},
+      on(event, handler) {
+        handlers.set(event, handler);
+      },
+      sendMessage() {},
+    };
+    registerSparkProduct(pi);
+
+    await setSessionGoal(dir, ctx, {
+      objective: "Completed standalone goal remains visible",
+      source: "explicit",
+      status: "active",
+    });
+    await updateSessionGoalStatus(dir, ctx, "complete", { reason: "review passed" });
+    await handlers.get("session_tree")?.({}, ctx);
+
+    assert.ok(widgetComponent);
+    const rendered = widgetComponent.render().join("\n");
+    assert.match(rendered, /Goal\(✓\): Completed standalone goal remains visible/);
+    assert.doesNotMatch(rendered, /Task/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Spark session_start creates .spark and shows session goal", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-product-session-start-goal-"));
+  try {
+    const handlers = new Map<string, SparkEventHandler[]>();
+    let widgetComponent: WidgetComponent | undefined;
+    const widgetTui: SparkWidgetTui = {
+      terminal: { columns: 160 },
+      requestRender() {},
+    };
+    const ctx: TestSparkContext = {
+      cwd: dir,
+      hasUI: true,
+      sessionManager: {
+        getSessionFile: () => join(dir, "session.json"),
+        getLeafId: () => "leaf-session-start-goal",
+      },
+      ui: {
+        setWidget(key, cb) {
+          if (key === "spark-status")
+            widgetComponent = isWidgetFactory(cb) ? cb(widgetTui, theme) : undefined;
+        },
+      },
+    };
+    const pi: SparkPi = {
+      registerCommand() {},
+      registerTool() {},
+      on(event, handler) {
+        handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+      },
+      sendMessage() {},
+    };
+    registerSparkProduct(pi);
+
+    for (const handler of handlers.get("session_start") ?? []) await handler({}, ctx);
+    assert.ok(await stat(join(dir, ".spark")));
+
+    await setSessionGoal(dir, ctx, {
+      objective: "Session goal survives an empty workspace",
+      source: "explicit",
+      status: "active",
+    });
+    for (const handler of handlers.get("session_tree") ?? []) await handler({}, ctx);
+
+    assert.ok(widgetComponent);
+    const rendered = widgetComponent.render().join("\n");
+    assert.match(rendered, /Goal\([●◉]\): Session goal survives an empty workspace/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Spark product policy refreshes SparkWidget after claim and TODO tools", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-product-widget-refresh-"));
+  try {
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    const graph = new TaskGraph();
+    graph.createProject({ title: "Widget refresh project", description: "widget refresh" });
+    await defaultTaskGraphStore(dir).save(graph);
+
+    const tools = new Map<string, SparkToolConfig>();
+    const handlers = new Map<string, SparkEventHandler[]>();
+    const widgetCalls: WidgetCall[] = [];
+    let widgetComponent: WidgetComponent | undefined;
+    let renderRequests = 0;
+    const widgetTui: SparkWidgetTui = {
+      terminal: { columns: 160 },
+      requestRender() {
+        renderRequests += 1;
+      },
+    };
+    const ctx: TestSparkContext = {
+      cwd: dir,
+      hasUI: true,
+      sessionManager: {
+        getSessionFile: () => join(dir, "session.json"),
+        getLeafId: () => "leaf-widget-refresh",
+      },
+      ui: {
+        setWidget(key, cb, opts) {
+          widgetCalls.push({ key, cb, opts });
+          if (key === "spark-status")
+            widgetComponent = isWidgetFactory(cb) ? cb(widgetTui, theme) : undefined;
+        },
+      },
+    };
+    const pi: SparkPi = {
+      taskClaimDaemonClient: widgetTaskClaimDaemonClient(),
+      registerCommand() {},
+      registerTool(config) {
+        tools.set(config.name, config);
+      },
+      on(event, handler) {
+        handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+      },
+      sendMessage() {},
+    };
+    registerSparkProduct(pi);
+
+    await executeTool(
+      requireTool(tools, "task_write"),
+      { action: "project_use", project: "Widget refresh project" },
+      ctx,
+    );
+    assert.equal(widgetCalls.length, 0);
+    assert.equal(widgetComponent, undefined);
+
+    await executeTool(
+      requireTool(tools, "task_write"),
+      {
+        action: "plan",
+        tasks: [
+          {
+            name: "widget-refresh-task",
+            title: "Widget refresh task",
+            description: "Exercise widget refresh after claim.",
+            kind: "implement",
+            plan: executionReadyPlan("Exercise widget refresh after claim."),
+          },
+        ],
+      },
+      ctx,
+    );
+    assert.equal(widgetCalls.length, 1);
+    const plannedWidget = widgetComponent as WidgetComponent | undefined;
+    assert.ok(plannedWidget);
+    assert.match(plannedWidget.render().join("\n"), /Widget refresh task/);
+    renderRequests = 0;
+
+    await executeTool(
+      requireTool(tools, "task_write"),
+      {
+        action: "claim",
+        task: "widget-refresh-task",
+      },
+      ctx,
+    );
+    assert.equal(widgetCalls.length, 1);
+    assert.equal(widgetCalls[0]?.key, "spark-status");
+    assert.deepEqual(widgetCalls[0]?.opts, { placement: "belowEditor" });
+    assert.equal(renderRequests, 1);
+    const claimedWidget = widgetComponent as WidgetComponent | undefined;
+    assert.ok(claimedWidget);
+    assert.match(claimedWidget.render().join("\n"), /→ @me Widget refresh task/);
+    assert.doesNotMatch(claimedWidget.render().join("\n"), /First child TODO/);
+
+    for (const handler of handlers.get("tool_execution_end") ?? [])
+      await handler({ toolName: "task_write" }, ctx);
+    assert.equal(renderRequests, 2);
+
+    await executeTool(
+      requireTool(tools, "task_write"),
+      {
+        action: "plan_update",
+        scope: "task",
+        ops: [
+          { op: "init", items: ["First child TODO"] },
+          { op: "done", item: "First child TODO" },
+          { op: "append", items: ["Second child TODO"] },
+        ],
+      },
+      ctx,
+    );
+    assert.equal(widgetCalls.length, 1);
+    assert.equal(renderRequests, 3);
+    const todoWidget = widgetComponent as WidgetComponent | undefined;
+    assert.ok(todoWidget);
+    assert.match(todoWidget.render().join("\n"), /First child TODO/);
+    assert.match(todoWidget.render().join("\n"), /Second child TODO/);
+
+    for (const handler of handlers.get("tool_execution_end") ?? [])
+      await handler({ toolName: "task_write" }, ctx);
+    assert.equal(renderRequests, 4);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

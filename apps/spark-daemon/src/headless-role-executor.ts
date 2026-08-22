@@ -17,7 +17,7 @@ import {
   type SparkHeadlessSessionCompactResult,
   type SparkHeadlessSessionRunInput,
   type SparkHeadlessSessionRunResult,
-} from "@zendev-lab/spark-extension/headless-role-executor";
+} from "./product/headless-role-executor.ts";
 
 import { createSparkDaemonHeadlessCordisRoot } from "./cordis-root.ts";
 
