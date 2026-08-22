@@ -65,11 +65,12 @@ spark hub --help
 
 ## Local web workbench
 
-`spark web` starts the local single-workspace browser workbench. It binds
-loopback by default, requires a one-shot token, and talks to the Spark daemon
-through `spark-daemon-client`. A non-loopback `--host` requires a repeatable
-`--trusted-host`; the server rejects untrusted Host/Origin and cross-site
-mutations. Hub remains the cross-workspace browser UI.
+`spark web` starts the local browser workbench for every workspace bound to the
+same daemon. It binds loopback by default, requires a one-shot token, and talks
+to the Spark daemon through `spark-daemon-client`. A non-loopback `--host`
+requires a repeatable `--trusted-host`; the server rejects untrusted Host,
+Origin, Fetch Metadata, token, and cross-site mutation provenance. Hub remains
+the multi-daemon proxy and management UI.
 
 ```bash
 spark web
@@ -78,7 +79,8 @@ spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
 ```
 
 The additional `spark web-dsh` command starts the separately packaged
-DSH-hosted Spark product app without changing `spark web`:
+DSH-hosted Spark product app without changing `spark web`. It remains available
+until the native Spark Web replacement gate has passed:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888

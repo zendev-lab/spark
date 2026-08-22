@@ -10,6 +10,7 @@ import {
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
+import type { SparkDaemonModelControl } from "../model-control.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { createDaemonWorkspaceSession } from "../../../../test/support/session-fixtures.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
@@ -150,6 +151,66 @@ describe("transport-neutral local RPC service", () => {
       expect(result.role).not.toHaveProperty("systemPrompt");
       expect(result.role.origin).not.toHaveProperty("sourcePath");
     }
+
+    const modelControl = {
+      async snapshot() {
+        return {
+          providers: [
+            {
+              providerName: "test",
+              label: "Test",
+              auth: { providerName: "test", kind: "none" as const, configured: true },
+              models: [
+                {
+                  model: { providerName: "test", modelId: "reviewer" },
+                  reasoning: true,
+                  input: ["text" as const],
+                  available: true,
+                },
+              ],
+            },
+          ],
+          diagnostics: [],
+        };
+      },
+    } as unknown as SparkDaemonModelControl;
+    const modelOptions = { paths, db, handlerOptions: { modelControl } };
+    await expect(
+      invokeLocalRpcService(
+        "role.model.set",
+        {
+          workspaceId: workspace.id,
+          roleRef: firstCreate.role.ref,
+          model: "test/reviewer",
+          source: "project",
+        },
+        modelOptions,
+      ),
+    ).resolves.toMatchObject({
+      role: { ref: firstCreate.role.ref, modelType: "verification" },
+      setting: { modelType: "verification", model: "test/reviewer", source: "project" },
+    });
+    await expect(
+      invokeLocalRpcService(
+        "role.model.get",
+        { workspaceId: workspace.id, roleRef: firstCreate.role.ref },
+        { paths, db },
+      ),
+    ).resolves.toMatchObject({ setting: { model: "test/reviewer", source: "project" } });
+    await expect(
+      invokeLocalRpcService(
+        "role.model.list",
+        { workspaceId: workspace.id, source: "project" },
+        { paths, db },
+      ),
+    ).resolves.toMatchObject({ entries: [{ modelType: "verification", model: "test/reviewer" }] });
+    await expect(
+      invokeLocalRpcService(
+        "role.model.delete",
+        { workspaceId: workspace.id, roleRef: firstCreate.role.ref, source: "project" },
+        { paths, db },
+      ),
+    ).resolves.toMatchObject({ deleted: true, source: "project" });
 
     const skills = await invokeLocalRpcService(
       "skill.list",

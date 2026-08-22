@@ -1,6 +1,8 @@
 import type { Handle } from "@sveltejs/kit";
 import { error, redirect } from "@sveltejs/kit";
 
+import { localeCookieName, resolveLocale } from "$lib/i18n";
+
 import {
   resolveSparkWebToken,
   resolveSparkWebRequestTrust,
@@ -32,7 +34,16 @@ export const handle: Handle = async ({ event, resolve }) => {
     ? sparkWebShareRequestTrustError({ request: event.request, trust })
     : sparkWebRequestTrustError({ request: event.request, authSource, trust });
   if (trustError) error(403, trustError);
-  if (shareRequest) return resolve(event);
+  const locale = resolveLocale({
+    requestedLocale: event.url.searchParams.get("lang"),
+    cookieLocale: event.cookies.get(localeCookieName),
+    acceptLanguage: event.request.headers.get("accept-language"),
+  });
+  const resolveLocalized = () =>
+    resolve(event, {
+      transformPageChunk: ({ html }) => html.replace("%spark.locale%", locale),
+    });
+  if (shareRequest) return resolveLocalized();
   const provided = tokenFromRequest(credentials);
   if (!tokensMatch(expected, provided)) {
     error(401, "Spark web token required");
@@ -49,5 +60,5 @@ export const handle: Handle = async ({ event, resolve }) => {
     next.searchParams.delete(SPARK_WEB_TOKEN_QUERY);
     redirect(303, `${next.pathname}${next.search}`);
   }
-  return resolve(event);
+  return resolveLocalized();
 };

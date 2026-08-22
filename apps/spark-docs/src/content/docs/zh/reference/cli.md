@@ -62,10 +62,11 @@ spark hub --help
 
 ## 本地 Web 工作台
 
-`spark web` 启动本地单 workspace 浏览器工作台。它默认绑定回环、需要一次性
-token，并通过 `spark-daemon-client` 连接 Spark daemon。非回环 `--host` 必须
-配合可重复的 `--trusted-host`；服务器会拒绝不可信 Host/Origin 和跨站 mutation。
-Hub 仍是跨 workspace 的浏览器界面。
+`spark web` 启动本地浏览器工作台，列出绑定到同一 daemon 的全部 workspace。
+它默认绑定回环、需要一次性 token，并通过 `spark-daemon-client` 连接 Spark
+daemon。非回环 `--host` 必须配合可重复的 `--trusted-host`；服务器会拒绝不可信
+Host、Origin、Fetch Metadata、token 和跨站 mutation 来源。Hub 仍是多 daemon
+代理与管理界面。
 
 ```bash
 spark web
@@ -74,7 +75,7 @@ spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
 ```
 
 额外的 `spark web-dsh` 命令会启动独立打包、基于 DSH 宿主的 Spark 产品应用，不会修改
-`spark web`：
+`spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888

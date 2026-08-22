@@ -56,7 +56,15 @@ export const localRpcServiceHandlerMethodGroups = {
   workbench: ["search.global", "session.search", "session.export"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],
   artifact: ["artifact.list", "artifact.read"],
-  agentCatalog: ["role.list", "role.create", "skill.list"],
+  agentCatalog: [
+    "role.list",
+    "role.create",
+    "role.model.list",
+    "role.model.get",
+    "role.model.set",
+    "role.model.delete",
+    "skill.list",
+  ],
   channel: ["channel.status", "channel.configure", "channel.reload", "channel.notify"],
   human: ["human.interaction.list", "human.interaction.respond"],
   turn: [

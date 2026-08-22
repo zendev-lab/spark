@@ -14,6 +14,7 @@ vi.mock("$lib/live-events", () => ({
 }));
 vi.mock("$lib/web-rpc", () => ({ webRpc: mocks.webRpc }));
 
+import { getDictionary } from "$lib/i18n";
 import SessionPage from "./+page.svelte";
 
 type SessionPageData = ComponentProps<typeof SessionPage>["data"];
@@ -31,6 +32,7 @@ function deferred<T>() {
 function sessionData(sessionId: string, requestedMessageId: string | null = null): SessionPageData {
   const updatedAt = "2026-08-22T00:00:00.000Z";
   return {
+    messages: getDictionary("en"),
     window: {
       snapshot: {
         sessionId,
@@ -99,6 +101,23 @@ function sessionDataWithEarlierHistory(sessionId: string, requestedMessageId: st
     hasEarlierMessages: true,
     nextBeforeMessageId: "latest",
   };
+  return data;
+}
+
+function sessionDataWithMemoryRef(sessionId: string) {
+  const data = sessionData(sessionId);
+  data.window.snapshot.messages = [
+    {
+      version: 4,
+      id: `memory-${sessionId}`,
+      role: "assistant",
+      text: "Use memory:shared",
+      status: "done",
+      metadata: {},
+    },
+  ];
+  data.window.history.loadedMessages = 1;
+  data.window.history.totalMessages = 1;
   return data;
 }
 
@@ -247,6 +266,44 @@ describe("Session page owner state", () => {
     await expect.element(screen.getByText(/keep\.txt/u)).toBeVisible();
     expect(mocks.attachWebSessionEvents).toHaveBeenCalledTimes(1);
     expect(screen.container.textContent).not.toContain("stale query result");
+    await screen.unmount();
+  });
+
+  it("does not let an old feedback request overwrite a newer request after A to B to A", async () => {
+    const previousResponse = deferred<{ invocationId: string }>();
+    const currentResponse = deferred<{ invocationId: string }>();
+    let feedbackSubmits = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") {
+        feedbackSubmits += 1;
+        return feedbackSubmits === 1 ? previousResponse.promise : currentResponse.promise;
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionDataWithMemoryRef("a") });
+    const helpfulButton = () =>
+      screen.getByRole("button", {
+        name: "Mark memory reference helpful: memory:shared",
+      });
+
+    await helpfulButton().click();
+    await screen.rerender({ data: sessionDataWithMemoryRef("b") });
+    await screen.rerender({ data: sessionDataWithMemoryRef("a") });
+    await helpfulButton().click();
+    await expect.poll(() => feedbackSubmits).toBe(2);
+    await expect.element(helpfulButton()).toBeDisabled();
+
+    previousResponse.resolve({ invocationId: "stale-a-feedback" });
+
+    await expect.element(helpfulButton()).toBeDisabled();
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Sending memory feedback…");
+
+    currentResponse.resolve({ invocationId: "current-a-feedback" });
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Memory feedback submitted as a visible Session turn.");
+    await expect.element(helpfulButton()).toBeEnabled();
     await screen.unmount();
   });
 });

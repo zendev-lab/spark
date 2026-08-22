@@ -151,12 +151,41 @@ const agentCatalogInvokers = {
       sparkLocalRpcProcedureSchemas["role.create"].output,
       client.role.create(input, options),
     ),
+  "role.model.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.list"].output,
+      client.role.model.list(input, options),
+    ),
+  "role.model.get": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.get"].output,
+      client.role.model.get(input, options),
+    ),
+  "role.model.set": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.set"].output,
+      client.role.model.set(input, options),
+    ),
+  "role.model.delete": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["role.model.delete"].output,
+      client.role.model.delete(input, options),
+    ),
   "skill.list": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["skill.list"].output,
       client.skill.list(input, options),
     ),
-} satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "role.list" | "role.create" | "skill.list">;
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  | "role.list"
+  | "role.create"
+  | "role.model.list"
+  | "role.model.get"
+  | "role.model.set"
+  | "role.model.delete"
+  | "skill.list"
+>;
 
 const daemonChannelTurnInvokers = {
   "daemon.status": (client, input, options) =>

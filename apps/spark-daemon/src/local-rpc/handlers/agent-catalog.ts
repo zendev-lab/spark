@@ -1,8 +1,12 @@
 import {
   createDefaultRoleRegistry,
   createRoleSpec,
+  defaultProjectRoleModelSettingsStore,
   defaultProjectRoleStore,
+  defaultUserRoleModelSettingsStore,
   hydrateDefaultRoleRegistry,
+  resolveRoleModelSetting,
+  type RoleModelSettingsSource,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
 import { SparkSkillResolver, type SparkSkill } from "@zendev-lab/spark-roles/skill-resolver";
@@ -10,12 +14,22 @@ import type { SparkRoleCatalogEntry, SparkSkillCatalogEntry } from "@zendev-lab/
 
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
+import { requireModelControl } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
 type AgentCatalogRequest = Extract<
   LocalRpcServiceRequest,
-  { method: "role.list" | "role.create" | "skill.list" }
+  {
+    method:
+      | "role.list"
+      | "role.create"
+      | "role.model.list"
+      | "role.model.get"
+      | "role.model.set"
+      | "role.model.delete"
+      | "skill.list";
+  }
 >;
 
 export async function handleAgentCatalogRequest(
@@ -48,6 +62,63 @@ export async function handleAgentCatalogRequest(
       roles: registry.list().map(roleEntry),
     };
   }
+  if (request.method === "role.model.list") {
+    const stores = roleModelStores(workspaceRoot, request.params.source);
+    const entries = (await Promise.all(stores.map((store) => store.loadAll()))).flat();
+    return { workspaceId: request.params.workspaceId, entries };
+  }
+
+  if (
+    request.method === "role.model.get" ||
+    request.method === "role.model.set" ||
+    request.method === "role.model.delete"
+  ) {
+    const role = registry.has(request.params.roleRef)
+      ? registry.get(request.params.roleRef)
+      : undefined;
+    if (!role) {
+      if (request.method === "role.model.get") {
+        return { workspaceId: request.params.workspaceId, role: null, setting: null };
+      }
+      throw new SparkDaemonControlError(
+        "role_not_found",
+        `Role ${request.params.roleRef} is not available in workspace ${request.params.workspaceId}.`,
+      );
+    }
+    if (request.method === "role.model.get") {
+      const setting = await resolveRoleModelSetting({
+        roleRef: role.ref,
+        roleId: role.id,
+        modelType: role.modelType,
+        projectStore: defaultProjectRoleModelSettingsStore(workspaceRoot),
+        userStore: defaultUserRoleModelSettingsStore(),
+      });
+      return {
+        workspaceId: request.params.workspaceId,
+        role: roleEntry(role),
+        setting:
+          setting?.modelType && (setting.source === "project" || setting.source === "user")
+            ? { modelType: setting.modelType, model: setting.model, source: setting.source }
+            : null,
+      };
+    }
+    const store = roleModelStore(workspaceRoot, request.params.source);
+    if (request.method === "role.model.delete") {
+      return {
+        workspaceId: request.params.workspaceId,
+        role: roleEntry(role),
+        source: request.params.source,
+        deleted: await store.delete(role.modelType),
+      };
+    }
+    await validateAvailableRoleModel(context, request.params.model);
+    return {
+      workspaceId: request.params.workspaceId,
+      role: roleEntry(role),
+      setting: await store.save(role.modelType, request.params.model),
+    };
+  }
+
   const existing = registry.list().find((role) => role.id === request.params.id);
   if (existing) {
     return { workspaceId: request.params.workspaceId, created: false, role: roleEntry(existing) };
@@ -77,6 +148,37 @@ export async function handleAgentCatalogRequest(
     return { workspaceId: request.params.workspaceId, created: false, role: roleEntry(winner) };
   }
   return { workspaceId: request.params.workspaceId, created: true, role: roleEntry(role) };
+}
+
+function roleModelStore(workspaceRoot: string, source: RoleModelSettingsSource) {
+  return source === "project"
+    ? defaultProjectRoleModelSettingsStore(workspaceRoot)
+    : defaultUserRoleModelSettingsStore();
+}
+
+function roleModelStores(workspaceRoot: string, source?: RoleModelSettingsSource) {
+  return source
+    ? [roleModelStore(workspaceRoot, source)]
+    : [defaultProjectRoleModelSettingsStore(workspaceRoot), defaultUserRoleModelSettingsStore()];
+}
+
+async function validateAvailableRoleModel(
+  context: LocalRpcDispatchContext,
+  model: string,
+): Promise<void> {
+  const snapshot = await requireModelControl(context.options).snapshot();
+  const entry = snapshot.providers
+    .flatMap((provider) => provider.models)
+    .find((candidate) => `${candidate.model.providerName}/${candidate.model.modelId}` === model);
+  if (!entry) {
+    throw new SparkDaemonControlError("model_not_found", `Unknown role model ${model}.`);
+  }
+  if (!entry.available) {
+    throw new SparkDaemonControlError(
+      "model_unavailable",
+      `Role model ${model} is unavailable: ${entry.unavailableReason ?? "authentication required"}.`,
+    );
+  }
 }
 
 function roleEntry(role: RoleSpec): SparkRoleCatalogEntry {

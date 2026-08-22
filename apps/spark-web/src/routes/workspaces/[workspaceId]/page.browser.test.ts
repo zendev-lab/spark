@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("$app/navigation", () => ({ goto: mocks.goto }));
 vi.mock("$lib/web-rpc", () => ({ webRpc: mocks.webRpc }));
 
+import { getDictionary } from "$lib/i18n";
 import WorkspacePage from "./+page.svelte";
 
 function deferred<T>() {
@@ -23,6 +24,7 @@ function deferred<T>() {
 
 function workspaceData(workspaceId: string) {
   return {
+    messages: getDictionary("en"),
     workspace: {
       id: workspaceId,
       displayName: `Workspace ${workspaceId}`,
@@ -57,6 +59,7 @@ function workspaceData(workspaceId: string) {
         },
       ],
     },
+    roleModelSettings: { entries: [] },
     skillCatalog: { skills: [] },
     modelCatalog: { providers: [] },
   } as never;
@@ -129,6 +132,41 @@ describe("Workspace page owner state", () => {
     currentResponse.resolve({ created: true, role: { ref: "role:project/role-b" } });
     await expect.element(screen.getByRole("status")).toHaveTextContent("role:project/role-b");
     await expect.element(screen.getByRole("button", { name: "Create Role" })).toBeEnabled();
+    await screen.unmount();
+  });
+
+  it("drops a previous workspace model response without clearing the current request", async () => {
+    const previousResponse = deferred<{
+      role: { id: string };
+      setting: { model: string; source: "project" } | null;
+    }>();
+    const currentResponse = deferred<{
+      role: { id: string };
+      setting: { model: string; source: "project" } | null;
+    }>();
+    mocks.webRpc
+      .mockReturnValueOnce(previousResponse.promise)
+      .mockReturnValueOnce(currentResponse.promise);
+    const screen = await render(WorkspacePage, { data: workspaceData("a") });
+
+    await screen.getByRole("button", { name: "Inspect" }).click();
+    await screen.rerender({ data: workspaceData("b") });
+    await screen.getByRole("button", { name: "Inspect" }).click();
+    await expect.element(screen.getByRole("button", { name: "Inspect" })).toBeDisabled();
+
+    previousResponse.reject(new Error("private workspace A model failure"));
+
+    await expect.element(screen.getByRole("button", { name: "Inspect" })).toBeDisabled();
+    expect(screen.container.textContent).not.toContain("private workspace A model failure");
+
+    currentResponse.resolve({
+      role: { id: "executor" },
+      setting: { model: "provider/model-b", source: "project" },
+    });
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("executor: provider/model-b · project");
+    await expect.element(screen.getByRole("button", { name: "Inspect" })).toBeEnabled();
     await screen.unmount();
   });
 

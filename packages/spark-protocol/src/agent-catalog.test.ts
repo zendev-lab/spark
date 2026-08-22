@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sparkRoleCreateRequestSchema } from "./agent-catalog.ts";
+import { sparkRoleCreateRequestSchema, sparkRoleModelSetRequestSchema } from "./agent-catalog.ts";
 
 describe("Role and Skill catalog contract", () => {
   it("accepts bounded project Role proposals and rejects unsafe ids", () => {
@@ -21,6 +21,27 @@ describe("Role and Skill catalog contract", () => {
         description: "unsafe",
         systemPrompt: "unsafe",
         modelType: "custom",
+      }),
+    ).toThrow();
+  });
+  it("keeps Role model mutations scoped and provider-qualified", () => {
+    expect(
+      sparkRoleModelSetRequestSchema.parse({
+        workspaceId: "workspace-1",
+        roleRef: "role:project-reviewer",
+        model: "test/reviewer",
+      }),
+    ).toEqual({
+      workspaceId: "workspace-1",
+      roleRef: "role:project-reviewer",
+      model: "test/reviewer",
+      source: "project",
+    });
+    expect(() =>
+      sparkRoleModelSetRequestSchema.parse({
+        workspaceId: "workspace-1",
+        roleRef: "role:project-reviewer",
+        model: "reviewer",
       }),
     ).toThrow();
   });

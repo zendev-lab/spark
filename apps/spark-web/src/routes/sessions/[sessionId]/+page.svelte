@@ -47,6 +47,7 @@
   } from "@zendev-lab/spark-protocol";
   import { conversationMessageFromView } from "$lib/conversation";
   import { attachWebSessionEvents } from "$lib/live-events";
+  import { explicitMemoryRefs, sparkWebTurnMessageMetadata } from "$lib/memory-feedback";
   import {
     parsePendingHumanInteractions,
     type PendingHumanInteraction,
@@ -54,6 +55,8 @@
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
+  let copy = $derived(data.messages.web.session);
+  let workbenchCopy = $derived(data.messages.shared.workbench);
   let windowOverride = $state<SparkSessionSnapshotPage | null>(null);
   let window = $derived(
     windowOverride?.snapshot.sessionId === data.window.snapshot.sessionId
@@ -93,6 +96,8 @@
     format: string;
     content: string;
   } | null>(null);
+  let artifactPreviewElement = $state<HTMLElement>();
+  let artifactPreviewReturnFocus: HTMLElement | null = null;
   let askError = $state<string | null>(null);
   let askWaits = $state<PendingHumanInteraction[]>([]);
   let askRefreshToken = 0;
@@ -110,6 +115,8 @@
   let revealSearchRequestToken = 0;
   let shareHref = $state<string | null>(null);
   let sharing = $state(false);
+  let memoryFeedbackBusy = $state("");
+  let memoryFeedbackRequestToken = 0;
   let activeOwnerSessionId: string | undefined;
   let detachSessionEvents: (() => void) | undefined;
   const notifiedAskIds = new Set<string>();
@@ -128,51 +135,73 @@
     const query = trimmed.slice(1).toLowerCase();
     return sparkSlashCommandDescriptors
       .filter((item) => item.name.startsWith(query) || query.length === 0)
-      .map((item) => ({
-        id: item.name,
-        command: `/${item.name}`,
-        title: `/${item.name}`,
-        description: item.actionBar.title,
-      }));
+      .map((item) => {
+        const titles = data.messages.shared.workbench.slashActions.titles as Record<
+          string,
+          string
+        >;
+        return {
+          id: item.name,
+          command: `/${item.name}`,
+          title: `/${item.name}`,
+          description: titles[item.actionBar.id] ?? item.actionBar.title,
+        };
+      });
   });
-  let slashActionBar = $derived(sparkSlashActionBarForInput(prompt));
+  let slashActionBar = $derived.by(() => {
+    const view = sparkSlashActionBarForInput(prompt);
+    if (!view) return undefined;
+    const messages = data.messages.shared.workbench.slashActions;
+    const titles = messages.titles as Record<string, string>;
+    const descriptions = messages.descriptions as Record<string, string>;
+    const actions = messages.actions as Record<string, string>;
+    return {
+      ...view,
+      title: titles[view.id] ?? view.title,
+      description: descriptions[view.id] ?? view.description,
+      actions: view.actions.map((action) => ({
+        ...action,
+        label: actions[action.id] ?? action.label,
+      })),
+    };
+  });
   let messages = $derived(snapshot.messages.map(conversationMessageFromView));
   let activity = $derived(resolveSessionActivityState({ session: snapshot, projectedTurns: [] }));
   let currentSession = $derived(treeSessions.find((session) => session.sessionId === snapshot.sessionId));
   let currentWorkspaceId = $derived(currentSession?.scope.kind === "workspace" ? currentSession.scope.workspaceId : undefined);
-  const partLabels: ConversationPartLabels = {
-    reasoning: "Reasoning",
-    reasoningStreaming: "Reasoning",
-    chain: "Working",
-    chainStreaming: "Working",
-    chainEmpty: "No steps",
-    chainFailed: "Failed",
-    tool: "Tool",
-    task: "Task",
-    approval: "Approval",
-    unknown: "Unknown",
-    collapse: "Collapse",
-    expand: "Open",
-    budgetExhausted: "Budget exhausted",
-    budgetExhaustedHint: "This turn stopped because the agent loop hit its roundtrip budget.",
-    runtimeControl: "Runtime",
-    runtimeTick: "Tick",
-    runtimeRequest: "Request",
-    runtimeResult: "Result",
-  };
-  const statusLabels = {
-    bar: "Session status",
-    workingDirectory: "Working directory",
-    branch: "Branch",
-    inputTokens: "In",
-    outputTokens: "Out",
-    cacheReadTokens: "Cache read",
-    cacheWriteTokens: "Cache write",
-    cacheHit: "Cache hit",
-    cost: "Cost",
-    context: "Context",
-  };
-  const statusLabel = (status: string) => status;
+  let partLabels: ConversationPartLabels = $derived({
+    reasoning: workbenchCopy.reasoning,
+    reasoningStreaming: workbenchCopy.reasoningStreaming,
+    chain: workbenchCopy.chain,
+    chainStreaming: workbenchCopy.chainStreaming,
+    chainEmpty: workbenchCopy.chainEmpty,
+    chainFailed: workbenchCopy.chainFailed,
+    tool: workbenchCopy.tool,
+    task: workbenchCopy.task,
+    approval: workbenchCopy.approval,
+    unknown: workbenchCopy.unknownPart,
+    collapse: workbenchCopy.collapse,
+    expand: workbenchCopy.expand,
+    budgetExhausted: workbenchCopy.budgetExhausted,
+    budgetExhaustedHint: workbenchCopy.budgetExhaustedHint,
+    runtimeControl: workbenchCopy.runtimeControl,
+    runtimeTick: workbenchCopy.runtimeTick,
+    runtimeRequest: workbenchCopy.runtimeRequest,
+    runtimeResult: workbenchCopy.runtimeResult,
+  });
+  let statusLabels = $derived({
+    bar: workbenchCopy.runtimeStatusBar,
+    workingDirectory: workbenchCopy.workingDirectory,
+    branch: workbenchCopy.gitBranch,
+    inputTokens: workbenchCopy.inputTokens,
+    outputTokens: workbenchCopy.outputTokens,
+    cacheReadTokens: workbenchCopy.cacheReadTokens,
+    cacheWriteTokens: workbenchCopy.cacheWriteTokens,
+    cacheHit: workbenchCopy.cacheHit,
+    cost: workbenchCopy.cost,
+    context: workbenchCopy.contextUsage,
+  });
+  const statusLabel = (status: string) => data.messages.shared.status[status] ?? status;
 
   async function refreshAsks(sessionId = snapshot.sessionId) {
     const refreshToken = ++askRefreshToken;
@@ -234,6 +263,8 @@
     searchError = null;
     searchRequestToken += 1;
     revealSearchRequestToken += 1;
+    memoryFeedbackRequestToken += 1;
+    memoryFeedbackBusy = "";
     shareHref = null;
     sharing = false;
     notifiedAskIds.clear();
@@ -262,6 +293,20 @@
   $effect(() => () => detachSessionEvents?.());
 
   $effect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (artifactPreview) {
+        event.preventDefault();
+        void closeArtifactPreview();
+      } else if (searchOpen) {
+        searchOpen = false;
+      }
+    };
+    addEventListener("keydown", keydown);
+    return () => removeEventListener("keydown", keydown);
+  });
+
+  $effect(() => {
     const ownerSessionId = data.window.snapshot.sessionId;
     const messageId = data.requestedMessageId;
     if (messageId) void revealSearchMatch(messageId, ownerSessionId);
@@ -287,6 +332,7 @@
           sessionId: ownerSessionId,
           prompt: text,
           ...(attachments.length > 0 ? { attachments } : {}),
+          messageMetadata: sparkWebTurnMessageMetadata(),
         });
       }
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
@@ -301,6 +347,58 @@
       };
     } finally {
       if (data.window.snapshot.sessionId === ownerSessionId) submitting = false;
+    }
+  }
+
+  function memoryRefsInMessage(item: ConversationMessageView): string[] {
+    if (item.actor !== "spark") return [];
+    return explicitMemoryRefs(
+      item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+    );
+  }
+
+  async function submitMemoryFeedback(
+    memoryRef: string,
+    outcome: "positive" | "negative",
+  ) {
+    const feedbackKey = `${memoryRef}:${outcome}`;
+    if (memoryFeedbackBusy) return;
+    const ownerSessionId = snapshot.sessionId;
+    const requestToken = ++memoryFeedbackRequestToken;
+    memoryFeedbackBusy = feedbackKey;
+    actionFeedback = { tone: "status", message: copy.memoryFeedbackSending };
+    try {
+      await webRpc("turn.submit", {
+        sessionId: ownerSessionId,
+        prompt: `memory feedback ${outcome} ${memoryRef}`,
+        messageMetadata: sparkWebTurnMessageMetadata(),
+      });
+      if (
+        data.window.snapshot.sessionId !== ownerSessionId ||
+        requestToken !== memoryFeedbackRequestToken
+      ) {
+        return;
+      }
+      actionFeedback = { tone: "status", message: copy.memoryFeedbackSent };
+    } catch (caught) {
+      if (
+        data.window.snapshot.sessionId !== ownerSessionId ||
+        requestToken !== memoryFeedbackRequestToken
+      ) {
+        return;
+      }
+      actionFeedback = {
+        tone: "error",
+        message: caught instanceof Error ? caught.message : String(caught),
+      };
+    } finally {
+      if (
+        data.window.snapshot.sessionId === ownerSessionId &&
+        requestToken === memoryFeedbackRequestToken &&
+        memoryFeedbackBusy === feedbackKey
+      ) {
+        memoryFeedbackBusy = "";
+      }
     }
   }
 
@@ -835,6 +933,10 @@
       return;
     }
     const artifact = snapshot.artifacts.find((entry) => entry.ref === artifactRef);
+    artifactPreviewReturnFocus =
+      globalThis.document?.activeElement instanceof HTMLElement
+        ? globalThis.document.activeElement
+        : null;
     actionFeedback = null;
     artifactPreview = null;
     try {
@@ -853,6 +955,8 @@
         format: artifact?.format ?? "text",
         content,
       };
+      await tick();
+      artifactPreviewElement?.focus();
     } catch (error) {
       if (
         requestToken !== artifactPreviewRequestToken ||
@@ -862,6 +966,12 @@
       }
       actionFeedback = { tone: "error", message: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  async function closeArtifactPreview() {
+    artifactPreview = null;
+    await tick();
+    artifactPreviewReturnFocus?.focus();
   }
 
   function mediaHref(item: ConversationMessageView, contentIndex: number): string {
@@ -883,7 +993,7 @@
 
 {#snippet queueActions(item: { id: string })}
   <button type="button" class="queue-remove" onclick={() => void cancelQueuedTurn(item.id)}>
-    Remove
+    {copy.removeQueued}
   </button>
 {/snippet}
 
@@ -894,18 +1004,7 @@
       selectedSessionId={snapshot.sessionId}
       includeArchived={true}
       {busySessionId}
-      labels={{
-        region: "Session tree",
-        search: "Search sessions",
-        empty: "No matching sessions",
-        untitled: "Untitled session",
-        archived: "Archived",
-        orphan: "Missing parent",
-        cycle: "Lineage cycle",
-        archive: "Archive",
-        restore: "Restore",
-        close: "Close",
-      }}
+      labels={copy.tree}
       hrefFor={(sessionId) => `/sessions/${sessionId}`}
       onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
       onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
@@ -914,10 +1013,10 @@
     {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
   </aside>
   <section class="workbench">
-  <div class="session-actions" aria-label="Session actions">
-    <button type="button" onclick={() => (searchOpen = !searchOpen)}>Search history</button>
+  <div class="session-actions" aria-label={copy.actions}>
+    <button type="button" onclick={() => (searchOpen = !searchOpen)}>{copy.searchHistory}</button>
     <details>
-      <summary>Export</summary>
+      <summary>{copy.export}</summary>
       <div class="export-menu">
         {#each ["jsonl", "json", "text", "html"] as format}
           <a href={`/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/export?format=${format}`}>{format.toUpperCase()}</a>
@@ -925,15 +1024,15 @@
       </div>
     </details>
     <button type="button" onclick={() => void createLocalShare()} disabled={sharing}>
-      {sharing ? "Sharing…" : "Local Share"}
+      {sharing ? copy.sharing : copy.localShare}
     </button>
-    {#if shareHref}<a href={shareHref} target="_blank" rel="noreferrer">Open read-only Share</a>{/if}
+    {#if shareHref}<a href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</a>{/if}
   </div>
   {#if searchOpen}
-    <section class="history-search" aria-label="Full Session history search">
+    <section class="history-search" aria-label={copy.historySearchRegion}>
       <form onsubmit={(event) => void searchHistory(event)}>
-        <label for="session-history-search">Search every durable message</label>
-        <div><input id="session-history-search" type="search" bind:value={searchQuery} required /><button type="submit" disabled={searching}>{searching ? "Searching…" : "Search"}</button></div>
+        <label for="session-history-search">{copy.historySearchLabel}</label>
+        <div><input id="session-history-search" type="search" bind:value={searchQuery} required /><button type="submit" disabled={searching}>{searching ? data.messages.web.shell.searching : data.messages.web.shell.search}</button></div>
       </form>
       {#if searchError}<p role="alert">{searchError}</p>{/if}
       {#if searchResults.length > 0}
@@ -943,19 +1042,19 @@
           {/each}
         </ul>
       {:else if searchQuery && !searching}
-        <p>No matching messages.</p>
+        <p>{copy.noSearchMatches}</p>
       {/if}
     </section>
   {/if}
   {#if window.history.hasEarlierMessages}
     <div class="history-controls">
       <button type="button" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
-        {loadingEarlier ? "Loading earlier messages…" : `Load earlier (${window.history.earlierMessages})`}
+        {loadingEarlier ? copy.loadingEarlier : `${copy.loadEarlier} (${window.history.earlierMessages})`}
       </button>
       {#if historyError}<span role="alert">{historyError}</span>{/if}
     </div>
   {/if}
-  <ConversationViewport label="Transcript" followKey={snapshot.updatedAt} jumpToLatestLabel="Jump to latest">
+  <ConversationViewport label={copy.transcript} followKey={snapshot.updatedAt} jumpToLatestLabel={copy.jumpToLatest}>
     {#each messages as item (item.id)}
       <MessageShell
         id={item.id}
@@ -1041,13 +1140,22 @@
             <p>{partLabels.unknown}: {part.label}</p>
           {/if}
         {/each}
+        {#if memoryRefsInMessage(item).length > 0}
+          <div class="memory-feedback">
+            {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
+              <code>{memoryRef}</code>
+              <button type="button" aria-label={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}>👍</button>
+              <button type="button" aria-label={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}>👎</button>
+            {/each}
+          </div>
+        {/if}
       </MessageShell>
     {/each}
   </ConversationViewport>
 
   <SessionQueue
     items={activity.pendingTurns.map((turn) => ({ id: turn.invocationId, text: turn.prompt }))}
-    labels={{ region: "Queue", queued: "Queued", next: "Running" }}
+    labels={{ region: copy.queue, queued: copy.queued, next: copy.running }}
     hasRunningTurn={activity.phase === "running"}
     actions={queueActions}
   />
@@ -1061,16 +1169,7 @@
           prompt={wait.prompt}
           mode={wait.mode}
           questions={wait.questions}
-          labels={{
-            region: "Pending human interaction",
-            customAnswer: "Custom answer",
-            customPlaceholder: "Enter an answer",
-            selectPlaceholder: "Select an option",
-            required: "Answer every required question.",
-            answer: "Answer",
-            answering: "Sending…",
-            cancel: "Cancel",
-          }}
+          labels={copy.human}
           onRespond={(response) => answerAsk(wait.interactionRequestId, response)}
         />
       {/each}
@@ -1081,11 +1180,11 @@
     <Composer
       id="spark-web-composer"
       bind:value={prompt}
-      placeholder="Message Spark. Use / for commands."
-      submitLabel="Send"
-      submittingLabel="Sending"
-      ariaLabel="Prompt"
-      multilineHint="⌘/Ctrl+Enter sends"
+      placeholder={copy.prompt}
+      submitLabel={copy.send}
+      submittingLabel={copy.sending}
+      ariaLabel={copy.promptLabel}
+      multilineHint={copy.sendHint}
       submitting={submitting}
     >
       {#snippet attachments()}
@@ -1093,7 +1192,7 @@
           {#each pendingAttachments as attachment, index (`${attachment.name}:${attachment.size}:${index}`)}
             <span>
               {attachment.name} · {Math.ceil(attachment.size / 1024)} KiB
-              <button type="button" aria-label={`Remove ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <button type="button" aria-label={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}>×</button>
             </span>
           {/each}
           {#if attachmentError}<span class="attachment-error" role="alert">{attachmentError}</span>{/if}
@@ -1101,7 +1200,7 @@
       {/snippet}
       {#snippet actions()}
         <label class="attach-button">
-          <span>Add files</span>
+          <span>{copy.addFiles}</span>
           <input type="file" multiple onchange={(event) => void addAttachments(event)} />
         </label>
       {/snippet}
@@ -1111,23 +1210,23 @@
             id="spark-web-model"
             groups={modelGroups}
             bind:value={modelValue}
-            label="Model"
-            title="Model"
-            description="Choose a daemon model"
-            placeholder="Select model"
-            searchPlaceholder="Search models"
-            emptyLabel="No models"
-            closeLabel="Close"
-            clearSearchLabel="Clear"
-            selectedLabel="Selected"
+            label={copy.model}
+            title={copy.model}
+            description={copy.chooseModel}
+            placeholder={copy.selectModel}
+            searchPlaceholder={copy.searchModels}
+            emptyLabel={copy.noModels}
+            closeLabel={copy.close}
+            clearSearchLabel={copy.clear}
+            selectedLabel={copy.selected}
             onCommit={commitModelValue}
           />
           <button type="button" onclick={stopCurrentTurn} disabled={!activity.runningTurnId}>
-            Stop
+            {copy.stop}
           </button>
-          <button type="button" onclick={retryCurrentTurn}>Retry</button>
+          <button type="button" onclick={retryCurrentTurn}>{copy.retry}</button>
           <label>
-            Thinking
+            {copy.thinking}
             <select
               value={snapshot.thinkingLevel ?? "high"}
               onchange={(event) => {
@@ -1181,36 +1280,17 @@
   </section>
   <SessionWorkPanel
     {snapshot}
-    labels={{
-      region: "Session workbench",
-      work: "Work",
-      activity: "Activity",
-      details: "Details",
-      emptyWork: "No Goal, Repro, Loop, or Task is bound to this Session.",
-      emptyActivity: "No Tool or Workflow activity is projected.",
-      emptyDetails: "No Artifacts are projected.",
-      goal: "Goal",
-      repro: "Repro",
-      loop: "Loop",
-      workflow: "Workflow",
-      task: "Task",
-      toolInput: "Input",
-      toolOutput: "Output",
-      toolError: "Error",
-      toolEmpty: "No Tool details",
-      artifactPreview: "Preview",
-      openArtifact: "Open",
-    }}
+    labels={copy.work}
     onOpenArtifact={currentWorkspaceId ? openArtifact : undefined}
   />
 </div>
 
 {#if artifactPreview}
   <div class="preview-backdrop" role="presentation">
-    <div class="artifact-preview" role="dialog" aria-modal="true" tabindex="-1" aria-label={`Artifact preview: ${artifactPreview.title}`}>
+    <div bind:this={artifactPreviewElement} class="artifact-preview" role="dialog" aria-modal="true" tabindex="-1" aria-label={`Artifact preview: ${artifactPreview.title}`}>
       <header>
         <div><strong>{artifactPreview.title}</strong><code>{artifactPreview.ref}</code></div>
-        <button type="button" onclick={() => (artifactPreview = null)}>Close</button>
+        <button type="button" onclick={() => void closeArtifactPreview()}>{copy.close}</button>
       </header>
       {#if artifactPreview.format === "markdown"}
         <SafeMarkdown source={artifactPreview.content} />
@@ -1328,6 +1408,27 @@
     display: flex;
     gap: 8px;
     justify-content: center;
+  }
+  .memory-feedback {
+    align-items: center;
+    color: var(--color-ink-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .memory-feedback code {
+    font-size: 11px;
+  }
+  .memory-feedback button {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-sm);
+    cursor: pointer;
+    padding: 3px 5px;
+  }
+  .memory-feedback button:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
   @media (max-width: 760px) {
     .workbench-shell {

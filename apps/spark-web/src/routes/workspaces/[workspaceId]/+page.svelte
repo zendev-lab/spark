@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { goto } from "$app/navigation";
   import { parseSparkModelValue } from "@zendev-lab/spark-protocol";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
@@ -11,6 +12,7 @@
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
+  let copy = $derived(data.messages.web.workspace);
   let creating = $state(false);
   let showCreate = $state(false);
   let createError = $state("");
@@ -24,6 +26,8 @@
   let directoryOpen = $state(false);
   let directoryLoading = $state(false);
   let directoryError = $state("");
+  let directoryDialog = $state<HTMLDialogElement>();
+  let directoryReturnFocus: HTMLElement | null = null;
   let directoryRequestToken = 0;
   let directoryView = $state<{
     cwdArtifactRef?: string;
@@ -44,11 +48,18 @@
   let selectedRoleSkills = $state<string[]>([]);
   let roleCreating = $state(false);
   let roleStatus = $state("");
+  let roleModelEntriesOverride = $state<typeof data.roleModelSettings.entries | null>(null);
+  let roleModelEntries = $derived(roleModelEntriesOverride ?? data.roleModelSettings.entries);
+  let roleModelSource = $state<Record<string, "project" | "user">>({});
+  let roleModelSelection = $state<Record<string, string>>({});
+  let roleModelBusy = $state("");
+  let roleModelStatus = $state("");
   let artifactContent = $state<{ ref: string; title: string; format: string; content: string } | null>(null);
   let artifactError = $state("");
   let artifactLoading = $state(false);
   let sessionCreateToken = 0;
   let roleCreateToken = 0;
+  let roleModelRequestToken = 0;
   let artifactRequestToken = 0;
   const sessions = $derived(
     ordinarySessionsForWorkspace(data.sessions as SparkWebSession[], data.workspace.id),
@@ -58,6 +69,7 @@
     data.workspace.id;
     sessionCreateToken += 1;
     roleCreateToken += 1;
+    roleModelRequestToken += 1;
     artifactRequestToken += 1;
     directoryRequestToken += 1;
     creating = false;
@@ -81,6 +93,11 @@
     selectedRoleSkills = [];
     roleCreating = false;
     roleStatus = "";
+    roleModelEntriesOverride = null;
+    roleModelSource = {};
+    roleModelSelection = {};
+    roleModelBusy = "";
+    roleModelStatus = "";
     artifactContent = null;
     artifactError = "";
     artifactLoading = false;
@@ -96,7 +113,7 @@
       ownerWorkspaceId,
     );
     if (!supervisorSessionId) {
-      createError = "Workspace administrator session is missing on this daemon.";
+      createError = copy.missingAdministrator;
       return;
     }
     let requestedModel: ReturnType<typeof parseSparkModelValue> | undefined;
@@ -173,6 +190,9 @@
     const requestToken = ++directoryRequestToken;
     directoryLoading = true;
     directoryError = "";
+    if (!directoryOpen && globalThis.document?.activeElement instanceof HTMLElement) {
+      directoryReturnFocus = globalThis.document.activeElement;
+    }
     try {
       const view = await webRpc("workspace.directory.list", {
         workspaceId: ownerWorkspaceId,
@@ -188,6 +208,8 @@
       }
       directoryView = view;
       directoryOpen = true;
+      await tick();
+      directoryDialog?.focus();
     } catch (caught) {
       if (
         requestToken !== directoryRequestToken ||
@@ -204,6 +226,12 @@
         directoryLoading = false;
       }
     }
+  }
+
+  async function closeDirectory() {
+    directoryOpen = false;
+    await tick();
+    directoryReturnFocus?.focus();
   }
 
   function parentDirectory(path: string): string {
@@ -280,43 +308,136 @@
       }
     }
   }
+
+  function modelSetting(modelType: string, source: "project" | "user") {
+    return roleModelEntries.find(
+      (entry) => entry.modelType === modelType && entry.source === source,
+    );
+  }
+
+  function ownsRoleModelRequest(ownerWorkspaceId: string, requestToken: number) {
+    return data.workspace.id === ownerWorkspaceId && roleModelRequestToken === requestToken;
+  }
+
+  async function inspectRoleModel(roleRef: string) {
+    if (roleModelBusy) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleModelRequestToken;
+    roleModelBusy = roleRef;
+    roleModelStatus = "";
+    try {
+      const result = await webRpc("role.model.get", {
+        workspaceId: ownerWorkspaceId,
+        roleRef,
+      });
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
+      roleModelStatus = result.setting
+        ? `${result.role?.id ?? roleRef}: ${result.setting.model} · ${result.setting.source}`
+        : `${result.role?.id ?? roleRef}: ${copy.noModelSetting}`;
+    } catch (caught) {
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
+      roleModelStatus = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (ownsRoleModelRequest(ownerWorkspaceId, requestToken)) roleModelBusy = "";
+    }
+  }
+
+  async function saveRoleModel(roleRef: string) {
+    const model = roleModelSelection[roleRef];
+    if (!model || roleModelBusy) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleModelRequestToken;
+    const source = roleModelSource[roleRef] ?? "project";
+    roleModelBusy = roleRef;
+    roleModelStatus = "";
+    try {
+      const result = await webRpc("role.model.set", {
+        workspaceId: ownerWorkspaceId,
+        roleRef,
+        model,
+        source,
+      });
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
+      roleModelEntriesOverride = [
+        ...roleModelEntries.filter(
+          (entry) =>
+            entry.modelType !== result.setting.modelType || entry.source !== result.setting.source,
+        ),
+        result.setting,
+      ];
+      roleModelStatus = `${result.role.id}: ${result.setting.model} · ${result.setting.source}`;
+    } catch (caught) {
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
+      roleModelStatus = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (ownsRoleModelRequest(ownerWorkspaceId, requestToken)) roleModelBusy = "";
+    }
+  }
+
+  async function deleteRoleModel(roleRef: string) {
+    if (roleModelBusy) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleModelRequestToken;
+    const source = roleModelSource[roleRef] ?? "project";
+    roleModelBusy = roleRef;
+    roleModelStatus = "";
+    try {
+      const result = await webRpc("role.model.delete", {
+        workspaceId: ownerWorkspaceId,
+        roleRef,
+        source,
+      });
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
+      if (result.deleted) {
+        roleModelEntriesOverride = roleModelEntries.filter(
+          (entry) => entry.modelType !== result.role.modelType || entry.source !== source,
+        );
+      }
+      roleModelStatus = `${result.role.id}: ${result.deleted ? copy.deleteModel : copy.noModelSetting}`;
+    } catch (caught) {
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
+      roleModelStatus = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      if (ownsRoleModelRequest(ownerWorkspaceId, requestToken)) roleModelBusy = "";
+    }
+  }
 </script>
 
 {#snippet artifactActions(view: { id: string })}
-  <button type="button" class="secondary" onclick={() => void openArtifact(view.id)} disabled={artifactLoading}>Preview</button>
+  <button type="button" class="secondary" onclick={() => void openArtifact(view.id)} disabled={artifactLoading}>{copy.preview}</button>
 {/snippet}
 
 <section class="page">
   <header>
     <div>
-      <p class="crumb"><a href="/">Workspaces</a></p>
+      <p class="crumb"><a href="/">{data.messages.web.shell.workspaces}</a></p>
       <h1>{data.workspace.displayName}</h1>
       <p>{data.workspace.localPath}</p>
     </div>
     <button type="button" onclick={() => (showCreate = !showCreate)} disabled={creating}>
-      {showCreate ? "Hide session form" : "New session"}
+      {showCreate ? copy.hideSessionForm : copy.newSession}
     </button>
   </header>
   {#if showCreate}
     <form class="session-create" onsubmit={(event) => { event.preventDefault(); void createSession(); }}>
-      <h2>Session context</h2>
-      <label>Name<input type="text" bind:value={sessionName} placeholder="optional" /></label>
-      <label>Role<select bind:value={roleRef}>{#each data.roleCatalog.roles as role (role.ref)}<option value={role.ref}>{role.id} · {role.source}</option>{/each}</select></label>
-      <label>Mode<select disabled title="Plan and Fleet require the pending DSH rc.8 daemon-root adapter"><option>execute</option></select></label>
-      <label>Model<select bind:value={modelValue}><option value="">Inherit default</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
-      <label>Thinking<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
-      <label>Working directory<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? "Loading…" : "Browse subdirectory"}</button>{#if cwdRelativePath}<small>Selected: {cwdRelativePath}</small>{/if}</label>
-      <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? "Creating…" : "Create Session"}</button>
-      <p class="hint">Directory choices are daemon-owned Workspace roots or GitChange owning worktrees. Plan/Fleet mode remains disabled until the DSH rc.8 adapter lands.</p>
+      <h2>{copy.context}</h2>
+      <label>{copy.name}<input type="text" bind:value={sessionName} placeholder={data.messages.web.home.optional} /></label>
+      <label>{copy.role}<select bind:value={roleRef}>{#each data.roleCatalog.roles as role (role.ref)}<option value={role.ref}>{role.id} · {role.source}</option>{/each}</select></label>
+      <label>{copy.mode}<select disabled title={copy.modeBlocked}><option>{copy.execute}</option></select></label>
+      <label>{copy.model}<select bind:value={modelValue}><option value="">{copy.inheritDefault}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
+      <label>{copy.thinking}<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
+      <label>{copy.workingDirectory}<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">{copy.workspaceDefault}</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · {copy.owningWorktree}</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</button>{#if cwdRelativePath}<small>{copy.selected}: {cwdRelativePath}</small>{/if}</label>
+      <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? copy.creating : copy.createSession}</button>
+      <p class="hint">{copy.directoryHint}</p>
     </form>
   {/if}
   {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
   {#if directoryOpen && directoryView}
-    <dialog open class="directory-picker" aria-label="Choose Session working directory">
-      <header><div><h2>Choose directory</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => (directoryOpen = false)}>Close</button></header>
+    <dialog bind:this={directoryDialog} open class="directory-picker" aria-label={copy.chooseDirectory} tabindex="-1" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closeDirectory(); } }}>
+      <header><div><h2>{copy.chooseDirectory}</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => void closeDirectory()}>{copy.close}</button></header>
       <div class="directory-actions">
-        <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>Up</button>
-        <button type="button" onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; directoryOpen = false; }}>Use this directory</button>
+        <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>{copy.up}</button>
+        <button type="button" onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; void closeDirectory(); }}>{copy.useDirectory}</button>
       </div>
       <ul>
         {#each directoryView.entries as entry (entry.ref)}
@@ -332,7 +453,7 @@
     <p><a href={`/sessions/${createdSessionId}`}>Open created Session</a></p>
   {/if}
   {#if sessions.length === 0}
-    <p>No sessions in this workspace yet.</p>
+    <p>{copy.noSessions}</p>
   {:else}
     <ul>
       {#each sessions as session (session.sessionId)}
@@ -345,35 +466,57 @@
   {/if}
 
   <details class="role-create">
-    <summary>Create project Role</summary>
+    <summary>{copy.roleCreate}</summary>
     <form onsubmit={(event) => { event.preventDefault(); void createRole(); }}>
-      <label>Role id<input type="text" pattern="[a-z0-9]+([-_/][a-z0-9]+)*" bind:value={roleId} required /></label>
-      <label>Description<input type="text" bind:value={roleDescription} required /></label>
-      <label>Model type<input type="text" bind:value={roleModelType} required /></label>
-      <fieldset><legend>Skills</legend><div class="skill-grid">{#each data.skillCatalog.skills as skill (skill.name)}<label class="checkbox"><input type="checkbox" bind:group={selectedRoleSkills} value={skill.name} /><span><strong>{skill.name}</strong><small>{skill.description}</small></span></label>{/each}</div></fieldset>
-      <label>System prompt<textarea rows="8" bind:value={rolePrompt} required></textarea></label>
-      <button type="submit" disabled={roleCreating}>{roleCreating ? "Creating…" : "Create Role"}</button>
+      <label>{copy.roleId}<input type="text" pattern="[a-z0-9]+([-_/][a-z0-9]+)*" bind:value={roleId} required /></label>
+      <label>{copy.description}<input type="text" bind:value={roleDescription} required /></label>
+      <label>{copy.modelType}<input type="text" bind:value={roleModelType} required /></label>
+      <fieldset><legend>{copy.skills}</legend><div class="skill-grid">{#each data.skillCatalog.skills as skill (skill.name)}<label class="checkbox"><input type="checkbox" bind:group={selectedRoleSkills} value={skill.name} /><span><strong>{skill.name}</strong><small>{skill.description}</small></span></label>{/each}</div></fieldset>
+      <label>{copy.systemPrompt}<textarea rows="8" bind:value={rolePrompt} required></textarea></label>
+      <button type="submit" disabled={roleCreating}>{roleCreating ? copy.creatingRole : copy.createRole}</button>
       {#if roleStatus}<p role="status">{roleStatus}</p>{/if}
-      <p class="hint">Same-name creation is rejected. Existing Role definitions remain file-owned under the project.</p>
+      <p class="hint">{copy.roleHint}</p>
     </form>
   </details>
+
+  <section class="role-models" aria-labelledby="role-model-settings-heading">
+    <header>
+      <div>
+        <h2 id="role-model-settings-heading">{copy.roleModels}</h2>
+        <p>{copy.roleModelsHint}</p>
+      </div>
+    </header>
+    <div class="role-model-grid">
+      {#each data.roleCatalog.roles as role (role.ref)}
+        {@const source = roleModelSource[role.ref] ?? "project"}
+        {@const current = modelSetting(role.modelType, source)}
+        <article>
+          <header><div><strong>{role.id}</strong><code>{role.modelType}</code></div><small>{copy.effectiveModel}: {modelSetting(role.modelType, "project")?.model ?? modelSetting(role.modelType, "user")?.model ?? copy.noModelSetting}</small></header>
+          <label>{copy.source}<select value={source} onchange={(event) => (roleModelSource[role.ref] = (event.currentTarget as HTMLSelectElement).value as "project" | "user")}><option value="project">{copy.project}</option><option value="user">{copy.user}</option></select></label>
+          <label>{copy.model}<select value={roleModelSelection[role.ref] ?? current?.model ?? ""} onchange={(event) => (roleModelSelection[role.ref] = (event.currentTarget as HTMLSelectElement).value)}><option value="">{copy.noModelSetting}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
+          <div class="role-model-actions"><button type="button" class="secondary" disabled={Boolean(roleModelBusy)} onclick={() => void inspectRoleModel(role.ref)}>{copy.inspectModel}</button><button type="button" disabled={Boolean(roleModelBusy) || !(roleModelSelection[role.ref] ?? current?.model)} onclick={() => { if (!roleModelSelection[role.ref] && current?.model) roleModelSelection[role.ref] = current.model; void saveRoleModel(role.ref); }}>{copy.saveModel}</button><button type="button" class="secondary danger" disabled={Boolean(roleModelBusy) || !current} onclick={() => void deleteRoleModel(role.ref)}>{copy.deleteModel}</button></div>
+        </article>
+      {/each}
+    </div>
+    {#if roleModelStatus}<p role="status">{roleModelStatus}</p>{/if}
+  </section>
 
   <section class="artifacts" aria-labelledby="artifact-center-heading">
     <header>
       <div>
-        <h2 id="artifact-center-heading">Artifacts</h2>
-        <p>{data.artifactCatalog.total} daemon-owned Artifact{data.artifactCatalog.total === 1 ? "" : "s"}</p>
+        <h2 id="artifact-center-heading">{copy.artifacts}</h2>
+        <p>{data.artifactCatalog.total} {data.artifactCatalog.total === 1 ? copy.daemonOwnedArtifact : copy.daemonOwnedArtifacts}</p>
       </div>
     </header>
     {#if artifactError}<p class="error" role="alert">{artifactError}</p>{/if}
     {#if data.artifactCatalog.artifacts.length === 0}
-      <p>No Artifacts in this workspace.</p>
+      <p>{copy.noArtifacts}</p>
     {:else}
       <div class="artifact-grid">
         {#each data.artifactCatalog.artifacts as artifact (artifact.ref)}
           <Artifact
             view={{ id: artifact.ref, title: artifact.title, kind: artifact.kind, summary: `${artifact.format} · ${artifact.sizeBytes} bytes` }}
-            previewLabel="Preview"
+            previewLabel={copy.preview}
             statusLabel={(value) => value}
             actions={artifactActions}
           />
@@ -386,7 +529,7 @@
     <section class="artifact-preview" aria-label={`Artifact preview: ${artifactContent.title}`}>
       <header>
         <div><h2>{artifactContent.title}</h2><code>{artifactContent.ref}</code></div>
-        <button type="button" class="secondary" onclick={() => (artifactContent = null)}>Close</button>
+        <button type="button" class="secondary" onclick={() => (artifactContent = null)}>{copy.close}</button>
       </header>
       {#if artifactContent.format === "markdown"}
         <SafeMarkdown source={artifactContent.content} />
@@ -512,6 +655,37 @@
     display: grid;
     gap: 2px;
   }
+  .role-models,
+  .role-models article,
+  .role-models label {
+    display: grid;
+    gap: 8px;
+  }
+  .role-model-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+  .role-models article {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .role-models article header div {
+    display: grid;
+    gap: 3px;
+  }
+  .role-models article small,
+  .role-models label {
+    color: var(--color-ink-muted);
+    font-size: 0.82rem;
+  }
+  .role-model-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
   .directory-picker {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -554,4 +728,5 @@
   .artifact-preview { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; }
   .artifact-preview pre { font-family: var(--font-mono); margin: 0; max-height: 60vh; overflow: auto; white-space: pre-wrap; }
   button.secondary { background: transparent; border: 1px solid var(--color-border); color: var(--color-ink); }
+  button.secondary.danger { border-color: var(--color-danger); color: var(--color-danger); }
 </style>

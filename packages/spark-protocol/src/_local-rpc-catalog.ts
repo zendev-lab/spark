@@ -11,6 +11,14 @@ import {
   sparkRoleCreateResultSchema,
   sparkRoleListRequestSchema,
   sparkRoleListResultSchema,
+  sparkRoleModelDeleteRequestSchema,
+  sparkRoleModelDeleteResultSchema,
+  sparkRoleModelGetRequestSchema,
+  sparkRoleModelGetResultSchema,
+  sparkRoleModelListRequestSchema,
+  sparkRoleModelListResultSchema,
+  sparkRoleModelSetRequestSchema,
+  sparkRoleModelSetResultSchema,
   sparkSkillListRequestSchema,
   sparkSkillListResultSchema,
 } from "./agent-catalog.ts";
@@ -331,6 +339,13 @@ export const sparkLocalRpcModelOrpcErrors = {
   provider_oauth_response_invalid: { status: 422 },
 } as const satisfies Record<SparkModelRpcErrorCode, SparkLocalRpcErrorSpec>;
 
+export const sparkLocalRpcRoleModelOrpcErrors = {
+  model_control_unavailable: sparkLocalRpcModelOrpcErrors.model_control_unavailable,
+  role_not_found: { status: 404 },
+  model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
+  model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
+} as const;
+
 export const sparkLocalRpcTaskClaimOrpcErrors = {
   task_claim_lease_invalid: { status: 403 },
   task_claim_not_found: { status: 404 },
@@ -381,6 +396,16 @@ export const sparkLocalRpcWorkspaceOrpcErrors = {
   workspace_transfer_not_found: { status: 404 },
 } as const satisfies Record<SparkWorkspaceRpcErrorCode, SparkLocalRpcErrorSpec>;
 
+const sparkLocalRpcWorkspaceRoleModelSetOrpcErrors = {
+  ...sparkLocalRpcWorkspaceOrpcErrors,
+  ...sparkLocalRpcRoleModelOrpcErrors,
+} as const;
+
+const sparkLocalRpcWorkspaceRoleModelDeleteOrpcErrors = {
+  ...sparkLocalRpcWorkspaceOrpcErrors,
+  role_not_found: sparkLocalRpcRoleModelOrpcErrors.role_not_found,
+} as const;
+
 export const sparkLocalRpcHumanOrpcErrors = {
   human_interaction_not_found: { status: 404 },
   human_interaction_ambiguous: { status: 409 },
@@ -398,6 +423,7 @@ export const sparkLocalRpcCommonOrpcErrors = {
   ...sparkLocalRpcLoopOrpcErrors,
   ...sparkLocalRpcInvocationOrpcErrors,
   ...sparkLocalRpcModelOrpcErrors,
+  ...sparkLocalRpcRoleModelOrpcErrors,
   ...sparkLocalRpcUplinkOrpcErrors,
   ...sparkLocalRpcWorkspaceOrpcErrors,
   ...sparkLocalRpcTaskClaimOrpcErrors,
@@ -1456,6 +1482,22 @@ export const sparkLocalRpcProcedureSchemas = {
   },
   "role.list": { input: sparkRoleListRequestSchema, output: sparkRoleListResultSchema },
   "role.create": { input: sparkRoleCreateRequestSchema, output: sparkRoleCreateResultSchema },
+  "role.model.list": {
+    input: sparkRoleModelListRequestSchema,
+    output: sparkRoleModelListResultSchema,
+  },
+  "role.model.get": {
+    input: sparkRoleModelGetRequestSchema,
+    output: sparkRoleModelGetResultSchema,
+  },
+  "role.model.set": {
+    input: sparkRoleModelSetRequestSchema,
+    output: sparkRoleModelSetResultSchema,
+  },
+  "role.model.delete": {
+    input: sparkRoleModelDeleteRequestSchema,
+    output: sparkRoleModelDeleteResultSchema,
+  },
   "skill.list": { input: sparkSkillListRequestSchema, output: sparkSkillListResultSchema },
   "git.execute": {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
@@ -1824,6 +1866,10 @@ export const sparkLocalRpcOrpcOnlyMethods = [
   "artifact.read",
   "role.list",
   "role.create",
+  "role.model.list",
+  "role.model.get",
+  "role.model.set",
+  "role.model.delete",
   "skill.list",
   "workspace.directory.list",
   "search.global",
@@ -1890,6 +1936,32 @@ export const sparkLocalRpcOrpcContract = {
   role: {
     list: procedure("GET", "/role/list", p["role.list"], sparkLocalRpcWorkspaceOrpcErrors),
     create: procedure("POST", "/role/create", p["role.create"], sparkLocalRpcWorkspaceOrpcErrors),
+    model: {
+      list: procedure(
+        "GET",
+        "/role/model/list",
+        p["role.model.list"],
+        sparkLocalRpcWorkspaceOrpcErrors,
+      ),
+      get: procedure(
+        "GET",
+        "/role/model/get",
+        p["role.model.get"],
+        sparkLocalRpcWorkspaceOrpcErrors,
+      ),
+      set: procedure(
+        "POST",
+        "/role/model/set",
+        p["role.model.set"],
+        sparkLocalRpcWorkspaceRoleModelSetOrpcErrors,
+      ),
+      delete: procedure(
+        "POST",
+        "/role/model/delete",
+        p["role.model.delete"],
+        sparkLocalRpcWorkspaceRoleModelDeleteOrpcErrors,
+      ),
+    },
   },
   skill: {
     list: procedure("GET", "/skill/list", p["skill.list"], sparkLocalRpcWorkspaceOrpcErrors),

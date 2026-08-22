@@ -89,6 +89,20 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     role: {
       list: os.role.list.handler(async ({ input: params }) => invoke("role.list", params)),
       create: os.role.create.handler(async ({ input: params }) => invoke("role.create", params)),
+      model: {
+        list: os.role.model.list.handler(async ({ input: params }) =>
+          invoke("role.model.list", params),
+        ),
+        get: os.role.model.get.handler(async ({ input: params }) =>
+          invoke("role.model.get", params),
+        ),
+        set: os.role.model.set.handler(async ({ input: params }) =>
+          invoke("role.model.set", params),
+        ),
+        delete: os.role.model.delete.handler(async ({ input: params }) =>
+          invoke("role.model.delete", params),
+        ),
+      },
     },
     skill: {
       list: os.skill.list.handler(async ({ input: params }) => invoke("skill.list", params)),
