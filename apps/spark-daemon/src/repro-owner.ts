@@ -30,7 +30,7 @@ import {
 } from "@zendev-lab/spark-roles";
 import {
   sparkSessionWorkspaceState,
-  writeSparkSessionWorkspaceState,
+  updateSparkSessionWorkspaceState,
 } from "@zendev-lab/spark-loop";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";
@@ -629,14 +629,16 @@ export class SparkReproOwner {
           lane.model.thinkingLevel as Parameters<DaemonSessionRegistry["setThinkingLevel"]>[1],
         );
       }
-      await writeSparkSessionWorkspaceState(
+      await updateSparkSessionWorkspaceState(
         this.#options.workspace.localPath,
         { sessionId: lane.sessionId },
-        sparkSessionWorkspaceState({
-          projectRef: repro.projectRef,
-          currentTaskRef: lane.taskRef,
-          mode: "execute",
-        }),
+        (current) =>
+          sparkSessionWorkspaceState({
+            projectRef: repro.projectRef,
+            currentTaskRef: lane.taskRef,
+            mode: "execute",
+            ...(current?.driverAuthority ? { driverAuthority: current.driverAuthority } : {}),
+          }),
       );
     }
   }

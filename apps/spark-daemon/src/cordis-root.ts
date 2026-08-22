@@ -177,10 +177,7 @@ async function mountSparkDshRuntime(
     agents: [],
     maxParallelToolCalls: DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS,
   });
-  // Schedule must observe future root Agent creation after Session persistence,
-  // tools, the registry, and the concrete loop factory are all available. Its
-  // timer state remains a disposable projection of native `schedule/change`
-  // events; Spark does not mirror reminders in SQLite.
+  // Native schedules require daemon-owned Session persistence.
   if (options.sessionsRoot) await ctx.plugin(ScheduleRuntime);
 }
 

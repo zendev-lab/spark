@@ -6,9 +6,6 @@ export const SPARK_DIRECTORY_ENTRY_LIMIT_MAX = 500;
 export const SPARK_SESSION_SEARCH_LIMIT_MAX = 100;
 export const SPARK_GLOBAL_SEARCH_LIMIT_MAX = 100;
 export const SPARK_SESSION_EXPORT_PAGE_MAX = 100;
-export const SPARK_DAEMON_LOG_LINES_DEFAULT = 100;
-export const SPARK_DAEMON_LOG_LINES_MAX = 500;
-export const SPARK_DAEMON_LOG_TOTAL_MAX_BYTES = 512 * 1024;
 
 const workspaceIdSchema = z.string().trim().min(1);
 const sessionIdSchema = z.string().trim().min(1);
@@ -142,7 +139,16 @@ export const sparkSessionExportRequestSchema = z
       .regex(/^[a-f0-9]{64}$/u)
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.offset > 0 && !value.revision) {
+      context.addIssue({
+        code: "custom",
+        path: ["revision"],
+        message: "revision is required when session export offset is nonzero",
+      });
+    }
+  });
 
 export const sparkSessionExportResultSchema = z
   .object({
@@ -156,33 +162,6 @@ export const sparkSessionExportResultSchema = z
     totalMessages: z.number().int().nonnegative(),
     chunk: z.string(),
     complete: z.boolean(),
-  })
-  .strict();
-
-export const sparkDaemonLogsRequestSchema = z
-  .object({
-    lines: z
-      .number()
-      .int()
-      .min(0)
-      .max(SPARK_DAEMON_LOG_LINES_MAX)
-      .default(SPARK_DAEMON_LOG_LINES_DEFAULT),
-  })
-  .strict();
-
-export const sparkDaemonLogsResultSchema = z
-  .object({
-    sources: z.array(
-      z
-        .object({
-          name: z.enum(["service_stdout", "service_stderr", "daemon_events"]),
-          lines: z.array(z.string()),
-        })
-        .strict(),
-    ),
-    totalBytes: z.number().int().nonnegative().max(SPARK_DAEMON_LOG_TOTAL_MAX_BYTES),
-    truncated: z.boolean(),
-    observedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -201,5 +180,3 @@ export type SparkGlobalSearchResult = z.infer<typeof sparkGlobalSearchResultSche
 export type SparkSessionExportFormat = z.infer<typeof sparkSessionExportFormatSchema>;
 export type SparkSessionExportRequest = z.infer<typeof sparkSessionExportRequestSchema>;
 export type SparkSessionExportResult = z.infer<typeof sparkSessionExportResultSchema>;
-export type SparkDaemonLogsRequest = z.infer<typeof sparkDaemonLogsRequestSchema>;
-export type SparkDaemonLogsResult = z.infer<typeof sparkDaemonLogsResultSchema>;

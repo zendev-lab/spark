@@ -68,6 +68,12 @@ const en = {
     creating: "Creating…",
     createSession: "Create Session",
     missingAdministrator: "Workspace administrator session is missing on this daemon.",
+    sessionLabel: "Session",
+    validModelRequired: "Select a valid provider/model before creating the Session.",
+    createdButConfigurationFailed:
+      "was created, but its mode, model, or thinking configuration failed",
+    readyButNavigationFailed: "is ready, but navigation failed",
+    openCreatedSession: "Open created Session",
     directoryHint:
       "Directory choices are daemon-owned Workspace roots or GitChange owning worktrees. Session mode is persisted by the daemon, not the browser.",
     chooseDirectory: "Choose directory",
@@ -423,6 +429,11 @@ const zhCN = {
     creating: "创建中…",
     createSession: "创建会话",
     missingAdministrator: "此 daemon 缺少工作空间管理员会话。",
+    sessionLabel: "会话",
+    validModelRequired: "请先选择有效的 provider/model，再创建会话。",
+    createdButConfigurationFailed: "已创建，但 mode、model 或 thinking 配置失败",
+    readyButNavigationFailed: "已就绪，但页面跳转失败",
+    openCreatedSession: "打开已创建的会话",
     directoryHint:
       "目录选择由 daemon 管理，仅限工作空间根目录或 GitChange 所属 worktree；Session mode 由 daemon 持久化，不属于浏览器状态。",
     chooseDirectory: "选择目录",

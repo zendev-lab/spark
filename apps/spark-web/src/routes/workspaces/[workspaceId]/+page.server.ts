@@ -1,7 +1,7 @@
 import { error } from "@sveltejs/kit";
 
 import { invokeSparkWebRpc } from "$lib/server/rpc";
-import type { SparkWebSession } from "$lib/daemon-surface";
+import { listSparkWebSessions } from "$lib/server/session-list";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -13,9 +13,9 @@ export const load: PageServerLoad = async ({ params }) => {
   }
   const [sessions, artifactCatalog, roleCatalog, roleModelSettings, skillCatalog, modelCatalog] =
     await Promise.all([
-      invokeSparkWebRpc("session.list", {
+      listSparkWebSessions({
         scope: { kind: "workspace", workspaceId },
-      }) as Promise<SparkWebSession[]>,
+      }),
       invokeSparkWebRpc("artifact.list", { workspaceId, limit: 100 }),
       invokeSparkWebRpc("role.list", { workspaceId }),
       invokeSparkWebRpc("role.model.list", { workspaceId }),

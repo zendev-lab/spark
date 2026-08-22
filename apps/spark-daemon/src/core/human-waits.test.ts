@@ -38,6 +38,103 @@ function waitInput(
 }
 
 describe("SparkDaemonHumanWaitRegistry", () => {
+  it("keeps decision gates pending until required option values are selected", () => {
+    const { db, waits } = createHarness();
+    try {
+      waits.register({
+        ...waitInput("hreq-decision-gate"),
+        mode: "decision",
+        questions: [
+          {
+            id: "decision",
+            type: "single",
+            prompt: "Continue?",
+            required: true,
+            defaultValues: ["safe"],
+            options: [
+              { value: "safe", label: "Safe" },
+              { value: "fast", label: "Fast" },
+            ],
+          },
+        ],
+      });
+
+      expect(waits.listPending()[0]).toMatchObject({
+        mode: "decision",
+        questions: [{ defaultValues: ["safe"] }],
+      });
+      expect(
+        waits.deliver({
+          humanRequestId: "hreq-decision-gate",
+          humanResponseId: "hres-custom-only",
+          status: "answered",
+          answers: { decision: { values: [], customText: "maybe" } },
+        }),
+      ).toMatchObject({ outcome: "transient", retryable: true });
+      expect(waits.get("hreq-decision-gate")).toMatchObject({ status: "pending" });
+
+      waits.register({
+        ...waitInput("hreq-decision-multi"),
+        mode: "decision",
+        questions: [
+          {
+            id: "surfaces",
+            type: "multi",
+            prompt: "Which surfaces?",
+            required: true,
+            options: [
+              { value: "browser", label: "Browser" },
+              { value: "daemon", label: "Daemon" },
+            ],
+          },
+        ],
+      });
+      expect(
+        waits.deliver({
+          humanRequestId: "hreq-decision-multi",
+          humanResponseId: "hres-multi-with-context",
+          status: "answered",
+          answers: {
+            surfaces: { values: ["browser"], customText: "also daemon evidence" },
+          },
+        }),
+      ).toMatchObject({ outcome: "accepted", retryable: false });
+
+      expect(
+        waits.deliver({
+          humanRequestId: "hreq-decision-gate",
+          humanResponseId: "hres-selected",
+          status: "answered",
+          answers: { decision: { values: ["safe"] } },
+        }),
+      ).toMatchObject({ outcome: "accepted", retryable: false });
+
+      waits.register({
+        ...waitInput("hreq-clarification-custom"),
+        mode: "clarification",
+        questions: [
+          {
+            id: "direction",
+            type: "single",
+            prompt: "Direction?",
+            required: true,
+            options: [{ value: "known", label: "Known option" }],
+          },
+        ],
+      });
+      expect(
+        waits.deliver({
+          humanRequestId: "hreq-clarification-custom",
+          humanResponseId: "hres-clarification-custom",
+          status: "answered",
+          answers: { direction: { values: [], customText: "another direction" } },
+        }),
+      ).toMatchObject({ outcome: "accepted" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("requires a unique pending interaction and supports session or invocation disambiguation", () => {
     const { db, waits } = createHarness();
     try {

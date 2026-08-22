@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   contentHash,
   sparkWorkspaceStatePath,
@@ -11,7 +12,7 @@ import {
   type SparkStateRootContext,
   type ToolEffect,
 } from "@zendev-lab/spark-core";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkSkillByName,
@@ -667,6 +668,35 @@ export class MarkdownRoleStore implements RoleStore {
     const filePath = this.pathFor(role);
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, serializeRoleSpecMarkdown(role), "utf8");
+  }
+
+  async saveIfAbsent(role: RoleSpec): Promise<boolean> {
+    validateRoleSpec(role);
+    if (!this.writable) throw new Error("role store is read-only");
+    if (role.source !== this.source)
+      throw new Error(`only ${this.source} roles can be saved to this MarkdownRoleStore`);
+    const filePath = this.pathFor(role);
+    await mkdir(dirname(filePath), { recursive: true });
+    const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, serializeRoleSpecMarkdown(role), {
+        encoding: "utf8",
+        flag: "wx",
+      });
+      try {
+        await link(temporaryPath, filePath);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw error;
+      }
+    } finally {
+      try {
+        await unlink(temporaryPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
 
   async loadAll(): Promise<RoleSpec[]> {
