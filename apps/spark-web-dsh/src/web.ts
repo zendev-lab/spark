@@ -12,7 +12,8 @@
  *    `plugins/spark-llm/`, then mounted through a generated patch overlay —
  *    no manual install or copy step.
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
- *    presets**, so Cue replaces DSH Bash/Pwsh/Jobs without manual setup.
+ *    presets and a verified cue Skill snapshot**, so Cue replaces DSH
+ *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
  * 3. **spark-session-subagent plugin**, Role-bound spawn/fork providers
  *    registered onto the official DSH HOST `ctx.subagents`. The overlay
  *    disables stock in-process spawn/fork backends so they do not steal
@@ -59,9 +60,9 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installManagedCuePresets } from "@zendev-lab/dsh-tool-cue/presets";
+import { installManagedCuePresets } from "./cue-presets.ts";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -409,6 +410,15 @@ export function resolveSparkWebDshPackageDir(): string {
     throw new Error(`spark web: cannot locate ${SPARK_WEB_PACKAGE} from ${here}`);
   }
   return root;
+}
+
+/** Resolve the packaged Skill or the verified Cue snapshot in a source checkout. */
+export function resolveCueSkillsDir(packageDir: string = resolveSparkWebDshPackageDir()): string {
+  const packaged = join(packageDir, "skills");
+  if (existsSync(join(packaged, "cue", "SKILL.md"))) return packaged;
+  const snapshot = resolve(packageDir, "../../vendor/cue/skills");
+  if (existsSync(join(snapshot, "cue", "SKILL.md"))) return snapshot;
+  throw new Error(`spark web: cannot locate the verified Cue Skill snapshot from ${packageDir}`);
 }
 
 export interface SparkWebPatch {
@@ -798,7 +808,8 @@ export async function prepareSparkWebDispatch(
   }
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
   // Metadata and upstream source verification happen before any managed write.
-  const presets = installManagedCuePresets(dshHome, dshPackageDir);
+  const skillDir = resolveCueSkillsDir();
+  const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
   for (const preset of presets) {
     if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);
   }

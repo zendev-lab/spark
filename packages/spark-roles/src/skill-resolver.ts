@@ -11,12 +11,11 @@ import {
 } from "@zendev-lab/spark-system/resource-paths";
 import {
   defaultBuiltinSkillsDir,
-  defaultSparkCueSkillsDir,
   parseSkillFrontmatter,
   type SparkSkillFrontmatter,
 } from "./builtin-skills.ts";
 
-export { defaultBuiltinSkillsDir, defaultSparkCueSkillsDir, parseSkillFrontmatter };
+export { defaultBuiltinSkillsDir, parseSkillFrontmatter };
 export type { SparkSkillFrontmatter };
 
 export type SparkSkillLayer = SparkResourceLayer;
@@ -98,7 +97,6 @@ export class SparkSkillResolver {
     this.cwd = resolve(options.cwd);
     this.builtinDirs = options.builtinDirs?.map((dir) => resolvePath(dir, this.cwd)) ?? [
       defaultBuiltinSkillsDir(),
-      defaultSparkCueSkillsDir(),
     ];
     this.workspaceDir = resolvePath(
       options.workspaceDir ?? join(this.cwd, ".spark", "skills"),

@@ -10,7 +10,6 @@ import {
 export {
   defaultBuiltinSkillsDir,
   defaultProjectAgentsSkillsDirs,
-  defaultSparkCueSkillsDir,
   defaultSparkSkillsRoot,
   defaultUserAgentsSkillsDir,
   defaultUserSkillsDir,

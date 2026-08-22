@@ -5,6 +5,8 @@ Spark-owned **DSH-hosted web application**. `spark web-dsh` /
 DeepSeek Harness web profile with Cue, LLM, Role-bound subagent providers, and
 provider-onboarding plugins.
 Search/fetch tools live in `@zendev-lab/spark-tool-web`.
+This application owns the managed `spark-standard` / `spark-code` presets and
+bundles the verified canonical [`cue` Skill](https://github.com/zendev-lab/cue/tree/main/skills/cue).
 
 The LLM plugin exposes Spark's configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured from DSH onboarding;

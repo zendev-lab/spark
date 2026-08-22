@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -52,6 +52,28 @@ async function sessionsRoot(): Promise<string> {
   return root;
 }
 
+async function cueSkillRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "spark-daemon-skills-"));
+  roots.push(root);
+  const skillDir = join(root, "cue");
+  await mkdir(skillDir);
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: cue",
+      "description: Use Cue for command execution.",
+      "---",
+      "",
+      "# cue",
+      "",
+      "Use cue-shell.",
+      "",
+    ].join("\n"),
+  );
+  return root;
+}
+
 describe("spark daemon Cordis root", () => {
   it("resolves mounted stores from the root context", async () => {
     const stores = fakeStores();
@@ -67,6 +89,14 @@ describe("spark daemon Cordis root", () => {
       expect(root.ctx.llm).toBeDefined();
       expect(root.ctx.systemPrompt).toBeDefined();
       expect(root.ctx.tools).toBeDefined();
+      expect(root.ctx.skills).toBeDefined();
+      expect(root.ctx.tools.get("skill")).toMatchObject({
+        sparkPolicy: {
+          effect: "read",
+          approval: "none",
+          reconcile: "none",
+        },
+      });
       expect(root.ctx.agents).toBeDefined();
       expect(root.ctx.agentLoop).toBeDefined();
       expect(root.ctx.subagents).toBeDefined();
@@ -85,6 +115,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.get("llm")).toBeUndefined();
     expect(root.ctx.get("systemPrompt")).toBeUndefined();
     expect(root.ctx.get("tools")).toBeUndefined();
+    expect(root.ctx.get("skills")).toBeUndefined();
     expect(root.ctx.get("agents")).toBeUndefined();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
     expect(root.ctx.get("subagents")).toBeUndefined();
@@ -100,6 +131,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.llm).toBeDefined();
     expect(root.ctx.systemPrompt).toBeDefined();
     expect(root.ctx.tools).toBeDefined();
+    expect(root.ctx.skills).toBeDefined();
     expect(root.ctx.agents).toBeDefined();
     expect(root.ctx.agentLoop).toBeDefined();
     expect(root.ctx.get("sessionPersistence")).toBeUndefined();
@@ -107,6 +139,37 @@ describe("spark daemon Cordis root", () => {
 
     await root.dispose();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
+  });
+
+  it("mounts the verified Cue Skill through the daemon-owned DSH provider", async () => {
+    const skillRoot = await cueSkillRoot();
+    const cwd = await sessionsRoot();
+    const root = await createSparkDaemonHeadlessCordisRoot({
+      dshHome: await sessionsRoot(),
+      cueSkillRoot: skillRoot,
+    });
+    try {
+      await expect(root.ctx.skills.list({ cwd })).resolves.toMatchObject([
+        { name: "cue", provider: "spark-daemon", source: "bundled" },
+      ]);
+      await expect(root.ctx.skills.get("cue", { cwd })).resolves.toMatchObject({
+        name: "cue",
+        provider: "spark-daemon",
+        content: expect.stringContaining("Use cue-shell."),
+      });
+    } finally {
+      await root.dispose();
+    }
+  });
+
+  it("fails closed when an explicit Cue Skill root is missing", async () => {
+    const missing = join(await sessionsRoot(), "missing-skills");
+    await expect(
+      createSparkDaemonHeadlessCordisRoot({
+        dshHome: await sessionsRoot(),
+        cueSkillRoot: missing,
+      }),
+    ).rejects.toThrow(/could not find the verified cue Skill/);
   });
 
   it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
@@ -357,12 +420,18 @@ describe("spark daemon Cordis root", () => {
         reconcile: "tool_owner",
       });
       const first = await store.load(seed.path);
-      expect(first.entries.filter((entry) => entry.type === "message")).toHaveLength(2);
+      const firstMessages = first.entries.filter((entry) => entry.type === "message");
+      // The first native turn persists one DSH Skill catalog beside user/model messages.
+      expect(firstMessages).toHaveLength(3);
+      expect(firstMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(1);
 
       await loop.submit("second prompt");
       expect(root.ctx.agents.list()).toEqual([]);
       const second = await store.load(seed.path);
-      expect(second.entries.filter((entry) => entry.type === "message")).toHaveLength(4);
+      const secondMessages = second.entries.filter((entry) => entry.type === "message");
+      // An unchanged catalog is not republished on the second turn.
+      expect(secondMessages).toHaveLength(5);
+      expect(secondMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(2);
       expect(JSON.stringify(second.entries)).toContain("native reply 2");
     } finally {
       await root.dispose();
