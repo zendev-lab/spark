@@ -5,6 +5,7 @@ import {
   type AdapterRegistrationHandle,
   type GenerateOptions,
   type LlmResolvedModelInfo,
+  type PreparedAdapterCall,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
 import type { SparkTurnLlm } from "@zendev-lab/spark-turn";
@@ -103,6 +104,18 @@ class InvocationProviderRouteAdapter extends LlmAdapter {
   ): Promise<LlmResolvedModelInfo> {
     const resolved = await this.delegate.resolveModel(this.provider, model, signal);
     return { ...resolved, provider: this.route };
+  }
+
+  override async prepareCall(
+    _route: string,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<PreparedAdapterCall> {
+    const prepared = await this.delegate.prepareCall(this.provider, model, signal);
+    return {
+      model: { ...prepared.model, provider: this.route },
+      stream: (options) => prepared.stream({ ...options, provider: this.provider }),
+    };
   }
 
   override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
