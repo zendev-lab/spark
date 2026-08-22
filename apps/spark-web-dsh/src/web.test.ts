@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
+import { cueSkillsRoot } from "@zendev-lab/cue";
 
 import {
   composeSparkWebPatch,
@@ -217,13 +218,25 @@ test("spark-files package resolves from the workspace and exposes the DSH adapte
   assert.ok(existsSync(join(filesDir, "src", "dsh-plugin.ts")), "DSH adapter exists");
 });
 
-test("spark-web-dsh resolves its package root and verified source Skill snapshot", () => {
+test("spark-web-dsh resolves its package root and package-owned Cue Skill", () => {
   const webDir = resolveSparkWebDshPackageDir();
   assert.ok(existsSync(join(webDir, "src", "client.tsx")), "client plugin entry exists");
   assert.ok(existsSync(join(webDir, "bin", "spark-web-dsh")), "spark-web-dsh executable exists");
-  const skills = resolveCueSkillsDir(webDir);
-  assert.ok(existsSync(join(skills, "cue", "SKILL.md")), "verified cue Skill snapshot exists");
-  assert.ok(skills.endsWith(join("vendor", "cue", "skills")));
+  const skills = resolveCueSkillsDir();
+  assert.ok(existsSync(join(skills, "cue", "SKILL.md")), "package-owned cue Skill exists");
+  assert.equal(realpathSync(skills), realpathSync(cueSkillsRoot));
+});
+
+test("resolveCueSkillsDir fails closed for a missing or linked Skill", () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-cue-skill-"));
+  try {
+    assert.throws(() => resolveCueSkillsDir(join(dir, "missing")), /package-owned Cue Skill/u);
+    mkdirSync(join(dir, "cue"));
+    symlinkSync(join(cueSkillsRoot, "cue", "SKILL.md"), join(dir, "cue", "SKILL.md"));
+    assert.throws(() => resolveCueSkillsDir(dir), /package-owned Cue Skill/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("resolveDshProfileDir honors DSH_HOME", () => {
