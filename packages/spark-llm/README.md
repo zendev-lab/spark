@@ -62,8 +62,9 @@ surface instead of `SparkHostAPI`.
 `src/dsh-plugin.ts` is the host-neutral Cordis adapter bundled and mounted by
 `@zendev-lab/spark-web-dsh`. It registers the bundled `baidu-oneapi`,
 `kimi-coding`, and `openai-codex` routes through `SparkProviderLlmAdapter`, so
-the optional DSH workbench shares Spark's provider implementations instead of
-maintaining another catalog.
+the optional DSH workbench shares Spark's provider catalog and credential
+resolution instead of maintaining another owner. The Web DSH composition
+disables stock `llm-pi-ai` before mounting this adapter.
 
 API-key routes resolve credentials from the DSH credentials service, the
 launching environment, and Spark's auth store. OpenAI Codex reuses Spark's

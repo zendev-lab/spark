@@ -7,6 +7,7 @@ import {
   SparkSessionStore,
   type SparkSessionEntry,
   type SparkSessionRecord,
+  workspaceSessionHash,
 } from "@zendev-lab/spark-session/transcript";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
@@ -143,7 +144,7 @@ async function unifySessionTranscript(
     sourcePaths[0] !== resolve(targetPath) ||
     resolve(session.sessionPath ?? "") !== resolve(targetPath) ||
     sources.some((record) => record.header.version !== CURRENT_SPARK_SESSION_VERSION);
-  const merged = mergeTranscriptRecords(sources, targetPath);
+  const merged = mergeTranscriptRecords(sources, targetPath, session.cwd!);
   const result: UnifiedDaemonSessionTranscript = {
     sessionId: session.sessionId,
     sourcePaths,
@@ -218,7 +219,7 @@ async function recoverInterruptedTranscriptMigration(
   }
   validateJournalPaths(input.backupRoot, journal);
   const store = createStore(resolve(session.cwd));
-  validateJournalTranscriptPaths(store, journal);
+  await validateJournalTranscriptPaths(store, journal, session);
   let targetIsV4 = false;
   try {
     const target = await store.load(journal.targetPath);
@@ -296,29 +297,28 @@ function validateJournalPaths(backupRoot: string, journal: TranscriptMigrationJo
   }
 }
 
-function validateJournalTranscriptPaths(
+async function validateJournalTranscriptPaths(
   store: SparkSessionStore,
   journal: TranscriptMigrationJournal,
-): void {
-  const sessionDir = resolve(store.sessionDir);
-  const paths = [journal.targetPath, ...journal.sources.map((source) => source.path)];
-  for (const path of paths) {
-    const target = resolve(path);
-    const fromStore = relative(sessionDir, target);
-    if (
-      !fromStore ||
-      fromStore === ".." ||
-      fromStore.startsWith(`..${sep}`) ||
-      fromStore.includes(sep)
-    ) {
-      throw new Error(
-        `transcript migration journal path is outside its workspace store: ${target}`,
-      );
-    }
+  session: SparkSessionState,
+): Promise<void> {
+  if (!isDirectTranscriptPath(store.sessionDir, journal.targetPath)) {
+    throw new Error(
+      `transcript migration journal path is outside its workspace store: ${resolve(journal.targetPath)}`,
+    );
   }
   if (resolve(journal.targetPath) !== resolve(store.canonicalSessionPath(journal.sessionId))) {
     throw new Error(
       `transcript migration journal has a non-canonical target for ${journal.sessionId}`,
+    );
+  }
+  for (const source of journal.sources) {
+    const backup = await store.load(source.backupPath);
+    validateSourceRecord(
+      store,
+      session,
+      { ...backup, path: source.path },
+      journal.expectedSessionPath,
     );
   }
 }
@@ -428,24 +428,54 @@ function validateSourceRecord(
   store: SparkSessionStore,
   session: SparkSessionState,
   record: SparkSessionRecord,
+  registeredSourcePath: string | undefined = session.sessionPath,
 ): SparkSessionRecord {
   const path = resolve(record.path);
-  const fromStore = relative(store.sessionDir, path);
-  if (
-    !fromStore ||
-    fromStore === ".." ||
-    fromStore.startsWith(`..${sep}`) ||
-    fromStore.includes(sep)
-  ) {
+  const relocatedChannelTranscript = isRelocatedChannelTranscript(
+    store,
+    session,
+    record,
+    registeredSourcePath,
+  );
+  if (!isDirectTranscriptPath(store.sessionDir, path) && !relocatedChannelTranscript) {
     throw new Error(`transcript for ${session.sessionId} is outside its daemon workspace store`);
   }
   if (record.header.id !== session.sessionId) {
     throw new Error(`transcript ${path} belongs to ${record.header.id}, not ${session.sessionId}`);
   }
-  if (resolve(record.header.cwd) !== resolve(session.cwd!)) {
+  if (resolve(record.header.cwd) !== resolve(session.cwd!) && !relocatedChannelTranscript) {
     throw new Error(`transcript ${path} belongs to another workspace`);
   }
   return record;
+}
+
+function isRelocatedChannelTranscript(
+  store: SparkSessionStore,
+  session: SparkSessionState,
+  record: SparkSessionRecord,
+  registeredSourcePath: string | undefined,
+): boolean {
+  if (
+    session.scope.kind !== "daemon" ||
+    session.purpose !== "channel" ||
+    !registeredSourcePath ||
+    resolve(registeredSourcePath) !== resolve(record.path) ||
+    resolve(record.header.cwd) === resolve(session.cwd!)
+  ) {
+    return false;
+  }
+  const sourceStore = join(store.sessionsRoot, workspaceSessionHash(record.header.cwd));
+  return isDirectTranscriptPath(sourceStore, record.path);
+}
+
+function isDirectTranscriptPath(sessionDir: string, path: string): boolean {
+  const fromStore = relative(resolve(sessionDir), resolve(path));
+  return Boolean(
+    fromStore &&
+    fromStore !== ".." &&
+    !fromStore.startsWith(`..${sep}`) &&
+    !fromStore.includes(sep),
+  );
 }
 
 function compareTranscriptRecords(left: SparkSessionRecord, right: SparkSessionRecord): number {
@@ -458,6 +488,7 @@ function compareTranscriptRecords(left: SparkSessionRecord, right: SparkSessionR
 function mergeTranscriptRecords(
   records: SparkSessionRecord[],
   targetPath: string,
+  targetCwd: string,
 ): SparkSessionRecord {
   const [first, ...rest] = records;
   if (!first) throw new Error("at least one transcript record is required");
@@ -482,7 +513,7 @@ function mergeTranscriptRecords(
 
   return {
     path: targetPath,
-    header: { ...first.header },
+    header: { ...first.header, cwd: resolve(targetCwd) },
     entries,
   };
 }

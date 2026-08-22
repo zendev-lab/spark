@@ -29,14 +29,14 @@ describe("Spark daemon lifecycle client", () => {
 
     await ensureSparkDaemonRunning({
       paths: { runtimeDir: "/tmp/runtime", logDir: "/tmp/log" },
-      requestStatus: async () => ({ ready: true }),
+      requestStatus: async () => ({ lifecycle: { state: "running" } }),
       startService,
     });
 
     expect(startService).not.toHaveBeenCalled();
   });
 
-  it("starts once and requires a real status response before returning", async () => {
+  it("starts once and waits for a running lifecycle before returning", async () => {
     let attempts = 0;
     const startService = vi.fn();
 
@@ -45,8 +45,8 @@ describe("Spark daemon lifecycle client", () => {
       serviceCommand: { command: "spark", args: ["daemon"] },
       requestStatus: async () => {
         attempts += 1;
-        if (attempts < 3) throw new Error("not ready");
-        return { ready: true };
+        if (attempts === 1) throw new Error("not reachable");
+        return { lifecycle: { state: attempts === 2 ? "starting" : "running" } };
       },
       startService,
       sleep: async () => undefined,
@@ -59,6 +59,24 @@ describe("Spark daemon lifecycle client", () => {
       expect.any(Object),
     );
     expect(attempts).toBe(3);
+  });
+
+  it("waits for an already starting daemon without dispatching another start", async () => {
+    let attempts = 0;
+    const startService = vi.fn();
+
+    await ensureSparkDaemonRunning({
+      paths: { runtimeDir: "/tmp/runtime", logDir: "/tmp/log" },
+      requestStatus: async () => {
+        attempts += 1;
+        return { lifecycle: { state: attempts === 1 ? "starting" : "running" } };
+      },
+      startService,
+      sleep: async () => undefined,
+    });
+
+    expect(startService).not.toHaveBeenCalled();
+    expect(attempts).toBe(2);
   });
 
   it("fails with the last status error after the startup deadline", async () => {
