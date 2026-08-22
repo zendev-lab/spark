@@ -1,14 +1,15 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  addCueSkillProvider,
   installManagedCuePresets,
   readDshPackageVersion,
   removeDshShellAndJobsRows,
   verifyDshPresetSources,
-} from "./presets.ts";
+} from "./cue-presets.ts";
 
 const dshPackageDir = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -16,6 +17,7 @@ const dshPackageDir = join(
   "presets",
   "upstream-package",
 );
+const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../vendor/cue/skills");
 
 describe("managed Cue-first presets", () => {
   it("verifies the installed package metadata and committed upstream digests", () => {
@@ -43,27 +45,49 @@ describe("managed Cue-first presets", () => {
     }
   });
 
+  it("rejects a missing product-bundled cue Skill", () => {
+    const home = mkdtempSync(join(tmpdir(), "cue-missing-skill-"));
+    try {
+      const missingSkillDir = join(home, "missing");
+      expect(() => installManagedCuePresets(home, dshPackageDir, missingSkillDir)).toThrow(
+        /bundled cue Skill is not a regular file/u,
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("installs deterministic presets, is idempotent, and removes DSH execution tools", () => {
     const home = mkdtempSync(join(tmpdir(), "spark-cue-presets-"));
     try {
-      const first = installManagedCuePresets(home, dshPackageDir);
+      const first = installManagedCuePresets(home, dshPackageDir, skillDir);
       expect(first.map((item) => item.updated)).toEqual([true, true]);
       for (const item of first) {
         const composition = readFileSync(join(item.path, "agent.cordis.yml"), "utf8");
         expect(composition).not.toContain("id: tool-bash");
         expect(composition).not.toContain("id: tool-pwsh");
         expect(composition).not.toContain("id: tool-jobs");
+        expect(composition).toContain(
+          [
+            "- id: cue-skill",
+            "  name: '@deepseek-ai/dsh-skill-filesystem'",
+            "  config:",
+            "    providerName: spark-web-dsh",
+            "    includeDefaultRoots: false",
+            `    bundledSkillDir: ${JSON.stringify(skillDir)}`,
+            "    watch: false",
+          ].join("\n"),
+        );
         expect(readFileSync(join(item.path, ".spark-managed.json"), "utf8")).toContain(
-          "@zendev-lab/dsh-tool-cue",
+          "@zendev-lab/spark-web-dsh",
         );
         expect(readFileSync(join(item.path, ".spark-managed.json"), "utf8")).toContain(
           '"dshVersion": "fixture-release"',
         );
       }
-      expect(installManagedCuePresets(home, dshPackageDir).map((item) => item.updated)).toEqual([
-        false,
-        false,
-      ]);
+      expect(
+        installManagedCuePresets(home, dshPackageDir, skillDir).map((item) => item.updated),
+      ).toEqual([false, false]);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -74,13 +98,13 @@ describe("managed Cue-first presets", () => {
     const modified = mkdtempSync(join(tmpdir(), "spark-cue-modified-"));
     try {
       mkdirSync(join(unmarked, ".agent-presets", "spark-standard"), { recursive: true });
-      expect(() => installManagedCuePresets(unmarked, dshPackageDir)).toThrow(
+      expect(() => installManagedCuePresets(unmarked, dshPackageDir, skillDir)).toThrow(
         /refusing to overwrite unmarked preset/u,
       );
 
-      const [standard] = installManagedCuePresets(modified, dshPackageDir);
+      const [standard] = installManagedCuePresets(modified, dshPackageDir, skillDir);
       writeFileSync(join(standard!.path, "preset.yml"), "name: user change\n");
-      expect(() => installManagedCuePresets(modified, dshPackageDir)).toThrow(
+      expect(() => installManagedCuePresets(modified, dshPackageDir, skillDir)).toThrow(
         /refusing to overwrite user-modified managed preset/u,
       );
     } finally {
@@ -95,5 +119,36 @@ describe("managed Cue-first presets", () => {
         "- id: keep\n  name: keep\n- id: tool-bash\n  name: bash\n- id: next\n  name: next\n",
       ),
     ).toBe("- id: keep\n  name: keep\n- id: next\n  name: next\n");
+  });
+
+  it("requires exactly one DSH skill-filesystem row", () => {
+    expect(() => addCueSkillProvider("- id: keep\n", skillDir)).toThrow(
+      /expected one DSH skill-filesystem row/u,
+    );
+  });
+
+  it("safely adopts unmodified presets from the former adapter owner", () => {
+    const home = mkdtempSync(join(tmpdir(), "spark-cue-legacy-presets-"));
+    try {
+      const installed = installManagedCuePresets(home, dshPackageDir, skillDir);
+      for (const preset of installed) {
+        const markerPath = join(preset.path, ".spark-managed.json");
+        const marker = readFileSync(markerPath, "utf8").replace(
+          "@zendev-lab/spark-web-dsh",
+          "@zendev-lab/dsh-tool-cue",
+        );
+        writeFileSync(markerPath, marker);
+      }
+      expect(
+        installManagedCuePresets(home, dshPackageDir, skillDir).map((item) => item.updated),
+      ).toEqual([true, true]);
+      for (const preset of installed) {
+        expect(readFileSync(join(preset.path, ".spark-managed.json"), "utf8")).toContain(
+          "@zendev-lab/spark-web-dsh",
+        );
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
