@@ -9,7 +9,7 @@ updated: 2026-08-21
 
 ## 起源
 
-`spark` 最初作为面向 Pi 产品的工作流套件起步，通过意图明确的用户命令与规范化工具，将项目意图、任务有向无环图、结构化提问、审查、证据制品、角色执行以及 `cue-shell` 执行能力组织为可追溯的本地工作流。仓库落地后，执行与会话中枢已迁移到 Spark daemon，产品面扩展为本地 Web 工作台、Hub 与消息通道。**Pi SDK** 中仅保留 `@earendil-works/pi-ai` 作为 `spark-llm` 的模型 transport 内核；独立的 Pi 产品 extension facade、`pi-spark` 发现适配器、`pi-tui` 与原生 TUI 均已退场。产品组合由 daemon 内部模块唯一拥有。
+`spark` 最初作为面向 Pi 产品的工作流套件起步，通过意图明确的用户命令与规范化工具，将项目意图、任务有向无环图、结构化提问、审查、证据制品、角色执行以及 `Cue` 执行能力组织为可追溯的本地工作流。仓库落地后，执行与会话中枢已迁移到 Spark daemon，产品面扩展为本地 Web 工作台、Hub 与消息通道。**Pi SDK** 中仅保留 `@earendil-works/pi-ai` 作为 `spark-llm` 的模型 transport 内核；独立的 Pi 产品 extension facade、`pi-spark` 发现适配器、`pi-tui` 与原生 TUI 均已退场。产品组合由 daemon 内部模块唯一拥有。
 
 ## 目标
 
@@ -28,7 +28,7 @@ updated: 2026-08-21
 - 为 invocation、provider、tool、delivery 与代码交付保留隐私安全的关联观测边界；执行真相仍在 daemon/SQLite，可选 exporter 或外部观察面不得成为状态所有者。
 - 将 command policy 与实际执行隔离逐步对齐，在不改变 local-first 语义的前提下，为支持平台提供显式、fail-closed 的 sandbox runner。
 - 让 Spark 在没有 `.spark/` 或 `SPARK.md` 预置状态时也能默认进行轻量调查，并让 project-bound 命令在需要时从用户意图创建或恢复本地 Spark 状态。
-- 用持久化的项目与任务有向无环图、类型化证据制品、结构化提问与角色执行组织可追溯工作流；`cue-shell` 能力经 `spark-cue` 复用。
+- 用持久化的项目与任务有向无环图、类型化证据制品、结构化提问与角色执行组织可追溯工作流；`Cue` 能力经 `spark-cue` 复用。
 
 ## 架构方向
 

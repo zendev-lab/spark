@@ -22,7 +22,7 @@ test("cue contract harness reports a missing cued binary as a non-strict blocker
     assert.equal(report.backend, "cue-contract");
     assert.equal(report.status, "blocked");
     assert.equal(report.paths.cuedBin, null);
-    assert.match(report.blockers.join("\n"), /set CUED_BIN or CUE_SHELL_ROOT/u);
+    assert.match(report.blockers.join("\n"), /set CUED_BIN or CUE_ROOT/u);
     assert.equal(cueContractHarnessExitCode(report, false), 0);
     assert.equal(cueContractHarnessExitCode(report, true), 1);
 

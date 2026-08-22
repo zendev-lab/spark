@@ -88,9 +88,9 @@ test("cue command contract selects a complete matching legacy direct command set
     }, calls),
   });
 
-  assert.equal(inspection.status, "legacy-direct");
+  assert.equal(inspection.status, "companion");
   assert.deepEqual(inspection.contract, {
-    status: "legacy-direct",
+    status: "companion",
     version: "0.1.0",
     client: { command: "cue-client", args: [] },
     daemon: { command: "cued", args: [] },
@@ -98,7 +98,7 @@ test("cue command contract selects a complete matching legacy direct command set
   assert.deepEqual(calls, ["cue --version", "cue-client --version", "cued --version"]);
 });
 
-test("foreign cue may coexist with a complete legacy cue-shell command set", async () => {
+test("foreign cue may coexist with a complete Cue companion command set", async () => {
   const calls: string[] = [];
   const inspection = await inspectCueCommandContract({
     runner: fixtureRunner((spec) => {
@@ -114,8 +114,8 @@ test("foreign cue may coexist with a complete legacy cue-shell command set", asy
     }, calls),
   });
 
-  assert.equal(inspection.status, "legacy-direct");
-  assert.match(inspection.message, /not the cue-shell aggregate CLI/u);
+  assert.equal(inspection.status, "companion");
+  assert.match(inspection.message, /not the Cue aggregate CLI/u);
   assert.deepEqual(calls, ["cue --version", "cue-client --version", "cued --version"]);
 });
 
@@ -146,7 +146,7 @@ test("recognized aggregate with missing or mismatched namespaces never falls bac
       ["cue --version", "cue client --version", "cue daemon --version"],
       broken,
     );
-    assert.match(inspection.message, /uv tool install --reinstall cue-shell/u);
+    assert.match(inspection.message, /uv tool install --reinstall cue-run/u);
   }
 });
 
@@ -157,7 +157,7 @@ test("foreign, incomplete, and missing diagnostics carry distinct paths and reco
       cue: "cue version v0.14.0 linux/amd64\n",
       client: missing,
       daemon: missing,
-      pattern: /not the cue-shell aggregate CLI/u,
+      pattern: /not the Cue aggregate CLI/u,
     },
     {
       expected: "incomplete-installation",
