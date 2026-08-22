@@ -1,8 +1,9 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { cueSkillsRoot } from "@zendev-lab/cue";
 import {
   addCueSkillProvider,
   installManagedCuePresets,
@@ -18,7 +19,7 @@ const dshPackageDir = join(
   "presets",
   "upstream-package",
 );
-const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../vendor/cue/skills");
+const skillDir = cueSkillsRoot;
 
 describe("managed Cue-first presets", () => {
   it("verifies the installed package metadata and committed upstream digests", () => {

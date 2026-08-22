@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   mutation-tests:
-    name: mutation-tests
+    name: Mutation Tests
     runs-on: ubuntu-latest
     timeout-minutes: 180
     continue-on-error: true

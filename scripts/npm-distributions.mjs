@@ -100,7 +100,7 @@ export const npmDistributions = [
       "spark-paths.js": "apps/spark-cli/src/paths.ts",
     },
     copyModules: { "npm-resolver.mjs": "apps/spark-cli/src/npm-resolver.mjs" },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    files: ["bin", "dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
@@ -117,7 +117,6 @@ export const npmDistributions = [
       "./web-dsh-executable": "./bin/spark-web-dsh",
     },
     optionalDependencies: nativeOptionalDependencies,
-    skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
   },
   {
@@ -131,14 +130,13 @@ export const npmDistributions = [
     bundles: {
       "spark-headless-role-executor.js": "apps/spark-daemon/src/headless-role-executor.ts",
     },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    files: ["bin", "dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: {
       "./entrypoint": "./dist/spark-daemon.js",
       "./executable": "./bin/spark-daemon",
       "./headless-role-executor": "./dist/spark-headless-role-executor.js",
     },
-    skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
   },
   {
@@ -185,10 +183,9 @@ export const npmDistributions = [
     bundles: {
       "spark-web-dsh.js": "apps/spark-web-dsh/src/cli-entry.ts",
     },
-    files: ["bin", "dist", "lib", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    files: ["bin", "dist", "lib", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-web-dsh" },
-    skills: true,
   },
 ];
 
