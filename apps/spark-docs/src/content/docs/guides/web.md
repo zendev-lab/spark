@@ -66,6 +66,9 @@ history artifacts before DSH materializes the whole transcript. For histories
 that are safe to inspect, it predicts a smaller initial page, enforces a
 response-byte budget, compacts redundant token chunks, and returns a marked
 preview instead of timing out when one final message is unusually large.
+Directory symlinks are exposed as non-traversable entries in DSH filesystem
+listings, preventing recursive consumers from following a symlink cycle;
+explicit file access through symlink paths is unchanged.
 
 The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured during DSH

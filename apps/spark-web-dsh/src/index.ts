@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
 /**
- * Spark-owned safety policy for the DSH Web history surface.
+ * Spark-owned safety policies for the DSH Web host.
  *
  * The supported DSH release materializes a complete cold transcript before applying message
  * pagination. A physical-artifact fence therefore remains necessary for cold
@@ -9,8 +9,13 @@ import { stat } from "node:fs/promises";
  * initial page size and measures the prepared wire value before it reaches the
  * HTTP carrier. Oversized pages are retried with fewer messages down to one.
  *
- * The wrapper is scoped to Web history only; resume, fork, and background
+ * The history wrapper is scoped to Web history only; resume, fork, and background
  * persistence consumers retain their existing behavior.
+ *
+ * The supported DSH filesystem provider also follows directory symlinks while
+ * listing. Recursive consumers can therefore revisit the same realpath through
+ * an ever-growing display path. The Web host temporarily marks symlinked
+ * directories as non-directories until upstream owns cycle detection.
  */
 
 export const DEFAULT_MAX_COLD_HISTORY_ARTIFACT_BYTES = 8 * 1024 * 1024;
@@ -39,12 +44,35 @@ interface LiveSession {
   header?: SessionHeader;
 }
 
+interface FileSystemTarget {
+  displayPath: string;
+  targetKey: string;
+}
+
+interface FileSystemDirectoryEntry {
+  name: string;
+  type: "file" | "directory" | "other";
+  target: FileSystemTarget;
+  version?: unknown;
+  size?: number;
+}
+
+interface SparkWebFileSystem {
+  lstat(
+    path: string,
+    opts?: { cwd?: string },
+    signal?: AbortSignal,
+  ): Promise<{ type: "file" | "directory" | "symlink" | "other" } | undefined>;
+  listDir(target: FileSystemTarget, signal?: AbortSignal): Promise<FileSystemDirectoryEntry[]>;
+}
+
 interface SparkWebHostContext {
   apiProxy: {
     sessions: {
       history: HistoryHandler;
     };
   };
+  fs: SparkWebFileSystem;
   sessions: {
     get(id: string): LiveSession | undefined;
   };
@@ -58,7 +86,33 @@ interface SparkWebHostContext {
   };
 }
 
-export const inject = ["apiProxy", "sessionPersistence", "sessions"];
+export const inject = ["apiProxy", "fs", "sessionPersistence", "sessions"];
+
+/**
+ * Prevent recursive DSH consumers from entering directory symlink cycles.
+ * Explicit file operations still resolve symlinks through the upstream
+ * provider; only the directory-listing traversal hint is narrowed.
+ */
+export function installSymlinkTraversalGuard(fs: SparkWebFileSystem): () => void {
+  const upstreamListDir = fs.listDir.bind(fs);
+  const guardedListDir: SparkWebFileSystem["listDir"] = async (target, signal) => {
+    const entries = await upstreamListDir(target, signal);
+    const guarded: FileSystemDirectoryEntry[] = [];
+    for (const entry of entries) {
+      if (entry.type !== "directory") {
+        guarded.push(entry);
+        continue;
+      }
+      const pathInfo = await fs.lstat(entry.target.displayPath, undefined, signal);
+      guarded.push(pathInfo?.type === "symlink" ? { ...entry, type: "other" as const } : entry);
+    }
+    return guarded;
+  };
+  fs.listDir = guardedListDir;
+  return () => {
+    if (fs.listDir === guardedListDir) fs.listDir = upstreamListDir;
+  };
+}
 
 function positiveIntegerEnv(name: string, fallback: number, raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -395,6 +449,7 @@ export function apply(ctx: SparkWebHostContext): void {
   const responseFence = maxHistoryResponseBytes();
   const sessionsApi = ctx.apiProxy.sessions;
   const upstreamHistory = sessionsApi.history.bind(sessionsApi);
+  const restoreFileListing = installSymlinkTraversalGuard(ctx.fs);
 
   const guardedHistory: HistoryHandler = async (request) => {
     const live = ctx.sessions.get(request.payload.sessionId);
@@ -460,5 +515,6 @@ export function apply(ctx: SparkWebHostContext): void {
   sessionsApi.history = guardedHistory;
   ctx.effect?.(() => () => {
     if (sessionsApi.history === guardedHistory) sessionsApi.history = upstreamHistory;
+    restoreFileListing();
   });
 }
