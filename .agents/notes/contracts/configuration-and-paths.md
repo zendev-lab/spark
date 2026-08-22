@@ -45,7 +45,7 @@ $SPARK_HOME/
 │   └── recall-candidates.json     # user recall candidates
 ├── exports/                       # transcript exports
 ├── share/                         # shareable transcript exports
-├── cache/cued-version.json        # cue-shell release discovery cache
+├── cache/cued-version.json        # Cue release discovery cache
 ├── workspaces/<id>/               # workspace-scoped channel settings
 └── apps/
     ├── hub/{data,cache,state,run}/

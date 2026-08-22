@@ -1,4 +1,4 @@
-/** Public cue-shell client entry (compat path for deep imports). */
+/** Public Cue client entry (compat path for deep imports). */
 export {
   CueClient,
   CueError,
@@ -16,15 +16,11 @@ export type {
   CueOperationKey,
   CueResolvedTransport,
   CueSessionOptions,
-  CancelReason,
-  JobInfo,
-  JobOutputResult,
-  JobResult,
-  JobStatus,
-  JobStateChangedEvent,
+  ExecutionSummary,
+  ExecutionTextOutput,
+  ExecutionResult,
   OutputEncoding,
   ResourceNeeds,
-  ScriptItemSummary,
   ScriptResult,
-  StartJobResult,
+  StartExecutionResult,
 } from "./client/cue-client.ts";
