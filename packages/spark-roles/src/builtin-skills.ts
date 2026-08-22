@@ -24,14 +24,9 @@ export interface SparkBuiltinSkill {
   body: string;
 }
 
-function productSkillsDir(): string | undefined {
-  const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
-  return productDist ? resolve(productDist, "../skills") : undefined;
-}
-
 export function defaultBuiltinSkillsDir(): string {
-  const fromProduct = productSkillsDir();
-  if (fromProduct && existsSync(fromProduct)) return fromProduct;
+  const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
+  if (productDist) return resolve(productDist, "../builtin-skills");
   const hostDir = dirname(fileURLToPath(import.meta.url));
   const adjacent = resolve(hostDir, "../skills");
   if (existsSync(adjacent)) return adjacent;
@@ -45,18 +40,8 @@ export function defaultBuiltinSkillsDir(): string {
   return resolve(process.cwd(), "packages", "spark-roles", "skills");
 }
 
-export function defaultSparkCueSkillsDir(): string {
-  const productSkills = productSkillsDir();
-  const fromProduct = productSkills && resolve(productSkills, "spark-cue");
-  if (fromProduct && existsSync(fromProduct)) return fromProduct;
-  const rolesDir = dirname(fileURLToPath(import.meta.url));
-  const fromWorkspace = resolve(rolesDir, "../../spark-cue/skills");
-  if (existsSync(fromWorkspace)) return fromWorkspace;
-  return resolve(process.cwd(), "packages", "spark-cue", "skills");
-}
-
 export function defaultBasePromptDirs(): string[] {
-  return [defaultBuiltinSkillsDir(), defaultSparkCueSkillsDir()];
+  return [defaultBuiltinSkillsDir()];
 }
 
 export function defaultBasePromptFiles(): string[] {

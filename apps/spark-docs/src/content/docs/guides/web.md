@@ -52,12 +52,13 @@ available until the native Spark Web replacement gate has passed:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-The DSH-hosted app restores the Spark LLM and Cue plugins, handles plain-HTTP
-UUID and remote credential onboarding, and rejects oversized cold history
-artifacts before DSH materializes the whole transcript. For histories that are
-safe to inspect, it predicts a smaller initial page, enforces a response-byte
-budget, compacts redundant token chunks, and returns a marked preview instead
-of timing out when one final message is unusually large.
+The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
+`cue` Skill in the DSH Skill catalog. It handles
+plain-HTTP UUID and remote credential onboarding, and rejects oversized cold
+history artifacts before DSH materializes the whole transcript. For histories
+that are safe to inspect, it predicts a smaller initial page, enforces a
+response-byte budget, compacts redundant token chunks, and returns a marked
+preview instead of timing out when one final message is unusually large.
 
 The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured during DSH
