@@ -4,7 +4,13 @@ import { test } from "vitest";
 import { parseSparkWebBindArgs, sparkWebBrowserAuthority } from "./bind.ts";
 import { sparkWebRequestTrustError, tokensMatch, tokenFromRequest } from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
-import { invokeSparkWebRpc, sanitizeSparkWebRpcInput, SparkWebRpcForbiddenError } from "./rpc.ts";
+import {
+  invokeSparkWebRpc,
+  sanitizeSparkWebRpcInput,
+  SparkWebRpcForbiddenError,
+  type SparkWebDaemonInvoker,
+} from "./rpc.ts";
+import { listSparkWebSessions } from "./session-list.ts";
 import {
   collectSessionLiveEvents,
   formatSseFrame,
@@ -103,6 +109,8 @@ test("RPC allowlist forwards known methods and rejects unknown ones", async () =
   assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.status"), true);
   assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.respond"), true);
   assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.cancel"), true);
+  assert.equal(isAllowedSparkWebRpcMethod("repro.start"), false);
+  assert.equal(isAllowedSparkWebRpcMethod("repro.stop"), false);
   assert.equal(isAllowedSparkWebRpcMethod("file.execute"), false);
   const calls: Array<{ method: string; input: unknown }> = [];
   const result = await invokeSparkWebRpc("session.list", { limit: 10 }, async (method, input) => {
@@ -266,4 +274,34 @@ test("SSE snapshot polling waits for each owner response before starting the nex
   assert.equal((await stream.next()).value?.data.snapshot.status, "idle");
   controller.abort();
   await stream.return(undefined);
+});
+
+test("session tree pagination retains a parent across the owner page boundary", async () => {
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({
+    sessionId: `session-${index}`,
+    scope: { kind: "daemon" },
+    lineage: { kind: "root" },
+  }));
+  const child = {
+    sessionId: "session-child",
+    scope: { kind: "daemon" },
+    lineage: { kind: "child", parentSessionId: "session-0" },
+  };
+  const cursors: Array<string | undefined> = [];
+  const invoke = (async (method: string, input: unknown) => {
+    assert.equal(method, "session.list");
+    const cursor = (input as { cursor?: string }).cursor;
+    cursors.push(cursor);
+    if (!cursor) return firstPage;
+    if (cursor === "session-99") return [child];
+    return [];
+  }) as SparkWebDaemonInvoker;
+  const sessions = await listSparkWebSessions({ includeArchived: true }, invoke);
+
+  assert.deepEqual(cursors, [undefined, "session-99", "session-child"]);
+  const childSession = sessions.find((session) => session.sessionId === "session-child");
+  assert.equal(childSession?.lineage.kind, "child");
+  if (childSession?.lineage.kind === "child") {
+    assert.equal(childSession.lineage.parentSessionId, "session-0");
+  }
 });

@@ -98,6 +98,10 @@ describe("spark model control client", () => {
       providerName: "openai",
       modelId: "gpt-5",
     });
+    expect(parseSparkModelValue("provider/vendor/model")).toEqual({
+      providerName: "provider",
+      modelId: "vendor/model",
+    });
     expect(sparkModelValue({ providerName: "openai", modelId: "gpt-5" })).toBe("openai/gpt-5");
   });
 });
