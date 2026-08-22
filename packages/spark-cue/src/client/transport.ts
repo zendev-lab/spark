@@ -1,20 +1,20 @@
-/** cue-shell transport resolution. */
+/** Cue transport resolution. */
 
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { env } from "node:process";
-import { cueShellProcessEnvironment } from "../executable-environment.ts";
+import { cueProcessEnvironment } from "../executable-environment.ts";
 import { requireCueCommandContract } from "../command-contract.ts";
 import { CueError, type CueResolvedTransport } from "../wire/types.ts";
 
 export type { CueResolvedTransport };
 // ── Default socket path ────────────────────────────────────────────────────
 
-const APP_DIR = "cue-shell";
+const APP_DIR = "cue";
 const SOCK_NAME = "cued.sock";
 
-/** Resolve the default cue-shell daemon socket path. */
+/** Resolve the default Cue daemon socket path. */
 export function defaultSocketPath(): string {
   const runtimeDir = env.XDG_RUNTIME_DIR?.trim() || tmpdir();
   return join(runtimeDir, APP_DIR, SOCK_NAME);
@@ -31,7 +31,7 @@ export async function resolveCueTransport(): Promise<CueResolvedTransport> {
   } catch (error) {
     throw new CueError(
       "TRANSPORT_RESOLVE_FAILED",
-      `failed to resolve cue-shell client transport via ${contract.status} command ${command} ${args.join(" ")}: ${(error as Error).message}`,
+      `failed to resolve Cue client transport via ${contract.status} command ${command} ${args.join(" ")}: ${(error as Error).message}`,
     );
   }
 }
@@ -42,7 +42,7 @@ export const DEFAULT_CUE_CONNECT_TIMEOUT_MS = 10_000;
 function runResolverAttempt(attempt: { command: string; args: string[] }): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(attempt.command, attempt.args, {
-      env: cueShellProcessEnvironment(),
+      env: cueProcessEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
