@@ -49,8 +49,8 @@ The repository-wide benchmark workflow runs every CPU benchmark on `main`. Pull 
 groups, and `main` pushes select affected I/O benchmarks through Vitest's dependency graph, while a
 daily schedule and manual dispatch refresh the complete suite. Benchmark-harness changes force a
 full run and documentation-only pull requests skip the workflow. A regular Ubuntu selector is the
-necessary `needs` predecessor of the I/O walltime job so an unaffected change never allocates a
-CodSpeed Macro Runner. The CPU simulation job remains independent. The dependency audit uses
+necessary `needs` predecessor of the GitHub-hosted I/O walltime job so an unaffected change never
+starts that benchmark lane. The CPU simulation job remains independent. The dependency audit uses
 path-filtered `main` pushes and a schedule for complete scans. Related merge-gate jobs share one
 workflow so `needs` can express intra-lane order where required: `ci-static-checks.yml` runs
 `Pre-commit Checks` before `Project Checks` and `Documentation Checks`; `ci-tests.yml` runs

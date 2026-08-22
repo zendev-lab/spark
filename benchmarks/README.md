@@ -49,12 +49,13 @@ skip the workflow.
 
 CPU benchmarks run in CodSpeed simulation mode with a five-minute limit. Files
 named `*.walltime.bench.ts` are selected first on a regular Ubuntu runner. The
-twenty-minute CodSpeed Macro Runner job starts only when that selector finds an
+twenty-minute GitHub-hosted Ubuntu job starts only when that selector finds an
 affected I/O benchmark, or when the daily or manual full baseline runs. Use the
 walltime suffix for workloads whose measured behavior includes file I/O,
 networking, subprocesses, or other system calls that simulation does not
-measure. Both lanes use the repository's Node 24 runtime, grant only
-`contents: read`, and pin every action to a commit SHA.
+measure. Walltime results remain advisory and may include variance from the
+shared hosted environment. Both lanes use the repository's Node 24 runtime,
+grant only `contents: read`, and pin every action to a commit SHA.
 
 To add another module, place its cases and `.bench.ts` file under
 `benchmarks/<module>/`, use the `.walltime.bench.ts` suffix when appropriate,
