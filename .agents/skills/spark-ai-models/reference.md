@@ -46,7 +46,7 @@ When adding or retuning a Baidu model, update all that apply:
    - cost constant
    - `models[]` row (comments must cite measurement or vendor docs)
 2. `packages/spark-llm/src/baidu-oneapi-provider.test.ts` — `BAIDU_MODEL_IDS` order matches `models[]`
-3. `packages/spark-extension/src/__tests__/spark-provider-registry.test.ts` — window, maxTokens, transport, cost
+3. `apps/spark-daemon/src/product/__tests__/spark-provider-registry.test.ts` — window, maxTokens, transport, cost
 4. `packages/spark-llm/README.md` — catalog ids, transport sentence, measured windows
 5. Default enable lives in `DEFAULT_SPARK_ENABLED_MODEL_PATTERNS`
    (`packages/spark-llm/src/control/provider-catalog.ts`). Catalog rows are not
@@ -76,7 +76,7 @@ From the repo root (narrowest first):
 
 ```text
 pnpm --filter @zendev-lab/spark-llm test src/baidu-oneapi-provider.test.ts src/kimi-coding-provider.test.ts src/control/provider-catalog.test.ts src/spark-provider-control.test.ts
-pnpm --filter @zendev-lab/spark-extension test src/__tests__/spark-provider-registry.test.ts src/__tests__/spark-config.test.ts
+pnpm --filter @zendev-lab/spark-daemon test src/product/__tests__/spark-provider-registry.test.ts src/product/__tests__/spark-config.test.ts
 ```
 
 Then the package or repo gate required by `CONTRIBUTING.md`.

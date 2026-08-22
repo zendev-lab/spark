@@ -12,6 +12,12 @@ The LLM plugin exposes Spark's configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured from DSH onboarding;
 OpenAI Codex reuses credentials created by Spark's OAuth login flow.
 
+The managed `spark-standard` and `spark-code` presets use Spark's versioned
+`read`/`write`/`edit` adapter over DSH `ctx.fs`. Writes retain DSH sandbox
+confinement and require the opaque version returned by `read` (or `missing` for
+create-only); impossible sandbox-escalation arguments are absent from both
+Native and Code Mode schemas. Upstream `read_image` remains available.
+
 ```sh
 spark web-dsh
 spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080
@@ -24,6 +30,11 @@ release build and smoke generate them instead of relying on tracked output. The
 same Spark-owned spawn/fork providers are registered on the daemon Cordis root.
 The overlay disables stock in-process spawn/fork backends; the official
 `dsh-subagent` HOST stays mounted.
+
+The compatibility server keeps DSH HMR disabled by default. `spark web-dsh`
+prebuilds its managed bundles before boot, so HMR is unnecessary for the
+long-lived server and can retain reload state. Use the upstream DSH profile
+command directly when developing with HMR.
 
 For the supported DSH release, Spark rejects cold history artifacts larger than 8 MiB
 before upstream `inspect()` can materialize the complete transcript. Servable

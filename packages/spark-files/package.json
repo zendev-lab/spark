@@ -2,10 +2,10 @@
   "name": "@zendev-lab/spark-files",
   "version": "0.5.0",
   "private": true,
-  "description": "Working-tree file tools (read/edit/write/grep/find) for Spark extension hosts, with bounded output, versioned reads, atomic writes, and diff semantics.",
+  "description": "Working-tree file tools (read/edit/write/grep/find) for Spark product hosts, with bounded output, versioned reads, atomic writes, and diff semantics.",
   "keywords": [
     "file-tools",
-    "spark-extension",
+    "spark-capability",
     "spark-package"
   ],
   "license": "MIT",
@@ -18,6 +18,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./dsh": "./src/dsh-plugin.ts",
     "./extension": "./src/extension.ts"
   },
   "scripts": {
@@ -25,6 +26,12 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "catalog:dsh",
+    "@deepseek-ai/dsh-fs": "catalog:dsh",
+    "@deepseek-ai/dsh-sandbox-policy": "catalog:dsh",
+    "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
@@ -34,6 +41,7 @@
     "typebox": "catalog:"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-scope": "catalog:dsh",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

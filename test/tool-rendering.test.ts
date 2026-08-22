@@ -10,7 +10,7 @@ import { registerSparkCueTools } from "@zendev-lab/spark-cue";
 import piGraftExtension from "@zendev-lab/spark-graft/extension";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
 import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
-import sparkExtension from "@zendev-lab/spark-extension/extension";
+import registerSparkProduct from "../apps/spark-daemon/src/product/policy/index.ts";
 
 interface RenderTheme {
   fg: (_color: string, text: string) => string;
@@ -40,7 +40,7 @@ const ansiTheme: RenderTheme = {
 
 const snapshotDir = join(dirname(fileURLToPath(import.meta.url)), "snapshots");
 
-test("Spark extension canonical facade tools render parameter-aware tool calls", async () => {
+test("Spark product policy canonical facade tools render parameter-aware tool calls", async () => {
   const tools = registerSparkToolsForRendering();
 
   assertAllToolsHaveCallRenderers(tools);
@@ -266,7 +266,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
 
 function registerSparkToolsForRendering(): Map<string, RenderableToolConfig> {
   const tools = new Map<string, RenderableToolConfig>();
-  sparkExtension({
+  registerSparkProduct({
     registerCommand: () => undefined,
     registerTool: (config) => tools.set(config.name, config),
     on: () => undefined,
