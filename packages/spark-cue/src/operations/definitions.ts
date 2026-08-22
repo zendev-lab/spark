@@ -1588,7 +1588,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     description:
       "Run a script file with an explicit language runner. " +
       "Supported languages in this version: cue-shell and python. " +
-      "For cue-shell this delegates to RunScript and mirrors cue_run; for python it executes through uv run --script <path>, optionally with --python <path>, and reports the runner selection in details.",    parameters: Type.Object({
+      "For cue-shell this delegates to RunScript and mirrors cue_run; for python it executes through uv run --script <path>, optionally with --python <path>, and reports the runner selection in details.",
+    parameters: Type.Object({
       path: Type.String({ description: "Path to the script file to run." }),
       language: Type.String({ description: "Script language. Required: Cue or python." }),
       timeout: Type.Optional(
@@ -1712,7 +1713,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     description:
       "Run an inline script body with an explicit language runner. " +
       "Supported languages in this version: cue-shell and python. " +
-      "Inline Python is piped to uv run --script - through cue-shell, optionally with --python <path>, and reports the runner selection in details. Manual cue_exec python calls are blocked by the default daemon guardrails.",    parameters: Type.Object({
+      "Inline Python is piped to uv run --script - through cue-shell, optionally with --python <path>, and reports the runner selection in details. Manual cue_exec python calls are blocked by the default daemon guardrails.",
+    parameters: Type.Object({
       script: Type.String({ description: "Inline script body to run." }),
       language: Type.String({ description: "Script language. Required: Cue or python." }),
       pathLabel: Type.Optional(
