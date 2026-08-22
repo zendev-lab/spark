@@ -112,7 +112,9 @@ updated: 2026-08-21
 - DSH Phase 2 已通过私有 `@zendev-lab/dsh-tool-cue` adapter 接入
   SystemPrompt + Tools：`spark-cue/operations` 仍唯一拥有 Cue 语义，DSH
   只适配受支持 DSH release 的 host ABI、权限和 presenter；`spark-standard` / `spark-code`
-  用 Cue 取代 DSH Bash/Pwsh/Jobs。
+  用 Cue 取代 DSH Bash/Pwsh/Jobs。两个托管 preset 的文本文件工具由
+  `spark-files/dsh` 通过 DSH `ctx.fs` 提供显式版本 CAS 和逐调用沙箱策略；官方
+  `read_image` 与 `dsh-tool-fs-search` 保留。
 - DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark
   运行且通过 real-host smoke，通用模型工具通常命名为 `dsh-tool-*`；`spark-*`
   承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`、

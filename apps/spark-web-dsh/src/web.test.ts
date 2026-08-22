@@ -19,6 +19,7 @@ import {
   composeWebArgs,
   ensureDshToolCueBundle,
   ensureDshToolFusionBundle,
+  ensureSparkFilesBundle,
   ensureSparkLlmBundle,
   ensureSparkSessionSubagentBundle,
   ensureSparkWebClient,
@@ -27,6 +28,7 @@ import {
   resolveDshProfileDir,
   resolveFromDirectory,
   resolveCueSkillsDir,
+  resolveSparkFilesPackageDir,
   resolveSparkLlmPackageDir,
   resolveSparkSessionPackageDir,
   resolveSparkWebDshPackageDir,
@@ -83,6 +85,8 @@ test("composeSparkWebPatch mounts Spark DSH plugins and bounds the long-lived we
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-fusion\/index\.mjs/);
     assert.match(defaultText, /- id: spark-session-subagent/);
     assert.match(defaultText, /name: \.\/plugins\/spark-session-subagent\/index\.mjs/);
+    assert.match(defaultText, /- id: spark-base-tool-fs/);
+    assert.match(defaultText, /name: '@deepseek-ai\/dsh-tool-fs'/);
     assert.match(defaultText, /- id: agent-presets\n  config:\n    default: spark-standard/);
     assert.match(defaultText, /name: ["']@zendev-lab\/spark-web-dsh["']/);
     assert.match(defaultText, /- id: hmr\n  disabled: true/);
@@ -179,6 +183,25 @@ test("ensureDshToolFusionBundle installs the Fusion plugin idempotently", async 
   }
 });
 
+test("ensureSparkFilesBundle installs the owner adapter idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-files-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureSparkFilesBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "spark-files", ".source-sha256")));
+
+    const second = await ensureSparkFilesBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("spark-llm package resolves from the workspace and exposes the plugin entry", () => {
   const llmDir = resolveSparkLlmPackageDir();
   assert.ok(existsSync(join(llmDir, "src", "dsh-plugin.ts")), "plugin entry exists");
@@ -187,6 +210,11 @@ test("spark-llm package resolves from the workspace and exposes the plugin entry
 test("spark-session package resolves from the workspace and exposes the subagent plugin entry", () => {
   const sessionDir = resolveSparkSessionPackageDir();
   assert.ok(existsSync(join(sessionDir, "src", "subagent.ts")), "plugin entry exists");
+});
+
+test("spark-files package resolves from the workspace and exposes the DSH adapter", () => {
+  const filesDir = resolveSparkFilesPackageDir();
+  assert.ok(existsSync(join(filesDir, "src", "dsh-plugin.ts")), "DSH adapter exists");
 });
 
 test("spark-web-dsh resolves its package root and verified source Skill snapshot", () => {

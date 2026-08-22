@@ -44,6 +44,13 @@ The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured during DSH
 onboarding; OpenAI Codex reuses credentials created by Spark's OAuth login flow.
 
+The managed `spark-standard` and `spark-code` presets expose versioned Spark
+file tools over DSH's filesystem provider. Read the file first, then pass its
+opaque `version` as `expectedVersion` to `write` or `edit`; use `missing` only
+when creating a file. DSH still enforces the current session sandbox, while
+the schemas omit escalation arguments that cannot succeed. Image reads remain
+provided by DSH's `read_image` tool.
+
 ## Start with the outcome
 
 Create or open a session, then describe the intended result in ordinary
