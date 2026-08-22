@@ -1,6 +1,6 @@
 ---
 title: 本地 Web 工作台
-description: 打开绑定本地 Spark daemon 的浏览器工作台。
+description: 启动绑定本地 Spark daemon 的浏览器工作台。
 ---
 
 在 Spark 应当操作的工作空间中启动本地工作台：
@@ -9,16 +9,15 @@ description: 打开绑定本地 Spark daemon 的浏览器工作台。
 spark web
 ```
 
-`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并打开一次性 token
-URL，例如 `http://127.0.0.1:4310/?token=...`。显式传入非回环 `--host` 时必须
+`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出一次性 token
+URL，例如 `http://127.0.0.1:4310/?token=...`，但不会自动打开浏览器。显式传入非回环 `--host` 时必须
 同时给出至少一个 `--trusted-host`。服务器会校验 Host、Origin/Fetch Metadata、
 mutation 来源与 token；这仍是受信任的单用户 LAN 界面，不是公网多用户控制面。
 
-需要改变绑定、端口或跳过打开浏览器时，使用 `--host`、可重复的
-`--trusted-host`、`--port` 和 `--no-open`：
+需要改变绑定或端口时，使用 `--host`、可重复的 `--trusted-host` 和 `--port`：
 
 ```bash
-spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
+spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
 ```
 
 本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
@@ -46,7 +45,7 @@ daemon 的 Ask/Approval owner，不能由浏览器编造状态。
 
 `spark web-dsh` 启动独立打包、基于 DeepSeek Harness 宿主的 Spark 产品界面；
 它不会替代或修改 `spark web`。在原生 Spark Web 通过替代门槛前，这个界面仍然
-保留：
+保留。命令只输出服务 URL，不会自动打开浏览器：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
@@ -57,6 +56,8 @@ DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding�
 并在 DSH 将完整 transcript 载入内存前拒绝过大的冷历史文件。对于可以安全读取的
 历史，它会预估并缩小初始页、限制响应字节数、压缩重复的 token chunk；即使
 单条最终消息仍很大，也会返回带截断标记的预览，而不是等待请求超时。
+DSH 文件系统列举中的目录符号链接会显示为不可继续遍历的条目，从而阻止递归
+消费方沿符号链接环无限下钻；通过符号链接路径显式读写文件的行为不变。
 
 DSH LLM 插件会暴露已配置的 `baidu-oneapi`、`kimi-coding` 和
 `openai-codex` 路由。API Key provider 可以在 DSH onboarding 中配置；OpenAI

@@ -1,6 +1,6 @@
 ---
 title: Local web workbench
-description: Open the browser workbench bound to the local Spark daemon.
+description: Start the browser workbench bound to the local Spark daemon.
 ---
 
 Start the local workbench from the workspace where Spark should operate:
@@ -10,17 +10,18 @@ spark web
 ```
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
-and opens a one-shot token URL such as `http://127.0.0.1:4310/?token=...`.
+and prints a one-shot token URL such as `http://127.0.0.1:4310/?token=...`
+without opening a browser.
 An explicit non-loopback `--host` requires at least one `--trusted-host`. The
 server then validates Host, Origin/Fetch Metadata, mutation provenance, and the
 token; this remains a trusted single-user LAN surface rather than a public
 multi-user control plane.
 
-Use `--host`, repeatable `--trusted-host`, `--port`, and `--no-open` when you
-need to change the bind or skip opening a browser:
+Use `--host`, repeatable `--trusted-host`, and `--port` when you need to change
+the bind:
 
 ```bash
-spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
+spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
 ```
 
 Pass `--hmr` for local development when you need Vite to watch source changes;
@@ -53,7 +54,8 @@ daemon's Ask and approval owners rather than browser-invented state.
 
 `spark web-dsh` starts the separately packaged Spark product surface hosted by
 DeepSeek Harness; it does not replace or change `spark web`. It remains
-available until the native Spark Web replacement gate has passed:
+available until the native Spark Web replacement gate has passed. It prints
+the server URL without opening a browser:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
@@ -66,6 +68,9 @@ history artifacts before DSH materializes the whole transcript. For histories
 that are safe to inspect, it predicts a smaller initial page, enforces a
 response-byte budget, compacts redundant token chunks, and returns a marked
 preview instead of timing out when one final message is unusually large.
+Directory symlinks are exposed as non-traversable entries in DSH filesystem
+listings, preventing recursive consumers from following a symlink cycle;
+explicit file access through symlink paths is unchanged.
 
 The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured during DSH

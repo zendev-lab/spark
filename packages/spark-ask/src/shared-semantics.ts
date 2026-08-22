@@ -13,13 +13,11 @@ import {
   inferSparkAskSubmitStatus,
   isSparkAskGateMode,
   missingRequiredSparkAskAnswerIds,
-  missingRequiredSparkAskGateAnswerIds,
   nextActionForSparkAskSubmit,
   parseSparkAskChoice,
   requiresExplicitSparkAskGateSelection,
   type SparkAskAnswerValuesLike,
   type SparkAskOptionLike,
-  type SparkAskQuestionType,
   type SparkAskRequestLike,
   type SparkGateQuestionLike,
   type SparkParsedAskChoice,
@@ -27,7 +25,6 @@ import {
 
 import { SENTINEL_LABELS } from "./schema.ts";
 
-export type AskQuestionTypeLike = SparkAskQuestionType;
 export type AskOptionLike = SparkAskOptionLike;
 export type ParsedAskChoice = SparkParsedAskChoice;
 export type GateQuestionLike = SparkGateQuestionLike;
@@ -90,6 +87,5 @@ export const hasRequiredGateSelections = hasRequiredSparkAskGateSelections;
 export const hasRequiredAskSelections = hasRequiredSparkAskSelections;
 export const inferAskSubmitStatus = inferSparkAskSubmitStatus;
 export const missingRequiredAskAnswerIds = missingRequiredSparkAskAnswerIds;
-export const missingRequiredGateAnswerIds = missingRequiredSparkAskGateAnswerIds;
 export const nextActionForAskSubmit = nextActionForSparkAskSubmit;
 export const formatAskAnswerForDisplay = formatSparkAskAnswerForDisplay;

@@ -9,8 +9,8 @@
 
 type ToolResultTextPart = { type: string; text?: string; [key: string]: unknown };
 
-export type SparkToolOutputProfile = "exact" | "log" | "status" | "diagnostic";
-export type SparkToolOutputCompactionLevel = "off" | "lite" | "full" | "ultra";
+type SparkToolOutputProfile = "exact" | "log" | "status" | "diagnostic";
+type SparkToolOutputCompactionLevel = "off" | "lite" | "full" | "ultra";
 
 type CompactableProfile = Exclude<SparkToolOutputProfile, "exact">;
 
@@ -21,7 +21,7 @@ export interface SparkToolResultCompactionInput {
   level?: SparkToolOutputCompactionLevel;
 }
 
-export interface SparkToolResultCompactionDetails {
+interface SparkToolResultCompactionDetails {
   profile: CompactableProfile;
   level: SparkToolOutputCompactionLevel;
   originalChars: number;
@@ -138,9 +138,9 @@ const TOOL_OUTPUT_PROFILE_BY_NAME = new Map(
   TOOL_OUTPUT_PROFILE_RULES.flatMap((rule) => rule.tools.map((tool) => [tool, rule.profile])),
 );
 
-export const TOOL_RESULT_RAW_RECOVERY_MIN_ORIGINAL_CHARS = 4_000;
-export const TOOL_RESULT_RAW_RECOVERY_MIN_OMITTED_CHARS = 1_000;
-export const TOOL_RESULT_RAW_RECOVERY_ERROR_MIN_ORIGINAL_CHARS = 1_000;
+const TOOL_RESULT_RAW_RECOVERY_MIN_ORIGINAL_CHARS = 4_000;
+const TOOL_RESULT_RAW_RECOVERY_MIN_OMITTED_CHARS = 1_000;
+const TOOL_RESULT_RAW_RECOVERY_ERROR_MIN_ORIGINAL_CHARS = 1_000;
 
 const STRUCTURED_EXACT_ACTIONS = new Set(["read", "preview"]);
 const STRUCTURED_ACTION_TOOLS = new Set(["artifact", "memory", "context"]);
@@ -228,7 +228,7 @@ export function shouldRecordRawToolResultEvidence(
   return { record: false, omittedChars };
 }
 
-export function resolveToolOutputCompactionLevel(
+function resolveToolOutputCompactionLevel(
   raw = process.env.SPARK_TOOL_OUTPUT_COMPACTION,
 ): SparkToolOutputCompactionLevel {
   if (typeof raw !== "string" || raw.trim() === "") return "full";

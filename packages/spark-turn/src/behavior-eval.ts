@@ -1,8 +1,8 @@
 import type { SparkPromptManifest, SparkPromptManifestToolEffect } from "./prompt-manifest.ts";
 
-export type SparkBehaviorEvalOutcome = "completed" | "blocked" | "aborted" | "failed";
+type SparkBehaviorEvalOutcome = "completed" | "blocked" | "aborted" | "failed";
 
-export interface SparkBehaviorEvalToolCall {
+interface SparkBehaviorEvalToolCall {
   name: string;
   effect?: SparkPromptManifestToolEffect;
   isError?: boolean;
@@ -31,7 +31,7 @@ export interface SparkBehaviorEvalExpectation {
   requireEvidence?: boolean;
 }
 
-export interface SparkBehaviorEvalCheck {
+interface SparkBehaviorEvalCheck {
   id: string;
   passed: boolean;
   message: string;

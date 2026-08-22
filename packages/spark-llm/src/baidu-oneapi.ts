@@ -253,7 +253,7 @@ function isBaiduContextOverflowMessage(message: AssistantMessage): boolean {
  * folded "[…]" rather than the plaintext. Thinking that is already empty or
  * already marked redacted stays untouched.
  */
-export function redactBaiduOneApiThinking(
+function redactBaiduOneApiThinking(
   content: AssistantMessage["content"],
 ): AssistantMessage["content"] {
   if (!Array.isArray(content)) return content;

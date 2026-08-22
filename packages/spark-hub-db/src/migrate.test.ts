@@ -168,6 +168,7 @@ describe("migrations", () => {
       "0023",
       "0024",
       "0025",
+      "0026",
     ]);
 
     const bindingColumns = db
@@ -191,7 +192,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(25);
+    expect(migrationCount.count).toBe(26);
     db.close();
   });
 

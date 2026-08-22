@@ -29,7 +29,7 @@ unregistered cwd still starts the workbench and can be registered from the home
 page.
 
 ```bash
-spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
+spark web --host 0.0.0.0 --trusted-host spark.lan
 ```
 
 See [`PARITY.md`](./PARITY.md) for the capability-to-owner/test/runtime-evidence

@@ -109,6 +109,7 @@ updated: 2026-08-21
 - Channel 已原位迁移为 `dsh-channels` Cordis 插件；配置、Session、cwd、delivery、
   human wait 与控制面均为 daemon scope。旧 Workspace Channel 只保留一次性、
   fail-closed 的 v7→v8 数据迁移，不保留新行为兼容层。
+- **Hub 以 daemon 为绑定单位**：同一台机器一个 daemon，其上的 workspace（概念保留）归属该 daemon。workspace 身份在 daemon 本地持有，Hub 投影由 daemon 登录/上行链路调度；hub UI 层 workspace 与 daemon 统一呈现（workspace 作为会话的组织容器），console 导航不再单列 daemon 组。
 - Goal/Loop/Repro 的 `manual_only` 旁路需要 Session 级 `driverAuthority`：交互
   启动 ask 一次，CLI/API/daemon tick 静默授予；拒绝则退化为逐工具批准。绑定本身
   不是同意。

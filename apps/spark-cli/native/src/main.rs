@@ -27,7 +27,7 @@ Usage:
   spark hub [command] [args...]
   spark acp
   spark mcp
-  spark web [--host 127.0.0.1] [--port 4310] [--no-open]
+  spark web [--host 127.0.0.1] [--port 4310]
   spark web-dsh [--host 127.0.0.1] [--port 3080]
   spark --help
   spark --version

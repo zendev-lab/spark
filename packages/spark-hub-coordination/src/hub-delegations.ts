@@ -44,6 +44,19 @@ export interface HubWorkspaceRecord {
   administratorSessionId?: string;
 }
 
+/** A daemon (one per machine/installation) is the hub binding unit. */
+export interface HubDaemonRecord {
+  id: string;
+  installationId: string;
+  name: string;
+  status: string;
+  protocolVersion?: string;
+  lastHeartbeatAt?: string;
+  workspaceCount: number;
+  workspaceNames: string[];
+  enrollmentScope: "daemon" | "workspace" | "device" | "unknown";
+}
+
 export interface HubWorkspaceDelegationRecord {
   request: WorkspaceDelegationRequest;
   status: WorkspaceDelegationStatus;
@@ -176,6 +189,71 @@ export function listHubWorkspaces(db: DatabaseSync): HubWorkspaceRecord[] {
     ...(row.runtimeId ? { runtimeId: row.runtimeId } : {}),
     ...(row.administratorSessionId ? { administratorSessionId: row.administratorSessionId } : {}),
   }));
+}
+
+export function listHubDaemons(db: DatabaseSync): HubDaemonRecord[] {
+  const rows = db
+    .prepare(
+      `SELECT rc.id,
+              rc.installation_id AS installationId,
+              rc.name,
+              rc.status,
+              rc.protocol_version AS protocolVersion,
+              rc.last_heartbeat_at AS lastHeartbeatAt,
+              rc.enrollment_scopes_json AS enrollmentScopesJson,
+              COUNT(rb.id) AS workspaceCount,
+              GROUP_CONCAT(
+                CASE WHEN rb.display_name IS NOT NULL AND rb.display_name <> '' THEN rb.display_name END,
+                ', '
+              ) AS workspaceNames
+       FROM runtime_connections rc
+       LEFT JOIN runtime_workspace_bindings rb
+         ON rb.runtime_id = rc.id
+        AND rb.status <> 'archived'
+       GROUP BY rc.id
+       ORDER BY rc.updated_at DESC`,
+    )
+    .all() as unknown as Array<{
+    id: string;
+    installationId: string | null;
+    name: string;
+    status: string;
+    protocolVersion: string | null;
+    lastHeartbeatAt: string | null;
+    enrollmentScopesJson: string;
+    workspaceCount: number;
+    workspaceNames: string | null;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    installationId: row.installationId ?? "unknown",
+    name: row.name,
+    status: row.status,
+    ...(row.protocolVersion ? { protocolVersion: row.protocolVersion } : {}),
+    ...(row.lastHeartbeatAt ? { lastHeartbeatAt: row.lastHeartbeatAt } : {}),
+    workspaceCount: Number(row.workspaceCount),
+    workspaceNames: row.workspaceNames
+      ? row.workspaceNames
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean)
+      : [],
+    enrollmentScope: enrollmentScopeKind(row.enrollmentScopesJson),
+  }));
+}
+
+function enrollmentScopeKind(scopesJson: string): HubDaemonRecord["enrollmentScope"] {
+  try {
+    const scopes = JSON.parse(scopesJson) as unknown;
+    if (!Array.isArray(scopes)) return "unknown";
+    const values = scopes.filter((scope): scope is string => typeof scope === "string");
+    if (values.includes("daemon:attach")) return "daemon";
+    if (values.includes("workspace:register")) return "workspace";
+    if (values.length > 0) return "device";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 export function createHubWorkspaceDelegation(

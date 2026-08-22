@@ -114,7 +114,7 @@ forwarding chain. `SPARK_HUB_PUBLIC_URL=auto` is only appropriate behind the
 same trusted loopback proxy. Changing the public origin changes daemon server
 identity, so re-register affected workspaces deliberately.
 
-## Register a remote workspace
+## Connect a daemon and attach workspaces
 
 Workspace identity is local to the daemon. Authorize the daemon machine first;
 Hub projection is daemon-scheduled, not a workspace property:
@@ -125,5 +125,10 @@ spark daemon workspace register . --name <workspace-name>
 spark daemon workspace register . --token <workspace-token>
 ```
 
-Machine connectivity credentials and one-time workspace registration tokens
-have different scopes; do not reuse one as the other.
+`spark daemon login` binds the daemon installation (one per machine) to the
+Hub; the first `workspace register` records the workspace locally, and the
+token form announces its Hub projection through the same daemon binding.
+Hub treats the daemon installation as the binding unit: workspaces run on
+that daemon and are presented as its session organizations. An enrollment
+token is still required to announce a Hub projection; without it the
+workspace stays daemon-local until the account attaches it.

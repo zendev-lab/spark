@@ -12,7 +12,7 @@ export async function autoStartDaemon(socketPath: string): Promise<void> {
   await startDaemonWithContract(contract, socketPath);
 }
 
-export async function startDaemonWithContract(
+async function startDaemonWithContract(
   contract: CueCommandContract,
   socketPath: string,
 ): Promise<void> {

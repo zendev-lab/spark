@@ -28,7 +28,7 @@ import {
 
 export type SparkMemoryKind = "entry" | "learning" | "candidate";
 
-export type SparkMemoryLearningAction =
+type SparkMemoryLearningAction =
   | "record"
   | "search"
   | "list"
@@ -39,7 +39,7 @@ export type SparkMemoryLearningAction =
   | "export_markdown"
   | "import_markdown";
 
-export type SparkMemoryCandidateAction =
+type SparkMemoryCandidateAction =
   | "record"
   | "record_candidate"
   | "list"

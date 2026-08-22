@@ -121,11 +121,6 @@ export async function runSparkWebCli(
   }
 
   process.stdout.write(`Spark web listening on ${url}\n`);
-  if (bind.open) {
-    process.stdout.write(
-      "Open that loopback URL in a local browser. The token is single-host only.\n",
-    );
-  }
   return await new Promise<number>(() => undefined);
 }
 
@@ -208,10 +203,11 @@ export function sparkWebHelpText(): string {
   return `spark-web - local Spark daemon workbench
 
 Usage:
-  spark-web [--host 127.0.0.1] [--port 4310] [--trusted-host HOST] [--no-open] [--hmr]
+  spark-web [--host 127.0.0.1] [--port 4310] [--trusted-host HOST] [--hmr]
 
 Binds to 127.0.0.1 by default. A non-loopback --host requires one or more
 --trusted-host values; Host, same-origin metadata, and the token are all checked.
+Prints the workbench URL without opening a browser.
 Pass --hmr to use the Vite development server;
 the default serves the prebuilt handler without HMR for long-lived use.
 Shows every workspace bound to the local daemon.

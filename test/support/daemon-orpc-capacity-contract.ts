@@ -25,7 +25,7 @@ export interface DaemonOrpcCapacityProbe {
   turnStatus: DaemonOrpcLatencySummary;
 }
 
-export interface DaemonOrpcCapacityProbePhase {
+interface DaemonOrpcCapacityProbePhase {
   persistent: DaemonOrpcCapacityProbe;
   fresh: DaemonOrpcCapacityProbe;
 }

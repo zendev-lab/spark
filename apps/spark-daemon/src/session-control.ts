@@ -611,7 +611,16 @@ export async function executeSparkDaemonSessionControl(
         false,
         true,
       );
-      const page = boundedTurnStreamPage(store, parsed.invocationId, parsed.after, parsed.limit);
+      const page =
+        options.actor === "spark-daemon-local-rpc"
+          ? sparkTurnStreamPageSchema.parse(
+              store.eventPage(
+                parsed.invocationId,
+                parsed.after,
+                Math.min(maxTurnStreamEvents, parsed.limit),
+              ),
+            )
+          : boundedTurnStreamPage(store, parsed.invocationId, parsed.after, parsed.limit);
       const data = publicObject(page);
       return {
         result: data,
