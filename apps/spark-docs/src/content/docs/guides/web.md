@@ -45,6 +45,8 @@ The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
 onboarding; OpenAI Codex reuses credentials created by Spark's OAuth login flow.
 Reasoning-capable routes default to `high`; an explicit Session-level effort
 still takes precedence.
+The Models page asks for an API key when adding Baidu OneAPI or Kimi For
+Coding. Kimi For Coding does not provide OAuth authentication.
 
 The managed `spark-standard` and `spark-code` presets expose versioned Spark
 file tools over DSH's filesystem provider. Read the file first, then pass its

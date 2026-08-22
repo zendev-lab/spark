@@ -13,6 +13,8 @@ The Spark LLM plugin replaces stock `llm-pi-ai` and exposes Spark's configured
 reuse Spark's provider configuration and credential store; OpenAI Codex reuses
 credentials created by Spark's OAuth login flow. Reasoning-capable routes use
 Spark's `high` default effort unless the Session selects another level.
+The DSH Models page asks directly for the API key when adding Baidu OneAPI or
+Kimi For Coding. Kimi is API-key-only; it does not offer an OAuth flow.
 
 The managed `spark-standard` and `spark-code` presets use Spark's versioned
 `read`/`write`/`edit` adapter over DSH `ctx.fs`. Writes retain DSH sandbox

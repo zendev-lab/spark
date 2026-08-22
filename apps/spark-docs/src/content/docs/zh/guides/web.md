@@ -38,6 +38,8 @@ DSH LLM 插件会暴露已配置的 `baidu-oneapi`、`kimi-coding` 和
 `openai-codex` 路由。API Key provider 可以在 DSH onboarding 中配置；OpenAI
 Codex 会复用由 Spark OAuth 登录流程创建的凭据。支持推理的路由默认使用
 `high`；Session 显式选择的其他强度仍优先生效。
+在“模型”页面添加 Baidu OneAPI 或 Kimi For Coding 时，界面会直接要求填写
+API Key。Kimi For Coding 不提供 OAuth 认证。
 
 托管的 `spark-standard` 与 `spark-code` preset 会通过 DSH 文件系统 provider
 暴露带版本保护的 Spark 文件工具。先读取文件，再把返回的不透明 `version` 作为

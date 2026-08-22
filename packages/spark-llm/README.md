@@ -67,6 +67,9 @@ resolution instead of maintaining another owner. The Web DSH composition
 disables stock `llm-pi-ai` before mounting this adapter.
 Reasoning-capable routes advertise Spark's `high` default effort to DSH while
 preserving an explicit lower or higher effort selected for a Session.
+The adapter uses DSH's `llm-pi-ai` settings-layout namespace only so the stock
+Models page renders its write-only API-key editor; this does not remount the
+stock provider or transfer provider ownership away from `spark-llm`.
 
 API-key routes resolve credentials from the DSH credentials service, the
 launching environment, and Spark's auth store. OpenAI Codex reuses Spark's
