@@ -355,6 +355,7 @@ export const humanQuestionSchema = z.object({
   type: z.enum(["single", "multi", "freeform", "preview"]),
   prompt: z.string().min(1),
   required: z.boolean().default(false),
+  defaultValues: z.array(z.string()).optional(),
   options: z.array(humanQuestionOptionSchema).optional(),
 });
 
@@ -367,6 +368,7 @@ export const humanRequestCreatedPayloadSchema = z.object({
   evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   sessionId: z.string().min(1).optional(),
   toolCallId: z.string().min(1).optional(),
+  mode: z.enum(["clarification", "decision", "approval", "unblock"]).optional(),
   title: z.string().min(1),
   prompt: z.string().min(1),
   questions: z.array(humanQuestionSchema).default([]),

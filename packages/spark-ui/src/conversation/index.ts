@@ -7,6 +7,7 @@ export { default as ConversationEmptyState } from "./ConversationEmptyState.svel
 export { default as ConversationTurnRail } from "./ConversationTurnRail.svelte";
 export { default as ConversationViewport } from "./ConversationViewport.svelte";
 export { default as ErrorPart } from "./ErrorPart.svelte";
+export { default as HumanInteractionPanel } from "./HumanInteractionPanel.svelte";
 export { default as ImagePart } from "./ImagePart.svelte";
 export { default as InlineCitation } from "./InlineCitation.svelte";
 export { default as MediaAttachment } from "./MediaAttachment.svelte";

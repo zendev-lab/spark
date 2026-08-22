@@ -324,6 +324,7 @@ export class SparkDaemonHumanInteractionBroker {
     const payload = {
       kind: "ask_user" as const,
       delivery,
+      mode: durable.ask.mode,
       interactionRequestId: request.requestId,
       ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
       sessionId: context.sessionId,
@@ -335,6 +336,7 @@ export class SparkDaemonHumanInteractionBroker {
         type: question.type,
         prompt: question.prompt,
         required: question.required,
+        ...(question.defaultValues.length > 0 ? { defaultValues: question.defaultValues } : {}),
         ...(question.options.length > 0
           ? {
               options: question.options.map((option) => ({
@@ -382,6 +384,7 @@ export class SparkDaemonHumanInteractionBroker {
             projectId: context.channel ? undefined : context.projectId,
             toolCallId,
             delivery,
+            mode: durable.ask.mode,
             ...(durable.ask.evidenceRequest
               ? { evidenceRequest: durable.ask.evidenceRequest }
               : {}),
