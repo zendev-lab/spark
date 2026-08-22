@@ -28,6 +28,7 @@ const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "u
 const buildNativeProducts = process.env.SPARK_SKIP_NATIVE_PRODUCTS !== "1";
 
 const externalPackages = [
+  "@zendev-lab/cue",
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",
   "@earendil-works/pi-ai",
@@ -381,16 +382,7 @@ if (buildNativeProducts) {
   }
 }
 
-await run(process.execPath, ["scripts/verify-cue-skill.mjs"]);
-await Promise.all(
-  npmDistributions
-    .filter((distribution) => distribution.skills)
-    .map((distribution) =>
-      cp(resolve(root, "vendor/cue/skills/cue"), resolve(distribution.directory, "skills/cue"), {
-        recursive: true,
-      }),
-    ),
-);
+await run(process.execPath, ["scripts/verify-cue-package.mjs"]);
 await removeSourceMaps(resolve(hub.directory, "build"));
 await removeSourceMaps(resolve(web.directory, "build"));
 

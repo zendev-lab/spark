@@ -10,7 +10,6 @@
  */
 import { lstatSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { Context, type Plugin } from "@deepseek-ai/cordis";
 import AgentRegistry from "@deepseek-ai/dsh-agent";
@@ -26,6 +25,7 @@ import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
+import { cueSkillsRoot } from "@zendev-lab/cue";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
 import sparkSessionSubagentPlugin, {
@@ -76,7 +76,7 @@ export interface SparkDaemonCordisRoot {
 
 export interface SparkDaemonCordisRootOptions {
   sessionsRoot: string;
-  /** Root containing the verified product-owned `cue` Skill directory. */
+  /** Override for the root containing the package-owned `cue` Skill directory. */
   cueSkillRoot?: string;
   /** Reuse the process root opened before daemon adapters are constructed. */
   ctx?: Context;
@@ -85,7 +85,7 @@ export interface SparkDaemonCordisRootOptions {
 
 export interface SparkDaemonHeadlessCordisRootOptions {
   dshHome: string;
-  /** Root containing the verified product-owned `cue` Skill directory. */
+  /** Override for the root containing the package-owned `cue` Skill directory. */
   cueSkillRoot?: string;
   /** Test-only reuse seam. Production workers open their own process root. */
   ctx?: Context;
@@ -231,28 +231,15 @@ async function mountSparkDshRuntime(
 }
 
 export function resolveCueSkillRoot(explicitRoot?: string): string {
-  const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
-  const candidates = explicitRoot
-    ? [resolve(explicitRoot)]
-    : [
-        ...(productDist ? [resolve(productDist, "../skills")] : []),
-        resolve(moduleDir, "../skills"),
-        resolve(moduleDir, "../../../vendor/cue/skills"),
-        resolve(process.cwd(), "vendor/cue/skills"),
-      ];
-  for (const root of new Set(candidates)) {
-    try {
-      const skillFile = lstatSync(join(root, CUE_SKILL_NAME, "SKILL.md"));
-      if (skillFile.isFile() && !skillFile.isSymbolicLink()) return root;
-    } catch {
-      // Try the next product/source layout candidate.
-    }
+  const root = explicitRoot ? resolve(explicitRoot) : cueSkillsRoot;
+  try {
+    const skillFile = lstatSync(join(root, CUE_SKILL_NAME, "SKILL.md"));
+    if (skillFile.isFile() && !skillFile.isSymbolicLink()) return root;
+  } catch {
+    // Report the package or explicit override path below.
   }
   throw new Error(
-    `Spark daemon could not find the verified ${CUE_SKILL_NAME} Skill under: ${[
-      ...new Set(candidates),
-    ].join(", ")}`,
+    `Spark daemon could not find the package-owned ${CUE_SKILL_NAME} Skill under: ${root}`,
   );
 }
 

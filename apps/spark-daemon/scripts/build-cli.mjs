@@ -23,6 +23,7 @@ const require = __sparkCreateRequire(import.meta.url);`,
   bundle: true,
   entryPoints: ["src/cli.ts"],
   external: [
+    "@zendev-lab/cue",
     "@ast-grep/napi",
     "ws",
     "@core-workspace/infoflow-sdk-nodejs",

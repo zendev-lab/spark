@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   hygiene-reports:
-    name: hygiene-reports
+    name: Hygiene Reports
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
