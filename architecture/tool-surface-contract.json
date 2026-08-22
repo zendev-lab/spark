@@ -68,7 +68,7 @@
       "effect": "external_write"
     },
     "delegation": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "external_write"
     },
@@ -92,6 +92,11 @@
       "kind": "capability",
       "effect": "read"
     },
+    "fusion": {
+      "owner": "@zendev-lab/dsh-tool-fusion",
+      "kind": "action",
+      "effect": "read"
+    },
     "get_search_content": {
       "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
@@ -103,7 +108,7 @@
       "effect": "destructive"
     },
     "goal": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "local_write"
     },
@@ -113,7 +118,7 @@
       "effect": "read"
     },
     "loop": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "local_write"
     },
@@ -123,7 +128,7 @@
       "effect": "unclassified"
     },
     "mode": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "unclassified"
     },
@@ -138,7 +143,7 @@
       "effect": "read"
     },
     "repro": {
-      "owner": "@zendev-lab/spark-extension",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "local_write"
     },

@@ -18,6 +18,7 @@ import {
   composeSparkWebPatch,
   composeWebArgs,
   ensureDshToolCueBundle,
+  ensureDshToolFusionBundle,
   ensureSparkLlmBundle,
   ensureSparkSessionSubagentBundle,
   ensureSparkWebClient,
@@ -68,7 +69,7 @@ test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest",
   assert.throws(() => parseSparkWebArgs(["--host"]), /requires a value/);
 });
 
-test("composeSparkWebPatch mounts Spark plugins and bounds the long-lived web server", () => {
+test("composeSparkWebPatch mounts Spark DSH plugins and bounds the long-lived web server", () => {
   const dir = mkdtempSync(join(tmpdir(), "spark-web-patch-"));
   try {
     const defaultPatch = composeSparkWebPatch(dir, { argv: [], trustedHosts: [] });
@@ -78,6 +79,8 @@ test("composeSparkWebPatch mounts Spark plugins and bounds the long-lived web se
     assert.match(defaultText, /- id: spark-web-dsh/);
     assert.match(defaultText, /- id: dsh-tool-cue/);
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-cue\/index\.mjs/);
+    assert.match(defaultText, /- id: dsh-tool-fusion/);
+    assert.match(defaultText, /name: \.\/plugins\/dsh-tool-fusion\/index\.mjs/);
     assert.match(defaultText, /- id: spark-session-subagent/);
     assert.match(defaultText, /name: \.\/plugins\/spark-session-subagent\/index\.mjs/);
     assert.match(defaultText, /- id: agent-presets\n  config:\n    default: spark-standard/);
@@ -150,6 +153,25 @@ test("ensureDshToolCueBundle uses a source digest and never writes the source ch
     assert.ok(existsSync(join(profile, "plugins", "dsh-tool-cue", ".source-sha256")));
 
     const second = await ensureDshToolCueBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDshToolFusionBundle installs the Fusion plugin idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-fusion-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshToolFusionBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-tool-fusion", ".source-sha256")));
+
+    const second = await ensureDshToolFusionBundle(profile);
     assert.equal(second.rebuilt, false);
     assert.equal(second.sourceDigest, first.sourceDigest);
   } finally {

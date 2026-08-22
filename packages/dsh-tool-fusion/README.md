@@ -33,6 +33,6 @@ Model calls enter through `ctx.llm` using the invoking Agent's provider/model,
 or an explicit tool argument. They create no child Agent or Session and do not
 write durable scheduling state.
 
-`spark-extension` recognizes the root package specifier as a Cordis Agent
-plugin, attaches product policy in the Spark composition layer, and mounts it
-in the invocation scope. There is no SparkHostAPI factory or legacy subpath.
+Daemon product composition recognizes the root package specifier as a Cordis
+Agent plugin, attaches product policy, and mounts it in the invocation scope.
+There is no SparkHostAPI factory or legacy subpath.

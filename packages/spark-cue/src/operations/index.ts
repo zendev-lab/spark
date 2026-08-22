@@ -2,6 +2,15 @@ import type { CueClient, CueResolvedTransport, ResourceNeeds } from "../client/c
 import type { SparkCueToolConfig, SparkCueToolContext } from "../tools/host-types.ts";
 import { registerCueOperationDefinitions } from "./definitions.ts";
 
+export {
+  CUE_EXECUTION_TOOL_POLICY,
+  CUE_HISTORY_TOOL_POLICY,
+  CUE_JOBS_TOOL_POLICY,
+  CUE_RESOURCES_TOOL_POLICY,
+  CUE_SCHEDULE_TOOL_POLICY,
+  CUE_SCOPE_TOOL_POLICY,
+} from "../tools/host-types.ts";
+
 export const CUE_TOOL_NAMES = [
   "cue_exec",
   "cue_run",

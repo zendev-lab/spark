@@ -159,6 +159,7 @@ test("SparkProviderLlmAdapter advertises reasoning efforts only when the model s
   const adapter = new SparkProviderLlmAdapter(registry, "fake");
   const withoutReasoning = await adapter.resolveModel("fake", "model-a");
   assert.equal("reasoning" in withoutReasoning, false);
+  assert.deepEqual(withoutReasoning.inputModalities, ["text"]);
 
   registry.registerProvider("thinker", {
     ...provider(() => ({
@@ -188,4 +189,5 @@ test("SparkProviderLlmAdapter advertises reasoning efforts only when the model s
     thinking.reasoning?.efforts.map((effort) => effort.id),
     ["minimal", "low", "medium", "high", "xhigh"],
   );
+  assert.deepEqual(thinking.inputModalities, ["text"]);
 });

@@ -4,7 +4,7 @@
  * The profile is booted directly: a plain `node` child imports the installed
  * `@deepseek-ai/dsh` package's `profile-boot-*` module and calls `runProfile`
  * — no `dsh` CLI on the PATH, no dsh-managed wrapper. On top of the stock
- * profile Spark owns six additions:
+ * profile Spark owns seven additions:
  *
  * 1. **spark-llm plugin, loaded automatically.** The Baidu OneAPI provider
  *    bundle is built from `@zendev-lab/spark-llm` (esbuild, host externals
@@ -14,19 +14,21 @@
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
  *    presets and a verified cue Skill snapshot**, so Cue replaces DSH
  *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
- * 3. **spark-session-subagent plugin**, Role-bound spawn/fork providers
+ * 3. **dsh-tool-fusion plugin**, so the DSH-hosted web surface exposes the
+ *    same bounded multi-model deliberation tool as daemon-hosted Spark.
+ * 4. **spark-session-subagent plugin**, Role-bound spawn/fork providers
  *    registered onto the official DSH HOST `ctx.subagents`. The overlay
  *    disables stock in-process spawn/fork backends so they do not steal
  *    those names. Daemon mounts the same providers.
- * 4. **spark-web-dsh client plugin**, linked from this application into the
+ * 5. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare
  *    `id: spark-web-dsh` skip a second insert.
- * 5. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
+ * 6. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. This is a deliberate bypass of that guard —
  *    a 0.0.0.0-bound harness exposes agent code execution to the network.
- * 6. **Host plugin HMR disabled by default**, because this compatibility server
+ * 7. **Host plugin HMR disabled by default**, because this compatibility server
  *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
  * Boot independence notes:
@@ -173,6 +175,11 @@ export function resolveDshToolCuePackageDir(): string {
   return resolvePackageDir("@zendev-lab/dsh-tool-cue");
 }
 
+/** Locate the installed `@zendev-lab/dsh-tool-fusion` package root. */
+export function resolveDshToolFusionPackageDir(): string {
+  return resolvePackageDir("@zendev-lab/dsh-tool-fusion");
+}
+
 function packageRootFrom(start: string, expectedName: string): string | undefined {
   let current = start;
   while (true) {
@@ -244,22 +251,61 @@ export interface DshToolCueBundleResult {
   rebuilt: boolean;
 }
 
+interface DshToolBundleOptions {
+  pluginName: string;
+  packagedEntry: string;
+  sourceEntry: string;
+  sourcePaths: readonly string[];
+  external: readonly string[];
+}
+
+async function ensureDshToolBundle(
+  profileDir: string,
+  options: DshToolBundleOptions,
+): Promise<DshToolCueBundleResult> {
+  const packaged = existsSync(options.packagedEntry);
+  const entry = packaged ? options.packagedEntry : options.sourceEntry;
+  if (!existsSync(entry)) {
+    throw new Error(`spark web: ${options.pluginName} plugin entry not found at ${entry}`);
+  }
+  const sourceDigest = hashSourceTree(packaged ? [entry] : options.sourcePaths);
+  const pluginDir = join(profileDir, "plugins", options.pluginName);
+  const bundle = join(pluginDir, "index.mjs");
+  const digestPath = join(pluginDir, ".source-sha256");
+  const previousDigest = existsSync(digestPath) ? readFileSync(digestPath, "utf8").trim() : "";
+  const rebuilt = !existsSync(bundle) || previousDigest !== sourceDigest;
+  if (rebuilt) {
+    mkdirSync(pluginDir, { recursive: true });
+    if (packaged) {
+      writeFileSync(bundle, readFileSync(entry));
+    } else {
+      await build({
+        entryPoints: [entry],
+        bundle: true,
+        format: "esm",
+        platform: "node",
+        target: "node22",
+        outfile: bundle,
+        external: [...options.external],
+        logLevel: "silent",
+      });
+    }
+    writeFileSync(digestPath, `${sourceDigest}\n`);
+  }
+  return { entry, bundle, sourceDigest, rebuilt };
+}
+
 /** Bundle the host-neutral Cue operations and supported adapter into the DSH profile. */
 export async function ensureDshToolCueBundle(profileDir: string): Promise<DshToolCueBundleResult> {
   const packagedEntry = join(resolveSparkWebDshPackageDir(), "lib", "dsh-tool-cue.mjs");
   if (existsSync(packagedEntry)) {
-    const sourceDigest = hashSourceTree([packagedEntry]);
-    const pluginDir = join(profileDir, "plugins", "dsh-tool-cue");
-    const bundle = join(pluginDir, "index.mjs");
-    const digestPath = join(pluginDir, ".source-sha256");
-    const previousDigest = existsSync(digestPath) ? readFileSync(digestPath, "utf8").trim() : "";
-    const rebuilt = !existsSync(bundle) || previousDigest !== sourceDigest;
-    if (rebuilt) {
-      mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(bundle, readFileSync(packagedEntry));
-      writeFileSync(digestPath, `${sourceDigest}\n`);
-    }
-    return { entry: packagedEntry, bundle, sourceDigest, rebuilt };
+    return ensureDshToolBundle(profileDir, {
+      pluginName: "dsh-tool-cue",
+      packagedEntry,
+      sourceEntry: packagedEntry,
+      sourcePaths: [packagedEntry],
+      external: ["@deepseek-ai/*"],
+    });
   }
 
   const packageDir = resolveDshToolCuePackageDir();
@@ -269,32 +315,36 @@ export async function ensureDshToolCueBundle(profileDir: string): Promise<DshToo
   }
   const sparkCueDir = dirname(sparkCuePackage);
   const entry = join(packageDir, "src", "index.ts");
-  const sourceDigest = hashSourceTree([
-    entry,
-    join(packageDir, "package.json"),
-    join(sparkCueDir, "src"),
-    sparkCuePackage,
-  ]);
-  const pluginDir = join(profileDir, "plugins", "dsh-tool-cue");
-  const bundle = join(pluginDir, "index.mjs");
-  const digestPath = join(pluginDir, ".source-sha256");
-  const previousDigest = existsSync(digestPath) ? readFileSync(digestPath, "utf8").trim() : "";
-  const rebuilt = !existsSync(bundle) || previousDigest !== sourceDigest;
-  if (rebuilt) {
-    mkdirSync(pluginDir, { recursive: true });
-    await build({
-      entryPoints: [entry],
-      bundle: true,
-      format: "esm",
-      platform: "node",
-      target: "node22",
-      outfile: bundle,
-      external: ["@deepseek-ai/*"],
-      logLevel: "silent",
-    });
-    writeFileSync(digestPath, `${sourceDigest}\n`);
-  }
-  return { entry, bundle, sourceDigest, rebuilt };
+  return ensureDshToolBundle(profileDir, {
+    pluginName: "dsh-tool-cue",
+    packagedEntry,
+    sourceEntry: entry,
+    sourcePaths: [
+      entry,
+      join(packageDir, "package.json"),
+      join(sparkCueDir, "src"),
+      sparkCuePackage,
+    ],
+    external: ["@deepseek-ai/*"],
+  });
+}
+
+/** Bundle the host-neutral Fusion tool into the DSH web profile. */
+export async function ensureDshToolFusionBundle(
+  profileDir: string,
+): Promise<DshToolCueBundleResult> {
+  const packagedEntry = join(resolveSparkWebDshPackageDir(), "lib", "dsh-tool-fusion.mjs");
+  const packageDir = existsSync(packagedEntry) ? undefined : resolveDshToolFusionPackageDir();
+  const sourceEntry = packageDir ? join(packageDir, "src", "extension.ts") : packagedEntry;
+  return ensureDshToolBundle(profileDir, {
+    pluginName: "dsh-tool-fusion",
+    packagedEntry,
+    sourceEntry,
+    sourcePaths: packageDir
+      ? [sourceEntry, join(packageDir, "package.json"), join(packageDir, "src")]
+      : [packagedEntry],
+    external: ["@deepseek-ai/*"],
+  });
 }
 
 export interface SparkLlmBundleResult {
@@ -675,7 +725,8 @@ export async function runSparkWebDirect(
  * Compose the patch overlay for one `spark web` run and write it to a
  * temporary file. Rows:
  *
- * - `spark-llm`, `dsh-tool-cue`, and `spark-session-subagent` host plugins
+ * - `spark-llm`, `dsh-tool-cue`, `dsh-tool-fusion`, and
+ *   `spark-session-subagent` host plugins
  *   (paths relative to the profile root, so the DSH loader resolves them
  *   without an install);
  * - stock in-process spawn/fork backends disabled so Spark providers own
@@ -708,6 +759,13 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
       "    # Cue-first command, script, job, and scope tools, managed by `spark web`.",
       "    - id: dsh-tool-cue",
       "      name: ./plugins/dsh-tool-cue/index.mjs",
+    );
+  }
+  if (!userPatch.includes("id: dsh-tool-fusion")) {
+    rows.push(
+      "    # Bounded multi-model deliberation, managed by `spark web`.",
+      "    - id: dsh-tool-fusion",
+      "      name: ./plugins/dsh-tool-fusion/index.mjs",
     );
   }
   if (!userPatch.includes("id: spark-session-subagent")) {
@@ -777,14 +835,13 @@ export function composeWebArgs(args: SparkWebArgs, port = args.port ?? 3080): st
 }
 
 /**
- * Prepare a `spark web` dispatch: ensure the Cue, spark-llm, and
- * spark-session-subagent bundles, compose the patch overlay, and return the
- * `dsh web` argument list.
+ * Prepare a `spark web` dispatch: ensure the managed DSH and Spark host plugin
+ * bundles, compose the patch overlay, and return the `dsh web` argument list.
  */
 export interface SparkWebDispatch {
   /** The DSH profile the web server will be booted from. */
   profileDir: string;
-  /** Patch overlay files for the spark-llm / spark-web-dsh rows. */
+  /** Patch overlay files for the managed host and client plugin rows. */
   patches: string[];
   /** Arguments passed to the web app after the patch overlays. */
   webArgs: string[];
@@ -810,6 +867,10 @@ export async function prepareSparkWebDispatch(
   const cue = await ensureDshToolCueBundle(profileDir);
   if (cue.rebuilt) {
     process.stderr.write(`[spark web] built dsh-tool-cue plugin bundle -> ${cue.bundle}\n`);
+  }
+  const fusion = await ensureDshToolFusionBundle(profileDir);
+  if (fusion.rebuilt) {
+    process.stderr.write(`[spark web] built dsh-tool-fusion plugin bundle -> ${fusion.bundle}\n`);
   }
   const bundle = await ensureSparkLlmBundle(profileDir);
   if (bundle.rebuilt) {

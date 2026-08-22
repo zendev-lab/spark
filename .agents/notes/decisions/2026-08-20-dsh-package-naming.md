@@ -6,6 +6,12 @@ created: 2026-08-20
 
 # DSH package reuse and naming
 
+Current product-composition placement and the cross-surface DSH plugin matrix
+are defined by
+[`2026-08-21-daemon-product-composition.md`](./2026-08-21-daemon-product-composition.md).
+The package naming rules below remain current; references to the former
+`spark-extension` workspace describe the pre-collapse graph.
+
 ## Decision
 
 Spark package names describe ownership and the package's primary reusable

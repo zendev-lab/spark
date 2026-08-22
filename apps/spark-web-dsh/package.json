@@ -10,8 +10,7 @@
   },
   "files": [
     "bin/**/*",
-    "lib/**/*.js",
-    "lib/**/*.mjs",
+    "lib/**/*",
     "presets/**/*",
     "skills/**/*",
     "src/**/*.ts",
@@ -33,6 +32,7 @@
   },
   "dependencies": {
     "@zendev-lab/dsh-tool-cue": "workspace:^",
+    "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-llm": "workspace:^",
     "@zendev-lab/spark-session": "workspace:^",
     "esbuild": "^0.28.0",

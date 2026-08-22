@@ -9,8 +9,8 @@ import type { Mode, ModeRenderContext } from "./types.ts";
  * `toolName({ action })` to change the current lens, and the tool returns the
  * new mode's requirements as its result.
  *
- * Spark native hosts register this as `mode` (see spark-extension
- * `registerSparkModeTool`); the library default remains `mode` for host-
+ * Daemon product composition registers this as `mode` through
+ * `registerSparkModeTool`; the library default remains `mode` for host-
  * neutral callers. Render as `mode action=<value>` / `mode action=<value>`.
  *
  * `action` is validated against the registered mode ids plus the reserved
