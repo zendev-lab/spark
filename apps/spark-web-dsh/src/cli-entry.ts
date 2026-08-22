@@ -21,6 +21,7 @@ Usage:
 
 The DSH profile must already exist. Explicit non-loopback binds expose the
 Harness agent surface to that network and should be used only on trusted hosts.
+The server prints its URL without opening a browser.
 `);
     return 0;
   }

@@ -338,13 +338,13 @@ test("ensureSparkWebClient refuses to replace a real directory at the link targe
   }
 });
 
-test("composeWebArgs carries port, trusted hosts, and forwards the rest", () => {
+test("composeWebArgs disables browser launch and forwards the remaining web arguments", () => {
   const webArgs = composeWebArgs({
     host: undefined,
     port: 3100,
     trustedHosts: ["10.0.0.2"],
     argv: ["--flag"],
   });
-  assert.deepEqual(webArgs, ["--port=3100", "--trusted-host=10.0.0.2", "--flag"]);
+  assert.deepEqual(webArgs, ["--port=3100", "--no-open", "--trusted-host=10.0.0.2", "--flag"]);
   assert.ok(!webArgs.some((arg) => arg === "--patch"), "no --patch argv anymore");
 });

@@ -25,8 +25,8 @@ spark hub --help
 | 表面 | 用途 | 发现方式 |
 | --- | --- | --- |
 | `spark` | 打印帮助，或调用前台、后台、安装、诊断和版本工作流 | `spark --help` |
-| `spark web` | 打开绑定 daemon 的本地回环浏览器工作台 | `spark web --help` |
-| `spark web-dsh` | 打开基于 DeepSeek Harness 宿主的 Spark 产品工作台 | `spark web-dsh --help` |
+| `spark web` | 启动绑定 daemon 的本地回环浏览器工作台 | `spark web --help` |
+| `spark web-dsh` | 启动基于 DeepSeek Harness 宿主的 Spark 产品工作台 | `spark web-dsh --help` |
 | `spark daemon` | 操作 daemon 拥有的执行、会话、工作区、模型、认证和 Channel 状态 | `spark daemon --help` |
 | `spark hub` | 运行和管理 Hub 协调与 Web 表面 | `spark hub --help` |
 | ACP 与 MCP adapter | 通过配置好的 Spark adapter 连接兼容客户端 | 阅读[协作与客户端](/zh/guides/collaboration/) |
@@ -70,9 +70,11 @@ Host、Origin、Fetch Metadata、token 和跨站 mutation 来源。Hub 仍是多
 
 ```bash
 spark web
-spark web --port 4310 --no-open
-spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
+spark web --port 4310
+spark web --host 0.0.0.0 --trusted-host spark.lan
 ```
+
+命令只输出带 token 的工作台 URL，不会自动打开浏览器。
 
 额外的 `spark web-dsh` 命令会启动独立打包、基于 DSH 宿主的 Spark 产品应用，不会修改
 `spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留：
@@ -80,6 +82,8 @@ spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
+
+该命令同样只输出服务 URL，不会自动打开浏览器。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读

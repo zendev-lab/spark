@@ -873,7 +873,7 @@ export async function nextFreeWebPort(preferred = 3080, attempts = 100): Promise
 }
 
 export function composeWebArgs(args: SparkWebArgs, port = args.port ?? 3080): string[] {
-  const webArgs = [`--port=${port}`];
+  const webArgs = [`--port=${port}`, "--no-open"];
   for (const trusted of args.trustedHosts) webArgs.push(`--trusted-host=${trusted}`);
   webArgs.push(...args.argv);
   return webArgs;
