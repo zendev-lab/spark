@@ -11,7 +11,7 @@ import {
   type ToolRenderComponent,
   type ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   createSparkMemoryDirectIntentApprovalProof,

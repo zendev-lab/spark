@@ -220,9 +220,9 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:packages/spark-tasks
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:packages/spark-text
+        version: link:packages/spark-text-rendering
       '@zendev-lab/spark-tool-web':
         specifier: workspace:^
         version: link:packages/spark-tool-web
@@ -480,9 +480,9 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../../packages/spark-tasks
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../../packages/spark-text
+        version: link:../../packages/spark-text-rendering
       '@zendev-lab/spark-tool-web':
         specifier: workspace:^
         version: link:../../packages/spark-tool-web
@@ -912,9 +912,9 @@ importers:
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       marked:
         specifier: ^18.0.7
         version: 18.0.9
@@ -958,9 +958,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       typebox:
         specifier: 'catalog:'
         version: 1.3.14
@@ -978,9 +978,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       typebox:
         specifier: 'catalog:'
         version: 1.3.14
@@ -1114,9 +1114,9 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       '@zendev-lab/spark-turn':
         specifier: workspace:^
         version: link:../spark-turn
@@ -1270,9 +1270,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       minimatch:
         specifier: ^10.2.5
         version: 10.2.6
@@ -1348,9 +1348,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       typebox:
         specifier: 'catalog:'
         version: 1.3.14
@@ -1451,9 +1451,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       es-toolkit:
         specifier: 'catalog:'
         version: 1.50.0
@@ -1522,9 +1522,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       typebox:
         specifier: 'catalog:'
         version: 1.3.14
@@ -1574,9 +1574,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       es-toolkit:
         specifier: 'catalog:'
         version: 1.50.0
@@ -1597,7 +1597,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  packages/spark-text:
+  packages/spark-text-rendering:
     dependencies:
       get-east-asian-width:
         specifier: 1.6.0
@@ -1615,9 +1615,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       typebox:
         specifier: 'catalog:'
         version: 1.3.14
@@ -1753,9 +1753,9 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
-      '@zendev-lab/spark-text':
+      '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
-        version: link:../spark-text
+        version: link:../spark-text-rendering
       es-toolkit:
         specifier: 'catalog:'
         version: 1.50.0

@@ -1,6 +1,6 @@
-# spark-text
+# spark-text-rendering
 
-Spark-owned text layout helpers (`truncateToWidth`, `visibleWidth`,
+Spark-owned text rendering primitives (`truncateToWidth`, `visibleWidth`,
 `wrapTextWithAnsi`, `ToolCallText`) for packages that should not take a
 presentation-host dependency.
 

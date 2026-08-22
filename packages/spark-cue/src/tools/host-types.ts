@@ -6,7 +6,7 @@ import type {
   ToolExecutionMode,
   ToolPolicy,
 } from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import type { CueClient, CueResolvedTransport, SpawnAdapterHandle } from "../client/cue-client.ts";
 
 export interface SparkCueHostApi {

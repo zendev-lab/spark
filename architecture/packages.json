@@ -336,8 +336,8 @@
       "stability": "supported",
       "stateWriter": "workspace"
     },
-    "@zendev-lab/spark-text": {
-      "path": "packages/spark-text",
+    "@zendev-lab/spark-text-rendering": {
+      "path": "packages/spark-text-rendering",
       "layer": "foundation",
       "owner": "presentation-primitives",
       "stability": "supported",

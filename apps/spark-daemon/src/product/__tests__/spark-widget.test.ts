@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { visibleWidth } from "@zendev-lab/spark-text";
+import { visibleWidth } from "@zendev-lab/spark-text-rendering";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 
 import {

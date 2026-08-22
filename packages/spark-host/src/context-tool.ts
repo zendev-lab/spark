@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 
 export type SparkContextAction = "list" | "preview";
 

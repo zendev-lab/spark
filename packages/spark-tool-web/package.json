@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-text": "workspace:^",
+    "@zendev-lab/spark-text-rendering": "workspace:^",
     "typebox": "catalog:"
   }
 }

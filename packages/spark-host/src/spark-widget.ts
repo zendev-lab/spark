@@ -1,4 +1,4 @@
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { truncateToWidth } from "@zendev-lab/spark-text-rendering";
 
 import type { SessionTodoEntry, SessionTodoStatus } from "@zendev-lab/spark-tasks";
 
