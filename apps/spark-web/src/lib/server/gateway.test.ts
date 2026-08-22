@@ -18,6 +18,11 @@ import {
   streamSessionLiveEvents,
 } from "./sse.ts";
 
+test("bind arguments default HMR off and accept explicit HMR opt-in", () => {
+  assert.equal(parseSparkWebBindArgs([]).hmr, false);
+  assert.equal(parseSparkWebBindArgs(["--hmr"]).hmr, true);
+});
+
 test("bind arguments default to loopback and require an explicit trusted network host", () => {
   assert.deepEqual(
     parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311", "--trusted-host", "spark.lan"]),
@@ -26,14 +31,16 @@ test("bind arguments default to loopback and require an explicit trusted network
       port: 4311,
       open: true,
       trustedHosts: ["spark.lan"],
+      hmr: false,
       argv: [],
     },
   );
-  assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open"]), {
+  assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open", "--hmr"]), {
     host: "127.0.0.1",
     port: 4311,
     open: false,
     trustedHosts: [],
+    hmr: true,
     argv: [],
   });
   assert.throws(() => parseSparkWebBindArgs(["--host", "0.0.0.0"]), /requires --trusted-host/u);

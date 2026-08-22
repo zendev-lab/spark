@@ -101,7 +101,7 @@ test("provider control lists auth safely and patches only the default model fiel
       `${JSON.stringify({
         providers: ["env-plugin"],
         enabledModels: ["env-provider/*"],
-        extensions: ["keep-extension"],
+        futureProviderOptions: ["keep-option"],
         activeProvider: "env-provider",
         activeModel: "alias-a",
         futureField: { keep: true },
@@ -130,7 +130,7 @@ test("provider control lists auth safely and patches only the default model fiel
 
     const persisted = await readJsonFixture<Record<string, unknown>>(configPath);
     assert.deepEqual(persisted.futureField, { keep: true });
-    assert.deepEqual(persisted.extensions, ["keep-extension"]);
+    assert.deepEqual(persisted.futureProviderOptions, ["keep-option"]);
     assert.equal(persisted.activeModelId, "env-provider/model-a");
     assert.equal("activeProvider" in persisted, false);
     assert.equal("activeModel" in persisted, false);

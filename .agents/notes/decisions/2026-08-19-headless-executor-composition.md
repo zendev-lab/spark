@@ -1,5 +1,9 @@
 # 2026-08-19: Headless executor lives in spark-extension
 
+**Superseded for current placement** by
+[`2026-08-21-daemon-product-composition.md`](./2026-08-21-daemon-product-composition.md).
+The boundary rationale below is retained as historical evidence.
+
 ## Decision
 
 The composition-coupled headless role executor and host bootstrap live in

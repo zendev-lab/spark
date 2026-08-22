@@ -80,15 +80,15 @@
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 42,
-      "ceiling": 42,
+      "current": 41,
+      "ceiling": 41,
       "nonGrowth": true,
-      "reason": "Retained native spark-web and restored spark-web-dsh as an explicit optional compatibility application."
+      "reason": "The daemon now owns product composition directly; native spark-web and spark-web-dsh remain explicit applications."
     },
     "packageNaming": {
       "temporaryDshDependencyExceptionsNonGrowth": true
     },
-    "compositionRoots": ["@zendev-lab/spark-extension"]
+    "compositionRoots": ["@zendev-lab/spark-daemon"]
   },
   "packages": {
     "@zendev-lab/dsh-channels": {
@@ -157,7 +157,7 @@
     },
     "@zendev-lab/spark-daemon": {
       "path": "apps/spark-daemon",
-      "layer": "application",
+      "layer": "composition",
       "owner": "daemon",
       "stability": "supported",
       "stateWriter": "daemon",
@@ -178,13 +178,6 @@
       "stateWriter": "none",
       "allowedWorkspaceDependencies": [],
       "distribution": "private"
-    },
-    "@zendev-lab/spark-extension": {
-      "path": "packages/spark-extension",
-      "layer": "composition",
-      "owner": "extension-host",
-      "stability": "supported",
-      "stateWriter": "host"
     },
     "@zendev-lab/spark-files": {
       "path": "packages/spark-files",

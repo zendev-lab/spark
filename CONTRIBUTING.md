@@ -65,7 +65,7 @@ and keep transports and presentation layers thin.
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
 | Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
-| Product extension composition and host runtime | `packages/spark-extension` |
+| Product composition and host runtime | `apps/spark-daemon/src/product` |
 | Local daemon workbench | `apps/spark-web` via daemon-client |
 | Multi-daemon proxy and management | `apps/spark-hub` |
 
@@ -174,7 +174,7 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. The budget is closed at 42; the machine-readable inventory
+boundary checks. The budget is closed at 41; the machine-readable inventory
 owns the current count and rationale. Raising or replacing that budget requires
 an architecture rationale and inventory change.
 
