@@ -9,7 +9,6 @@
 export { renderSparkActiveSystemPrompt } from "./extension/spark-active-injection.ts";
 export {
   defaultBuiltinSkillsDir,
-  defaultSparkCueSkillsDir,
   parseSkillFrontmatter,
   renderBaseSystemPromptsCatalogPrompt,
   renderBaseSystemPromptsPrompt,
