@@ -32,7 +32,6 @@
     "@deepseek-ai/dsh-sandbox-policy": "catalog:dsh",
     "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
     "@deepseek-ai/dsh-tools": "catalog:dsh",
-    "@deepseek-ai/dsh-user-approval": "catalog:dsh",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",

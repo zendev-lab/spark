@@ -4,7 +4,6 @@ import { defineTool, type ToolDefinition, type ToolRunContext } from "@deepseek-
 import type {} from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-sandbox-policy";
 import type {} from "@deepseek-ai/dsh-system-prompt";
-import type {} from "@deepseek-ai/dsh-user-approval";
 
 import {
   applyEditsToNormalizedContent,
