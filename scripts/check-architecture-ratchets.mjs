@@ -77,6 +77,18 @@ function runArchitectureRatchets() {
     }
   }
 
+  for (const workspaceDir of ["apps", "packages"]) {
+    visit(join(root, workspaceDir), (path) => {
+      if (!/\.[cm]?tsx?$/u.test(path)) return;
+      const source = readFileSync(path, "utf8");
+      if (/\bSparkExecutionService\b/u.test(source) || /\bsparkExecution\b/u.test(source)) {
+        failures.push(
+          `${path.slice(root.length + 1)} uses the retired Spark execution service; use ctx.sparkInvocation.`,
+        );
+      }
+    });
+  }
+
   if (failures.length > 0) {
     console.error(
       ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),

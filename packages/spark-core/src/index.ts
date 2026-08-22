@@ -741,27 +741,135 @@ export async function callLeafOrDegrade(
   return result;
 }
 
-/**
- * Invocation-scoped Spark authority exposed to Cordis capability plugins.
- *
- * This is runtime context, not durable state. The daemon/host creates one
- * frozen snapshot for an Agent handle; plugins consume it through
- * `ctx.sparkExecution` and must not construct stores, schedulers, or provider
- * registries of their own.
- */
-export interface SparkExecutionService {
-  readonly workspaceId?: string;
-  readonly cwd: string;
-  readonly sessionId: string;
-  readonly invocationId?: string;
-  readonly role?: Readonly<{ id: string; revision?: string }>;
-  readonly mode?: "plan" | "execute" | "fleet";
-  readonly driverAuthority?: SparkDriverAuthority;
-  readonly model?: SessionModelRef;
+/** Daemon-owned execution epoch for one durable Invocation. */
+export interface SparkInvocationAttempt {
+  readonly epoch: number;
+  readonly daemonGeneration: number;
+  readonly correlationId: string;
+}
+
+export const SPARK_INVOCATION_EVENT_TYPE = "spark/invocation" as const;
+
+/** Ignorable DSH transcript correlation record for one admitted attempt. */
+export interface SparkInvocationEventData {
+  readonly invocationId: string;
+  readonly attemptEpoch: number;
+  readonly daemonGeneration: number;
+  readonly correlationId: string;
+}
+
+/** Role revision frozen when the daemon admitted an Invocation. */
+export interface SparkInvocationRole {
+  readonly ref?: string;
+  readonly id: string;
+  readonly revision?: string;
+}
+
+/** Narrow process-local ports available to Invocation-scoped Cordis plugins. */
+export interface SparkInvocationPorts {
   readonly runLeaf?: LeafCapabilityRunner;
   readonly interaction?: (
     request: ExtensionInteractionRequest,
   ) => Promise<ExtensionInteractionResponse>;
+}
+
+/**
+ * Immutable Invocation authority exposed to Cordis capability plugins.
+ *
+ * This is runtime context, not durable state. The daemon creates one snapshot
+ * for the exact `Invocation -> ExecutionAttempt -> DSH Turn` admission. Plugins
+ * consume it through `ctx.sparkInvocation`; they must not construct stores,
+ * schedulers, provider registries, or terminal-state writers of their own.
+ */
+export interface SparkInvocationService {
+  readonly workspaceId?: string;
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly attempt: SparkInvocationAttempt;
+  readonly role?: SparkInvocationRole;
+  readonly mode?: "plan" | "execute" | "fleet";
+  readonly driverAuthority?: SparkDriverAuthority;
+  readonly model?: Readonly<SessionModelRef>;
+  readonly signal: AbortSignal;
+  readonly ports: SparkInvocationPorts;
+}
+
+export interface CreateSparkInvocationServiceInput {
+  workspaceId?: string;
+  cwd: string;
+  sessionId: string;
+  invocationId: string;
+  attempt: SparkInvocationAttempt;
+  role?: SparkInvocationRole;
+  mode?: SparkInvocationService["mode"];
+  driverAuthority?: SparkDriverAuthority;
+  model?: SessionModelRef;
+  signal: AbortSignal;
+  ports?: SparkInvocationPorts;
+}
+
+/** Build the frozen process-local snapshot mounted by the Invocation plugin. */
+export function createSparkInvocationService(
+  input: CreateSparkInvocationServiceInput,
+): SparkInvocationService {
+  const cwd = requiredInvocationText(input.cwd, "cwd");
+  const sessionId = requiredInvocationText(input.sessionId, "sessionId");
+  const invocationId = requiredInvocationText(input.invocationId, "invocationId");
+  const epoch = positiveInvocationInteger(input.attempt.epoch, "attempt.epoch");
+  const daemonGeneration = positiveInvocationInteger(
+    input.attempt.daemonGeneration,
+    "attempt.daemonGeneration",
+  );
+  const correlationId = requiredInvocationText(
+    input.attempt.correlationId,
+    "attempt.correlationId",
+  );
+  const workspaceId = input.workspaceId?.trim();
+  const role = input.role
+    ? Object.freeze({
+        ...(input.role.ref?.trim() ? { ref: input.role.ref.trim() } : {}),
+        id: requiredInvocationText(input.role.id, "role.id"),
+        ...(input.role.revision?.trim() ? { revision: input.role.revision.trim() } : {}),
+      })
+    : undefined;
+  const model = input.model
+    ? Object.freeze({
+        provider: requiredInvocationText(input.model.provider, "model.provider"),
+        id: requiredInvocationText(input.model.id, "model.id"),
+        ...(input.model.api?.trim() ? { api: input.model.api.trim() } : {}),
+      })
+    : undefined;
+  const ports = Object.freeze({
+    ...(input.ports?.runLeaf ? { runLeaf: input.ports.runLeaf } : {}),
+    ...(input.ports?.interaction ? { interaction: input.ports.interaction } : {}),
+  });
+  return Object.freeze({
+    ...(workspaceId ? { workspaceId } : {}),
+    cwd,
+    sessionId,
+    invocationId,
+    attempt: Object.freeze({ epoch, daemonGeneration, correlationId }),
+    ...(role ? { role } : {}),
+    ...(input.mode ? { mode: input.mode } : {}),
+    ...(input.driverAuthority ? { driverAuthority: input.driverAuthority } : {}),
+    ...(model ? { model } : {}),
+    signal: input.signal,
+    ports,
+  });
+}
+
+function requiredInvocationText(value: string, field: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`Spark Invocation ${field} is required`);
+  return normalized;
+}
+
+function positiveInvocationInteger(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Spark Invocation ${field} must be a positive integer`);
+  }
+  return value;
 }
 
 export type ExtensionRoleLaunchMode = "fresh" | "forked";
@@ -960,6 +1068,10 @@ export interface SparkHostContext {
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   /** Current daemon invocation, available only in daemon-owned headless turns. */
   invocationId?: string;
+  /** Exact daemon execution epoch paired with `invocationId`. */
+  invocationAttempt?: SparkInvocationAttempt;
+  /** Effective Role revision frozen for the current daemon Invocation. */
+  invocationRole?: SparkInvocationRole;
   /** Daemon-resolved invocation scope; model/tool arguments cannot widen it. */
   taskExecutionScope?: SparkTaskExecutionScope;
   /**

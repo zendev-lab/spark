@@ -36,6 +36,12 @@ JSON file IO, copy-language detection, and workspace Spark state path helpers
 `sparkStateRootPath` / `sparkWorkspaceStatePath`). Host implementations speak
 supersets of these types:
 
+- `SparkInvocationService` is the surviving immutable Cordis-facing contract:
+  daemon admission freezes one Session/Invocation/attempt snapshot plus narrow
+  process-local ports. The plugin mechanism remains in `spark-turn` until the
+  legacy host contracts are evacuated and this package can be renamed in place
+  to `spark-invocation`.
+
 - Spark native host family — `@zendev-lab/spark-host` provides `SparkHostRuntime`, implementing the retained
   surface needed by `@zendev-lab/spark-ask`, `@zendev-lab/spark-cue`,
   `@zendev-lab/spark-roles`, `@zendev-lab/spark-graft`, and daemon product composition,

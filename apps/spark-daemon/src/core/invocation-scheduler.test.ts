@@ -69,19 +69,34 @@ function recoveredCount(invocationStore: SparkInvocationStore, now?: string): nu
 
 describe("SparkInvocationScheduler", () => {
   it("uses the private execution-attempt adapter and defaults to in-process execution", async () => {
-    const calls: string[] = [];
+    const calls: Array<{ invocationId: string; epoch: number; daemonGeneration: number }> = [];
+    let observedAttempt:
+      | {
+          epoch: number;
+          daemonGeneration: number;
+          correlationId: string;
+        }
+      | undefined;
     const adapter: ExecutionAttemptAdapter = {
       kind: "process",
       async execute(request, parent) {
-        calls.push(request.invocationId);
+        calls.push({
+          invocationId: request.invocationId,
+          epoch: request.attemptEpoch,
+          daemonGeneration: request.daemonGeneration,
+        });
         parent.accepted();
         parent.running();
         return await parent.executeInProcess();
       },
     };
-    const { db, store, scheduler } = harness(async () => ({ ok: true }), {
-      executionAttemptAdapter: adapter,
-    });
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        observedAttempt = context.invocationAttempt;
+        return { ok: true };
+      },
+      { executionAttemptAdapter: adapter },
+    );
     try {
       const invocation = store.submit({
         sessionId: "session-adapter",
@@ -90,9 +105,67 @@ describe("SparkInvocationScheduler", () => {
       });
       expect(scheduler.processBatch()).toBe(true);
       await scheduler.wait({ timeoutMs: 500 });
-      expect(calls).toEqual([invocation.invocationId]);
+      expect(calls).toEqual([
+        { invocationId: invocation.invocationId, epoch: 1, daemonGeneration: 1 },
+      ]);
+      expect(observedAttempt).toEqual({
+        epoch: 1,
+        daemonGeneration: 1,
+        correlationId: `attempt:${invocation.invocationId}:1`,
+      });
       expect(store.require(invocation.invocationId).status).toBe("succeeded");
       expect(new InProcessExecutionAttemptAdapter().kind).toBe("in_process");
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
+  it("builds the in-process fallback context from the replacement attempt", async () => {
+    const requests: Array<{ epoch: number; correlationId: string }> = [];
+    let calls = 0;
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(request, parent) {
+        calls += 1;
+        requests.push({ epoch: request.attemptEpoch, correlationId: request.correlationId });
+        if (calls === 1) throw new ExecutionAttemptCrashedError("process_spawn_failed");
+        parent.accepted();
+        parent.running();
+        return await parent.executeInProcess();
+      },
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => ({ invocationAttempt: context.invocationAttempt }),
+      { executionAttemptAdapter: adapter },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "session-replacement-fallback",
+        prompt: "replacement fallback",
+        task: {
+          type: "session.run",
+          sessionId: "session-replacement-fallback",
+          prompt: "replacement fallback",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(requests).toEqual([
+        { epoch: 1, correlationId: `attempt:${invocation.invocationId}:1` },
+        { epoch: 2, correlationId: `attempt:${invocation.invocationId}:1:retry:2` },
+      ]);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: {
+          invocationAttempt: {
+            epoch: 2,
+            daemonGeneration: 1,
+            correlationId: `attempt:${invocation.invocationId}:1:retry:2`,
+          },
+        },
+      });
     } finally {
       scheduler.stop();
       db.close();

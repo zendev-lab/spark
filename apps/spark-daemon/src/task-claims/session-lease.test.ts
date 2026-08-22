@@ -431,6 +431,11 @@ function unownedSessionTask(): SparkDaemonSessionRunTask {
 function executionContext(): SparkDaemonTaskExecutionContext {
   return {
     invocationId: "inv_managed",
+    invocationAttempt: {
+      epoch: 1,
+      daemonGeneration: 1,
+      correlationId: "attempt:inv_managed:1",
+    },
     signal: new AbortController().signal,
   };
 }

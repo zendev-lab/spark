@@ -32,6 +32,22 @@ then only the Agent handle and Invocation routes are disposed. The daemon
 scheduler remains the sole owner of cross-Invocation serialization, channel,
 fleet, and retry durability; the DSH inbox is not a second scheduler.
 
+The executable identity is `Invocation -> ExecutionAttempt[1..N] -> DSH
+Turn[0..1]`. The daemon's existing `ExecutionAttemptStore` is the only durable
+attempt owner. Before a daemon-admitted Agent queues input, Spark appends one
+ignorable `spark/invocation` event containing the Invocation and attempt
+identity. Reusing the same attempt for another Turn fails closed; crash recovery
+must allocate a replacement attempt, while an idle follow-up is a new
+Invocation. Cancellation before Turn admission appends neither the correlation
+event nor a Turn.
+
+Invocation-aware Cordis plugins inject `ctx.sparkInvocation`. The immutable
+service exposes only the frozen Session/Invocation/attempt identity, workspace,
+cwd, Role, mode, driver authority, model, cancellation signal, and narrow
+interaction/leaf ports. It never exposes a store, scheduler, provider registry,
+or terminal-state writer. Hosts without a daemon-issued Invocation and attempt
+do not receive this service and must not synthesize one.
+
 The supported DSH ABI supplies the low-level turn driver.
 `SparkAgentLoop` temporarily remains the host facade for prompt items, outbox,
 views, and Spark tool policy while those capabilities move to Cordis plugins.

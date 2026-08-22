@@ -111,6 +111,9 @@ export interface SparkHostRuntimeOptions {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  invocationAttempt?: SparkHostContext["invocationAttempt"];
+  invocationRole?: SparkHostContext["invocationRole"];
+  driverAuthority?: SparkDriverAuthority;
   taskExecutionScope?: SparkHostContext["taskExecutionScope"];
   /** Private current-turn authority supplied by the executable host. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
@@ -187,6 +190,9 @@ export class SparkHostRuntime implements SparkHostAPI {
       }
     | undefined;
   readonly invocationId: string | undefined;
+  readonly invocationAttempt: SparkHostContext["invocationAttempt"];
+  readonly invocationRole: SparkHostContext["invocationRole"];
+  readonly driverAuthority: SparkDriverAuthority | undefined;
   readonly taskExecutionScope: SparkHostContext["taskExecutionScope"];
   readonly loop: SparkHostLoopContext | undefined;
   readonly sessionQuestionChain: readonly string[] | undefined;
@@ -224,6 +230,9 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.roleNativeCompatibilityRecovery = options.roleNativeCompatibilityRecovery;
     this.channelBinding = options.channelBinding;
     this.invocationId = options.invocationId?.trim() || undefined;
+    this.invocationAttempt = options.invocationAttempt;
+    this.invocationRole = options.invocationRole;
+    this.driverAuthority = options.driverAuthority;
     this.taskExecutionScope = options.taskExecutionScope;
     this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
     this.loop = options.loop;
@@ -660,6 +669,9 @@ export class SparkHostRuntime implements SparkHostAPI {
       ...(this.sessionLeaseProvider ? { sessionLease: this.sessionLeaseProvider } : {}),
       ...(this.channelBinding ? { channelBinding: this.channelBinding } : {}),
       ...(this.invocationId ? { invocationId: this.invocationId } : {}),
+      ...(this.invocationAttempt ? { invocationAttempt: this.invocationAttempt } : {}),
+      ...(this.invocationRole ? { invocationRole: this.invocationRole } : {}),
+      ...(this.driverAuthority ? { driverAuthority: this.driverAuthority } : {}),
       ...(this.taskExecutionScope ? { taskExecutionScope: this.taskExecutionScope } : {}),
       ...(directIntentReceipt && directIntentAuthority
         ? {

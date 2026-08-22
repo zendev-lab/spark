@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +14,7 @@ import {
   SparkSessionStore,
 } from "@zendev-lab/spark-session/transcript";
 import type { Model } from "@zendev-lab/spark-llm";
-import { SparkAgentLoop, type SparkTurnLlm } from "@zendev-lab/spark-turn";
+import { SparkAgentLoop, type SparkRunOutcome, type SparkTurnLlm } from "@zendev-lab/spark-turn";
 
 import {
   createSparkDaemonCordisDispose,
@@ -349,10 +349,20 @@ describe("spark daemon Cordis root", () => {
     });
     let calls = 0;
     let nativeToolNames: string[] = [];
+    const persistedReservationsAtModelStart: string[] = [];
     const llm: SparkTurnLlm = {
       async *stream(options) {
         calls += 1;
         nativeToolNames = options.tools?.map((tool) => tool.name) ?? [];
+        const persisted = (await readFile(seed.path, "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { type?: string; data?: unknown })
+          .filter((event) => event.type === "spark/invocation")
+          .at(-1)?.data as { invocationId?: string; attemptEpoch?: number } | undefined;
+        persistedReservationsAtModelStart.push(
+          `${persisted?.invocationId}:${persisted?.attemptEpoch}`,
+        );
         const text = `native reply ${calls}`;
         yield { type: "block-start", index: 0, blockType: "text" };
         yield { type: "text-delta", index: 0, text };
@@ -373,45 +383,67 @@ describe("spark daemon Cordis root", () => {
       contextWindow: 8_000,
       maxTokens: 1_000,
     };
-    const host = new SparkHostRuntime({ cwd });
-    let executionSessionId: string | undefined;
+    const observed: Array<{ invocationId: string; sessionId: string; epoch: number }> = [];
     let scheduleCreatePolicy: unknown;
     let scheduleCreateAdmission: unknown;
-    vi.spyOn(host, "isDshToolDispatchAllowed").mockImplementation((name, policy) => {
-      if (name === "schedule_create") scheduleCreateAdmission = policy;
-      return true;
-    });
-    const loop = new SparkAgentLoop({
-      host,
-      llm,
-      dshContext: root.ctx,
-      getModel: () => model,
-      streamIdleTimeoutMs: 0,
-      agentPlugins: [
-        ...loadSparkProductAgentPlugins(),
-        {
-          name: "capture-spark-execution",
-          inject: ["sparkExecution"],
-          apply(ctx: Context) {
-            executionSessionId = ctx.sparkExecution.sessionId;
-          },
+    const runInvocation = async (
+      invocationId: string,
+      prompt: string,
+      epoch = 1,
+      daemonGeneration = 1,
+    ): Promise<SparkRunOutcome> => {
+      const host = new SparkHostRuntime({
+        cwd,
+        invocationId,
+        invocationAttempt: {
+          epoch,
+          daemonGeneration,
+          correlationId: `attempt:${invocationId}:${daemonGeneration}`,
         },
-      ],
-    });
-    loop.onEvent((event) => {
-      if (event.type !== "prompt_manifest") return;
-      scheduleCreatePolicy = event.manifest.tools.find((tool) => tool.name === "schedule_create");
-    });
-    loop.setViewSessionId(seed.header.id);
-    loop.setDshSessionMetadata({
-      timestamp: seed.header.timestamp,
-      sparkVersion: seed.header.version ?? CURRENT_SPARK_SESSION_VERSION,
-    });
+      });
+      vi.spyOn(host, "isDshToolDispatchAllowed").mockImplementation((name, policy) => {
+        if (name === "schedule_create") scheduleCreateAdmission = policy;
+        return true;
+      });
+      const loop = new SparkAgentLoop({
+        host,
+        llm,
+        dshContext: root.ctx,
+        getModel: () => model,
+        streamIdleTimeoutMs: 0,
+        agentPlugins: [
+          ...loadSparkProductAgentPlugins(),
+          {
+            name: "capture-spark-invocation",
+            inject: ["sparkInvocation"],
+            apply(ctx: Context) {
+              observed.push({
+                invocationId: ctx.sparkInvocation.invocationId,
+                sessionId: ctx.sparkInvocation.sessionId,
+                epoch: ctx.sparkInvocation.attempt.epoch,
+              });
+            },
+          },
+        ],
+      });
+      loop.onEvent((event) => {
+        if (event.type !== "prompt_manifest") return;
+        scheduleCreatePolicy = event.manifest.tools.find((tool) => tool.name === "schedule_create");
+      });
+      loop.setViewSessionId(seed.header.id);
+      loop.setDshSessionMetadata({
+        timestamp: seed.header.timestamp,
+        sparkVersion: seed.header.version ?? CURRENT_SPARK_SESSION_VERSION,
+      });
+      return await loop.submitWithOutcome(prompt);
+    };
 
     try {
-      await loop.submit("first prompt");
+      await runInvocation("inv_shared_1", "first prompt");
       expect(root.ctx.agents.list()).toEqual([]);
-      expect(executionSessionId).toBe(seed.header.id);
+      expect(observed).toEqual([
+        { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
+      ]);
       expect(nativeToolNames).toEqual(
         expect.arrayContaining(["schedule_create", "schedule_list", "schedule_delete"]),
       );
@@ -433,7 +465,7 @@ describe("spark daemon Cordis root", () => {
       expect(firstMessages).toHaveLength(4);
       expect(firstMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(1);
 
-      await loop.submit("second prompt");
+      await runInvocation("inv_shared_2", "second prompt");
       expect(root.ctx.agents.list()).toEqual([]);
       const second = await store.load(seed.path);
       const secondMessages = second.entries.filter((entry) => entry.type === "message");
@@ -441,6 +473,55 @@ describe("spark daemon Cordis root", () => {
       expect(secondMessages).toHaveLength(6);
       expect(secondMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(2);
       expect(JSON.stringify(second.entries)).toContain("native reply 2");
+      const beforeDuplicateEvents = (await readFile(seed.path, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type?: string; data?: unknown });
+      const beforeDuplicate = beforeDuplicateEvents.filter(
+        (event) => event.type === "spark/invocation",
+      );
+      expect(beforeDuplicate).toEqual([
+        expect.objectContaining({
+          data: expect.objectContaining({ invocationId: "inv_shared_1", attemptEpoch: 1 }),
+        }),
+        expect.objectContaining({
+          data: expect.objectContaining({ invocationId: "inv_shared_2", attemptEpoch: 1 }),
+        }),
+      ]);
+
+      await expect(runInvocation("inv_shared_2", "duplicate attempt")).resolves.toMatchObject({
+        status: "failed",
+        errorCode: "SPARK_INVOCATION_TURN_ALREADY_RESERVED",
+      });
+      await expect(
+        runInvocation("inv_shared_2", "same attempt after owner transfer", 1, 2),
+      ).resolves.toMatchObject({
+        status: "failed",
+        errorCode: "SPARK_INVOCATION_TURN_ALREADY_RESERVED",
+      });
+      expect(calls).toBe(2);
+      const afterDuplicateEvents = (await readFile(seed.path, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type?: string });
+      expect(afterDuplicateEvents.filter((event) => event.type === "turn/start")).toHaveLength(
+        beforeDuplicateEvents.filter((event) => event.type === "turn/start").length,
+      );
+
+      await runInvocation("inv_shared_2", "replacement attempt", 2);
+      expect(calls).toBe(3);
+      const invocationEvents = (await readFile(seed.path, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type?: string; ignorable?: boolean; data?: unknown })
+        .filter((event) => event.type === "spark/invocation");
+      expect(invocationEvents).toHaveLength(3);
+      expect(invocationEvents.every((event) => event.ignorable === true)).toBe(true);
+      expect(persistedReservationsAtModelStart).toEqual([
+        "inv_shared_1:1",
+        "inv_shared_2:1",
+        "inv_shared_2:2",
+      ]);
     } finally {
       await root.dispose();
     }
