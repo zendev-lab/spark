@@ -18,17 +18,24 @@ interface SparkWebLocalShare {
 }
 
 const shares = new Map<string, SparkWebLocalShare>();
+let pendingShares = 0;
 
 export async function createSparkWebLocalShare(
   sessionId: string,
   invoke: SparkWebDaemonInvoker,
 ): Promise<Omit<SparkWebLocalShare, "html">> {
-  if (shares.size >= SPARK_WEB_LOCAL_SHARE_MAX_ACTIVE) {
+  if (shares.size + pendingShares >= SPARK_WEB_LOCAL_SHARE_MAX_ACTIVE) {
     throw new SparkWebLocalShareLimitError(
       `This Spark Web process already has ${SPARK_WEB_LOCAL_SHARE_MAX_ACTIVE} active local shares. Restart Spark Web to clear them.`,
     );
   }
-  const html = await collectSparkWebSessionHtml(sessionId, invoke, SPARK_WEB_LOCAL_SHARE_MAX_BYTES);
+  pendingShares += 1;
+  let html: string;
+  try {
+    html = await collectSparkWebSessionHtml(sessionId, invoke, SPARK_WEB_LOCAL_SHARE_MAX_BYTES);
+  } finally {
+    pendingShares -= 1;
+  }
   const share = {
     token: randomBytes(24).toString("base64url"),
     sessionId,
@@ -49,4 +56,5 @@ export function readSparkWebLocalShare(token: string): SparkWebLocalShare | unde
 
 export function clearSparkWebLocalSharesForTest(): void {
   shares.clear();
+  pendingShares = 0;
 }

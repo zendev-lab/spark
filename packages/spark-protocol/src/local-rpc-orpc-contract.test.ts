@@ -138,14 +138,11 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "retryTarget",
     ]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
-      "daemon.logs",
       "artifact.list",
       "artifact.read",
       "role.list",
-      "role.get",
       "role.create",
       "skill.list",
-      "skill.get",
       "workspace.directory.list",
       "search.global",
       "session.search",
@@ -439,6 +436,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["session.snapshot", "invalid_session_snapshot"],
       ["session.snapshot", "session_snapshot_mismatch"],
       ["session.snapshot", "session_snapshot_cursor_not_found"],
+      ["session.export", "session_transcript_changed"],
       ["session.prompt-history", "invalid_session_snapshot"],
       ["session.retry-target", "session_not_found"],
       ["turn.submit", "side_thread_direct_submit_forbidden"],

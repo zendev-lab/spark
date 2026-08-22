@@ -126,32 +126,30 @@ describe("transport-neutral local RPC service", () => {
     expect(roles.roles.some((role) => role.ref === "role:builtin-administrator")).toBe(true);
     expect(roles.roles[0]).not.toHaveProperty("systemPrompt");
 
-    const created = await invokeLocalRpcService(
-      "role.create",
-      {
-        workspaceId: workspace.id,
-        id: "web-reviewer",
-        description: "Review Web owner boundaries",
-        systemPrompt: "Verify the implementation against its owner APIs.",
-        capabilities: ["read"],
-        skills: ["browser-check"],
-        modelType: "verification",
-      },
-      { paths, db },
+    const [firstCreate, secondCreate] = await Promise.all(
+      ["Review Web owner boundaries", "Do not overwrite the concurrent winner"].map((description) =>
+        invokeLocalRpcService(
+          "role.create",
+          {
+            workspaceId: workspace.id,
+            id: "web-reviewer",
+            description,
+            systemPrompt: "Verify the implementation against its owner APIs.",
+            capabilities: ["read"],
+            skills: ["browser-check"],
+            modelType: "verification",
+          },
+          { paths, db },
+        ),
+      ),
     );
-    expect(created).toMatchObject({ created: true, role: { source: "project" } });
-    const duplicate = await invokeLocalRpcService(
-      "role.create",
-      {
-        workspaceId: workspace.id,
-        id: "web-reviewer",
-        description: "Different",
-        systemPrompt: "Do not overwrite.",
-        modelType: "verification",
-      },
-      { paths, db },
-    );
-    expect(duplicate).toMatchObject({ created: false, role: { ref: created.role.ref } });
+    expect([firstCreate, secondCreate].filter((result) => result.created)).toHaveLength(1);
+    expect(firstCreate.role.ref).toBe(secondCreate.role.ref);
+    expect(firstCreate.role.source).toBe("project");
+    for (const result of [firstCreate, secondCreate]) {
+      expect(result.role).not.toHaveProperty("systemPrompt");
+      expect(result.role.origin).not.toHaveProperty("sourcePath");
+    }
 
     const skills = await invokeLocalRpcService(
       "skill.list",
@@ -164,13 +162,7 @@ describe("transport-neutral local RPC service", () => {
     expect(skills.skills.find((skill) => skill.name === "browser-check")).not.toHaveProperty(
       "filePath",
     );
-    const loaded = await invokeLocalRpcService(
-      "skill.get",
-      { workspaceId: workspace.id, name: "browser-check" },
-      { paths, db },
-    );
-    expect(loaded.skill?.content).toContain("# Browser check");
-    expect(loaded.skill).not.toHaveProperty("filePath");
+    expect(skills).not.toHaveProperty("diagnostics");
     db.close();
   });
 
@@ -203,6 +195,16 @@ describe("transport-neutral local RPC service", () => {
       }),
     );
     expect(JSON.stringify(listed)).not.toContain(workspaceRoot);
+    for (const name of ["zeta", "beta", "gamma"]) {
+      mkdirSync(join(workspaceRoot, name));
+    }
+    const bounded = await invokeLocalRpcService(
+      "workspace.directory.list",
+      { workspaceId: workspace.id, limit: 2 },
+      { paths, db },
+    );
+    expect(bounded.entries.map((entry) => entry.name)).toEqual(["beta", "escape"]);
+    expect(bounded.truncated).toBe(true);
     await expect(
       invokeLocalRpcService(
         "workspace.directory.list",
@@ -238,7 +240,6 @@ describe("transport-neutral local RPC service", () => {
     await createDaemonWorkspaceSession(registry, {
       sessionId: "session-search-export",
       workspaceId: workspace.id,
-      name: "Searchable conversation",
       cwd: workspaceRoot,
       sessionPath: transcript.path,
     });
@@ -254,6 +255,7 @@ describe("transport-neutral local RPC service", () => {
       ref: expect.stringMatching(/^message:/u),
       role: "user",
     });
+    expect(searched.matches[0]?.excerpt.match(/find the cold-history needle/gu)).toHaveLength(1);
 
     const global = await invokeLocalRpcService(
       "search.global",
@@ -269,6 +271,19 @@ describe("transport-neutral local RPC service", () => {
       { sessionId: "session-search-export", format: "json", limit: 1 },
       service,
     );
+    await registry.setNameIfMissing("session-search-export", "Searchable conversation");
+    const retitled = await invokeLocalRpcService(
+      "session.export",
+      { sessionId: "session-search-export", format: "text", limit: 1 },
+      service,
+    );
+    expect(retitled.revision).not.toBe(first.revision);
+    expect(retitled.chunk).toContain("Spark Session Searchable conversation");
+    store.appendMessage(transcript, {
+      role: "user",
+      content: "written after the revision-pinned export began",
+    });
+    await store.save(transcript);
     const second = await invokeLocalRpcService(
       "session.export",
       {
@@ -289,27 +304,38 @@ describe("transport-neutral local RPC service", () => {
       { sessionId: "session-search-export", format: "html", limit: 10 },
       service,
     );
+    expect(html.revision).not.toBe(first.revision);
+    expect(html.totalMessages).toBe(3);
     expect(html.chunk).toContain("&lt;script&gt;");
     expect(html.chunk).not.toContain("<script>alert");
+    expect(html.chunk.match(/safe &lt;script&gt;/gu)).toHaveLength(1);
     db.close();
   });
 
-  it("returns a bounded redacted daemon log tail without source paths", async () => {
+  it("surfaces a global-search Session snapshot failure", async () => {
     const { paths, db } = createFixture();
-    mkdirSync(paths.logDir, { recursive: true });
-    writeFileSync(
-      join(paths.logDir, "service.stderr.log"),
-      "first line\nauthorization=Bearer secret-value\ntoken=spark_private_123456789\n",
-      "utf8",
-    );
+    const workspaceRoot = join(paths.dataDir, "search-failure-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "search-failure-service-test",
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-search-failure",
+      workspaceId: workspace.id,
+      cwd: workspaceRoot,
+      sessionPath: join(workspaceRoot, "missing-transcript.jsonl"),
+    });
 
-    const result = await invokeLocalRpcService("daemon.logs", { lines: 2 }, { paths, db });
-    expect(result.totalBytes).toBeLessThanOrEqual(512 * 1024);
-    expect(result.sources.find((source) => source.name === "service_stderr")?.lines).toEqual([
-      "authorization=[redacted]",
-      "token=[redacted]",
-    ]);
-    expect(JSON.stringify(result)).not.toContain(paths.logDir);
+    await expect(
+      invokeLocalRpcService(
+        "search.global",
+        { query: "anything", workspaceId: workspace.id },
+        { paths, db, handlerOptions: { sessionRegistry: registry } },
+      ),
+    ).rejects.toThrow(/missing-transcript/u);
     db.close();
   });
 

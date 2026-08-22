@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import {
   createDefaultRoleRegistry,
   createRoleSpec,
@@ -16,7 +15,7 @@ import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts"
 
 type AgentCatalogRequest = Extract<
   LocalRpcServiceRequest,
-  { method: "role.list" | "role.get" | "role.create" | "skill.list" | "skill.get" }
+  { method: "role.list" | "role.create" | "skill.list" }
 >;
 
 export async function handleAgentCatalogRequest(
@@ -31,23 +30,13 @@ export async function handleAgentCatalogRequest(
     );
   }
 
-  if (request.method === "skill.list" || request.method === "skill.get") {
+  if (request.method === "skill.list") {
     const result = await new SparkSkillResolver({ cwd: workspaceRoot }).resolve({
       includeRepository: true,
     });
-    if (request.method === "skill.list") {
-      return {
-        workspaceId: request.params.workspaceId,
-        skills: result.skills.map(skillEntry),
-        diagnostics: result.diagnostics.map(({ type, message }) => ({ type, message })),
-      };
-    }
-    const skill = result.skills.find((candidate) => candidate.name === request.params.name);
     return {
       workspaceId: request.params.workspaceId,
-      skill: skill
-        ? { ...skillEntry(skill), content: await readFile(skill.filePath, "utf8") }
-        : null,
+      skills: result.skills.map(skillEntry),
     };
   }
 
@@ -59,16 +48,9 @@ export async function handleAgentCatalogRequest(
       roles: registry.list().map(roleEntry),
     };
   }
-  if (request.method === "role.get") {
-    return {
-      workspaceId: request.params.workspaceId,
-      role: registry.has(request.params.roleRef) ? registry.get(request.params.roleRef) : null,
-    };
-  }
-
   const existing = registry.list().find((role) => role.id === request.params.id);
   if (existing) {
-    return { workspaceId: request.params.workspaceId, created: false, role: existing };
+    return { workspaceId: request.params.workspaceId, created: false, role: roleEntry(existing) };
   }
   const role = createRoleSpec({
     id: request.params.id,
@@ -86,13 +68,25 @@ export async function handleAgentCatalogRequest(
     rationale: "Explicit user request through a trusted local control surface.",
     expectedUses: [],
   });
-  await defaultProjectRoleStore(workspaceRoot).save(role);
-  return { workspaceId: request.params.workspaceId, created: true, role };
+  const store = defaultProjectRoleStore(workspaceRoot);
+  if (!(await store.saveIfAbsent(role))) {
+    const winner = (await store.loadAll()).find((candidate) => candidate.id === role.id);
+    if (!winner) {
+      throw new Error(`Role ${role.id} already exists but is not a valid Spark project Role.`);
+    }
+    return { workspaceId: request.params.workspaceId, created: false, role: roleEntry(winner) };
+  }
+  return { workspaceId: request.params.workspaceId, created: true, role: roleEntry(role) };
 }
 
 function roleEntry(role: RoleSpec): SparkRoleCatalogEntry {
-  const { systemPrompt: _systemPrompt, ...entry } = role;
-  return entry;
+  const { systemPrompt: _systemPrompt, origin, ...entry } = role;
+  return {
+    ...entry,
+    ...(origin
+      ? { origin: { kind: origin.kind, ...(origin.note ? { note: origin.note } : {}) } }
+      : {}),
+  };
 }
 
 function skillEntry(skill: SparkSkill): SparkSkillCatalogEntry {

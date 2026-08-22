@@ -38,10 +38,8 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "artifact.list",
   "artifact.read",
   "role.list",
-  "role.get",
   "role.create",
   "skill.list",
-  "skill.get",
   "human.interaction.list",
   "human.interaction.respond",
   "workspace.ensure-local",
@@ -65,11 +63,8 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "loop.restart",
   "loop.wake",
   "loop.schedule",
-  "repro.start",
   "repro.status",
-  "repro.stop",
   "daemon.status",
-  "daemon.logs",
   "daemon.restart",
 ] as const satisfies readonly SparkLocalRpcMethod[];
 

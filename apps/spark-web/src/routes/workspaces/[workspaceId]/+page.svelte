@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { parseSparkModelValue } from "@zendev-lab/spark-protocol";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import { Artifact } from "@zendev-lab/spark-ui/workbench";
   import {
@@ -13,6 +14,7 @@
   let creating = $state(false);
   let showCreate = $state(false);
   let createError = $state("");
+  let createdSessionId = $state<string | null>(null);
   let sessionName = $state("");
   let roleRef = $state("role:builtin-executor");
   let modelValue = $state("");
@@ -22,7 +24,9 @@
   let directoryOpen = $state(false);
   let directoryLoading = $state(false);
   let directoryError = $state("");
+  let directoryRequestToken = 0;
   let directoryView = $state<{
+    cwdArtifactRef?: string;
     current: { relativePath: string };
     entries: Array<{
       ref: string;
@@ -43,66 +47,162 @@
   let artifactContent = $state<{ ref: string; title: string; format: string; content: string } | null>(null);
   let artifactError = $state("");
   let artifactLoading = $state(false);
+  let sessionCreateToken = 0;
+  let roleCreateToken = 0;
+  let artifactRequestToken = 0;
   const sessions = $derived(
     ordinarySessionsForWorkspace(data.sessions as SparkWebSession[], data.workspace.id),
   );
 
+  $effect(() => {
+    data.workspace.id;
+    sessionCreateToken += 1;
+    roleCreateToken += 1;
+    artifactRequestToken += 1;
+    directoryRequestToken += 1;
+    creating = false;
+    showCreate = false;
+    createError = "";
+    createdSessionId = null;
+    sessionName = "";
+    roleRef = "role:builtin-executor";
+    modelValue = "";
+    thinkingLevel = "high";
+    cwdArtifactRef = "";
+    cwdRelativePath = "";
+    directoryOpen = false;
+    directoryLoading = false;
+    directoryError = "";
+    directoryView = null;
+    roleId = "";
+    roleDescription = "";
+    rolePrompt = "";
+    roleModelType = "custom";
+    selectedRoleSkills = [];
+    roleCreating = false;
+    roleStatus = "";
+    artifactContent = null;
+    artifactError = "";
+    artifactLoading = false;
+  });
+
   async function createSession() {
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++sessionCreateToken;
+    const ownsPage = () =>
+      requestToken === sessionCreateToken && data.workspace.id === ownerWorkspaceId;
     const supervisorSessionId = workspaceAdministratorSessionId(
       data.sessions as SparkWebSession[],
-      data.workspace.id,
+      ownerWorkspaceId,
     );
     if (!supervisorSessionId) {
       createError = "Workspace administrator session is missing on this daemon.";
       return;
     }
+    let requestedModel: ReturnType<typeof parseSparkModelValue> | undefined;
+    try {
+      requestedModel = modelValue ? parseSparkModelValue(modelValue) : undefined;
+    } catch {
+      if (ownsPage()) createError = "Select a valid provider/model before creating the Session.";
+      return;
+    }
+    const requestedName = sessionName.trim();
+    const requestedRoleRef = roleRef;
+    const requestedCwdArtifactRef = cwdArtifactRef;
+    const requestedCwdRelativePath = cwdRelativePath;
+    const requestedThinkingLevel = thinkingLevel;
     creating = true;
     createError = "";
+    createdSessionId = null;
+    let created: { sessionId: string };
     try {
-      const created = await webRpc("session.create", {
-        scope: { kind: "workspace", workspaceId: data.workspace.id },
+      created = await webRpc("session.create", {
+        scope: { kind: "workspace", workspaceId: ownerWorkspaceId },
         supervisorSessionId,
         placement: "child",
-        roleBinding: { kind: "explicit", roleRef },
-        ...(sessionName.trim() ? { name: sessionName.trim() } : {}),
-        ...(cwdRelativePath ? { cwd: cwdRelativePath } : {}),
-        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+        roleBinding: { kind: "explicit", roleRef: requestedRoleRef },
+        ...(requestedName ? { name: requestedName } : {}),
+        ...(requestedCwdRelativePath ? { cwd: requestedCwdRelativePath } : {}),
+        ...(requestedCwdArtifactRef ? { cwdArtifactRef: requestedCwdArtifactRef } : {}),
       });
-      if (modelValue.includes("/")) {
-        const separator = modelValue.indexOf("/");
+    } catch (caught) {
+      if (ownsPage()) {
+        createError = caught instanceof Error ? caught.message : String(caught);
+        creating = false;
+      }
+      return;
+    }
+
+    if (ownsPage()) createdSessionId = created.sessionId;
+    try {
+      if (requestedModel) {
         await webRpc("session.model.set", {
           sessionId: created.sessionId,
-          model: {
-            providerName: modelValue.slice(0, separator),
-            modelId: modelValue.slice(separator + 1),
-          },
+          model: requestedModel,
         });
       }
-      await webRpc("session.thinking.set", { sessionId: created.sessionId, thinkingLevel });
+      await webRpc("session.thinking.set", {
+        sessionId: created.sessionId,
+        thinkingLevel: requestedThinkingLevel,
+      });
+    } catch (caught) {
+      if (ownsPage()) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        createError = `Session ${created.sessionId} was created, but its model or thinking configuration failed: ${message}`;
+        creating = false;
+      }
+      return;
+    }
+
+    if (!ownsPage()) return;
+    try {
       await goto(`/sessions/${created.sessionId}`);
     } catch (caught) {
-      createError = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      creating = false;
+      if (ownsPage()) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        createError = `Session ${created.sessionId} is ready, but navigation failed: ${message}`;
+        creating = false;
+      }
     }
   }
 
   async function browseDirectory(relativePath = "") {
     if (directoryLoading) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const ownerArtifactRef = cwdArtifactRef;
+    const requestToken = ++directoryRequestToken;
     directoryLoading = true;
     directoryError = "";
     try {
-      directoryView = await webRpc("workspace.directory.list", {
-        workspaceId: data.workspace.id,
-        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+      const view = await webRpc("workspace.directory.list", {
+        workspaceId: ownerWorkspaceId,
+        ...(ownerArtifactRef ? { cwdArtifactRef: ownerArtifactRef } : {}),
         relativePath,
         limit: 300,
       });
+      if (
+        requestToken !== directoryRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
+      directoryView = view;
       directoryOpen = true;
     } catch (caught) {
+      if (
+        requestToken !== directoryRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       directoryError = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      directoryLoading = false;
+      if (
+        requestToken === directoryRequestToken &&
+        data.workspace.id === ownerWorkspaceId
+      ) {
+        directoryLoading = false;
+      }
     }
   }
 
@@ -114,11 +214,13 @@
 
   async function createRole() {
     if (!roleId.trim() || !roleDescription.trim() || !rolePrompt.trim() || roleCreating) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleCreateToken;
     roleCreating = true;
     roleStatus = "";
     try {
       const result = await webRpc("role.create", {
-        workspaceId: data.workspace.id,
+        workspaceId: ownerWorkspaceId,
         id: roleId.trim(),
         description: roleDescription.trim(),
         systemPrompt: rolePrompt.trim(),
@@ -126,34 +228,56 @@
         ...(selectedRoleSkills.length > 0 ? { skills: selectedRoleSkills } : {}),
         modelType: roleModelType.trim() || "custom",
       });
+      if (requestToken !== roleCreateToken || data.workspace.id !== ownerWorkspaceId) return;
       roleStatus = result.created
         ? `Created ${result.role.ref}. Reload this page to select it.`
         : `Role name already exists as ${result.role.ref}; no file was changed.`;
     } catch (caught) {
+      if (requestToken !== roleCreateToken || data.workspace.id !== ownerWorkspaceId) return;
       roleStatus = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      roleCreating = false;
+      if (requestToken === roleCreateToken && data.workspace.id === ownerWorkspaceId) {
+        roleCreating = false;
+      }
     }
   }
 
   async function openArtifact(artifactRef: string) {
+    const ownerWorkspaceId = data.workspace.id;
     const artifact = data.artifactCatalog.artifacts.find((entry) => entry.ref === artifactRef);
     if (!artifact || artifactLoading) return;
+    const requestToken = ++artifactRequestToken;
     artifactLoading = true;
     artifactError = "";
+    artifactContent = null;
     try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(data.workspace.id)}/artifacts/${encodeURIComponent(artifactRef)}`);
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(ownerWorkspaceId)}/artifacts/${encodeURIComponent(artifactRef)}`);
       if (!response.ok) throw new Error(`Artifact preview failed: ${response.status}`);
+      const content = await response.text();
+      if (
+        requestToken !== artifactRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       artifactContent = {
         ref: artifact.ref,
         title: artifact.title,
         format: artifact.format,
-        content: await response.text(),
+        content,
       };
     } catch (caught) {
+      if (
+        requestToken !== artifactRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       artifactError = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      artifactLoading = false;
+      if (requestToken === artifactRequestToken && data.workspace.id === ownerWorkspaceId) {
+        artifactLoading = false;
+      }
     }
   }
 </script>
@@ -181,19 +305,19 @@
       <label>Mode<select disabled title="Plan and Fleet require the pending DSH rc.8 daemon-root adapter"><option>execute</option></select></label>
       <label>Model<select bind:value={modelValue}><option value="">Inherit default</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>Thinking<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
-      <label>Working directory<select bind:value={cwdArtifactRef} onchange={() => (cwdRelativePath = "")}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? "Loading…" : "Browse subdirectory"}</button>{#if cwdRelativePath}<small>Selected: {cwdRelativePath}</small>{/if}</label>
-      <button type="submit" disabled={creating}>{creating ? "Creating…" : "Create Session"}</button>
+      <label>Working directory<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">Workspace default</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · owning worktree</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? "Loading…" : "Browse subdirectory"}</button>{#if cwdRelativePath}<small>Selected: {cwdRelativePath}</small>{/if}</label>
+      <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? "Creating…" : "Create Session"}</button>
       <p class="hint">Directory choices are daemon-owned Workspace roots or GitChange owning worktrees. Plan/Fleet mode remains disabled until the DSH rc.8 adapter lands.</p>
     </form>
   {/if}
+  {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
   {#if directoryOpen && directoryView}
     <dialog open class="directory-picker" aria-label="Choose Session working directory">
       <header><div><h2>Choose directory</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => (directoryOpen = false)}>Close</button></header>
       <div class="directory-actions">
         <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>Up</button>
-        <button type="button" onclick={() => { cwdRelativePath = directoryView!.current.relativePath; directoryOpen = false; }}>Use this directory</button>
+        <button type="button" onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; directoryOpen = false; }}>Use this directory</button>
       </div>
-      {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
       <ul>
         {#each directoryView.entries as entry (entry.ref)}
           <li><button type="button" class="directory-entry" disabled={!entry.selectable} title={entry.blockedReason} onclick={() => void browseDirectory(entry.relativePath)}><span>{entry.kind === "symlink" ? "↪" : entry.kind === "directory" ? "▸" : "·"}</span><strong>{entry.name}</strong>{#if entry.blockedReason}<small>{entry.blockedReason}</small>{/if}</button></li>
@@ -203,6 +327,9 @@
   {/if}
   {#if createError}
     <p class="error">{createError}</p>
+  {/if}
+  {#if createdSessionId}
+    <p><a href={`/sessions/${createdSessionId}`}>Open created Session</a></p>
   {/if}
   {#if sessions.length === 0}
     <p>No sessions in this workspace yet.</p>

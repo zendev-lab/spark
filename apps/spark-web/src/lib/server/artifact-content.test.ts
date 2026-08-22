@@ -15,6 +15,27 @@ const artifact = {
 };
 
 describe("Spark Web Artifact content", () => {
+  it("accepts an empty terminal Document chunk", async () => {
+    const emptyArtifact = { ...artifact, sizeBytes: 0 };
+    const invoke = vi.fn(async () => ({
+      workspaceId: "workspace-1",
+      artifact: emptyArtifact,
+      chunk: {
+        encoding: "base64" as const,
+        data: "",
+        offsetBytes: 0,
+        nextOffsetBytes: 0,
+        totalBytes: 0,
+        eof: true,
+      },
+    }));
+
+    const result = await readSparkWebArtifactContent("workspace-1", emptyArtifact.ref, invoke);
+
+    expect(result).toEqual({ artifact: emptyArtifact, content: new Uint8Array() });
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
   it("reassembles exact daemon-owned chunks", async () => {
     const invoke = vi.fn(async (_method: "artifact.read", input: { offsetBytes?: number }) => {
       const offset = input.offsetBytes ?? 0;

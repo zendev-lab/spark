@@ -8,6 +8,7 @@ export { default as Plan } from "./Plan.svelte";
 export { default as SchemaView } from "./SchemaView.svelte";
 export { default as SessionTree } from "./SessionTree.svelte";
 export { default as SessionWorkPanel } from "./SessionWorkPanel.svelte";
+export * from "./session-tree";
 export { default as StackTrace } from "./StackTrace.svelte";
 export { default as Task } from "./Task.svelte";
 export { default as Terminal } from "./Terminal.svelte";

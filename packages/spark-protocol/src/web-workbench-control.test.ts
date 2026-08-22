@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  SPARK_DAEMON_LOG_LINES_DEFAULT,
-  sparkDaemonLogsRequestSchema,
   sparkSessionExportRequestSchema,
   sparkSessionSearchRequestSchema,
   sparkWorkspaceDirectoryListRequestSchema,
@@ -41,12 +39,12 @@ describe("Spark Web workbench owner contracts", () => {
         revision: "not-a-revision",
       }),
     ).toThrow();
-  });
-
-  it("defaults log diagnostics to the public 100-line boundary", () => {
-    expect(sparkDaemonLogsRequestSchema.parse({})).toEqual({
-      lines: SPARK_DAEMON_LOG_LINES_DEFAULT,
-    });
-    expect(() => sparkDaemonLogsRequestSchema.parse({ lines: 501 })).toThrow();
+    expect(() =>
+      sparkSessionExportRequestSchema.parse({
+        sessionId: "session-1",
+        format: "json",
+        offset: 1,
+      }),
+    ).toThrow(/revision/u);
   });
 });

@@ -9,12 +9,8 @@ import {
 import {
   sparkRoleCreateRequestSchema,
   sparkRoleCreateResultSchema,
-  sparkRoleGetRequestSchema,
-  sparkRoleGetResultSchema,
   sparkRoleListRequestSchema,
   sparkRoleListResultSchema,
-  sparkSkillGetRequestSchema,
-  sparkSkillGetResultSchema,
   sparkSkillListRequestSchema,
   sparkSkillListResultSchema,
 } from "./agent-catalog.ts";
@@ -159,8 +155,6 @@ import {
   workspaceDelegationExecuteResultSchema,
 } from "./workspace-delegation.ts";
 import {
-  sparkDaemonLogsRequestSchema,
-  sparkDaemonLogsResultSchema,
   sparkGlobalSearchRequestSchema,
   sparkGlobalSearchResultSchema,
   sparkSessionExportRequestSchema,
@@ -442,6 +436,11 @@ const sparkLocalRpcSessionSnapshotOrpcErrors = {
     sparkLocalRpcSessionOrpcErrors.session_snapshot_cursor_not_found,
   session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
   session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
+} as const;
+
+const sparkLocalRpcSessionExportOrpcErrors = {
+  ...sparkLocalRpcSessionSnapshotOrpcErrors,
+  session_transcript_changed: sparkLocalRpcSessionOrpcErrors.session_transcript_changed,
 } as const;
 
 const sparkLocalRpcSessionPromptHistoryOrpcErrors = {
@@ -1344,6 +1343,7 @@ const sparkLocalRpcHumanWaitSchema = z.object({
   projectId: z.string(),
   toolCallId: z.string(),
   delivery: z.enum(["blocking", "async"]),
+  mode: z.enum(["clarification", "decision", "approval", "unblock"]).optional(),
   evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   kind: z.string().min(1),
   title: z.string(),
@@ -1428,10 +1428,6 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcEmptyInputSchema,
     output: sparkLocalRpcDaemonStatusResultSchema,
   },
-  "daemon.logs": {
-    input: sparkDaemonLogsRequestSchema,
-    output: sparkDaemonLogsResultSchema,
-  },
   "daemon.stop": {
     input: sparkLocalRpcEmptyInputSchema,
     output: sparkLocalRpcDaemonStopResultSchema,
@@ -1459,10 +1455,8 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkArtifactReadResultSchema,
   },
   "role.list": { input: sparkRoleListRequestSchema, output: sparkRoleListResultSchema },
-  "role.get": { input: sparkRoleGetRequestSchema, output: sparkRoleGetResultSchema },
   "role.create": { input: sparkRoleCreateRequestSchema, output: sparkRoleCreateResultSchema },
   "skill.list": { input: sparkSkillListRequestSchema, output: sparkSkillListResultSchema },
-  "skill.get": { input: sparkSkillGetRequestSchema, output: sparkSkillGetResultSchema },
   "git.execute": {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
     output: sparkLocalRpcToolExecutionResultSchema,
@@ -1826,14 +1820,11 @@ export const sparkLocalRpcOrpcLiveMethods = Object.keys(
 
 /** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
 export const sparkLocalRpcOrpcOnlyMethods = [
-  "daemon.logs",
   "artifact.list",
   "artifact.read",
   "role.list",
-  "role.get",
   "role.create",
   "skill.list",
-  "skill.get",
   "workspace.directory.list",
   "search.global",
   "session.search",
@@ -1880,7 +1871,6 @@ const p = sparkLocalRpcProcedureSchemas;
 export const sparkLocalRpcOrpcContract = {
   daemon: {
     status: procedure("GET", "/daemon/status", p["daemon.status"], sparkLocalRpcNoOrpcErrors),
-    logs: procedure("GET", "/daemon/logs", p["daemon.logs"], sparkLocalRpcNoOrpcErrors),
     stop: procedure("POST", "/daemon/stop", p["daemon.stop"], sparkLocalRpcNoOrpcErrors),
     restart: procedure(
       "POST",
@@ -1899,12 +1889,10 @@ export const sparkLocalRpcOrpcContract = {
   },
   role: {
     list: procedure("GET", "/role/list", p["role.list"], sparkLocalRpcWorkspaceOrpcErrors),
-    get: procedure("GET", "/role/get", p["role.get"], sparkLocalRpcWorkspaceOrpcErrors),
     create: procedure("POST", "/role/create", p["role.create"], sparkLocalRpcWorkspaceOrpcErrors),
   },
   skill: {
     list: procedure("GET", "/skill/list", p["skill.list"], sparkLocalRpcWorkspaceOrpcErrors),
-    get: procedure("GET", "/skill/get", p["skill.get"], sparkLocalRpcWorkspaceOrpcErrors),
   },
   git: {
     execute: procedure("POST", "/git/execute", p["git.execute"]),
@@ -2198,7 +2186,7 @@ export const sparkLocalRpcOrpcContract = {
       "GET",
       "/session/export",
       p["session.export"],
-      sparkLocalRpcSessionSnapshotOrpcErrors,
+      sparkLocalRpcSessionExportOrpcErrors,
     ),
     snapshotPage: procedure(
       "GET",

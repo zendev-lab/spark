@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, opendir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   applyWorkspaceLifecycleMutation,
@@ -329,10 +329,14 @@ async function listWorkspaceDirectory(
     throw error;
   }
 
-  const names = (await readdir(resolved.cwd))
-    .filter((name) => input.includeHidden || !name.startsWith("."))
-    .sort((left, right) => left.localeCompare(right));
-  const selected = names.slice(0, input.limit);
+  const selected: string[] = [];
+  let visibleEntries = 0;
+  const directory = await opendir(resolved.cwd);
+  for await (const entry of directory) {
+    if (!input.includeHidden && entry.name.startsWith(".")) continue;
+    visibleEntries += 1;
+    insertBoundedDirectoryName(selected, entry.name, input.limit);
+  }
   const entries = await Promise.all(
     selected.map(async (name) => {
       const childRelativePath = relativePath ? `${relativePath}/${name}` : name;
@@ -380,9 +384,22 @@ async function listWorkspaceDirectory(
       relativePath,
     },
     entries,
-    truncated: names.length > selected.length,
+    truncated: visibleEntries > selected.length,
     observedAt: new Date().toISOString(),
   };
+}
+
+function insertBoundedDirectoryName(names: string[], name: string, limit: number): void {
+  let low = 0;
+  let high = names.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (name.localeCompare(names[middle]!) > 0) low = middle + 1;
+    else high = middle;
+  }
+  if (low >= limit) return;
+  names.splice(low, 0, name);
+  if (names.length > limit) names.pop();
 }
 
 function normalizedRelativeDirectory(value: string): string {

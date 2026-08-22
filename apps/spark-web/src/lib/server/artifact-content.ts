@@ -53,7 +53,10 @@ export async function readSparkWebArtifactContent(
         `Artifact preview exceeds ${SPARK_WEB_ARTIFACT_PREVIEW_MAX_BYTES} bytes`,
       );
     }
-    if (result.chunk.offsetBytes !== offsetBytes || result.chunk.nextOffsetBytes <= offsetBytes) {
+    if (
+      result.chunk.offsetBytes !== offsetBytes ||
+      (result.chunk.nextOffsetBytes === offsetBytes && !result.chunk.eof)
+    ) {
       throw new SparkWebArtifactContentError("Artifact returned a non-progressing content cursor");
     }
     const decoded = Uint8Array.from(atob(result.chunk.data), (character) =>

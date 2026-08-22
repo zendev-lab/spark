@@ -24,6 +24,19 @@ type WorkbenchRequest = Extract<
   { method: "search.global" | "session.search" | "session.export" }
 >;
 
+const maxCachedSessionExportBytes = 64 * 1024 * 1024;
+const cachedSessionExportTtlMs = 5 * 60 * 1_000;
+
+interface CachedSessionExport {
+  revision: string;
+  snapshot: Pick<SparkSessionView, "sessionId" | "title" | "messages">;
+  bytes: number;
+  lastAccessedAt: number;
+}
+
+const cachedSessionExports = new Map<string, CachedSessionExport>();
+let cachedSessionExportBytes = 0;
+
 export async function handleWorkbenchRequest(
   ctx: LocalRpcDispatchContext,
   request: WorkbenchRequest,
@@ -133,12 +146,7 @@ async function searchGlobal(
         updatedAt: session.updatedAt,
       });
     }
-    let snapshot: SparkSessionView;
-    try {
-      snapshot = await loadSessionSnapshot(ctx, session);
-    } catch {
-      continue;
-    }
+    const snapshot = await loadSessionSnapshot(ctx, session);
     for (const message of snapshot.messages.toReversed()) {
       const searchable = searchableMessageText(message);
       const index = searchable.toLocaleLowerCase().indexOf(query);
@@ -176,14 +184,23 @@ async function exportSession(
     revision?: string;
   },
 ) {
-  const snapshot = await loadOwnedSessionSnapshot(ctx, input.sessionId);
-  const revision = createHash("sha256").update(JSON.stringify(snapshot.messages)).digest("hex");
+  pruneExpiredSessionExports(Date.now());
+  const cachedKey = input.revision ? `${input.sessionId}:${input.revision}` : undefined;
+  const cached = cachedKey ? cachedSessionExports.get(cachedKey) : undefined;
+  const loaded = cached ? undefined : await loadOwnedSessionSnapshot(ctx, input.sessionId);
+  const revision = cached
+    ? cached.revision
+    : createHash("sha256")
+        .update(JSON.stringify({ title: loaded!.title, messages: loaded!.messages }))
+        .digest("hex");
   if (input.revision && input.revision !== revision) {
     throw new SparkSessionRegistryError(
       "session_transcript_changed",
       "Session transcript changed while export pages were being read. Restart the export.",
     );
   }
+  const snapshot = cached?.snapshot ?? loaded!;
+  cacheSessionExport(input.sessionId, revision, snapshot);
   if (input.offset > snapshot.messages.length) {
     throw new SparkSessionRegistryError(
       "session_snapshot_cursor_not_found",
@@ -249,7 +266,7 @@ function searchableMessageText(message: SparkMessageView): string {
     })
     .filter(Boolean)
     .join("\n");
-  return [message.text, partText].filter(Boolean).join("\n");
+  return partText || message.text || "";
 }
 
 function searchExcerpt(text: string, matchIndex: number, queryLength: number): string {
@@ -274,7 +291,7 @@ function exportDescriptor(format: SparkSessionExportFormat) {
 }
 
 function formatExportChunk(
-  snapshot: SparkSessionView,
+  snapshot: Pick<SparkSessionView, "sessionId" | "title" | "messages">,
   format: SparkSessionExportFormat,
   messages: SparkMessageView[],
   offset: number,
@@ -319,6 +336,59 @@ function formatExportChunk(
           : "";
       return `${prefix}${messages.map(htmlMessage).join("")}${complete ? "</body></html>\n" : ""}`;
     }
+  }
+}
+
+function cacheSessionExport(
+  sessionId: string,
+  revision: string,
+  snapshot: Pick<SparkSessionView, "sessionId" | "title" | "messages">,
+): void {
+  const now = Date.now();
+  pruneExpiredSessionExports(now);
+
+  const key = `${sessionId}:${revision}`;
+  const existing = cachedSessionExports.get(key);
+  if (existing) {
+    existing.lastAccessedAt = now;
+    cachedSessionExports.delete(key);
+    cachedSessionExports.set(key, existing);
+    return;
+  }
+
+  const exportSnapshot = {
+    sessionId: snapshot.sessionId,
+    title: snapshot.title,
+    messages: snapshot.messages,
+  };
+  const bytes = Buffer.byteLength(JSON.stringify(exportSnapshot), "utf8");
+  if (bytes > maxCachedSessionExportBytes) {
+    throw new Error(
+      `Session export exceeds the daemon's ${maxCachedSessionExportBytes} byte snapshot boundary.`,
+    );
+  }
+  while (cachedSessionExportBytes + bytes > maxCachedSessionExportBytes) {
+    const oldest = cachedSessionExports.entries().next().value as
+      | [string, CachedSessionExport]
+      | undefined;
+    if (!oldest) break;
+    cachedSessionExports.delete(oldest[0]);
+    cachedSessionExportBytes -= oldest[1].bytes;
+  }
+  cachedSessionExports.set(key, {
+    revision,
+    snapshot: exportSnapshot,
+    bytes,
+    lastAccessedAt: now,
+  });
+  cachedSessionExportBytes += bytes;
+}
+
+function pruneExpiredSessionExports(now: number): void {
+  for (const [key, entry] of cachedSessionExports) {
+    if (now - entry.lastAccessedAt <= cachedSessionExportTtlMs) continue;
+    cachedSessionExports.delete(key);
+    cachedSessionExportBytes -= entry.bytes;
   }
 }
 

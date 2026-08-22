@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { buildSparkSessionTree } from "@zendev-lab/spark-protocol";
+  import { buildSessionTreeRows } from "./session-tree.ts";
 
   export interface SessionTreeItem {
     sessionId: string;
@@ -51,10 +51,7 @@
 
   let query = $state("");
   const rows = $derived(
-    buildSparkSessionTree(sessions, {
-      includeArchived,
-      isImplicitRootParent: (id) => /(?:^|[_:-])admin(?:istrator)?(?:[_:-]|$)/iu.test(id),
-    }).filter(({ session }) => {
+    buildSessionTreeRows(sessions, { includeArchived }).filter(({ session }) => {
       const normalized = query.trim().toLowerCase();
       return (
         !normalized ||

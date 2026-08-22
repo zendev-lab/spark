@@ -73,7 +73,6 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
   return os.router({
     daemon: {
       status: os.daemon.status.handler(async () => invoke("daemon.status", {})),
-      logs: os.daemon.logs.handler(async ({ input: params }) => invoke("daemon.logs", params)),
       stop: os.daemon.stop.handler(async () => invoke("daemon.stop", {})),
       restart: os.daemon.restart.handler(async () => invoke("daemon.restart", {})),
     },
@@ -89,12 +88,10 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     },
     role: {
       list: os.role.list.handler(async ({ input: params }) => invoke("role.list", params)),
-      get: os.role.get.handler(async ({ input: params }) => invoke("role.get", params)),
       create: os.role.create.handler(async ({ input: params }) => invoke("role.create", params)),
     },
     skill: {
       list: os.skill.list.handler(async ({ input: params }) => invoke("skill.list", params)),
-      get: os.skill.get.handler(async ({ input: params }) => invoke("skill.get", params)),
     },
     git: {
       execute: os.git.execute.handler(async ({ input: params }) => invoke("git.execute", params)),
