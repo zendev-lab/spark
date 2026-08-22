@@ -80,6 +80,10 @@ interface DurableSnapshot {
 
 let retainedFailureFixture: string | undefined;
 const liveModelId = process.env.SPARK_REPRO_LIVE_MODEL?.trim();
+const deterministicObjective = "复现 glm52";
+const liveObjective =
+  "Reproduce the normalization behavior from repos/reference in repos/target. Inspect the two repositories and verify.mjs, make the smallest required correction, and attach strict Evidence for all five checkpoints.";
+const deterministicFormalizedRevision = "revision:formalized";
 
 afterEach(() => {
   if (retainedFailureFixture) {
@@ -97,7 +101,7 @@ test("direct Repro start survives compaction and restarts across five daemon che
 
     const started = await requestSparkDaemon(
       "repro.start",
-      { ownerSessionId: rootSessionId, objective: "复现 glm52" },
+      { ownerSessionId: rootSessionId, objective: deterministicObjective },
       { env: fixture.target.env },
     );
     assert.equal(started.changed, true);
@@ -120,7 +124,10 @@ test("direct Repro start survives compaction and restarts across five daemon che
       fixture,
       (repro) => repro.status === "complete" && repro.receipts.length === 5,
     );
-    await assertCompletedTopology(fixture, rootSessionId, complete);
+    await assertCompletedTopology(fixture, rootSessionId, complete, {
+      expectedObjective: deterministicObjective,
+      expectedFormalizedRevision: deterministicFormalizedRevision,
+    });
 
     const beforeIdempotentRestart = await durableCounts(fixture, rootSessionId);
     const providerBefore = await readProviderLedger(fixture.providerLedgerPath);
@@ -142,16 +149,16 @@ test("direct Repro start survives compaction and restarts across five daemon che
 }, 240_000);
 
 test("attention answer resumes the same checkpoint Session after daemon restart", async () => {
-  const fixture = await createJourneyFixture(
-    createJourneyRounds({ implementationAttention: true }),
-  );
+  const fixture = await createJourneyFixture({
+    rounds: createJourneyRounds({ implementationAttention: true }),
+  });
   retainedFailureFixture = fixture.temporary;
   const observedProcessPids: number[] = [];
   try {
     const rootSessionId = await startRegisteredWorkspace(fixture, observedProcessPids);
     await requestSparkDaemon(
       "repro.start",
-      { ownerSessionId: rootSessionId, objective: "复现 glm52" },
+      { ownerSessionId: rootSessionId, objective: deterministicObjective },
       { env: fixture.target.env },
     );
 
@@ -218,14 +225,16 @@ test("attention answer resumes the same checkpoint Session after daemon restart"
 }, 240_000);
 
 test("stop durably cancels Repro runs and closes all lane Sessions", async () => {
-  const fixture = await createJourneyFixture(createJourneyRounds({ implementationDelayMs: 5_000 }));
+  const fixture = await createJourneyFixture({
+    rounds: createJourneyRounds({ implementationDelayMs: 5_000 }),
+  });
   retainedFailureFixture = fixture.temporary;
   const observedProcessPids: number[] = [];
   try {
     const rootSessionId = await startRegisteredWorkspace(fixture, observedProcessPids);
     await requestSparkDaemon(
       "repro.start",
-      { ownerSessionId: rootSessionId, objective: "复现 glm52" },
+      { ownerSessionId: rootSessionId, objective: deterministicObjective },
       { env: fixture.target.env },
     );
     const stoppedResponse = await requestSparkDaemon(
@@ -275,7 +284,7 @@ test.skipIf(!liveModelId)(
   "real configured model completes a compacted multi-repository Repro",
   async () => {
     assert.ok(liveModelId);
-    const fixture = await createJourneyFixture(createJourneyRounds(), { liveModelId });
+    const fixture = await createJourneyFixture({ liveModelId });
     retainedFailureFixture = fixture.temporary;
     const observedProcessPids: number[] = [];
     try {
@@ -285,8 +294,7 @@ test.skipIf(!liveModelId)(
         "repro.start",
         {
           ownerSessionId: rootSessionId,
-          objective:
-            "Reproduce the normalization behavior from repos/reference in repos/target. Inspect the two repositories and verify.mjs, make the smallest required correction, and attach strict Evidence for all five checkpoints.",
+          objective: liveObjective,
         },
         { env: fixture.target.env },
       );
@@ -299,6 +307,7 @@ test.skipIf(!liveModelId)(
         (repro) => repro.status === "complete" && repro.receipts.length === 5,
       );
       await assertCompletedTopology(fixture, rootSessionId, complete, {
+        expectedObjective: liveObjective,
         expectedModel: parseModelId(liveModelId),
         scriptedProvider: false,
       });
@@ -318,14 +327,20 @@ async function assertCompletedTopology(
   rootSessionId: string,
   repro: SparkSessionRepro,
   options: {
+    expectedObjective: string;
+    expectedFormalizedRevision?: string;
     expectedModel?: { providerName: string; modelId: string };
     scriptedProvider?: boolean;
-  } = {},
+  },
 ): Promise<void> {
   assert.equal(repro.version, 10);
   assert.equal(repro.schema, "spark.repro.session/v10");
-  assert.equal(repro.objective, "复现 glm52");
-  assert.equal(repro.formalizedRevision, "revision:formalized");
+  assert.equal(repro.objective, options.expectedObjective);
+  if (options.expectedFormalizedRevision) {
+    assert.equal(repro.formalizedRevision, options.expectedFormalizedRevision);
+  } else {
+    assert.ok(repro.formalizedRevision?.trim(), "Formalize must record a non-empty revision");
+  }
   assert.deepEqual(
     repro.checkpoints.map((checkpoint) => checkpoint.kind),
     ["implementation", "exactness", "formalize", "exactness_refresh", "implementation_refresh"],
@@ -477,7 +492,7 @@ function createJourneyRounds(
       kind: "checkpoint_result",
       summary: `${kind} accepted after bounded multi-repository verification`,
       evidenceRefs: [proofVariable],
-      ...(kind === "formalize" ? { formalizedRevision: "revision:formalized" } : {}),
+      ...(kind === "formalize" ? { formalizedRevision: deterministicFormalizedRevision } : {}),
     });
     tool(audience, `${prefix}.plan`, "impl_update_task_plan_items", {
       ops: [{ op: "done", id: "item-1", evidenceRefs: [proofVariable, resultVariable] }],
@@ -595,9 +610,9 @@ function createJourneyRounds(
 }
 
 async function createJourneyFixture(
-  rounds: ScriptedRound[] = createJourneyRounds(),
-  options: { liveModelId?: string } = {},
+  options: { rounds?: ScriptedRound[]; liveModelId?: string } = {},
 ): Promise<JourneyFixture> {
+  const rounds = options.rounds ?? createJourneyRounds();
   const temporary = await realpath(
     await mkdtemp(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-repro-journey-")),
   );

@@ -75,6 +75,13 @@ Evidence, survive forced compaction, and finish all checkpoints. It is not a
 normal pull-request required check because it is credentialed and
 model-dependent. Its latest passing result is required before release.
 
+GitHub Actions requires the repository variable `SPARK_REPRO_LIVE_MODEL` in
+`provider/model` form and the matching repository or organization provider
+secret exposed to the workflow. The checked-in workflows currently forward
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Missing configuration and scripted
+providers fail closed; they do not turn this capability gate into a skipped or
+passing run.
+
 A scripted Journey pass does not substitute for this gate. A live capability
 pass also does not substitute for deterministic migration, serialization,
 provenance, crash-window, or idempotency tests.
