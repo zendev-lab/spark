@@ -168,7 +168,7 @@ export function runStatusForStopReason(
   return "succeeded";
 }
 
-export function isSparkMessageRole(role: string): role is SparkMessageView["role"] {
+function isSparkMessageRole(role: string): role is SparkMessageView["role"] {
   return (
     role === "system" ||
     role === "user" ||
@@ -206,7 +206,7 @@ export function contentToText(content: unknown): string {
     .join("\n");
 }
 
-export function timestampToIso(timestamp: unknown): string | undefined {
+function timestampToIso(timestamp: unknown): string | undefined {
   if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return undefined;
   return new Date(timestamp).toISOString();
 }
@@ -270,7 +270,7 @@ export function entityViewsFromToolDetails(
   return entities;
 }
 
-export function scanToolDetails(
+function scanToolDetails(
   value: unknown,
   visit: (candidate: Record<string, unknown>) => void,
 ): void {
@@ -339,7 +339,7 @@ export function taskViewFromCandidate(
   };
 }
 
-export function entityViewFromCandidate(
+function entityViewFromCandidate(
   candidate: Record<string, unknown>,
   metadata: Record<string, unknown>,
 ):
@@ -396,7 +396,7 @@ export function entityViewFromCandidate(
   };
 }
 
-export function taskTodosFromCandidate(candidate: Record<string, unknown>): SparkTaskTodoView[] {
+function taskTodosFromCandidate(candidate: Record<string, unknown>): SparkTaskTodoView[] {
   const todosRecord = recordField(candidate, "todos");
   const rawTodos: unknown[] = Array.isArray(candidate.todos)
     ? candidate.todos
@@ -428,12 +428,12 @@ export function stringField(
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-export function isoStringField(record: Record<string, unknown>, key: string): string | undefined {
+function isoStringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = stringField(record, key);
   return value && !Number.isNaN(Date.parse(value)) ? value : undefined;
 }
 
-export function strictPrefixedRefs(
+function strictPrefixedRefs(
   values: string[],
   prefix: "evidence:" | "artifact:",
 ): string[] | undefined {
@@ -460,7 +460,7 @@ export function recordField(
     : undefined;
 }
 
-export function taskTodoStatus(value: string | undefined): SparkTaskTodoView["status"] {
+function taskTodoStatus(value: string | undefined): SparkTaskTodoView["status"] {
   if (
     value === "pending" ||
     value === "in_progress" ||
@@ -485,14 +485,14 @@ export function isArtifactKind(
   );
 }
 
-export function evidenceKind(value: string | undefined): SparkEvidenceView["kind"] {
+function evidenceKind(value: string | undefined): SparkEvidenceView["kind"] {
   if (value === "document" || value === "record" || value === "trace" || value === "knowledge") {
     return value;
   }
   return "other";
 }
 
-export function evidenceFormat(value: string | undefined): SparkEvidenceView["format"] {
+function evidenceFormat(value: string | undefined): SparkEvidenceView["format"] {
   if (value === "markdown" || value === "json" || value === "text" || value === "blob") {
     return value;
   }

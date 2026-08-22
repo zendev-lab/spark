@@ -11,7 +11,7 @@ export type SparkPromptManifestToolEffect =
   | "destructive"
   | "unknown";
 
-export type SparkPromptManifestExecutionMode = "parallel" | "sequential";
+type SparkPromptManifestExecutionMode = "parallel" | "sequential";
 
 export interface SparkPromptManifestToolInput {
   name: string;
@@ -36,7 +36,7 @@ export interface SparkPromptManifestTool {
   guidanceHash?: string;
 }
 
-export interface SparkPromptManifestRoundtrip {
+interface SparkPromptManifestRoundtrip {
   index: number;
 }
 

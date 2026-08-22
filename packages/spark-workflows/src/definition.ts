@@ -18,7 +18,7 @@ import { getBuiltinWorkflowDefinition, listBuiltinWorkflows } from "./builtins.t
 import { parseWorkflowScript } from "./metadata.ts";
 import { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
 
-export const SPARK_WORKFLOW_DEFINITION_SCHEMA = "spark.workflow/v2" as const;
+const SPARK_WORKFLOW_DEFINITION_SCHEMA = "spark.workflow/v2" as const;
 
 export type WorkflowSource = "builtin" | "workspace" | "user";
 export type WorkflowSelector = `${WorkflowSource}:${string}`;
@@ -233,7 +233,7 @@ export async function listWorkflowDefinitions(
   return { workflows, errors };
 }
 
-export function workflowDefinitionDescriptor(
+function workflowDefinitionDescriptor(
   definition: WorkflowDefinition,
 ): WorkflowDefinitionDescriptor {
   return {
@@ -490,7 +490,7 @@ function finalizeWorkflowDefinition(input: {
   };
 }
 
-export function compileWorkflowDefinitionScript(
+function compileWorkflowDefinitionScript(
   definition: Omit<WorkflowDefinition, "digest" | "script"> | WorkflowDefinition,
 ): string {
   const meta = {

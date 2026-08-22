@@ -314,7 +314,7 @@ export function claimScopeForStoredClaim(claim: TaskClaim): ClaimScope {
   return claimScopeForValues(claim.kind, claim.sessionId, claim.runName);
 }
 
-export function claimScopeForValues(
+function claimScopeForValues(
   kind: TaskClaimKind,
   sessionId: string | undefined,
   runName: string | undefined,
@@ -339,7 +339,7 @@ export function normalizeRoleRef(value: RoleRef | undefined): RoleRef | undefine
   return assertRef(value, "role");
 }
 
-export function rejectLegacyRoleFields(value: unknown, label: string): void {
+function rejectLegacyRoleFields(value: unknown, label: string): void {
   if (!value || typeof value !== "object") return;
   const record = value as Record<string, unknown>;
   if (record.agentRef !== undefined) throw new Error(`${label} uses legacy agentRef; use roleRef`);
@@ -347,7 +347,7 @@ export function rejectLegacyRoleFields(value: unknown, label: string): void {
     throw new Error(`${label} uses legacy agentName; use runName`);
 }
 
-export function rejectLegacyClaimFields(value: unknown, label: string): void {
+function rejectLegacyClaimFields(value: unknown, label: string): void {
   if (!value || typeof value !== "object") return;
   const record = value as Record<string, unknown>;
   if (record.claimedBySession !== undefined)
@@ -790,7 +790,7 @@ export function renderNonConcreteTaskIssues(issues: readonly NonConcreteTaskIssu
   ].join("\n");
 }
 
-export function nonConcreteTaskMessage(task: TaskPlanInput): string | undefined {
+function nonConcreteTaskMessage(task: TaskPlanInput): string | undefined {
   if (task.status === "cancelled" || task.status === "done") return undefined;
   if (task.kind === "plan")
     return "kind=plan is reserved for planning logic; create concrete implement/review/research/validation work and put design details in task.plan";
@@ -904,7 +904,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
   },
 ];
 
-export const TASK_PLAN_READINESS_RULE_BY_KIND = new Map(
+const TASK_PLAN_READINESS_RULE_BY_KIND = new Map(
   TASK_PLAN_READINESS_RULES.map((rule) => [rule.kind, rule]),
 );
 
@@ -1135,14 +1135,14 @@ export function decideTaskPlanBeforeCreate(task: Task): TaskPlanDecisionResult {
   };
 }
 
-export function summarizeTaskPlanIssues(task: Task, issues: TaskPlanIssue[]): string {
+function summarizeTaskPlanIssues(task: Task, issues: TaskPlanIssue[]): string {
   const issueSummary = issues
     .map((issue) => `${issue.message} fix: ${issue.remediation}`)
     .join(" ");
   return `Task @${task.name} "${task.title}" needs a concrete, context-specific plan before creation or update. ${issueSummary}`;
 }
 
-export function taskPlanIssue(kind: TaskPlanIssueKind, message?: string): TaskPlanIssue {
+function taskPlanIssue(kind: TaskPlanIssueKind, message?: string): TaskPlanIssue {
   const rule = TASK_PLAN_READINESS_RULE_BY_KIND.get(kind);
   if (!rule) throw new Error(`unknown task plan readiness rule: ${kind}`);
   return {
@@ -1182,7 +1182,7 @@ export function taskCompletionReadiness(
   return { ready: issues.every((issue) => issue.severity !== "blocking"), issues };
 }
 
-export function cloneTaskPlan(plan: TaskPlan): TaskPlan {
+function cloneTaskPlan(plan: TaskPlan): TaskPlan {
   return {
     ...plan,
     contextRefs: [...plan.contextRefs],
@@ -1240,7 +1240,7 @@ export function attributionFromTask(task: Pick<Task, "claim">): TaskAttribution 
   return normalizeTaskAttribution({ sessionId, roleRef, runName });
 }
 
-export function normalizeTaskAttribution(
+function normalizeTaskAttribution(
   attribution: TaskAttribution | undefined,
 ): TaskAttribution | undefined {
   rejectLegacyRoleFields(attribution, "task attribution");
@@ -1255,7 +1255,7 @@ export function normalizeTaskAttribution(
   };
 }
 
-export function normalizeTaskClaim(claim: TaskClaim | undefined): TaskClaim | undefined {
+function normalizeTaskClaim(claim: TaskClaim | undefined): TaskClaim | undefined {
   if (!claim?.expiresAt?.trim()) return undefined;
   rejectLegacyRoleFields(claim, "task claim");
   const kind = (claim as { kind?: unknown }).kind;
@@ -1272,7 +1272,7 @@ export function normalizeTaskClaim(claim: TaskClaim | undefined): TaskClaim | un
   };
 }
 
-export interface TodoReducerItem {
+interface TodoReducerItem {
   id?: string;
   content: string;
   status: TaskTodoStatus;
@@ -1282,7 +1282,7 @@ export interface TodoReducerItem {
   deletedAt?: string;
 }
 
-export interface TodoReducerOptions<T extends TodoReducerItem> {
+interface TodoReducerOptions<T extends TodoReducerItem> {
   createItem: (content: string, index: number, now: string) => T;
   createNotFoundError: (id: string | undefined, content: string | undefined) => Error;
   isLiveForProgress: (todo: T) => boolean;
@@ -1307,7 +1307,7 @@ export function applyTaskTodoOps(
   });
 }
 
-export function applyTodoListOps<T extends TodoReducerItem>(
+function applyTodoListOps<T extends TodoReducerItem>(
   todos: T[],
   ops: TaskTodoOp[],
   options: TodoReducerOptions<T>,
@@ -1317,7 +1317,7 @@ export function applyTodoListOps<T extends TodoReducerItem>(
   return normalizeTodoList(next, options.isLiveForProgress);
 }
 
-export function applyTodoListOp<T extends TodoReducerItem>(
+function applyTodoListOp<T extends TodoReducerItem>(
   todos: T[],
   op: TaskTodoOp,
   options: TodoReducerOptions<T>,
@@ -1402,7 +1402,7 @@ export function applyTodoListOp<T extends TodoReducerItem>(
   }
 }
 
-export function materializeTodoListItems<T extends TodoReducerItem>(
+function materializeTodoListItems<T extends TodoReducerItem>(
   items: string[] | undefined,
   options: Pick<TodoReducerOptions<T>, "createItem">,
   now: string,
@@ -1425,7 +1425,7 @@ export function materializeTodoListItems<T extends TodoReducerItem>(
   return next;
 }
 
-export function upsertTodoListDone<T extends TodoReducerItem>(
+function upsertTodoListDone<T extends TodoReducerItem>(
   todos: T[],
   op: Pick<TaskTodoOp, "id" | "item">,
   options: TodoReducerOptions<T>,
@@ -1465,7 +1465,7 @@ function appendTodoNote(notes: string[] | undefined, note: string): string[] {
   return notes ? [...notes, note] : [note];
 }
 
-export function patchTodoListStatus<T extends TodoReducerItem>(
+function patchTodoListStatus<T extends TodoReducerItem>(
   todos: T[],
   op: Pick<TaskTodoOp, "id" | "item" | "blockedBy">,
   options: TodoReducerOptions<T>,
@@ -1487,7 +1487,7 @@ export function patchTodoListStatus<T extends TodoReducerItem>(
   });
 }
 
-export function resolveTodoListItem<T extends TodoReducerItem>(
+function resolveTodoListItem<T extends TodoReducerItem>(
   todos: T[],
   op: Pick<TaskTodoOp, "id" | "item">,
   options: Pick<TodoReducerOptions<T>, "createNotFoundError">,
@@ -1505,7 +1505,7 @@ export function resolveTodoListItem<T extends TodoReducerItem>(
   return target;
 }
 
-export function normalizeTodoList<T extends TodoReducerItem>(
+function normalizeTodoList<T extends TodoReducerItem>(
   todos: T[],
   isLiveForProgress: (todo: T) => boolean,
 ): T[] {
@@ -1527,7 +1527,7 @@ export function normalizeTodoList<T extends TodoReducerItem>(
   return next;
 }
 
-export function cloneTodoList<T extends TodoReducerItem>(todos: T[]): T[] {
+function cloneTodoList<T extends TodoReducerItem>(todos: T[]): T[] {
   return todos.map((todo) => ({
     ...todo,
     notes: todo.notes ? [...todo.notes] : undefined,
@@ -1535,16 +1535,12 @@ export function cloneTodoList<T extends TodoReducerItem>(todos: T[]): T[] {
   }));
 }
 
-export function sameTodoItem(left: TodoReducerItem, right: TodoReducerItem): boolean {
+function sameTodoItem(left: TodoReducerItem, right: TodoReducerItem): boolean {
   if (left.id || right.id) return left.id === right.id;
   return left.content === right.content;
 }
 
-export function materializeIndependentTodo(
-  content: string,
-  index: number,
-  now: string,
-): SessionTodoEntry {
+function materializeIndependentTodo(content: string, index: number, now: string): SessionTodoEntry {
   const trimmed = content.trim();
   if (!trimmed) throw new Error("todo content is required");
   return {
@@ -1733,7 +1729,7 @@ export function summarizeTodos(todos: TaskTodo[]): TaskTodoSummary {
   };
 }
 
-export function todoIdFromContent(content: string, index: number): string {
+function todoIdFromContent(content: string, index: number): string {
   return `todo-${stableHash(`${index}:${content}`).slice(0, 12)}`;
 }
 

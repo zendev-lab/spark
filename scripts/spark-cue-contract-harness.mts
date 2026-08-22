@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { CueClient } from "../packages/spark-cue/src/cue-client.ts";
+import { CueClient } from "../packages/spark-cue/src/client/cue-client.ts";
 import { createCueToolRuntime } from "../packages/spark-cue/src/operations/index.ts";
 
 const execFileAsync = promisify(execFile);

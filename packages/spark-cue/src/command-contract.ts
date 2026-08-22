@@ -45,7 +45,7 @@ export interface CueCommandInspection {
   message: string;
 }
 
-export interface CueCommandRunOptions {
+interface CueCommandRunOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }

@@ -3,7 +3,7 @@ import type { AssistantMessage, ProviderRegistrationAPI } from "@zendev-lab/spar
 export const CAPACITY_PROVIDER_ID = "capacity-fake";
 export const CAPACITY_MODEL_ID = "capacity-model";
 export const CAPACITY_MODEL_REF = `${CAPACITY_PROVIDER_ID}/${CAPACITY_MODEL_ID}`;
-export const CAPACITY_REQUEST_PREFIX = "capacity-request:";
+const CAPACITY_REQUEST_PREFIX = "capacity-request:";
 export const CAPACITY_STREAM_CHUNK_COUNT = 50;
 export const CAPACITY_STREAM_TICK_MS = 12;
 
@@ -19,7 +19,7 @@ interface TickBarrier {
   timer?: ReturnType<typeof setTimeout>;
 }
 
-export interface CapacityProviderSnapshot {
+interface CapacityProviderSnapshot {
   expectedRequests: number;
   calls: number;
   entered: number;

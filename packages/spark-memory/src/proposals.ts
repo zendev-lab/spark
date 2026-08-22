@@ -11,12 +11,9 @@ import type { MemoryMutationAuthorization } from "./approval.ts";
 import { memoryContentDigest, type MemoryLifecycleScope, type MemoryRisk } from "./lifecycle.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";
 
-export const MEMORY_LINEAGE_PROPOSAL_SCHEMA = "spark.memory.lineage-proposal/v1" as const;
+const MEMORY_LINEAGE_PROPOSAL_SCHEMA = "spark.memory.lineage-proposal/v1" as const;
 
-export type MemoryLineageProposalOperation =
-  | "propose_update"
-  | "propose_merge"
-  | "propose_supersede";
+type MemoryLineageProposalOperation = "propose_update" | "propose_merge" | "propose_supersede";
 export type MemoryLineageProposalStatus =
   | "pending"
   | "approved"
@@ -26,7 +23,7 @@ export type MemoryLineageProposalStatus =
   | "expired"
   | "conflict"
   | "committed";
-export type MemoryLineageTargetKind = "entry" | "learning";
+type MemoryLineageTargetKind = "entry" | "learning";
 
 export interface FrozenMemoryRevisionSource {
   recordRef: string;
@@ -35,7 +32,7 @@ export interface FrozenMemoryRevisionSource {
   scope: MemoryLifecycleScope;
 }
 
-export interface MemoryLineageProposalTarget {
+interface MemoryLineageProposalTarget {
   kind: MemoryLineageTargetKind;
   recordRef: string;
   scope: MemoryLifecycleScope;
@@ -44,7 +41,7 @@ export interface MemoryLineageProposalTarget {
   evidenceRefs: string[];
 }
 
-export interface MemoryLineageProposalDiff {
+interface MemoryLineageProposalDiff {
   before: Array<{ recordRef: string; revisionRef: string; contentDigest: string }>;
   after: { recordRef: string; contentDigest: string };
 }
@@ -93,7 +90,7 @@ interface MemoryLineageProposalSnapshot {
   proposals: MemoryLineageProposal[];
 }
 
-export class MemoryLineageProposalFormatError extends Error {
+class MemoryLineageProposalFormatError extends Error {
   readonly filePath: string;
 
   constructor(filePath: string, message: string) {
@@ -240,7 +237,7 @@ export function defaultMemoryLineageProposalStore(
   );
 }
 
-export function createMemoryLineageProposal(
+function createMemoryLineageProposal(
   input: CreateMemoryLineageProposalInput,
 ): MemoryLineageProposal {
   const operation = normalizeOperation(input.operation);
@@ -444,9 +441,7 @@ export function memoryLineageProposalApprovalPayload(
   };
 }
 
-export function validateMemoryLineageProposal(
-  value: unknown,
-): asserts value is MemoryLineageProposal {
+function validateMemoryLineageProposal(value: unknown): asserts value is MemoryLineageProposal {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("memory lineage proposal must be an object");
   }
