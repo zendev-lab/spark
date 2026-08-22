@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { goto } from "$app/navigation";
+  import { parseSparkModelValue } from "@zendev-lab/spark-protocol";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import { Artifact } from "@zendev-lab/spark-ui/workbench";
   import {
@@ -15,6 +16,7 @@
   let creating = $state(false);
   let showCreate = $state(false);
   let createError = $state("");
+  let createdSessionId = $state<string | null>(null);
   let sessionName = $state("");
   let roleRef = $state("role:builtin-executor");
   let modelValue = $state("");
@@ -26,7 +28,9 @@
   let directoryError = $state("");
   let directoryDialog = $state<HTMLDialogElement>();
   let directoryReturnFocus: HTMLElement | null = null;
+  let directoryRequestToken = 0;
   let directoryView = $state<{
+    cwdArtifactRef?: string;
     current: { relativePath: string };
     entries: Array<{
       ref: string;
@@ -53,71 +57,174 @@
   let artifactContent = $state<{ ref: string; title: string; format: string; content: string } | null>(null);
   let artifactError = $state("");
   let artifactLoading = $state(false);
+  let sessionCreateToken = 0;
+  let roleCreateToken = 0;
+  let roleModelRequestToken = 0;
+  let artifactRequestToken = 0;
   const sessions = $derived(
     ordinarySessionsForWorkspace(data.sessions as SparkWebSession[], data.workspace.id),
   );
 
+  $effect(() => {
+    data.workspace.id;
+    sessionCreateToken += 1;
+    roleCreateToken += 1;
+    roleModelRequestToken += 1;
+    artifactRequestToken += 1;
+    directoryRequestToken += 1;
+    creating = false;
+    showCreate = false;
+    createError = "";
+    createdSessionId = null;
+    sessionName = "";
+    roleRef = "role:builtin-executor";
+    modelValue = "";
+    thinkingLevel = "high";
+    cwdArtifactRef = "";
+    cwdRelativePath = "";
+    directoryOpen = false;
+    directoryLoading = false;
+    directoryError = "";
+    directoryView = null;
+    roleId = "";
+    roleDescription = "";
+    rolePrompt = "";
+    roleModelType = "custom";
+    selectedRoleSkills = [];
+    roleCreating = false;
+    roleStatus = "";
+    roleModelEntriesOverride = null;
+    roleModelSource = {};
+    roleModelSelection = {};
+    roleModelBusy = "";
+    roleModelStatus = "";
+    artifactContent = null;
+    artifactError = "";
+    artifactLoading = false;
+  });
+
   async function createSession() {
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++sessionCreateToken;
+    const ownsPage = () =>
+      requestToken === sessionCreateToken && data.workspace.id === ownerWorkspaceId;
     const supervisorSessionId = workspaceAdministratorSessionId(
       data.sessions as SparkWebSession[],
-      data.workspace.id,
+      ownerWorkspaceId,
     );
     if (!supervisorSessionId) {
       createError = copy.missingAdministrator;
       return;
     }
+    let requestedModel: ReturnType<typeof parseSparkModelValue> | undefined;
+    try {
+      requestedModel = modelValue ? parseSparkModelValue(modelValue) : undefined;
+    } catch {
+      if (ownsPage()) createError = "Select a valid provider/model before creating the Session.";
+      return;
+    }
+    const requestedName = sessionName.trim();
+    const requestedRoleRef = roleRef;
+    const requestedCwdArtifactRef = cwdArtifactRef;
+    const requestedCwdRelativePath = cwdRelativePath;
+    const requestedThinkingLevel = thinkingLevel;
     creating = true;
     createError = "";
+    createdSessionId = null;
+    let created: { sessionId: string };
     try {
-      const created = await webRpc("session.create", {
-        scope: { kind: "workspace", workspaceId: data.workspace.id },
+      created = await webRpc("session.create", {
+        scope: { kind: "workspace", workspaceId: ownerWorkspaceId },
         supervisorSessionId,
         placement: "child",
-        roleBinding: { kind: "explicit", roleRef },
-        ...(sessionName.trim() ? { name: sessionName.trim() } : {}),
-        ...(cwdRelativePath ? { cwd: cwdRelativePath } : {}),
-        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+        roleBinding: { kind: "explicit", roleRef: requestedRoleRef },
+        ...(requestedName ? { name: requestedName } : {}),
+        ...(requestedCwdRelativePath ? { cwd: requestedCwdRelativePath } : {}),
+        ...(requestedCwdArtifactRef ? { cwdArtifactRef: requestedCwdArtifactRef } : {}),
       });
-      if (modelValue.includes("/")) {
-        const separator = modelValue.indexOf("/");
+    } catch (caught) {
+      if (ownsPage()) {
+        createError = caught instanceof Error ? caught.message : String(caught);
+        creating = false;
+      }
+      return;
+    }
+
+    if (ownsPage()) createdSessionId = created.sessionId;
+    try {
+      if (requestedModel) {
         await webRpc("session.model.set", {
           sessionId: created.sessionId,
-          model: {
-            providerName: modelValue.slice(0, separator),
-            modelId: modelValue.slice(separator + 1),
-          },
+          model: requestedModel,
         });
       }
-      await webRpc("session.thinking.set", { sessionId: created.sessionId, thinkingLevel });
+      await webRpc("session.thinking.set", {
+        sessionId: created.sessionId,
+        thinkingLevel: requestedThinkingLevel,
+      });
+    } catch (caught) {
+      if (ownsPage()) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        createError = `Session ${created.sessionId} was created, but its model or thinking configuration failed: ${message}`;
+        creating = false;
+      }
+      return;
+    }
+
+    if (!ownsPage()) return;
+    try {
       await goto(`/sessions/${created.sessionId}`);
     } catch (caught) {
-      createError = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      creating = false;
+      if (ownsPage()) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        createError = `Session ${created.sessionId} is ready, but navigation failed: ${message}`;
+        creating = false;
+      }
     }
   }
 
   async function browseDirectory(relativePath = "") {
     if (directoryLoading) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const ownerArtifactRef = cwdArtifactRef;
+    const requestToken = ++directoryRequestToken;
     directoryLoading = true;
     directoryError = "";
     if (!directoryOpen && globalThis.document?.activeElement instanceof HTMLElement) {
       directoryReturnFocus = globalThis.document.activeElement;
     }
     try {
-      directoryView = await webRpc("workspace.directory.list", {
-        workspaceId: data.workspace.id,
-        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+      const view = await webRpc("workspace.directory.list", {
+        workspaceId: ownerWorkspaceId,
+        ...(ownerArtifactRef ? { cwdArtifactRef: ownerArtifactRef } : {}),
         relativePath,
         limit: 300,
       });
+      if (
+        requestToken !== directoryRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
+      directoryView = view;
       directoryOpen = true;
       await tick();
       directoryDialog?.focus();
     } catch (caught) {
+      if (
+        requestToken !== directoryRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       directoryError = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      directoryLoading = false;
+      if (
+        requestToken === directoryRequestToken &&
+        data.workspace.id === ownerWorkspaceId
+      ) {
+        directoryLoading = false;
+      }
     }
   }
 
@@ -135,11 +242,13 @@
 
   async function createRole() {
     if (!roleId.trim() || !roleDescription.trim() || !rolePrompt.trim() || roleCreating) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleCreateToken;
     roleCreating = true;
     roleStatus = "";
     try {
       const result = await webRpc("role.create", {
-        workspaceId: data.workspace.id,
+        workspaceId: ownerWorkspaceId,
         id: roleId.trim(),
         description: roleDescription.trim(),
         systemPrompt: rolePrompt.trim(),
@@ -147,34 +256,56 @@
         ...(selectedRoleSkills.length > 0 ? { skills: selectedRoleSkills } : {}),
         modelType: roleModelType.trim() || "custom",
       });
+      if (requestToken !== roleCreateToken || data.workspace.id !== ownerWorkspaceId) return;
       roleStatus = result.created
         ? `Created ${result.role.ref}. Reload this page to select it.`
         : `Role name already exists as ${result.role.ref}; no file was changed.`;
     } catch (caught) {
+      if (requestToken !== roleCreateToken || data.workspace.id !== ownerWorkspaceId) return;
       roleStatus = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      roleCreating = false;
+      if (requestToken === roleCreateToken && data.workspace.id === ownerWorkspaceId) {
+        roleCreating = false;
+      }
     }
   }
 
   async function openArtifact(artifactRef: string) {
+    const ownerWorkspaceId = data.workspace.id;
     const artifact = data.artifactCatalog.artifacts.find((entry) => entry.ref === artifactRef);
     if (!artifact || artifactLoading) return;
+    const requestToken = ++artifactRequestToken;
     artifactLoading = true;
     artifactError = "";
+    artifactContent = null;
     try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(data.workspace.id)}/artifacts/${encodeURIComponent(artifactRef)}`);
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(ownerWorkspaceId)}/artifacts/${encodeURIComponent(artifactRef)}`);
       if (!response.ok) throw new Error(`Artifact preview failed: ${response.status}`);
+      const content = await response.text();
+      if (
+        requestToken !== artifactRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       artifactContent = {
         ref: artifact.ref,
         title: artifact.title,
         format: artifact.format,
-        content: await response.text(),
+        content,
       };
     } catch (caught) {
+      if (
+        requestToken !== artifactRequestToken ||
+        data.workspace.id !== ownerWorkspaceId
+      ) {
+        return;
+      }
       artifactError = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      artifactLoading = false;
+      if (requestToken === artifactRequestToken && data.workspace.id === ownerWorkspaceId) {
+        artifactLoading = false;
+      }
     }
   }
 
@@ -184,38 +315,49 @@
     );
   }
 
+  function ownsRoleModelRequest(ownerWorkspaceId: string, requestToken: number) {
+    return data.workspace.id === ownerWorkspaceId && roleModelRequestToken === requestToken;
+  }
+
   async function inspectRoleModel(roleRef: string) {
     if (roleModelBusy) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleModelRequestToken;
     roleModelBusy = roleRef;
     roleModelStatus = "";
     try {
       const result = await webRpc("role.model.get", {
-        workspaceId: data.workspace.id,
+        workspaceId: ownerWorkspaceId,
         roleRef,
       });
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
       roleModelStatus = result.setting
         ? `${result.role?.id ?? roleRef}: ${result.setting.model} · ${result.setting.source}`
         : `${result.role?.id ?? roleRef}: ${copy.noModelSetting}`;
     } catch (caught) {
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
       roleModelStatus = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      roleModelBusy = "";
+      if (ownsRoleModelRequest(ownerWorkspaceId, requestToken)) roleModelBusy = "";
     }
   }
 
   async function saveRoleModel(roleRef: string) {
     const model = roleModelSelection[roleRef];
     if (!model || roleModelBusy) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleModelRequestToken;
     const source = roleModelSource[roleRef] ?? "project";
     roleModelBusy = roleRef;
     roleModelStatus = "";
     try {
       const result = await webRpc("role.model.set", {
-        workspaceId: data.workspace.id,
+        workspaceId: ownerWorkspaceId,
         roleRef,
         model,
         source,
       });
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
       roleModelEntriesOverride = [
         ...roleModelEntries.filter(
           (entry) =>
@@ -225,23 +367,27 @@
       ];
       roleModelStatus = `${result.role.id}: ${result.setting.model} · ${result.setting.source}`;
     } catch (caught) {
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
       roleModelStatus = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      roleModelBusy = "";
+      if (ownsRoleModelRequest(ownerWorkspaceId, requestToken)) roleModelBusy = "";
     }
   }
 
   async function deleteRoleModel(roleRef: string) {
     if (roleModelBusy) return;
+    const ownerWorkspaceId = data.workspace.id;
+    const requestToken = ++roleModelRequestToken;
     const source = roleModelSource[roleRef] ?? "project";
     roleModelBusy = roleRef;
     roleModelStatus = "";
     try {
       const result = await webRpc("role.model.delete", {
-        workspaceId: data.workspace.id,
+        workspaceId: ownerWorkspaceId,
         roleRef,
         source,
       });
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
       if (result.deleted) {
         roleModelEntriesOverride = roleModelEntries.filter(
           (entry) => entry.modelType !== result.role.modelType || entry.source !== source,
@@ -249,9 +395,10 @@
       }
       roleModelStatus = `${result.role.id}: ${result.deleted ? copy.deleteModel : copy.noModelSetting}`;
     } catch (caught) {
+      if (!ownsRoleModelRequest(ownerWorkspaceId, requestToken)) return;
       roleModelStatus = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      roleModelBusy = "";
+      if (ownsRoleModelRequest(ownerWorkspaceId, requestToken)) roleModelBusy = "";
     }
   }
 </script>
@@ -279,19 +426,19 @@
       <label>{copy.mode}<select disabled title={copy.modeBlocked}><option>{copy.execute}</option></select></label>
       <label>{copy.model}<select bind:value={modelValue}><option value="">{copy.inheritDefault}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
       <label>{copy.thinking}<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
-      <label>{copy.workingDirectory}<select bind:value={cwdArtifactRef} onchange={() => (cwdRelativePath = "")}><option value="">{copy.workspaceDefault}</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · {copy.owningWorktree}</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</button>{#if cwdRelativePath}<small>{copy.selected}: {cwdRelativePath}</small>{/if}</label>
-      <button type="submit" disabled={creating}>{creating ? copy.creating : copy.createSession}</button>
+      <label>{copy.workingDirectory}<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">{copy.workspaceDefault}</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · {copy.owningWorktree}</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</button>{#if cwdRelativePath}<small>{copy.selected}: {cwdRelativePath}</small>{/if}</label>
+      <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? copy.creating : copy.createSession}</button>
       <p class="hint">{copy.directoryHint}</p>
     </form>
   {/if}
+  {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
   {#if directoryOpen && directoryView}
     <dialog bind:this={directoryDialog} open class="directory-picker" aria-label={copy.chooseDirectory} tabindex="-1" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closeDirectory(); } }}>
       <header><div><h2>{copy.chooseDirectory}</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => void closeDirectory()}>{copy.close}</button></header>
       <div class="directory-actions">
         <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>{copy.up}</button>
-        <button type="button" onclick={() => { cwdRelativePath = directoryView!.current.relativePath; void closeDirectory(); }}>{copy.useDirectory}</button>
+        <button type="button" onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; void closeDirectory(); }}>{copy.useDirectory}</button>
       </div>
-      {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
       <ul>
         {#each directoryView.entries as entry (entry.ref)}
           <li><button type="button" class="directory-entry" disabled={!entry.selectable} title={entry.blockedReason} onclick={() => void browseDirectory(entry.relativePath)}><span>{entry.kind === "symlink" ? "↪" : entry.kind === "directory" ? "▸" : "·"}</span><strong>{entry.name}</strong>{#if entry.blockedReason}<small>{entry.blockedReason}</small>{/if}</button></li>
@@ -301,6 +448,9 @@
   {/if}
   {#if createError}
     <p class="error">{createError}</p>
+  {/if}
+  {#if createdSessionId}
+    <p><a href={`/sessions/${createdSessionId}`}>Open created Session</a></p>
   {/if}
   {#if sessions.length === 0}
     <p>{copy.noSessions}</p>

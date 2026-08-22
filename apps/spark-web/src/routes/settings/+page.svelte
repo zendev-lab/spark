@@ -21,9 +21,6 @@
   let piOverwrite = $state(false);
   let busy = $state("");
   let status = $state<{ tone: "status" | "error"; message: string } | null>(null);
-  let logTail = $state<
-    Array<{ name: "service_stdout" | "service_stderr" | "daemon_events"; lines: string[] }>
-  >([]);
   let notificationPermission = $state<NotificationPermission | "unsupported">("unsupported");
 
   onMount(() => {
@@ -127,14 +124,6 @@
     });
   }
 
-  async function loadDaemonLogs() {
-    await run("Daemon logs", async () => {
-      const result = await webRpc("daemon.logs", { lines: 100 });
-      logTail = result.sources;
-      return `Loaded ${result.sources.reduce((total, source) => total + source.lines.length, 0)} redacted log lines${result.truncated ? " (bounded tail)" : ""}.`;
-    });
-  }
-
   async function enableNotifications() {
     if (!("Notification" in globalThis)) return;
     notificationPermission = await Notification.requestPermission();
@@ -207,8 +196,7 @@
   <section class="settings-card" aria-labelledby="daemon-heading">
     <h2 id="daemon-heading">{copy.daemon}</h2>
     <dl><div><dt>{copy.lifecycle}</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>{copy.build}</dt><dd>{daemon.buildFingerprint ?? copy.unavailable}</dd></div><div><dt>{copy.invocations}</dt><dd>{daemon.invocations.running} {copy.running} · {daemon.invocations.queued} {copy.queued} · {daemon.invocations.failed} {copy.failed}</dd></div><div><dt>{copy.observed}</dt><dd>{daemon.observedAt}</dd></div></dl>
-    <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>{copy.refresh}</button><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void loadDaemonLogs()}>{copy.loadLogs}</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>{copy.restart}</button></div>
-    {#if logTail.length > 0}<section class="log-tail" aria-label={copy.logRegion}>{#each logTail as source (source.name)}<details open={source.lines.length > 0}><summary>{source.name} · {source.lines.length}</summary><pre>{source.lines.join("\n")}</pre></details>{/each}</section>{/if}
+    <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>{copy.refresh}</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>{copy.restart}</button></div>
   </section>
 
   <section class="settings-card" aria-labelledby="notification-heading">
@@ -249,8 +237,5 @@
   dl div { display: grid; gap: 8px; grid-template-columns: 110px minmax(0, 1fr); }
   dt { color: var(--color-ink-muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
-  .log-tail { display: grid; gap: 8px; }
-  .log-tail summary { cursor: pointer; }
-  .log-tail pre { background: var(--color-canvas); border: 1px solid var(--color-border); border-radius: 8px; font-family: var(--font-mono); margin: 6px 0 0; max-height: 320px; overflow: auto; padding: 10px; white-space: pre-wrap; }
   @media (max-width: 640px) { .page { padding: 14px; } .provider-grid, .model-grid { grid-template-columns: 1fr; } }
 </style>

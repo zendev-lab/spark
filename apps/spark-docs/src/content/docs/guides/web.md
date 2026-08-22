@@ -90,6 +90,26 @@ spark daemon model --help
 spark daemon model status --json
 ```
 
+## Search, export, and local sharing
+
+Use Search or `Cmd/Ctrl+K` to search the Workspaces, Sessions, messages, and
+Artifacts visible to this daemon. A Session page can also search its complete
+transcript and reveal an older matching message. Search results come from the
+daemon owner; a transcript read failure is reported instead of being hidden as
+an apparently complete result.
+
+Session pages can download revision-pinned `JSON`, `JSONL`, text, or HTML.
+Spark keeps export pages on one bounded, temporary daemon snapshot so a live
+turn cannot mix two transcript revisions in one file. If that cursor expires,
+restart the export.
+
+Create Local Share produces a random read-only URL whose HTML remains only in
+the current Spark Web process. The URL is a bearer secret: anyone who receives
+it can read that snapshot without the workbench token. A share is limited to
+16 MiB, one process retains at most 20 shares, and restarting Spark Web clears
+them all. Session, Artifact, and credential data are never stored in the PWA
+offline cache; only immutable app assets are cached.
+
 ## Session attach
 
 Sessions are workspace-bound. Start `spark web` against the same daemon and

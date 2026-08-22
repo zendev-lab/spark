@@ -80,6 +80,21 @@ spark daemon model --help
 spark daemon model status --json
 ```
 
+## 搜索、导出与本地分享
+
+使用 Search 或 `Cmd/Ctrl+K` 搜索这台 daemon 可见的 Workspace、Session、消息与
+Artifact。Session 页面也可以搜索完整 transcript，并定位较早的匹配消息。搜索
+结果来自 daemon owner；读取 transcript 失败时会明确报错，不会伪装成“完整的空结果”。
+
+Session 页面可下载固定 revision 的 `JSON`、`JSONL`、文本或 HTML。Spark 会让
+导出的各页复用同一个有界、临时 daemon 快照，避免进行中的 turn 把两个 transcript
+revision 混入同一个文件。游标过期时请重新开始导出。
+
+Create Local Share 会生成随机的只读 URL，HTML 只保留在当前 Spark Web 进程内。
+该 URL 是 bearer secret：拿到 URL 的人无需工作台 token 即可读取该快照。单个分享
+最多 16 MiB，每个进程最多保留 20 个分享；重启 Spark Web 会全部清除。PWA 离线
+缓存只保存不可变应用资源，不保存 Session、Artifact 或 credential 数据。
+
 ## 会话 attach
 
 会话与 canonical workspace 绑定。请连接同一 daemon，启动 `spark web`，再从

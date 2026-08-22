@@ -27,7 +27,6 @@ export const sparkProtocolJsonObjectSchema = z.record(z.string(), sparkProtocolJ
  */
 export const sparkCommandKindOptions = [
   "daemon.status.request",
-  "daemon.logs.request",
   "daemon.stop.request",
   "daemon.restart.request",
   "turn.submit.request",
@@ -300,7 +299,6 @@ export type SparkEvent = z.infer<typeof sparkEventSchema>;
 
 export const localRpcMethodToSparkCommandKind = {
   "daemon.status": "daemon.status.request",
-  "daemon.logs": "daemon.logs.request",
   "daemon.stop": "daemon.stop.request",
   "daemon.restart": "daemon.restart.request",
   "turn.status": "turn.status.request",
@@ -398,14 +396,12 @@ export const localRpcMethodToSparkCommandKind = {
   "artifact.list": "artifact.content.request",
   "artifact.read": "artifact.content.request",
   "role.list": "role.catalog.request",
-  "role.get": "role.catalog.request",
   "role.create": "role.create.request",
   "role.model.list": "role.model.request",
   "role.model.get": "role.model.request",
   "role.model.set": "role.model.request",
   "role.model.delete": "role.model.request",
   "skill.list": "skill.catalog.request",
-  "skill.get": "skill.catalog.request",
   "git.execute": "git.execute.request",
   "lens.execute": "lens.execute.request",
 } as const satisfies Record<string, SparkCommandKind>;

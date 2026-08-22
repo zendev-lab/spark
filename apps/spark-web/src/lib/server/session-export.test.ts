@@ -4,7 +4,7 @@ import type { SparkWebDaemonInvoker } from "./rpc.ts";
 import { collectSparkWebSessionHtml, createSparkWebSessionExport } from "./session-export.ts";
 
 describe("Spark Web session export streaming", () => {
-  it("streams revision-pinned pages without retaining daemon state", async () => {
+  it("streams revision-pinned pages", async () => {
     const invoke = vi
       .fn()
       .mockResolvedValueOnce(page({ chunk: "first\n", nextOffset: 1, complete: false }))

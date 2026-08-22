@@ -1,8 +1,8 @@
 import {
-  buildSparkSessionTree,
-  type SparkSessionTreeNodeLike,
-  type SparkSessionTreeRow,
-} from "@zendev-lab/spark-protocol";
+  buildSessionTreeRows,
+  type SessionTreeNodeLike,
+  type SessionTreeRow,
+} from "@zendev-lab/spark-ui/workbench";
 
 export type WorkbenchSessionScope =
   | { kind: "workspace"; workspaceId: string }
@@ -16,10 +16,9 @@ export interface WorkbenchSessionScopeLike {
     | null;
 }
 
-export interface WorkbenchSessionRailLike
-  extends WorkbenchSessionScopeLike, SparkSessionTreeNodeLike {}
+export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike, SessionTreeNodeLike {}
 
-export type WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> = SparkSessionTreeRow<T>;
+export type WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> = SessionTreeRow<T>;
 
 /**
  * Read the canonical daemon-owned scope. Legacy unscoped records are rejected.
@@ -80,12 +79,38 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   sessions: readonly T[],
   options: { includeArchived?: boolean } = {},
 ): WorkbenchSessionRailRow<T>[] {
-  return buildSparkSessionTree(sessions, {
-    ...options,
-    isImplicitRootParent: isImplicitWorkspaceAdministrator,
+  const visibleIds = new Set(
+    sessions
+      .filter((session) => options.includeArchived || session.placement !== "archived")
+      .map((session) => session.sessionId),
+  );
+  const projected = sessions.map((session) => {
+    const parentSessionId =
+      session.lineage?.kind === "child" ? session.lineage.parentSessionId?.trim() : undefined;
+    if (
+      !parentSessionId ||
+      visibleIds.has(parentSessionId) ||
+      !isImplicitWorkspaceAdministrator(parentSessionId)
+    ) {
+      return session;
+    }
+    return { ...session, lineage: { kind: "root" as const } };
+  });
+  const originals = new Map(sessions.map((session) => [session.sessionId, session]));
+  return buildSessionTreeRows(projected, options).map((row) => {
+    const session = originals.get(row.session.sessionId) ?? row.session;
+    return {
+      ...row,
+      session,
+      ...(session.lineage?.kind === "child"
+        ? { parentSessionId: session.lineage.parentSessionId }
+        : {}),
+    };
   });
 }
 
+// Delete this Hub-only adapter once every listed child is accompanied by its
+// legacy workspace-administrator parent record.
 function isImplicitWorkspaceAdministrator(sessionId: string): boolean {
   return /(?:^|[_:-])admin(?:istrator)?(?:[_:-]|$)/iu.test(sessionId);
 }

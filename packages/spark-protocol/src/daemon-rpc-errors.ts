@@ -44,7 +44,6 @@ export const sparkInvocationRpcErrorCodeOptions = [
 
 export const sparkModelRpcErrorCodeOptions = [
   "model_control_unavailable",
-  "role_not_found",
   "role_model_type_unconfigured",
   "model_not_found",
   "model_not_enabled",
@@ -57,6 +56,8 @@ export const sparkModelRpcErrorCodeOptions = [
   "provider_oauth_prompt_conflict",
   "provider_oauth_response_invalid",
 ] as const;
+
+export const sparkRoleRpcErrorCodeOptions = ["role_not_found"] as const;
 
 export const sparkUplinkRpcErrorCodeOptions = [
   "uplink_url_invalid",
@@ -127,6 +128,7 @@ export const sparkDaemonRpcDomainErrorCodeOptions = [
   ...sparkLoopRpcErrorCodeOptions,
   ...sparkInvocationRpcErrorCodeOptions,
   ...sparkModelRpcErrorCodeOptions,
+  ...sparkRoleRpcErrorCodeOptions,
   ...sparkUplinkRpcErrorCodeOptions,
   ...sparkWorkspaceRpcErrorCodeOptions,
   ...sparkTaskClaimRpcErrorCodeOptions,
@@ -142,6 +144,7 @@ export type SparkChannelRpcErrorCode = (typeof sparkChannelRpcErrorCodeOptions)[
 export type SparkLoopRpcErrorCode = (typeof sparkLoopRpcErrorCodeOptions)[number];
 export type SparkInvocationRpcErrorCode = (typeof sparkInvocationRpcErrorCodeOptions)[number];
 export type SparkModelRpcErrorCode = (typeof sparkModelRpcErrorCodeOptions)[number];
+export type SparkRoleRpcErrorCode = (typeof sparkRoleRpcErrorCodeOptions)[number];
 export type SparkUplinkRpcErrorCode = (typeof sparkUplinkRpcErrorCodeOptions)[number];
 export type SparkWorkspaceRpcErrorCode = (typeof sparkWorkspaceRpcErrorCodeOptions)[number];
 export type SparkTaskClaimRpcErrorCode = (typeof sparkTaskClaimRpcErrorCodeOptions)[number];
