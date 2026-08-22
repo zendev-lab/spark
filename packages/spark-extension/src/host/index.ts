@@ -201,7 +201,6 @@ export {
 export {
   SparkSkillResolver,
   defaultBuiltinSkillsDir,
-  defaultSparkCueSkillsDir,
   defaultProjectAgentsSkillsDirs,
   defaultSparkSkillsRoot,
   defaultUserAgentsSkillsDir,
