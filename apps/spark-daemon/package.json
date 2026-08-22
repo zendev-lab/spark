@@ -53,6 +53,7 @@
     "@deepseek-ai/dsh-tools": "catalog:dsh",
     "@optique/core": "catalog:",
     "@orpc/server": "catalog:",
+    "@zendev-lab/cue": "catalog:",
     "@zendev-lab/dsh-channels": "workspace:^",
     "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",

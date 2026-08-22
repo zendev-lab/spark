@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   behavior-ce:
-    name: behavior-ce
+    name: Behavior CE
     runs-on: ubuntu-latest
     timeout-minutes: 40
     continue-on-error: true
@@ -81,7 +81,7 @@ jobs:
           fi
 
   repro-live:
-    name: repro-live-model
+    name: Repro Live Model
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

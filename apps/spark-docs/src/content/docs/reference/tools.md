@@ -62,10 +62,10 @@ a failed replacement does not write Task graph state.
 
 ## Roles, Sessions, and Skill Agents
 
-The daemon's shared and isolated-headless DSH roots mount the verified product
-snapshot of the `cue` Skill through an isolated filesystem provider.
-DSH publishes it through the native Skill catalog and `skill` tool; the Cue
-repository owns the source and Spark verifies its vendored release snapshot.
+The daemon's shared and isolated-headless DSH roots mount the canonical `cue`
+Skill directly from the exact `@zendev-lab/cue` dependency through an isolated
+filesystem provider. DSH publishes it through the native Skill catalog and
+`skill` tool; the Cue repository and package remain its only source authority.
 
 - A Role defines a typed capability and responsibility overlay, including its
   semantic Model Type. It can declare up to eight ordered Skills; Spark resolves

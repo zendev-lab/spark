@@ -12,7 +12,6 @@
     "bin/**/*",
     "lib/**/*",
     "presets/**/*",
-    "skills/**/*",
     "src/**/*.ts",
     "src/**/*.tsx",
     "README.md"
@@ -31,6 +30,7 @@
     "verify:presets": "node scripts/verify-presets.mjs"
   },
   "dependencies": {
+    "@zendev-lab/cue": "catalog:",
     "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-files": "workspace:^",
