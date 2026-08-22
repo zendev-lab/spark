@@ -79,6 +79,8 @@ import {
   sparkSessionForkRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
+  sparkSessionMediaReadRequestSchema,
+  sparkSessionMediaReadResultSchema,
   sparkSessionPromptHistoryRequestSchema,
   sparkSessionRetryTargetRequestSchema,
   sparkSessionRetryTargetSchema,
@@ -128,7 +130,11 @@ import {
   sparkReproStatusResultSchema,
   sparkReproStopRequestSchema,
 } from "./repro.ts";
-import { sparkSessionPromptHistorySchema, sparkSessionViewSchema } from "./protocol.ts";
+import {
+  sparkSessionPromptHistorySchema,
+  sparkSessionSnapshotPageSchema,
+  sparkSessionViewSchema,
+} from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
   workspaceDelegationExecuteRequestSchema,
@@ -1598,6 +1604,14 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
   },
+  "session.snapshot-page": {
+    input: sparkSessionSnapshotRequestSchema,
+    output: z.lazy(() => sparkSessionSnapshotPageSchema),
+  },
+  "session.media.read": {
+    input: sparkSessionMediaReadRequestSchema,
+    output: sparkSessionMediaReadResultSchema,
+  },
   "session.prompt-history": {
     input: sparkSessionPromptHistoryRequestSchema,
     output: z.lazy(() => sparkSessionPromptHistorySchema),
@@ -1749,6 +1763,8 @@ export const sparkLocalRpcOrpcLiveMethods = Object.keys(
 
 /** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
 export const sparkLocalRpcOrpcOnlyMethods = [
+  "session.snapshot-page",
+  "session.media.read",
   "session.prompt-history",
   "session.retry-target",
 ] as const satisfies readonly SparkLocalRpcMethod[];
@@ -2069,6 +2085,20 @@ export const sparkLocalRpcOrpcContract = {
       p["session.snapshot"],
       sparkLocalRpcSessionSnapshotOrpcErrors,
     ),
+    snapshotPage: procedure(
+      "GET",
+      "/session/snapshot-page",
+      p["session.snapshot-page"],
+      sparkLocalRpcSessionSnapshotOrpcErrors,
+    ),
+    media: {
+      read: procedure(
+        "GET",
+        "/session/media/read",
+        p["session.media.read"],
+        sparkLocalRpcSessionSnapshotOrpcErrors,
+      ),
+    },
     promptHistory: procedure(
       "GET",
       "/session/prompt-history",

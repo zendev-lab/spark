@@ -95,7 +95,7 @@ function proposalFor(receipt: SparkMemoryDirectIntentReceipt): SparkMemoryPropos
 }
 
 describe("Spark memory feedback receipts", () => {
-  it.each(["tui", "hub", "channel"] as const)(
+  it.each(["tui", "hub", "channel", "web"] as const)(
     "binds exact current-turn positive feedback on %s",
     async (surface) => {
       const receipt = await issueFeedbackReceipt({
@@ -175,9 +175,9 @@ describe("Spark memory feedback receipts", () => {
 });
 
 describe("Spark memory direct-intent receipts", () => {
-  it("normalizes one remember vector across TUI, Hub, and channel surfaces", async () => {
+  it("normalizes one remember vector across TUI, Hub, channel, and Web surfaces", async () => {
     const receipts = await Promise.all(
-      (["tui", "hub", "channel"] as const).map(
+      (["tui", "hub", "channel", "web"] as const).map(
         async (surface) =>
           await issueReceipt({
             surface,
@@ -196,7 +196,7 @@ describe("Spark memory direct-intent receipts", () => {
     const concrete = receipts as SparkMemoryDirectIntentReceipt[];
     expect(
       await Promise.all(concrete.map(async (receipt) => await verifyReceipt(receipt))),
-    ).toEqual([true, true, true]);
+    ).toEqual([true, true, true, true]);
 
     const proofs = await Promise.all(
       concrete.map(
@@ -213,6 +213,7 @@ describe("Spark memory direct-intent receipts", () => {
     }));
     expect(normalized[1]).toEqual(normalized[0]);
     expect(normalized[2]).toEqual(normalized[0]);
+    expect(normalized[3]).toEqual(normalized[0]);
     expect(normalized[0]).toEqual({
       operation: "remember",
       proposalDigest: "b".repeat(64),

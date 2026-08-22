@@ -234,6 +234,14 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       snapshot: os.session.snapshot.handler(async ({ input: params }) =>
         invoke("session.snapshot", params),
       ),
+      snapshotPage: os.session.snapshotPage.handler(async ({ input: params }) =>
+        invoke("session.snapshot-page", params),
+      ),
+      media: {
+        read: os.session.media.read.handler(async ({ input: params }) =>
+          invoke("session.media.read", params),
+        ),
+      },
       promptHistory: os.session.promptHistory.handler(async ({ input: params }) =>
         invoke("session.prompt-history", params),
       ),

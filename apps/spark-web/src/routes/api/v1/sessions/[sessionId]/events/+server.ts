@@ -1,6 +1,6 @@
 import type { RequestHandler } from "./$types";
 
-import { collectSessionLiveEvents, formatSseFrame } from "$lib/server/sse";
+import { formatSseFrame, streamSessionLiveEvents } from "$lib/server/sse";
 
 export const GET: RequestHandler = async ({ params, url, request }) => {
   const sessionId = params.sessionId?.trim();
@@ -12,8 +12,6 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
     start(controller) {
       const encoder = new TextEncoder();
       let closed = false;
-      let lastCursor = cursor;
-      let timer: ReturnType<typeof setInterval> | undefined;
       const send = (chunk: string) => {
         if (closed) return;
         controller.enqueue(encoder.encode(chunk));
@@ -21,7 +19,6 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
       const close = () => {
         if (closed) return;
         closed = true;
-        if (timer !== undefined) clearInterval(timer);
         request.signal.removeEventListener("abort", close);
         try {
           controller.close();
@@ -30,21 +27,18 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
         }
       };
       const pump = async () => {
-        const events = await collectSessionLiveEvents({ sessionId, cursor: lastCursor });
-        for (const event of events) {
+        send(": connected\n\n");
+        for await (const event of streamSessionLiveEvents({
+          sessionId,
+          cursor,
+          signal: request.signal,
+        })) {
           send(formatSseFrame(event));
-          lastCursor = event.cursor;
         }
       };
       request.signal.addEventListener("abort", close);
       void pump()
-        .then(() => {
-          if (closed) return;
-          send(": connected\n\n");
-          timer = setInterval(() => {
-            void pump().catch(() => undefined);
-          }, 750);
-        })
+        .then(close)
         .catch((error: unknown) => {
           if (closed) return;
           controller.error(error);

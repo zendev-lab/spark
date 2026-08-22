@@ -342,6 +342,8 @@ export const localRpcMethodToSparkCommandKind = {
   "session.get": "session.get.request",
   "session.lookup": "session.lookup.request",
   "session.snapshot": "session.snapshot.request",
+  "session.snapshot-page": "session.snapshot.request",
+  "session.media.read": "session.media.read.request",
   "session.prompt-history": "session.snapshot.request",
   "session.retry-target": "session.snapshot.request",
   "session.create": "session.create.request",
