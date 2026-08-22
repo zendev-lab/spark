@@ -103,8 +103,6 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
       resolveSparkUserPaths({ sparkHome }).configFile,
       `${JSON.stringify(
         {
-          extensionProfileVersion: 2,
-          extensions: [],
           providers: [CAPACITY_PROVIDER_URL],
           enabledModels: [`${CAPACITY_PROVIDER_ID}/*`],
           activeModelId: CAPACITY_MODEL_REF,

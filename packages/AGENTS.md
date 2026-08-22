@@ -44,8 +44,8 @@ contracts and foundations
   shared-package dependencies.
 - Retained Pi SDK adapters must remain behind Spark boundaries and independent
   from Spark product and Hub composition.
-- Shared packages must not depend on `spark-extension`, the product composition
-  root.
+- Shared packages must not depend on daemon-private product composition under
+  `apps/spark-daemon/src/product`.
 - `spark-ui` is the only package that may directly import Bits UI, Lucide, or
   `svelte-streamdown`; it is a presentation owner, never an Artifact media type
   or wire protocol.

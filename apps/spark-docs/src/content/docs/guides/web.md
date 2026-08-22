@@ -23,10 +23,11 @@ need to change the bind or skip opening a browser:
 spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
 ```
 
-This workbench lists every workspace bound to this local daemon. Register a
-local directory from the home page; Hub
-origin and announce stay on `spark daemon login`, not this form. Hub remains
-the multi-daemon proxy and management UI.
+Pass `--hmr` for local development when you need Vite to watch source changes;
+it is disabled by default for the long-lived server. This workbench lists every
+workspace bound to this local daemon. Register a local directory from the home
+page; Hub origin and announce stay on `spark daemon login`, not this form. Hub
+remains the multi-daemon proxy and management UI.
 
 The workbench uses typed daemon projections for Session history and lifecycle,
 Ask and approval recovery, Work and Artifact inspection, Role and Skill
@@ -63,6 +64,13 @@ preview instead of timing out when one final message is unusually large.
 The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
 `openai-codex` routes. API-key providers can be configured during DSH
 onboarding; OpenAI Codex reuses credentials created by Spark's OAuth login flow.
+
+The managed `spark-standard` and `spark-code` presets expose versioned Spark
+file tools over DSH's filesystem provider. Read the file first, then pass its
+opaque `version` as `expectedVersion` to `write` or `edit`; use `missing` only
+when creating a file. DSH still enforces the current session sandbox, while
+the schemas omit escalation arguments that cannot succeed. Image reads remain
+provided by DSH's `read_image` tool.
 
 ## Start with the outcome
 

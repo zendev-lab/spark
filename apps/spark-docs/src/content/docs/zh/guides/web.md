@@ -21,7 +21,8 @@ mutation 来源与 token；这仍是受信任的单用户 LAN 界面，不是公
 spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
 ```
 
-本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
+本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
+默认关闭 HMR。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
 本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
 Hub 仍是多 daemon 代理与管理界面。
 
@@ -55,6 +56,12 @@ DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding�
 DSH LLM 插件会暴露已配置的 `baidu-oneapi`、`kimi-coding` 和
 `openai-codex` 路由。API Key provider 可以在 DSH onboarding 中配置；OpenAI
 Codex 会复用由 Spark OAuth 登录流程创建的凭据。
+
+托管的 `spark-standard` 与 `spark-code` preset 会通过 DSH 文件系统 provider
+暴露带版本保护的 Spark 文件工具。先读取文件，再把返回的不透明 `version` 作为
+`expectedVersion` 传给 `write` 或 `edit`；只有新建文件时使用 `missing`。DSH
+仍在 provider 边界执行当前会话的沙箱策略，工具 schema 不再暴露无法成功的升权
+参数；图片读取继续由 DSH 的 `read_image` 提供。
 
 ## 从结果开始
 

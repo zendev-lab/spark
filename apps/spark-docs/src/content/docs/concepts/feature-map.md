@@ -30,7 +30,7 @@ For contributors, the source topology stays compact by family:
 | Source family | Responsibility |
 | --- | --- |
 | `apps/spark-cli`, `spark-daemon`, `apps/spark-web`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
-| `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
+| `apps/spark-daemon/src/product`, `spark-daemon-client` | Daemon-internal product composition and the shared daemon client boundary |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
 | `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-text` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
@@ -108,13 +108,14 @@ notifications and receive completion summaries through their Inbox.
 See [collaboration](/guides/collaboration/), [daemon-global Channels](/guides/channels/),
 and [Side Threads](/guides/side-threads/).
 
-## 6. Models, context, extensions, and operations
+## 6. Models, context, capabilities, and operations
 
 - Providers, model selection, and reasoning effort are shared runtime controls.
 - Memory, bounded context providers, artifacts, and internal evidence
   preserve useful results with separate visibility.
-- Saved workflows extend repeatable procedures; Fusion and Graft are explicit
-  opt-in capabilities.
+- Saved workflows extend repeatable procedures. Fusion is part of the supported
+  daemon and DSH-web product composition; Graft remains a Pi-compatibility path,
+  not a discoverable Spark product extension.
 - Managed updates, backups, access keys, workspace registration, diagnostics,
   and recovery support operation beyond the first local run.
 

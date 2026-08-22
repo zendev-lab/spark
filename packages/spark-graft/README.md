@@ -1,8 +1,8 @@
 # spark-graft
 
-`@zendev-lab/spark-graft` is a Spark extension package for graft-backed editing workflows. It provides direct tools for the high-frequency agent path while leaving Pi's built-in `read`, `write`, and `edit` tools available.
+`@zendev-lab/spark-graft` is a retained Pi-compatibility adapter for graft-backed editing workflows. It provides direct tools for the high-frequency agent path while leaving Pi's built-in `read`, `write`, and `edit` tools available.
 
-Spark and the repository root Pi profile do not load this extension by default. Load `@zendev-lab/spark-graft/extension` explicitly when Graft-backed tools and the patcher role are required; the package and its compatibility/runtime surfaces remain maintained for that opt-in path.
+Spark product composition does not load it. The historical `@zendev-lab/spark-graft/extension` export remains only for explicit Pi compatibility and tests; it receives no new Spark product behavior.
 
 ## Mental model
 
@@ -26,13 +26,13 @@ A scratch is daemon-instance-scoped. Use `graft_scratch_pin` when a scratch must
 
 spark-graft registers no slash commands. Human users should run the ordinary `graft ...` CLI directly; agents should use the `graft_*` tools below.
 
-spark-graft also registers the explicit extension role `role:extension-patcher` (`id: patcher`) with `spark-roles`. This replaces the removed `graft_patch` public tool: create a patcher Session with `session({ action: "spawn", roleRef: "role:extension-patcher" })`, then send its patch brief with `session({ action: "send", kind: "request", toSessionId, message })`. The role allowlist contains only Graft scratch/candidate/validation/evidence/repository/materialization tools; it has no `ask`, `task`, `task_write`, `goal`, `assign`, `role`, `workflow`, or `graft_patch` surface. If a patch request is unclear, the patcher reports the blocker upward instead of asking interactively or changing files.
+The compatibility adapter also registers the explicit role `role:extension-patcher` (`id: patcher`) with `spark-roles`. This replaces the removed `graft_patch` public tool: create a patcher Session with `session({ action: "spawn", roleRef: "role:extension-patcher" })`, then send its patch brief with `session({ action: "send", kind: "request", toSessionId, message })`. The role ref is serialized compatibility data, not a discoverable Spark product extension. The role allowlist contains only Graft scratch/candidate/validation/evidence/repository/materialization tools; it has no `ask`, `task`, `task_write`, `goal`, `assign`, `role`, `workflow`, or `graft_patch` surface. If a patch request is unclear, the patcher reports the blocker upward instead of asking interactively or changing files.
 
 ## Tools
 
 ### Normal mode vs sandbox replacement mode
 
-The default spark-graft entrypoint (`@zendev-lab/spark-graft/extension`) is ordinary explicit graft tooling: it registers the canonical `graft({ action })` tool and does **not** override Pi's built-in `read`, `write`, `edit`, `grep`, `find`, or `ls` tools.
+The legacy Pi entrypoint (`@zendev-lab/spark-graft/extension`) is ordinary explicit graft tooling: it registers the canonical `graft({ action })` tool and does **not** override Pi's built-in `read`, `write`, `edit`, `grep`, `find`, or `ls` tools.
 
 The opt-in sandbox entrypoint (`@zendev-lab/spark-graft/sandbox`, or this repo's `packages/spark-graft/src/sandbox-entry.ts` during local development) is the file-tool replacement profile. Load it only when you want file operations to enter the Graft lifecycle. It registers sandbox lifecycle helpers plus tools named exactly `read`, `write`, `edit`, `grep`, `find`, and `ls`; with `--no-builtin-tools`, those names still work because they come from the sandbox extension rather than Pi built-ins.
 
@@ -128,6 +128,6 @@ graft_candidate_from_scratch { scratch: "scratch:...", expected: ["tests_pass"],
 
 ## Runtime constraints
 
-The extension invokes `${GRAFT_BIN:-graft} --cwd <cwd>`, uses JSON mode for non-help commands, and sends large scratch content/edits over stdin. `GRAFT_BASE_REF` is only an implicit first-operation base when neither `base` nor `from` is supplied.
+The compatibility adapter invokes `${GRAFT_BIN:-graft} --cwd <cwd>`, uses JSON mode for non-help commands, and sends large scratch content/edits over stdin. `GRAFT_BASE_REF` is only an implicit first-operation base when neither `base` nor `from` is supplied.
 
-Rust `graft` owns socket discovery, daemon startup, and wire translation; this extension never passes a socket or starts `graftd`. Scratch operations are UTF-8 text only. Binary, image, directory, or unknown scratch operations fail explicitly and never fall back to direct disk access. Scratch state is daemon-instance scoped unless pinned.
+Rust `graft` owns socket discovery, daemon startup, and wire translation; this adapter never passes a socket or starts `graftd`. Scratch operations are UTF-8 text only. Binary, image, directory, or unknown scratch operations fail explicitly and never fall back to direct disk access. Scratch state is daemon-instance scoped unless pinned.

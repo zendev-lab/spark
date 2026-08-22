@@ -262,7 +262,7 @@ not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.
 
-The current package budget is closed at 42. The machine-readable inventory owns
+The current package budget is closed at 41. The machine-readable inventory owns
 the current count and rationale. Raising or replacing that budget requires an
 explicit architecture decision in the inventory rather than a new constant in
 a checker.
@@ -281,9 +281,11 @@ a checker.
 - The transport-neutral local control service stays private to
   `apps/spark-daemon`; oRPC and legacy socket adapters share that service and
   cannot own policy, durable state, or alternative handler implementations.
-- `spark-extension` owns product extension composition and policy for native
-  and structurally compatible hosts. Legacy `pi-extension` specifiers are
-  rewritten while reading configuration; there is no facade workspace.
+- `apps/spark-daemon/src/product` owns product composition and policy. The
+  daemon workspace is the composition root; there is no `spark-base`,
+  `spark-extension`, or other facade workspace. Historical `pi-extension` and
+  `spark-extension` config values are compatibility input only and receive no
+  new behavior.
 - `spark-hub-*` packages are Hub-private. Shared code must move to a
   capability or foundation package before daemon/native reuse.
 - Hub's en/zh-CN product catalog lives at the owner-restricted

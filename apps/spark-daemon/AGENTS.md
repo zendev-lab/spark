@@ -13,6 +13,10 @@ The daemon is the authoritative writer for local execution state, including:
 - autonomous scheduling, retry, recovery, and restart reconciliation;
 - daemon-local configuration, provider runtime state, and SQLite migrations.
 
+The daemon also owns the single Spark product composition root under
+`src/product`. That root statically assembles host-neutral capabilities and
+supported DSH/Cordis plugins; it is not a second state owner.
+
 Frontend processes, transports, and Hub projections may control or display this
 state, but they must not become alternate writers.
 
@@ -26,6 +30,8 @@ recovery in this application. Keep adapters thin:
 - transport handlers do not own policy, persistence, or a second implementation
   of an operation;
 - reusable domain rules belong in the existing capability package;
+- product-only registration and policy belong in `src/product`, without a
+  separately discoverable Spark extension package;
 - cross-surface schemas and semantics belong in `spark-protocol`;
 - cross-workspace coordination belongs to Hub owners, not the daemon.
 
