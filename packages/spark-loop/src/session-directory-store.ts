@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { nowIso, type ProjectRef, type TaskRef } from "@zendev-lab/spark-core";
 import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
+import { withPathMutation } from "./path-mutation.ts";
 import {
   sanitizeStoreScope,
   sparkSessionOwnerKey,
@@ -112,35 +113,38 @@ export function legacyHiddenRoleRunInboxStorePath(cwd: string, ctx?: SparkSessio
   );
 }
 
-export async function rebuildSessionIndex(
+export function rebuildSessionIndex(
   cwd: string,
   ctx?: SparkSessionContext,
 ): Promise<SparkSessionIndexSnapshot> {
-  const sessionsRoot = join(sparkStateRootPath(cwd, ctx), "sessions");
-  const sessionDirs = await listSessionDirectories(sessionsRoot);
-  const sessions: SparkSessionIndexEntry[] = [];
-  for (const name of sessionDirs) {
-    const entry = await buildSessionIndexEntry(cwd, name, ctx);
-    if (entry) sessions.push(entry);
-  }
-  sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  const snapshot: SparkSessionIndexSnapshot = {
-    version: 1,
-    rebuildable: true,
-    generatedAt: nowIso(),
-    source: "per-session-directories",
-    legacyImportOnly: [
-      ".spark/sessions/<owner>.json",
-      ".spark/session-goals/<session>.json",
-      ".spark/session-loops/<session>.json",
-      ".spark/session-todos/<session>.json",
-      ".spark/todo-display-numbers/<session>.json",
-      ".spark/background-role-results-inbox/<session>.json",
-    ],
-    sessions,
-  };
-  await writeJsonFileAtomic(sessionIndexStorePath(cwd, ctx), snapshot);
-  return snapshot;
+  const indexPath = sessionIndexStorePath(cwd, ctx);
+  return withPathMutation(indexPath, async () => {
+    const sessionsRoot = join(sparkStateRootPath(cwd, ctx), "sessions");
+    const sessionDirs = await listSessionDirectories(sessionsRoot);
+    const sessions: SparkSessionIndexEntry[] = [];
+    for (const name of sessionDirs) {
+      const entry = await buildSessionIndexEntry(cwd, name, ctx);
+      if (entry) sessions.push(entry);
+    }
+    sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const snapshot: SparkSessionIndexSnapshot = {
+      version: 1,
+      rebuildable: true,
+      generatedAt: nowIso(),
+      source: "per-session-directories",
+      legacyImportOnly: [
+        ".spark/sessions/<owner>.json",
+        ".spark/session-goals/<session>.json",
+        ".spark/session-loops/<session>.json",
+        ".spark/session-todos/<session>.json",
+        ".spark/todo-display-numbers/<session>.json",
+        ".spark/background-role-results-inbox/<session>.json",
+      ],
+      sessions,
+    };
+    await writeJsonFileAtomic(indexPath, snapshot);
+    return snapshot;
+  });
 }
 
 export function sessionIndexStorePath(cwd: string, ctx?: SparkSessionContext): string {

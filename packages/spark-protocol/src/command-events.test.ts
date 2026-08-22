@@ -35,7 +35,6 @@ describe("SparkCommand vocabulary", () => {
   it("maps every observed local RPC method into a transport-neutral command kind", () => {
     expect(Object.keys(localRpcMethodToSparkCommandKind)).toEqual([
       "daemon.status",
-      "daemon.logs",
       "daemon.stop",
       "daemon.restart",
       "turn.status",
@@ -134,14 +133,12 @@ describe("SparkCommand vocabulary", () => {
       "artifact.list",
       "artifact.read",
       "role.list",
-      "role.get",
       "role.create",
       "role.model.list",
       "role.model.get",
       "role.model.set",
       "role.model.delete",
       "skill.list",
-      "skill.get",
       "git.execute",
       "lens.execute",
     ]);

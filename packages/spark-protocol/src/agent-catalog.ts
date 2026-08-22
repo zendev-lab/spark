@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   sparkRoleCapabilitySchema,
   sparkRoleModelTypeSchema,
+  sparkRoleOriginSchema,
   sparkRoleSkillNameSchema,
   sparkRoleSpecSchema,
   sparkRoleToolEffectSchema,
@@ -22,7 +23,7 @@ export const sparkRoleCatalogEntrySchema = z
     allowedTools: sparkRoleSpecSchema.shape.allowedTools,
     allowedToolEffects: sparkRoleSpecSchema.shape.allowedToolEffects,
     modelType: sparkRoleSpecSchema.shape.modelType,
-    origin: sparkRoleSpecSchema.shape.origin,
+    origin: sparkRoleOriginSchema.omit({ sourcePath: true }).optional(),
     createdAt: sparkRoleSpecSchema.shape.createdAt,
     updatedAt: sparkRoleSpecSchema.shape.updatedAt,
   })
@@ -34,13 +35,6 @@ export const sparkRoleListResultSchema = z
     workspaceId: z.string().min(1),
     roles: z.array(sparkRoleCatalogEntrySchema),
   })
-  .strict();
-
-export const sparkRoleGetRequestSchema = workspaceCatalogInputSchema.extend({
-  roleRef: z.string().regex(/^role:.+/u),
-});
-export const sparkRoleGetResultSchema = z
-  .object({ workspaceId: z.string().min(1), role: sparkRoleSpecSchema.nullable() })
   .strict();
 
 export const sparkRoleCreateRequestSchema = workspaceCatalogInputSchema.extend({
@@ -66,7 +60,7 @@ export const sparkRoleCreateResultSchema = z
   .object({
     workspaceId: z.string().min(1),
     created: z.boolean(),
-    role: sparkRoleSpecSchema,
+    role: sparkRoleCatalogEntrySchema,
   })
   .strict();
 
@@ -93,7 +87,11 @@ export const sparkRoleModelListResultSchema = z
   })
   .strict();
 
-export const sparkRoleModelGetRequestSchema = sparkRoleGetRequestSchema;
+const roleModelTargetInputSchema = workspaceCatalogInputSchema.extend({
+  roleRef: sparkRoleSpecSchema.shape.ref,
+});
+
+export const sparkRoleModelGetRequestSchema = roleModelTargetInputSchema;
 export const sparkRoleModelGetResultSchema = z
   .object({
     workspaceId: z.string().min(1),
@@ -102,7 +100,7 @@ export const sparkRoleModelGetResultSchema = z
   })
   .strict();
 
-export const sparkRoleModelSetRequestSchema = sparkRoleGetRequestSchema.extend({
+export const sparkRoleModelSetRequestSchema = roleModelTargetInputSchema.extend({
   model: sparkRoleModelSettingsEntrySchema.shape.model,
   source: sparkRoleModelSettingsSourceSchema.default("project"),
 });
@@ -114,7 +112,7 @@ export const sparkRoleModelSetResultSchema = z
   })
   .strict();
 
-export const sparkRoleModelDeleteRequestSchema = sparkRoleGetRequestSchema.extend({
+export const sparkRoleModelDeleteRequestSchema = roleModelTargetInputSchema.extend({
   source: sparkRoleModelSettingsSourceSchema,
 });
 export const sparkRoleModelDeleteResultSchema = z
@@ -141,17 +139,6 @@ export const sparkSkillListResultSchema = z
   .object({
     workspaceId: z.string().min(1),
     skills: z.array(sparkSkillCatalogEntrySchema),
-    diagnostics: z.array(z.object({ type: z.enum(["warning", "collision"]), message: z.string() })),
-  })
-  .strict();
-
-export const sparkSkillGetRequestSchema = workspaceCatalogInputSchema.extend({
-  name: sparkRoleSkillNameSchema,
-});
-export const sparkSkillGetResultSchema = z
-  .object({
-    workspaceId: z.string().min(1),
-    skill: sparkSkillCatalogEntrySchema.extend({ content: z.string() }).nullable(),
   })
   .strict();
 

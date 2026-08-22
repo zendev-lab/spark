@@ -9,8 +9,6 @@ import {
 import {
   sparkRoleCreateRequestSchema,
   sparkRoleCreateResultSchema,
-  sparkRoleGetRequestSchema,
-  sparkRoleGetResultSchema,
   sparkRoleListRequestSchema,
   sparkRoleListResultSchema,
   sparkRoleModelDeleteRequestSchema,
@@ -21,8 +19,6 @@ import {
   sparkRoleModelListResultSchema,
   sparkRoleModelSetRequestSchema,
   sparkRoleModelSetResultSchema,
-  sparkSkillGetRequestSchema,
-  sparkSkillGetResultSchema,
   sparkSkillListRequestSchema,
   sparkSkillListResultSchema,
 } from "./agent-catalog.ts";
@@ -168,8 +164,6 @@ import {
   workspaceDelegationExecuteResultSchema,
 } from "./workspace-delegation.ts";
 import {
-  sparkDaemonLogsRequestSchema,
-  sparkDaemonLogsResultSchema,
   sparkGlobalSearchRequestSchema,
   sparkGlobalSearchResultSchema,
   sparkSessionExportRequestSchema,
@@ -333,7 +327,6 @@ export const sparkLocalRpcInvocationOrpcErrors = {
 
 export const sparkLocalRpcModelOrpcErrors = {
   model_control_unavailable: { status: 503 },
-  role_not_found: { status: 404 },
   role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
   model_not_enabled: { status: 422 },
@@ -346,6 +339,13 @@ export const sparkLocalRpcModelOrpcErrors = {
   provider_oauth_prompt_conflict: { status: 409 },
   provider_oauth_response_invalid: { status: 422 },
 } as const satisfies Record<SparkModelRpcErrorCode, SparkLocalRpcErrorSpec>;
+
+export const sparkLocalRpcRoleModelOrpcErrors = {
+  model_control_unavailable: sparkLocalRpcModelOrpcErrors.model_control_unavailable,
+  role_not_found: { status: 404 },
+  model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
+  model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
+} as const;
 
 export const sparkLocalRpcTaskClaimOrpcErrors = {
   task_claim_lease_invalid: { status: 403 },
@@ -397,9 +397,14 @@ export const sparkLocalRpcWorkspaceOrpcErrors = {
   workspace_transfer_not_found: { status: 404 },
 } as const satisfies Record<SparkWorkspaceRpcErrorCode, SparkLocalRpcErrorSpec>;
 
-const sparkLocalRpcWorkspaceModelOrpcErrors = {
+const sparkLocalRpcWorkspaceRoleModelSetOrpcErrors = {
   ...sparkLocalRpcWorkspaceOrpcErrors,
-  ...sparkLocalRpcModelOrpcErrors,
+  ...sparkLocalRpcRoleModelOrpcErrors,
+} as const;
+
+const sparkLocalRpcWorkspaceRoleModelDeleteOrpcErrors = {
+  ...sparkLocalRpcWorkspaceOrpcErrors,
+  role_not_found: sparkLocalRpcRoleModelOrpcErrors.role_not_found,
 } as const;
 
 export const sparkLocalRpcHumanOrpcErrors = {
@@ -419,6 +424,7 @@ export const sparkLocalRpcCommonOrpcErrors = {
   ...sparkLocalRpcLoopOrpcErrors,
   ...sparkLocalRpcInvocationOrpcErrors,
   ...sparkLocalRpcModelOrpcErrors,
+  ...sparkLocalRpcRoleModelOrpcErrors,
   ...sparkLocalRpcUplinkOrpcErrors,
   ...sparkLocalRpcWorkspaceOrpcErrors,
   ...sparkLocalRpcTaskClaimOrpcErrors,
@@ -457,6 +463,11 @@ const sparkLocalRpcSessionSnapshotOrpcErrors = {
     sparkLocalRpcSessionOrpcErrors.session_snapshot_cursor_not_found,
   session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
   session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
+} as const;
+
+const sparkLocalRpcSessionExportOrpcErrors = {
+  ...sparkLocalRpcSessionSnapshotOrpcErrors,
+  session_transcript_changed: sparkLocalRpcSessionOrpcErrors.session_transcript_changed,
 } as const;
 
 const sparkLocalRpcSessionPromptHistoryOrpcErrors = {
@@ -676,7 +687,6 @@ const sparkLocalRpcReadinessSessionModeOrpcErrors = {
   invalid_scope: sparkLocalRpcSessionOrpcErrors.invalid_scope,
   session_archived: sparkLocalRpcSessionOrpcErrors.session_archived,
   session_not_found: sparkLocalRpcSessionOrpcErrors.session_not_found,
-  side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
   workspace_cwd_unavailable: sparkLocalRpcSessionOrpcErrors.workspace_cwd_unavailable,
 } as const;
 
@@ -1368,6 +1378,7 @@ const sparkLocalRpcHumanWaitSchema = z.object({
   projectId: z.string(),
   toolCallId: z.string(),
   delivery: z.enum(["blocking", "async"]),
+  mode: z.enum(["clarification", "decision", "approval", "unblock"]).optional(),
   evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   kind: z.string().min(1),
   title: z.string(),
@@ -1452,10 +1463,6 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcEmptyInputSchema,
     output: sparkLocalRpcDaemonStatusResultSchema,
   },
-  "daemon.logs": {
-    input: sparkDaemonLogsRequestSchema,
-    output: sparkDaemonLogsResultSchema,
-  },
   "daemon.stop": {
     input: sparkLocalRpcEmptyInputSchema,
     output: sparkLocalRpcDaemonStopResultSchema,
@@ -1483,7 +1490,6 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkArtifactReadResultSchema,
   },
   "role.list": { input: sparkRoleListRequestSchema, output: sparkRoleListResultSchema },
-  "role.get": { input: sparkRoleGetRequestSchema, output: sparkRoleGetResultSchema },
   "role.create": { input: sparkRoleCreateRequestSchema, output: sparkRoleCreateResultSchema },
   "role.model.list": {
     input: sparkRoleModelListRequestSchema,
@@ -1502,7 +1508,6 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkRoleModelDeleteResultSchema,
   },
   "skill.list": { input: sparkSkillListRequestSchema, output: sparkSkillListResultSchema },
-  "skill.get": { input: sparkSkillGetRequestSchema, output: sparkSkillGetResultSchema },
   "git.execute": {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
     output: sparkLocalRpcToolExecutionResultSchema,
@@ -1870,18 +1875,15 @@ export const sparkLocalRpcOrpcLiveMethods = Object.keys(
 
 /** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
 export const sparkLocalRpcOrpcOnlyMethods = [
-  "daemon.logs",
   "artifact.list",
   "artifact.read",
   "role.list",
-  "role.get",
   "role.create",
   "role.model.list",
   "role.model.get",
   "role.model.set",
   "role.model.delete",
   "skill.list",
-  "skill.get",
   "workspace.directory.list",
   "search.global",
   "session.search",
@@ -1929,7 +1931,6 @@ const p = sparkLocalRpcProcedureSchemas;
 export const sparkLocalRpcOrpcContract = {
   daemon: {
     status: procedure("GET", "/daemon/status", p["daemon.status"], sparkLocalRpcNoOrpcErrors),
-    logs: procedure("GET", "/daemon/logs", p["daemon.logs"], sparkLocalRpcNoOrpcErrors),
     stop: procedure("POST", "/daemon/stop", p["daemon.stop"], sparkLocalRpcNoOrpcErrors),
     restart: procedure(
       "POST",
@@ -1948,7 +1949,6 @@ export const sparkLocalRpcOrpcContract = {
   },
   role: {
     list: procedure("GET", "/role/list", p["role.list"], sparkLocalRpcWorkspaceOrpcErrors),
-    get: procedure("GET", "/role/get", p["role.get"], sparkLocalRpcWorkspaceOrpcErrors),
     create: procedure("POST", "/role/create", p["role.create"], sparkLocalRpcWorkspaceOrpcErrors),
     model: {
       list: procedure(
@@ -1967,19 +1967,18 @@ export const sparkLocalRpcOrpcContract = {
         "POST",
         "/role/model/set",
         p["role.model.set"],
-        sparkLocalRpcWorkspaceModelOrpcErrors,
+        sparkLocalRpcWorkspaceRoleModelSetOrpcErrors,
       ),
       delete: procedure(
         "POST",
         "/role/model/delete",
         p["role.model.delete"],
-        sparkLocalRpcWorkspaceModelOrpcErrors,
+        sparkLocalRpcWorkspaceRoleModelDeleteOrpcErrors,
       ),
     },
   },
   skill: {
     list: procedure("GET", "/skill/list", p["skill.list"], sparkLocalRpcWorkspaceOrpcErrors),
-    get: procedure("GET", "/skill/get", p["skill.get"], sparkLocalRpcWorkspaceOrpcErrors),
   },
   git: {
     execute: procedure("POST", "/git/execute", p["git.execute"]),
@@ -2273,7 +2272,7 @@ export const sparkLocalRpcOrpcContract = {
       "GET",
       "/session/export",
       p["session.export"],
-      sparkLocalRpcSessionSnapshotOrpcErrors,
+      sparkLocalRpcSessionExportOrpcErrors,
     ),
     snapshotPage: procedure(
       "GET",

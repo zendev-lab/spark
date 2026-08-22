@@ -51,7 +51,10 @@ describe("HumanInteractionPanel browser contract", () => {
     await screen.getByRole("combobox", { name: "Lane" }).selectOptions("safe");
     await expect.element(screen.getByText("pnpm check")).toBeVisible();
     await screen.getByRole("checkbox", { name: "Browser" }).click();
-    await screen.getByRole("checkbox", { name: "Custom answer" }).click();
+    await screen
+      .getByRole("group", { name: "Checks" })
+      .getByRole("checkbox", { name: "Custom answer" })
+      .click();
     await screen.getByRole("textbox", { name: "Checks: Custom answer" }).fill("daemon evidence");
     await screen.getByRole("button", { name: "Answer" }).click();
 
@@ -91,11 +94,83 @@ describe("HumanInteractionPanel browser contract", () => {
     await expect.element(screen.getByRole("alert")).toHaveTextContent(labels.required);
     expect(onRespond).not.toHaveBeenCalled();
 
+    await screen.getByRole("textbox", { name: "Reason" }).fill("private draft");
     await screen.getByRole("button", { name: "Cancel" }).click();
     expect(onRespond).toHaveBeenCalledWith({
       status: "cancelled",
-      answers: { reason: { values: [] } },
+      answers: {},
     });
+    await screen.unmount();
+  });
+
+  it("preserves an option whose value matches the retired custom sentinel", async () => {
+    const onRespond = vi.fn();
+    const screen = await render(HumanInteractionPanel, {
+      title: "Literal value",
+      prompt: "Keep protocol option values opaque.",
+      labels,
+      questions: [
+        {
+          id: "choice",
+          prompt: "Choice",
+          type: "single",
+          required: true,
+          options: [{ value: "__spark_custom_answer__", label: "Literal sentinel" }],
+        },
+      ],
+      onRespond,
+    });
+
+    await screen.getByRole("combobox", { name: "Choice" }).selectOptions("__spark_custom_answer__");
+    await screen.getByRole("button", { name: "Answer" }).click();
+    expect(onRespond).toHaveBeenCalledWith({
+      status: "answered",
+      answers: {
+        choice: { values: ["__spark_custom_answer__"], labels: ["Literal sentinel"] },
+      },
+    });
+    await screen.unmount();
+  });
+
+  it("initializes owner defaults and blocks custom-only decision gates", async () => {
+    const onRespond = vi.fn();
+    const screen = await render(HumanInteractionPanel, {
+      title: "Decision",
+      prompt: "Choose an option.",
+      mode: "decision",
+      labels,
+      questions: [
+        {
+          id: "lane",
+          prompt: "Lane",
+          type: "single",
+          required: true,
+          defaultValues: ["safe"],
+          options: [{ value: "safe", label: "Safe" }],
+        },
+        {
+          id: "checks",
+          prompt: "Checks",
+          type: "multi",
+          required: false,
+          defaultValues: ["browser"],
+          options: [{ value: "browser", label: "Browser" }],
+        },
+      ],
+      onRespond,
+    });
+
+    await expect.element(screen.getByRole("combobox", { name: "Lane" })).toHaveValue("safe");
+    await expect.element(screen.getByRole("checkbox", { name: "Browser" })).toBeChecked();
+    await screen.getByRole("combobox", { name: "Lane" }).selectOptions("");
+    await screen
+      .getByRole("group", { name: "Lane" })
+      .getByRole("checkbox", { name: "Custom answer" })
+      .click();
+    await screen.getByRole("textbox", { name: "Lane: Custom answer" }).fill("maybe");
+    await screen.getByRole("button", { name: "Answer" }).click();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent(labels.required);
+    expect(onRespond).not.toHaveBeenCalled();
     await screen.unmount();
   });
 });

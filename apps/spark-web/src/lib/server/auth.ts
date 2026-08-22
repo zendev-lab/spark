@@ -79,12 +79,46 @@ export function sparkWebRequestTrustError(input: {
   authSource: SparkWebAuthSource;
   trust: SparkWebRequestTrust;
 }): string | null {
+  return requestTrustError(input, false);
+}
+
+export function sparkWebShareRequestTrustError(input: {
+  request: Request;
+  trust: SparkWebRequestTrust;
+}): string | null {
+  return requestTrustError({ ...input, authSource: "none" }, true);
+}
+
+export function isSparkWebReadOnlyShareRequest(request: Request, pathname: string): boolean {
+  return (
+    (request.method === "GET" || request.method === "HEAD") &&
+    /^\/share\/[A-Za-z0-9_-]{32}$/u.test(pathname)
+  );
+}
+
+function requestTrustError(
+  input: {
+    request: Request;
+    authSource: SparkWebAuthSource;
+    trust: SparkWebRequestTrust;
+  },
+  allowCrossSiteDocumentNavigation: boolean,
+): string | null {
   const hostHeader = input.request.headers.get("host")?.trim().toLowerCase();
   if (!hostHeader || !isAllowedAuthority(hostHeader, input.trust)) {
     return "Spark web rejected the request Host";
   }
   const fetchSite = input.request.headers.get("sec-fetch-site")?.trim().toLowerCase();
-  if (fetchSite === "cross-site") return "Spark web rejected a cross-site request";
+  if (
+    fetchSite === "cross-site" &&
+    !(
+      allowCrossSiteDocumentNavigation &&
+      input.request.headers.get("sec-fetch-mode")?.trim().toLowerCase() === "navigate" &&
+      input.request.headers.get("sec-fetch-dest")?.trim().toLowerCase() === "document"
+    )
+  ) {
+    return "Spark web rejected a cross-site request";
+  }
 
   const origin = input.request.headers.get("origin")?.trim();
   if (origin && !originMatchesAuthority(origin, hostHeader)) {
