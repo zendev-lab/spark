@@ -112,7 +112,7 @@ test("renderCuedVersionWarning renders only actionable warnings", () => {
   });
   assert.ok(outdated);
   for (const pattern of [
-    /cued 0\.0\.9 is older than latest cue-shell release 0\.1\.0/,
+    /cued 0\.0\.9 is older than latest Cue release 0\.1\.0/,
     /cued upgrade/,
     /cued restart/,
     /PI_CUE_NO_VERSION_CHECK/,
@@ -123,7 +123,7 @@ test("renderCuedVersionWarning renders only actionable warnings", () => {
   const unknownRunning = renderCuedVersionWarning({ kind: "unknown-running", latest: "0.1.0" });
   assert.ok(unknownRunning);
   assert.match(unknownRunning, /does not report its version/);
-  assert.match(unknownRunning, /latest cue-shell release is 0\.1\.0/);
+  assert.match(unknownRunning, /latest Cue release is 0\.1\.0/);
 });
 
 test("checkCuedVersionAndWarn warns once when daemon is older than upstream", async () => {
@@ -227,7 +227,7 @@ test("checkCuedVersionAndWarn falls back to console.warn without ui.notify", asy
     console.warn = originalWarn;
   }
   assert.equal(captured.length, 1);
-  assert.match(captured[0] ?? "", /older than latest cue-shell release/);
+  assert.match(captured[0] ?? "", /older than latest Cue release/);
 });
 
 test("checkCuedVersionAndWarn swallows transport errors", async () => {

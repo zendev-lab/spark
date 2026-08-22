@@ -581,7 +581,7 @@ function normalizeOptionalProducer(
         agent:
           "Use producer=task for execution evidence, with runRef/taskRef when available, or producer=user for user-provided material.",
         assistant:
-          "Use producer=task for parent-session work/evidence, review for reviewer verdicts, ask for ask results, cue for cue-shell output, or user for user-provided material.",
+          "Use producer=task for parent-session work/evidence, review for reviewer verdicts, ask for ask results, cue for Cue output, or user for user-provided material.",
       }),
     );
   }

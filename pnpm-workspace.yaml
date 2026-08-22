@@ -48,6 +48,7 @@ catalogs:
     "@deepseek-ai/dsh-invariants": *dsh-version
     "@deepseek-ai/dsh-home-paths": *dsh-version
     "@deepseek-ai/dsh-llm": *dsh-version
+    "@deepseek-ai/dsh-sandbox": *dsh-version
     "@deepseek-ai/dsh-sandbox-policy": *dsh-version
     "@deepseek-ai/dsh-scope": *dsh-version
     "@deepseek-ai/dsh-schedule": *dsh-version
