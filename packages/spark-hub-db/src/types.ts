@@ -125,6 +125,8 @@ export interface RuntimeConnectionsTable {
   protocol_version: string | null;
   capabilities_json: string;
   labels_json: string;
+  /** Scopes of the enrollment credential that authorized this daemon binding. */
+  enrollment_scopes_json: string;
   last_heartbeat_at: string | null;
   created_at: string;
   updated_at: string;

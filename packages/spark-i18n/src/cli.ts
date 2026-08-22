@@ -71,7 +71,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     deviceAuthorizationSucceeded: (runtimeId, serverUrl) =>
       `✓ daemon ${runtimeId} authorized for ${serverUrl}`,
     workspaceTokenRequired: (serverUrl) =>
-      `Workspace registration for ${serverUrl} requires a new one-time workspace token. Pass --token <token>.`,
+      `The daemon is not connected to ${serverUrl}. Authorize it first with spark daemon login, or pass --token <token> to enroll it and attach this workspace in one step.`,
   },
   zh: {
     submitRequiresSession: "spark daemon submit 需要 --session <id>",
@@ -110,7 +110,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     deviceAuthorizationSucceeded: (runtimeId, serverUrl) =>
       `✓ daemon ${runtimeId} 已授权连接 ${serverUrl}`,
     workspaceTokenRequired: (serverUrl) =>
-      `在 ${serverUrl} 注册 workspace 需要新的 workspace 一次性 token。请传入 --token <token>。`,
+      `daemon 尚未连接 ${serverUrl}。请先用 spark daemon login 授权这台机器，或传入 --token <token> 一次性完成 daemon 注册与 workspace 附加。`,
   },
 };
 

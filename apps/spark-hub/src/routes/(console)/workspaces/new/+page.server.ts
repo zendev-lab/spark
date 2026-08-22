@@ -80,11 +80,16 @@ export const actions: Actions = {
     }
 
     const label = `${t.registrationLabelPrefix}: ${workspaceSetup.name}`;
+    // The daemon is the hub binding unit: a daemon-scoped token authorizes the
+    // daemon installation (one per machine) and attaches this workspace in the
+    // same command. Workspace name/slug remain profile inputs, not a separate
+    // workspace-scoped grant.
     const token = createRuntimeEnrollmentToken(db, {
       label,
       createdByUserId: userId,
       workspaceName: workspaceSetup.name,
       workspaceSlug: workspaceSetup.slug,
+      daemonScope: true,
     });
     workspaceSetup = { ...workspaceSetup, enrollmentTokenId: token.id };
     setPendingWorkspaceSetup(cookies, workspaceSetup);

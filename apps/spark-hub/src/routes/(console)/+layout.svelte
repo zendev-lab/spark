@@ -42,6 +42,9 @@
       includeControlPlaneNav: data.hasControlPlaneAccess,
       includeWorkspaceNav: hasActiveWorkspace,
       includeDaemonNav: data.hasControlPlaneAccess && hasActiveWorkspace,
+      // Workspace and daemon are unified: daemon settings appear inside the
+      // active workspace group instead of a separate Daemon group.
+      mergeDaemonIntoWorkspace: true,
       nav: navLabels,
       groups: {
         hub: consoleMessages.navGroups.hub,

@@ -139,11 +139,13 @@ The generated command has this shape:
 ```bash
 spark daemon login --server-url http://127.0.0.1:5174
 spark daemon workspace register . --name <workspace-name>
-spark daemon workspace register . --token <one-time-workspace-token>
+spark daemon workspace register . --token <enrollment-token>
 ```
 
-The token is shown once and authorizes one directory. It is not a provider
-credential or a reusable daemon login.
+`spark daemon login` binds the daemon installation (one per machine) to the
+Hub. The first `workspace register` records the workspace locally; the token
+form announces its Hub projection through the same daemon binding. The token
+is shown once and is not a provider credential.
 
 Verify the daemon-owned binding:
 

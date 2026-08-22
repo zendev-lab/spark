@@ -7,6 +7,7 @@ import { string, type ValueParser } from "@optique/core/valueparser";
 import {
   cancelHubWorkspaceDelegation,
   createHubWorkspaceDelegation,
+  listHubDaemons,
   listHubWorkspaceDelegationMessages,
   listHubWorkspaceDelegations,
   listHubWorkspaces,
@@ -25,7 +26,7 @@ import {
 import { parseSparkHubCliArgs, runSparkHubCliCommand } from "../../cli/coordination.ts";
 
 interface HubDatabaseCliCommand {
-  resource: "help" | "status" | "workspace" | "delegation";
+  resource: "help" | "status" | "workspace" | "daemon" | "delegation";
   verb?: "list" | "create" | "show" | "reply" | "cancel";
   selector?: string;
   json?: boolean;
@@ -100,6 +101,38 @@ const databaseWorkspaceParser = command(
         ? { resource: "help" }
         : {
             resource: "workspace",
+            verb: "list",
+            json: value.json,
+            databasePath: value.database?.trim(),
+          },
+    ),
+  ),
+);
+
+const databaseDaemonListOptions = () =>
+  object({ help: helpFlag(), json: jsonFlag(), database: databaseOption() });
+
+const databaseDaemonParser = command(
+  "daemon",
+  or(
+    command(
+      "list",
+      map(databaseDaemonListOptions(), (value): HubDatabaseCliCommand =>
+        value.help
+          ? { resource: "help" }
+          : {
+              resource: "daemon",
+              verb: "list",
+              json: value.json,
+              databasePath: value.database?.trim(),
+            },
+      ),
+    ),
+    map(databaseDaemonListOptions(), (value): HubDatabaseCliCommand =>
+      value.help
+        ? { resource: "help" }
+        : {
+            resource: "daemon",
             verb: "list",
             json: value.json,
             databasePath: value.database?.trim(),
@@ -261,6 +294,7 @@ const hubDatabaseCliParser = or(
   command("-h", object({ resource: constant("help" as const), argv: remainingArgv() })),
   databaseStatusParser,
   databaseWorkspaceParser,
+  databaseDaemonParser,
   delegationParser,
   object({ resource: constant("empty" as const) }),
 );
@@ -308,11 +342,18 @@ function parseHubDatabaseCliArgs(argv: string[]): HubDatabaseCliCommand {
   const result = parse(hubDatabaseCliParser, argv);
   if (!result.success) {
     const [resource = "status", verb] = argv;
-    if (!new Set(["help", "--help", "-h", "status", "workspace", "delegation"]).has(resource)) {
+    if (
+      !new Set(["help", "--help", "-h", "status", "workspace", "daemon", "delegation"]).has(
+        resource,
+      )
+    ) {
       throw new Error(`Unknown spark hub resource: ${resource}`);
     }
     if (resource === "workspace" && verb && verb !== "list") {
       throw new Error("Usage: spark hub workspace list");
+    }
+    if (resource === "daemon" && verb && verb !== "list") {
+      throw new Error("Usage: spark hub daemon list");
     }
     if (
       resource === "delegation" &&
@@ -337,6 +378,7 @@ export function sparkHubHelpText(): string {
 Usage:
   spark hub status [--json]
   spark hub workspace list [--json]
+  spark hub daemon list [--json]
   spark hub delegation create --source <workspace> --target <workspace> --goal <text> [--role <role>]
   spark hub delegation list [--workspace <workspace>] [--limit <count>] [--json]
   spark hub delegation show <delegation-id> [--json]
@@ -346,7 +388,7 @@ Usage:
   spark hub workspace access <create|list|revoke> [...]
   spark hub instance <status|backup|restore> [...]
 
-Hub owns workspace registry, delegation state, routing, audit, and receipts. Daemons own execution truth; Hub is the Web presentation client.
+Hub binds daemons (one per machine) and keeps their workspaces in a shared registry; delegation state, routing, audit, and receipts live here. Daemons own execution truth; Hub is the Web presentation client.
 `;
 }
 
@@ -364,6 +406,10 @@ function runHubDatabaseCommand(
 
   if (command.resource === "workspace") {
     return { plane: "hub", resource: "workspace", workspaces: listHubWorkspaces(db) };
+  }
+
+  if (command.resource === "daemon") {
+    return { plane: "hub", resource: "daemon", daemons: listHubDaemons(db) };
   }
 
   if (command.resource !== "delegation") {
