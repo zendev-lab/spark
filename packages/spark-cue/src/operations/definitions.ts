@@ -1,6 +1,5 @@
 /** Canonical Cue operation definitions shared by host adapters. */
 
-import { execFileSync } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import * as nodePath from "node:path";
 import { Type } from "typebox";
@@ -875,7 +874,6 @@ async function runPythonExecution(
     ...(result.stderrBase64 ? { stderrBase64: result.stderrBase64 } : {}),
     pythonRunner: runner,
     resolvedScriptPath: scriptPath,
-    ...(runner.python ? { pythonInterpreter: runner.python } : {}),
     ...(options.venv ? { venv: options.venv } : {}),
   };
   if ((result.status === "failed" || result.status === "cancelled") && !result.timedOut) {
@@ -890,11 +888,7 @@ interface PythonRunnerResolution {
   executable: "uv";
   source: "uv";
   argv: string[];
-  python?: {
-    executable: string;
-    source: "venv";
-    version?: string;
-  };
+  pythonRequest?: string;
   note: string;
 }
 
@@ -905,21 +899,16 @@ export function resolvePythonRunner(
   } = {},
 ): PythonRunnerResolution {
   if (options.venv) {
-    const executable = `${options.venv.replace(/\/+$/u, "")}/bin/python`;
     return {
       executable: "uv",
       source: "uv",
       argv: options.scriptMode
-        ? ["uv", "run", "--python", executable, "--script"]
-        : ["uv", "run", "--python", executable, "python"],
-      python: {
-        executable,
-        source: "venv",
-        version: pythonVersion(executable),
-      },
+        ? ["uv", "run", "--python", options.venv, "--script"]
+        : ["uv", "run", "--python", options.venv, "python"],
+      pythonRequest: options.venv,
       note: options.scriptMode
-        ? "Python scripts are executed through `uv run --python <venv>/bin/python --script <path>` or `uv run --python <venv>/bin/python --script -`."
-        : "Python is executed through `uv run --python <venv>/bin/python python ...`.",
+        ? "Python scripts are executed through `uv run --python <path> --script <path>` or `uv run --python <path> --script -`."
+        : "Python is executed through `uv run --python <path> python ...`.",
     };
   }
 
@@ -938,20 +927,6 @@ export function resolvePythonRunner(
     argv: ["uv", "run", "python"],
     note: "Python is executed through `uv run python ...`; uv resolves the project/session Python environment.",
   };
-}
-
-function pythonVersion(executable: string): string | undefined {
-  try {
-    const output = execFileSync(executable, ["--version"], {
-      encoding: "utf8",
-      timeout: 1_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return output.trim() || undefined;
-  } catch (error) {
-    console.debug(`[spark-cue] python --version failed for ${executable}`, error);
-    return undefined;
-  }
 }
 
 function rejectRemovedCueParam(
@@ -1612,9 +1587,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     policy: CUE_EXECUTION_TOOL_POLICY,
     description:
       "Run a script file with an explicit language runner. " +
-      "Supported languages in this version: Cue and python. " +
-      "Cue input compiles locally to one typed execution; Python executes through uv run --script <path>, optionally with --python <venv>/bin/python, and reports the resolved runner in details.",
-    parameters: Type.Object({
+      "Supported languages in this version: cue-shell and python. " +
+      "For cue-shell this delegates to RunScript and mirrors cue_run; for python it executes through uv run --script <path>, optionally with --python <path>, and reports the runner selection in details.",    parameters: Type.Object({
       path: Type.String({ description: "Path to the script file to run." }),
       language: Type.String({ description: "Script language. Required: Cue or python." }),
       timeout: Type.Optional(
@@ -1629,7 +1603,10 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
       venv: Type.Optional(
-        Type.String({ description: "Python virtualenv path. Only valid for language=python." }),
+        Type.String({
+          description:
+            "Python environment directory or interpreter path. Relative paths resolve against the execution cwd. Only valid for language=python.",
+        }),
       ),
     }),
     renderCall(args, theme) {
@@ -1734,9 +1711,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     policy: CUE_EXECUTION_TOOL_POLICY,
     description:
       "Run an inline script body with an explicit language runner. " +
-      "Supported languages in this version: Cue and python. " +
-      "Inline Python is piped to uv run --script - through Cue, optionally with --python <venv>/bin/python, and reports the resolved runner in details. Manual cue_exec python calls are blocked by the default daemon guardrails.",
-    parameters: Type.Object({
+      "Supported languages in this version: cue-shell and python. " +
+      "Inline Python is piped to uv run --script - through cue-shell, optionally with --python <path>, and reports the runner selection in details. Manual cue_exec python calls are blocked by the default daemon guardrails.",    parameters: Type.Object({
       script: Type.String({ description: "Inline script body to run." }),
       language: Type.String({ description: "Script language. Required: Cue or python." }),
       pathLabel: Type.Optional(
@@ -1754,7 +1730,10 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
       venv: Type.Optional(
-        Type.String({ description: "Python virtualenv path. Only valid for language=python." }),
+        Type.String({
+          description:
+            "Python environment directory or interpreter path. Relative paths resolve against the execution cwd. Only valid for language=python.",
+        }),
       ),
     }),
     renderCall(args, theme) {
