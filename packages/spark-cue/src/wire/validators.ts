@@ -59,7 +59,10 @@ export function validateCueOkPayload<T>(value: T, path = "response.payload.Ok"):
       validateTextOutput(body, `${path}.TextOutput`);
       break;
     case "FgAttached":
-      validateSingleStringField(body, `${path}.FgAttached`, "id");
+      validateForegroundAttachment(body, `${path}.FgAttached`);
+      break;
+    case "FgRoleChanged":
+      validateForegroundRoleChanged(body, `${path}.FgRoleChanged`);
       break;
     case "Pong":
       validatePong(body, `${path}.Pong`);
@@ -132,14 +135,11 @@ export function validateCueEventPayload<T>(value: T, path = "event.payload"): T 
     case "OutputChunk":
       validateOutputChunk(body, `${path}.OutputChunk`);
       break;
-    case "OutputChunkBinary":
-      validateOutputChunkBinary(body, `${path}.OutputChunkBinary`);
-      break;
-    case "OutputEof":
-      validateSingleStringField(body, `${path}.OutputEof`, "id");
-      break;
     case "FgOutput":
       validateFgOutput(body, `${path}.FgOutput`);
+      break;
+    case "FgControlChanged":
+      validateFgControlChanged(body, `${path}.FgControlChanged`);
       break;
     case "FgExited":
       validateFgExited(body, `${path}.FgExited`);
@@ -472,27 +472,55 @@ function validatePong(value: unknown, path: string): void {
 
 function validateOutputChunk(value: unknown, path: string): void {
   const record = exactRecord(value, path, ["id", "stream", "data"]);
-  stringField(record, "id", path);
+  validateStepId(record.id, `${path}.id`);
   enumField(record, "stream", path, STREAM_VARIANTS);
-  stringField(record, "data", path);
-}
-
-function validateOutputChunkBinary(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["id", "stream", "base64"]);
-  stringField(record, "id", path);
-  enumField(record, "stream", path, STREAM_VARIANTS);
-  validateCanonicalBase64(record.base64, `${path}.base64`);
-}
-
-function validateFgOutput(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["data"]);
   validateCanonicalBase64(record.data, `${path}.data`);
 }
 
+function validateFgOutput(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "attachment_id", "data"]);
+  validateStepId(record.id, `${path}.id`);
+  usizeField(record, "attachment_id", path);
+  validateCanonicalBase64(record.data, `${path}.data`);
+}
+
+function validateFgControlChanged(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "attachment_id", "control_available"]);
+  validateStepId(record.id, `${path}.id`);
+  usizeField(record, "attachment_id", path);
+  booleanField(record, "control_available", path);
+}
+
 function validateFgExited(value: unknown, path: string): void {
-  const record = exactRecord(value, path, ["id", "reason"]);
-  stringField(record, "id", path);
+  const record = exactRecord(value, path, ["id", "attachment_id", "reason"]);
+  validateStepId(record.id, `${path}.id`);
+  usizeField(record, "attachment_id", path);
   stringField(record, "reason", path);
+}
+
+function validateForegroundAttachment(value: unknown, path: string): void {
+  const record = exactRecord(value, path, [
+    "id",
+    "attachment_id",
+    "role",
+    "control_available",
+    "snapshot",
+    "snapshot_truncated",
+  ]);
+  validateStepId(record.id, `${path}.id`);
+  usizeField(record, "attachment_id", path);
+  enumField(record, "role", path, new Set(["controller", "observer"]));
+  booleanField(record, "control_available", path);
+  validateCanonicalBase64(record.snapshot, `${path}.snapshot`);
+  booleanField(record, "snapshot_truncated", path);
+}
+
+function validateForegroundRoleChanged(value: unknown, path: string): void {
+  const record = exactRecord(value, path, ["id", "attachment_id", "role", "control_available"]);
+  validateStepId(record.id, `${path}.id`);
+  usizeField(record, "attachment_id", path);
+  enumField(record, "role", path, new Set(["controller", "observer"]));
+  booleanField(record, "control_available", path);
 }
 
 function validateSingleStringField(value: unknown, path: string, key: string): void {
