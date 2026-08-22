@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { cueSkillsRoot } from "@zendev-lab/cue";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
   CURRENT_SPARK_SESSION_VERSION,
@@ -20,6 +21,7 @@ import {
   createSparkDaemonCordisRoot,
   mountSparkDaemonStorePlugin,
   openSparkDaemonCordisContext,
+  resolveCueSkillRoot,
   sparkDaemonStoresFromContext,
   type SparkDaemonStoreServices,
 } from "./cordis-root.ts";
@@ -75,6 +77,10 @@ async function cueSkillRoot(): Promise<string> {
 }
 
 describe("spark daemon Cordis root", () => {
+  it("resolves the Cue Skill from the exact package dependency", () => {
+    expect(resolveCueSkillRoot()).toBe(cueSkillsRoot);
+  });
+
   it("resolves mounted stores from the root context", async () => {
     const stores = fakeStores();
     const root = await createSparkDaemonCordisRoot(stores, { sessionsRoot: await sessionsRoot() });
@@ -169,7 +175,7 @@ describe("spark daemon Cordis root", () => {
         dshHome: await sessionsRoot(),
         cueSkillRoot: missing,
       }),
-    ).rejects.toThrow(/could not find the verified cue Skill/);
+    ).rejects.toThrow(/could not find the package-owned cue Skill/);
   });
 
   it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
