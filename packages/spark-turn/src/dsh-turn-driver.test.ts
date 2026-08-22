@@ -230,6 +230,174 @@ test("runSparkDshTurn rejects pre-start cancellation without reserving a Turn", 
   }
 });
 
+test("runSparkDshTurn starts no model work when the Invocation reservation cannot persist", async () => {
+  const ctx = new Context();
+  await mountLoop(ctx);
+  const events: string[] = [];
+  let llmCalls = 0;
+  ctx.on("session/event", (_session, event) => events.push(event.type));
+  ctx.on("session/flush", async () => {
+    throw new Error("reservation persistence failed");
+  });
+  const controller = new AbortController();
+
+  try {
+    await assert.rejects(
+      runSparkDshTurn({
+        ctx,
+        llm: {
+          stream() {
+            llmCalls += 1;
+            throw new Error("LLM must not start");
+          },
+        },
+        sessionId: "reservation-persistence-failure",
+        invocation: createSparkInvocationService({
+          cwd: "/tmp",
+          sessionId: "reservation-persistence-failure",
+          invocationId: "inv_reservation_persistence_failure",
+          attempt: {
+            epoch: 1,
+            daemonGeneration: 1,
+            correlationId: "attempt:inv_reservation_persistence_failure:1",
+          },
+          signal: controller.signal,
+        }),
+        followupText: "do not start",
+        tools: [],
+        streamIdleTimeoutMs: 0,
+        signal: controller.signal,
+        hooks: {
+          assemble: async () => {
+            throw new Error("turn assembly must not start");
+          },
+          dispatchToolCall: async () => {
+            throw new Error("tool dispatch must not start");
+          },
+          promptItems: () => [],
+          roundtrips: () => 0,
+        },
+      }),
+      /reservation persistence failed/,
+    );
+    assert.equal(llmCalls, 0);
+    assert.equal(events.filter((event) => event === "spark/invocation").length, 1);
+    assert.equal(events.includes("turn/start"), false);
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
+test("runSparkDshTurn starts no model work without a Session persistence owner", async () => {
+  const ctx = new Context();
+  await mountLoop(ctx);
+  let llmCalls = 0;
+  const controller = new AbortController();
+
+  try {
+    await assert.rejects(
+      runSparkDshTurn({
+        ctx,
+        llm: {
+          stream() {
+            llmCalls += 1;
+            throw new Error("LLM must not start");
+          },
+        },
+        sessionId: "reservation-persistence-missing",
+        invocation: createSparkInvocationService({
+          cwd: "/tmp",
+          sessionId: "reservation-persistence-missing",
+          invocationId: "inv_reservation_persistence_missing",
+          attempt: {
+            epoch: 1,
+            daemonGeneration: 1,
+            correlationId: "attempt:inv_reservation_persistence_missing:1",
+          },
+          signal: controller.signal,
+        }),
+        followupText: "do not start",
+        tools: [],
+        streamIdleTimeoutMs: 0,
+        signal: controller.signal,
+        hooks: {
+          assemble: async () => {
+            throw new Error("turn assembly must not start");
+          },
+          dispatchToolCall: async () => {
+            throw new Error("tool dispatch must not start");
+          },
+          promptItems: () => [],
+          roundtrips: () => 0,
+        },
+      }),
+      /has no Session persistence owner/,
+    );
+    assert.equal(llmCalls, 0);
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
+test("runSparkDshTurn starts no model work when cancellation arrives during reservation flush", async () => {
+  const ctx = new Context();
+  await mountLoop(ctx);
+  const controller = new AbortController();
+  const events: string[] = [];
+  let llmCalls = 0;
+  ctx.on("session/event", (_session, event) => events.push(event.type));
+  ctx.on("session/flush", async () => {
+    controller.abort(new Error("abort during reservation flush"));
+  });
+
+  try {
+    await assert.rejects(
+      runSparkDshTurn({
+        ctx,
+        llm: {
+          stream() {
+            llmCalls += 1;
+            throw new Error("LLM must not start");
+          },
+        },
+        sessionId: "reservation-flush-cancellation",
+        invocation: createSparkInvocationService({
+          cwd: "/tmp",
+          sessionId: "reservation-flush-cancellation",
+          invocationId: "inv_reservation_flush_cancellation",
+          attempt: {
+            epoch: 1,
+            daemonGeneration: 1,
+            correlationId: "attempt:inv_reservation_flush_cancellation:1",
+          },
+          signal: controller.signal,
+        }),
+        followupText: "do not start",
+        tools: [],
+        streamIdleTimeoutMs: 0,
+        signal: controller.signal,
+        hooks: {
+          assemble: async () => {
+            throw new Error("turn assembly must not start");
+          },
+          dispatchToolCall: async () => {
+            throw new Error("tool dispatch must not start");
+          },
+          promptItems: () => [],
+          roundtrips: () => 0,
+        },
+      }),
+      /abort during reservation flush/,
+    );
+    assert.equal(llmCalls, 0);
+    assert.equal(events.filter((event) => event === "spark/invocation").length, 1);
+    assert.equal(events.includes("turn/start"), false);
+    assert.equal(events.includes("user/message"), false);
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
 test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
@@ -538,6 +706,7 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
 test("runSparkDshTurn isolates sparkInvocation across concurrent Agents", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
+  ctx.on("session/flush", async () => undefined);
   const seen = new Set<string>();
   const model: Model<string> = {
     id: "concurrent-execution-model",

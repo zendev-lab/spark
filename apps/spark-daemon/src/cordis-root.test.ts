@@ -349,10 +349,20 @@ describe("spark daemon Cordis root", () => {
     });
     let calls = 0;
     let nativeToolNames: string[] = [];
+    const persistedReservationsAtModelStart: string[] = [];
     const llm: SparkTurnLlm = {
       async *stream(options) {
         calls += 1;
         nativeToolNames = options.tools?.map((tool) => tool.name) ?? [];
+        const persisted = (await readFile(seed.path, "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { type?: string; data?: unknown })
+          .filter((event) => event.type === "spark/invocation")
+          .at(-1)?.data as { invocationId?: string; attemptEpoch?: number } | undefined;
+        persistedReservationsAtModelStart.push(
+          `${persisted?.invocationId}:${persisted?.attemptEpoch}`,
+        );
         const text = `native reply ${calls}`;
         yield { type: "block-start", index: 0, blockType: "text" };
         yield { type: "text-delta", index: 0, text };
@@ -507,6 +517,11 @@ describe("spark daemon Cordis root", () => {
         .filter((event) => event.type === "spark/invocation");
       expect(invocationEvents).toHaveLength(3);
       expect(invocationEvents.every((event) => event.ignorable === true)).toBe(true);
+      expect(persistedReservationsAtModelStart).toEqual([
+        "inv_shared_1:1",
+        "inv_shared_2:1",
+        "inv_shared_2:2",
+      ]);
     } finally {
       await root.dispose();
     }

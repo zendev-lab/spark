@@ -121,6 +121,57 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("builds the in-process fallback context from the replacement attempt", async () => {
+    const requests: Array<{ epoch: number; correlationId: string }> = [];
+    let calls = 0;
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(request, parent) {
+        calls += 1;
+        requests.push({ epoch: request.attemptEpoch, correlationId: request.correlationId });
+        if (calls === 1) throw new ExecutionAttemptCrashedError("process_spawn_failed");
+        parent.accepted();
+        parent.running();
+        return await parent.executeInProcess();
+      },
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => ({ invocationAttempt: context.invocationAttempt }),
+      { executionAttemptAdapter: adapter },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "session-replacement-fallback",
+        prompt: "replacement fallback",
+        task: {
+          type: "session.run",
+          sessionId: "session-replacement-fallback",
+          prompt: "replacement fallback",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(requests).toEqual([
+        { epoch: 1, correlationId: `attempt:${invocation.invocationId}:1` },
+        { epoch: 2, correlationId: `attempt:${invocation.invocationId}:1:retry:2` },
+      ]);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: {
+          invocationAttempt: {
+            epoch: 2,
+            daemonGeneration: 1,
+            correlationId: `attempt:${invocation.invocationId}:1:retry:2`,
+          },
+        },
+      });
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
   it("publishes an executor event only after both durable rows commit", async () => {
     let invocationId = "";
     let observedCommittedRows = false;

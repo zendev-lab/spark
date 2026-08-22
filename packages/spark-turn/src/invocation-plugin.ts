@@ -31,8 +31,9 @@ export function createSparkInvocationPlugin(invocation: SparkInvocationService):
 /**
  * Reserve the single DSH Turn allowed for this durable execution attempt.
  *
- * The append is the fail-closed boundary: a crash after it requires a new
- * daemon attempt rather than replaying another Turn under the same identity.
+ * The caller must flush the Session before starting the Turn. Once that
+ * checkpoint succeeds, recovery requires a new daemon attempt rather than
+ * replaying another Turn under the same identity.
  */
 export function reserveSparkInvocationTurn(
   session: Session,

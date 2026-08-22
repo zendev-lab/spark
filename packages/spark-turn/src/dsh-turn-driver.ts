@@ -259,7 +259,14 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
     } else {
       input.signal.addEventListener("abort", cancelAgent, { once: true });
     }
-    if (input.invocation) reserveSparkInvocationTurn(handle.agent.session, input.invocation);
+    if (input.invocation) {
+      reserveSparkInvocationTurn(handle.agent.session, input.invocation);
+      const persisted = await handle.agent.ctx.sessions.flush(handle.agent.session);
+      if (!persisted) {
+        throw new Error("Spark Invocation reservation has no Session persistence owner");
+      }
+      input.signal.throwIfAborted();
+    }
     handle.agent.followup(
       createUserMessage({
         content: [{ type: "text", text: input.followupText }],
