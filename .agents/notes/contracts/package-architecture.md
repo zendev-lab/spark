@@ -168,7 +168,7 @@ public package.
   spark-hub + embedded Web build + Hub migrations
 
 @zendev-lab/spark-web-dsh
-  optional spark-web-dsh compatibility app
+  independent spark-web-dsh fallback app
 ```
 
 The root package is the complete-installation meta package and managed-update
@@ -226,8 +226,9 @@ Cordis plugin happens to be exported:
   names its exact local Spark dependencies and exit condition; the architecture
   gate rejects unregistered or stale edges.
 
-The selected migration names and replacement order are explained in the dated
-[`DSH package reuse and naming decision`](../decisions/2026-08-20-dsh-package-naming.md).
+The selected final names, deletion set, Web product boundaries, and constrained
+migration order are explained in the dated
+[`Web replacement and package normalization decision`](../decisions/2026-08-23-web-replacement-and-package-normalization.md).
 
 ## Layer meanings
 
@@ -262,10 +263,13 @@ not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.
 
-The current package budget is closed at 41. The machine-readable inventory owns
-the current count and rationale. Raising or replacing that budget requires an
-explicit architecture decision in the inventory rather than a new constant in
-a checker.
+The current package budget is closed at 41 while the transition graph still
+contains `spark-host`, `spark-modes`, and `spark-turn`. The selected
+normalization performs ten in-place renames and deletes those three workspaces
+without replacements, so the final budget is 38. The machine-readable inventory remains authoritative
+for the landed count and changes only with each real workspace migration.
+Raising or replacing its ceiling requires an explicit architecture decision in
+the inventory rather than a new constant in a checker.
 
 ## Deliberate boundaries
 
