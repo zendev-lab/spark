@@ -155,15 +155,7 @@ async function main(): Promise<void> {
     packageNames,
   );
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-tool-surface-check" });
-  const registered = await registerSparkProductCapabilities(host);
-  const failedCapabilities = registered.outcomes.filter((outcome) => !outcome.ok);
-  if (failedCapabilities.length > 0) {
-    throw new Error(
-      `static product composition failed: ${failedCapabilities
-        .map((outcome) => `${outcome.name}: ${outcome.error ?? "unknown error"}`)
-        .join("; ")}`,
-    );
-  }
+  await registerSparkProductCapabilities(host);
   const hostMeasurements = host
     .listTools()
     .filter((tool) => tool.active)

@@ -5,6 +5,7 @@ import {
   SparkHostRuntime,
   SparkProviderRegistry,
   loadProviderPlugins,
+  loadSparkProductAgentPlugins,
   loadSparkProductCapabilities,
   loadSparkProductDshToolSurfaces,
   registerSparkProductCapabilities,
@@ -30,21 +31,28 @@ test("Spark product composition has a fixed capability set", () => {
 test("Spark product composition registers capabilities and its DSH agent plugins", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-product-composition-test" });
 
-  const result = await registerSparkProductCapabilities(host);
+  await registerSparkProductCapabilities(host);
 
-  assert.equal(result.outcomes.length, 9);
-  assert.equal(
-    result.outcomes.every((outcome) => outcome.ok),
-    true,
-  );
   assert.deepEqual(
-    result.agentPlugins.map((plugin) => plugin.name),
+    loadSparkProductAgentPlugins().map((plugin) => plugin.name),
     ["dsh-tool-cue", "dsh-tool-fusion"],
   );
   assert.equal(host.getAllTools().length > 0, true);
   assert.equal(
     host.getAllTools().some((tool) => tool.name === "cue_exec"),
     false,
+  );
+});
+
+test("Spark product composition rejects a required capability registration failure", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-product-composition-failure-test" });
+  host.registerTool = () => {
+    throw new Error("required capability registration failed");
+  };
+
+  await assert.rejects(
+    registerSparkProductCapabilities(host),
+    /required capability registration failed/u,
   );
 });
 

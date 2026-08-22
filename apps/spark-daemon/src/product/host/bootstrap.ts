@@ -46,7 +46,10 @@ import {
   loadSparkConfig,
   saveSparkConfig,
 } from "./config.ts";
-import { registerSparkProductCapabilities } from "./product-composition.ts";
+import {
+  loadSparkProductAgentPlugins,
+  registerSparkProductCapabilities,
+} from "./product-composition.ts";
 import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import {
   SparkModelSelector,
@@ -225,14 +228,7 @@ export async function createSparkCliHostServices(
     options.sessionManager ?? createSparkCliSessionManagerStub(sessionStore, cwd),
   );
 
-  const productRegistration = await registerSparkProductCapabilities(runtime);
-  for (const outcome of productRegistration.outcomes) {
-    if (!outcome.ok)
-      diagnostics.push({
-        type: "warning",
-        message: `Product capability ${outcome.name}: ${outcome.error}`,
-      });
-  }
+  await registerSparkProductCapabilities(runtime);
 
   const themeCatalog = await loadSparkThemeCatalog({
     cwd,
@@ -288,7 +284,7 @@ export async function createSparkCliHostServices(
     host: runtime,
     llm: llmComposition.llm,
     dshContext: options.dshContext,
-    agentPlugins: productRegistration.agentPlugins,
+    agentPlugins: loadSparkProductAgentPlugins(),
     getModel: () => {
       const model = providerRegistry.buildActiveModel();
       if (!model) throw new Error("No active Spark model selected");
@@ -450,7 +446,6 @@ export async function createSparkCliHostServices(
     promptTemplates,
     agentLoop,
     disposeLlm: () => llmComposition.dispose(),
-    productRegistration,
     providerLoadResult,
     diagnostics,
     themeCatalog,

@@ -1,4 +1,5 @@
 const {
+  TEST_SOURCE_PATTERN,
   generateLayerRules,
   loadArchitectureInventory,
   resolvedPackagePattern,
@@ -311,6 +312,18 @@ module.exports = {
         path: sparkClientAppInternalResolvedPathPattern(),
       },
     },
+    {
+      name: "client-surfaces-no-daemon-internals",
+      comment: "Hub and native Web must use daemon client APIs, not daemon product internals.",
+      severity: "error",
+      from: {
+        path: "^(apps/spark-(?:hub|web)/|packages/spark-hub-)",
+        pathNot: TEST_SOURCE_PATTERN,
+      },
+      to: {
+        path: sparkDaemonInternalResolvedPathPattern(),
+      },
+    },
   ],
   options: {
     doNotFollow: {
@@ -388,8 +401,7 @@ function sparkOutsidePiFoundationResolvedPathPattern() {
 
 function sparkAppInternalResolvedPathPattern() {
   return [
-    "node_modules/.*/@zendev-lab/spark-daemon(?:/|$)",
-    "/node_modules/@zendev-lab/spark-daemon(?:/|$)",
+    sparkDaemonInternalResolvedPathPattern(),
     "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
     "/node_modules/@zendev-lab/spark-cli(?:/|$)",
     "node_modules/.*/@zendev-lab/spark-web(?:/|$)",
@@ -397,6 +409,15 @@ function sparkAppInternalResolvedPathPattern() {
     "^apps/spark-daemon/",
     "^apps/spark-web/",
     "^apps/spark-cli/",
+  ].join("|");
+}
+
+function sparkDaemonInternalResolvedPathPattern() {
+  return [
+    "node_modules/.*/@zendev-lab/spark-daemon(?:/|$)",
+    "/node_modules/@zendev-lab/spark-daemon(?:/|$)",
+    "^@zendev-lab/spark-daemon(?:/|$)",
+    "^apps/spark-daemon/",
   ].join("|");
 }
 

@@ -250,6 +250,23 @@ describe("architecture inventory governance", () => {
     expect(rule.from.pathNot).toContain("packages/spark-turn/");
   });
 
+  test("keeps Hub and native Web behind daemon client APIs", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "client-surfaces-no-daemon-internals",
+    );
+    expect(rule).toBeDefined();
+    const sourcePattern = new RegExp(rule.from.path);
+    const sourceExclusionPattern = new RegExp(rule.from.pathNot);
+    const targetPattern = new RegExp(rule.to.path);
+    expect(sourcePattern.test("apps/spark-hub/src/index.ts")).toBe(true);
+    expect(sourcePattern.test("apps/spark-web/src/index.ts")).toBe(true);
+    expect(sourcePattern.test("packages/spark-hub-runtime/src/index.ts")).toBe(true);
+    expect(sourceExclusionPattern.test("apps/spark-hub/src/daemon.integration.test.ts")).toBe(true);
+    expect(targetPattern.test("apps/spark-daemon/src/product/host/bootstrap.ts")).toBe(true);
+    expect(targetPattern.test("@zendev-lab/spark-daemon/headless-role-executor")).toBe(true);
+  });
+
   test("rejects growing or stale exception metadata", () => {
     const candidate = structuredClone(inventory);
     candidate.governance.temporaryDependencyExceptions[0].nonGrowth = false;

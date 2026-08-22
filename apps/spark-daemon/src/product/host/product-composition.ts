@@ -118,18 +118,6 @@ export interface SparkProductCapability {
   register: SparkProductCapabilityFactory;
 }
 
-export interface SparkProductRegistrationOutcome {
-  name: SparkProductCapabilityName;
-  kind: "capability";
-  ok: boolean;
-  error?: string;
-}
-
-export interface SparkProductRegistration {
-  outcomes: SparkProductRegistrationOutcome[];
-  agentPlugins: Plugin[];
-}
-
 const SPARK_PRODUCT_CAPABILITIES: readonly SparkProductCapability[] = [
   {
     name: "@zendev-lab/spark-ask",
@@ -172,28 +160,10 @@ const SPARK_PRODUCT_CAPABILITIES: readonly SparkProductCapability[] = [
   },
 ];
 
-/**
- * Register the fixed Spark product. Failures stay isolated so startup can
- * report every broken capability in one diagnostic pass.
- */
-export async function registerSparkProductCapabilities(
-  api: SparkHostAPI,
-): Promise<SparkProductRegistration> {
-  const outcomes: SparkProductRegistrationOutcome[] = [];
+export async function registerSparkProductCapabilities(api: SparkHostAPI): Promise<void> {
   for (const capability of SPARK_PRODUCT_CAPABILITIES) {
-    try {
-      await capability.register(api);
-      outcomes.push({ name: capability.name, kind: "capability", ok: true });
-    } catch (error) {
-      outcomes.push({
-        name: capability.name,
-        kind: "capability",
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await capability.register(api);
   }
-  return { outcomes, agentPlugins: loadSparkProductAgentPlugins() };
 }
 
 export function loadSparkProductCapabilities(): SparkProductCapability[] {

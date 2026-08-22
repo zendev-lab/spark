@@ -6,7 +6,6 @@ import type {
   ToolEffect,
 } from "@zendev-lab/spark-core";
 import type { SparkConfig } from "./config.ts";
-import type { SparkProductRegistration } from "./product-composition.ts";
 import type { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import type { SparkModelSelector, SparkModelPicker } from "./model-selector.ts";
 import type { SparkHostModelRegistry } from "./model-registry.ts";
@@ -57,7 +56,6 @@ export interface SparkCliHostServices {
   promptTemplates?: SparkPromptTemplateResolveResult;
   agentLoop: SparkAgentLoop;
   disposeLlm?: () => Promise<void>;
-  productRegistration: SparkProductRegistration;
   providerLoadResult: ProviderPluginLoadResult;
   diagnostics: SparkCliHostDiagnostic[];
   themeCatalog?: SparkThemeCatalog;

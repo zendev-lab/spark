@@ -240,8 +240,6 @@ export type {
   SparkProductCapabilityFactory,
   SparkProductCapabilityName,
   SparkProductDshToolSurface,
-  SparkProductRegistration,
-  SparkProductRegistrationOutcome,
 } from "./product-composition.ts";
 export type {
   SparkHtmlExportInput,
