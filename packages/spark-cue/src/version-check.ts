@@ -2,7 +2,7 @@
  * Detect outdated `cued` daemons from the spark-cue extension.
  *
  * spark-cue itself does not have an authoritative "expected" cued version —
- * it is shipped independently and may be installed against many cue-shell
+ * it is shipped independently and may be installed against many Cue
  * releases over its lifetime. So instead of comparing against spark-cue's own
  * `package.json` version, we ask the upstream release channel:
  *
@@ -107,11 +107,11 @@ export function renderWarning(verdict: VersionVerdict): string | null {
   const lines: string[] = [];
   if (verdict.kind === "unknown-running") {
     lines.push(
-      `spark-cue: cued does not report its version; latest cue-shell release is ${verdict.latest}.`,
+      `spark-cue: cued does not report its version; latest Cue release is ${verdict.latest}.`,
     );
   } else {
     lines.push(
-      `spark-cue: cued ${verdict.daemon.kind === "reported" ? verdict.daemon.version : "(unknown)"} is older than latest cue-shell release ${verdict.latest}.`,
+      `spark-cue: cued ${verdict.daemon.kind === "reported" ? verdict.daemon.version : "(unknown)"} is older than latest Cue release ${verdict.latest}.`,
     );
   }
   lines.push("  Self-update + restart:  cued upgrade");
@@ -186,7 +186,7 @@ async function resolveLatest(override: VersionCheckOptions["latest"]): Promise<s
 }
 
 /**
- * Fetch the latest cue-shell release tag, with a small on-disk cache.
+ * Fetch the latest Cue release tag, with a small on-disk cache.
  *
  * Returns `null` on any failure (offline, rate-limited, parse error,
  * tag missing, etc.) so callers stay quiet rather than nagging users
@@ -293,7 +293,7 @@ function envFlag(name: string): boolean {
  *
  * Splits on dot, compares numeric parts numerically, falls back to string
  * compare for anything non-numeric (e.g. `1.0.0-rc1`). Good enough to
- * decide "older than latest release" on the cue-shell tag scheme without
+ * decide "older than latest release" on the Cue tag scheme without
  * pulling a full semver library into this extension.
  */
 export function compareSemver(a: string, b: string): number {
