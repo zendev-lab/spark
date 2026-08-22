@@ -149,6 +149,7 @@ export interface CueExecResult extends CueCanonicalBase {
   timedOut: boolean;
   detached: boolean;
   cancelled: boolean;
+  cancelReason?: ExecutionCancelReason;
   stdout: CueTextStream;
   stderr: CueTextStream;
   warnings: string[];
@@ -341,22 +342,27 @@ function canonicalize<Name extends CueToolName>(
 ): CueToolResultMap[Name] {
   if (name === "cue_exec") {
     const background = (args as CueExecArgs).background === true;
+    const status = optionalString(details.status);
+    const wasCancelled = cancelled || status?.toLowerCase() === "cancelled";
     return {
       tool: name,
       text,
-      ok,
+      ok: ok && !wasCancelled,
       kind: background ? "background" : "foreground",
       ...(optionalString(details.executionId)
         ? { executionId: optionalString(details.executionId) }
         : {}),
       stepIds: stringArray(details.stepIds),
-      ...(optionalString(details.status) ? { status: optionalString(details.status) } : {}),
+      ...(status ? { status } : {}),
       ...(optionalNumber(details.exitCode) !== undefined
         ? { exitCode: optionalNumber(details.exitCode) }
         : {}),
       timedOut: details.timedOut === true,
       detached: background || details.switchedToBackground === true,
-      cancelled,
+      cancelled: wasCancelled,
+      ...(details.cancelReason === "user" || details.cancelReason === "forced"
+        ? { cancelReason: details.cancelReason }
+        : {}),
       stdout: stream(details, "stdout"),
       stderr: stream(details, "stderr"),
       warnings: Array.isArray(details.warnings)

@@ -109,6 +109,7 @@ const execOutput = {
     timedOut: { type: "boolean", required: true },
     detached: { type: "boolean", required: true },
     cancelled: { type: "boolean", required: true },
+    cancelReason: { type: "string", enum: ["user", "forced"] },
     stdout: { ...streamSchema, required: true },
     stderr: { ...streamSchema, required: true },
     warnings: { type: "array", items: { type: "string" }, required: true },

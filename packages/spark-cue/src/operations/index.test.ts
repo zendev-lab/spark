@@ -77,6 +77,39 @@ describe("host-neutral Cue operation runtime", () => {
     failed.runtime.dispose();
   });
 
+  it("preserves daemon-side cue_exec cancellation and its reason", async () => {
+    const { runtime } = runtimeWithRunExecution({
+      executionId: "E-cancelled",
+      stepIds: ["E-cancelled/S1"],
+      status: "cancelled",
+      cancelReason: "forced",
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      timedOut: false,
+      warnings: [],
+      stdoutEncoding: "utf8",
+      stderrEncoding: "utf8",
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    });
+
+    await expect(
+      runtime.execute(
+        "cue_exec",
+        { command: "sleep 10" },
+        { sessionId: "dsh:exec-cancel", cwd: "/work" },
+      ),
+    ).resolves.toMatchObject({
+      tool: "cue_exec",
+      ok: false,
+      status: "cancelled",
+      cancelled: true,
+      cancelReason: "forced",
+    });
+    runtime.dispose();
+  });
+
   it("treats foreground timeout as a detached domain result", async () => {
     const { runtime } = runtimeWithRunExecution({
       executionId: "E3",
