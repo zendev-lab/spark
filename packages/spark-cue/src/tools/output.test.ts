@@ -21,9 +21,18 @@ import {
   renderCueScriptResult,
   registerSparkCueTools,
   resolveCueWorkingDirectory,
+  resolvePythonRunner,
 } from "../index.ts";
 
 type RegisteredSparkCueTool = Parameters<SparkCueHostApi["registerTool"]>[0];
+
+test("resolvePythonRunner preserves uv interpreter requests without host classification", () => {
+  for (const request of ["/remote/.venv", "/remote/bin/python3"]) {
+    const runner = resolvePythonRunner({ venv: request, scriptMode: true });
+    assert.equal(runner.pythonRequest, request);
+    assert.deepEqual(runner.argv, ["uv", "run", "--python", request, "--script"]);
+  }
+});
 
 test("defaultSocketPath treats an empty XDG_RUNTIME_DIR as unset", () => {
   const previous = process.env.XDG_RUNTIME_DIR;
@@ -392,7 +401,7 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
     () => undefined,
     ctx,
   );
-  assert.equal(commands[1], "uv run --python /work/.venv/bin/python --script /work/tools/check.py");
+  assert.equal(commands[1], "uv run --python /work/.venv --script /work/tools/check.py");
   assert.equal((fileResult.details as { venv?: string }).venv, "/work/.venv");
 
   const evalResult = await evalTool.execute(
@@ -406,11 +415,24 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
     () => undefined,
     ctx,
   );
-  assert.equal(
-    commands[2],
-    "printf %s \"print('ok')\" |> uv run --python /opt/venv/bin/python --script -",
-  );
+  assert.equal(commands[2], "printf %s \"print('ok')\" |> uv run --python /opt/venv --script -");
   assert.equal((evalResult.details as { venv?: string }).venv, "/opt/venv");
+
+  await evalTool.execute(
+    "call-nonlocal-python",
+    {
+      language: "python",
+      script: "print('remote')",
+      venv: "/remote-only/opt/python3",
+    },
+    new AbortController().signal,
+    () => undefined,
+    ctx,
+  );
+  assert.equal(
+    commands[3],
+    "printf %s \"print('remote')\" |> uv run --python /remote-only/opt/python3 --script -",
+  );
 
   await assert.rejects(
     () =>
