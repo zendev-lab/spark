@@ -13,12 +13,16 @@ import {
   roleRefFromDshRequest,
   type SparkSubagentHost,
   type SparkSubagentRegistry,
+  type SparkSubagentSendRequest,
   type SparkSubagentStartRequest,
   type SparkSubagentStartResult,
   type SparkSessionSubagentProvider,
 } from "./subagent.ts";
 
-function recordingHost(children: SparkSubagentStartRequest[] = []): SparkSubagentHost {
+function recordingHost(
+  children: SparkSubagentStartRequest[] = [],
+  sends: SparkSubagentSendRequest[] = [],
+): SparkSubagentHost {
   return {
     async createChild(input) {
       children.push(input);
@@ -27,6 +31,10 @@ function recordingHost(children: SparkSubagentStartRequest[] = []): SparkSubagen
         roleRef: input.roleRef,
         mode: input.mode,
       } satisfies SparkSubagentStartResult;
+    },
+    async send(input) {
+      sends.push(input);
+      return { sessionId: input.sessionId, invocationId: `inv_${sends.length}` };
     },
   };
 }
@@ -60,21 +68,25 @@ test("registers spawn and fork providers on the official HOST", () => {
     ],
   );
   assert.equal(providers[0]?.capabilities.persona, true);
+  assert.equal("prepareContinuable" in providers[0]!, false);
 });
 
-test("spawn start creates a Role-bound child through the host", async () => {
+test("spawn start creates a Role-bound child and sends the prompt", async () => {
   const children: SparkSubagentStartRequest[] = [];
-  const [spawn] = createSparkSessionSubagentProviders(recordingHost(children));
+  const sends: SparkSubagentSendRequest[] = [];
+  const [spawn] = createSparkSessionSubagentProviders(recordingHost(children, sends));
   const run = await spawn!.start({
     parent: { session: { id: " sess_admin " } },
     persona: "reviewer",
     label: " Audit ",
+    prompt: [{ type: "text", text: " Review the diff. " }],
   });
   const settled = await run.result;
   assert.equal(String(run.id), "sess_1");
   assert.equal(run.localAgent, undefined);
   assert.equal(settled.stopReason, "completed");
-  assert.match(settled.output[0]?.text ?? "", /role:builtin-reviewer/);
+  assert.match(settled.output[0]?.text ?? "", /session create\+send/);
+  assert.match(settled.output[0]?.text ?? "", /inv_1/);
   assert.deepEqual(children, [
     {
       parentSessionId: "sess_admin",
@@ -83,16 +95,24 @@ test("spawn start creates a Role-bound child through the host", async () => {
       name: "Audit",
     },
   ]);
+  assert.deepEqual(sends, [
+    {
+      parentSessionId: "sess_admin",
+      sessionId: "sess_1",
+      body: "Review the diff.",
+    },
+  ]);
 });
 
 test("fork start keeps fork mode and maps a missing persona to builtin executor", async () => {
   const children: SparkSubagentStartRequest[] = [];
-  const providers = createSparkSessionSubagentProviders(recordingHost(children));
+  const sends: SparkSubagentSendRequest[] = [];
+  const providers = createSparkSessionSubagentProviders(recordingHost(children, sends));
   const fork = providers[1]!;
   await fork.start({ parent: { session: { id: "sess_admin" } } });
   assert.equal(children[0]?.mode, "fork");
   assert.equal(children[0]?.roleRef, "role:builtin-executor");
-  assert.deepEqual(await fork.prepareContinuable({}), {});
+  assert.equal(sends.length, 0);
 });
 
 test("rejects a human persona and a missing parent before calling the host", async () => {
@@ -126,7 +146,7 @@ test("apply() registers providers onto ctx.subagents", async () => {
   await ctx.fiber.dispose();
 });
 
-test("DSH SessionStore host spawns a live child with origin subagent", async () => {
+test("DSH SessionStore host spawns a live child and send appends the prompt", async () => {
   const ctx = new Context();
   await ctx.plugin(SessionStore);
   const host = createSparkSessionStoreSubagentHost(ctx);
@@ -140,6 +160,18 @@ test("DSH SessionStore host spawns a live child with origin subagent", async () 
   assert.equal(started.mode, "spawn");
   assert.equal(child?.header.origin, "subagent");
   assert.equal(String(child?.header.parentSession), String(parent.id));
+  await host.send({
+    parentSessionId: String(parent.id),
+    sessionId: started.sessionId,
+    body: "Review the diff.",
+  });
+  assert.equal(
+    child?.events.some(
+      (event) =>
+        event.type === "user/message" && JSON.stringify(event.data).includes("Review the diff."),
+    ),
+    true,
+  );
   await ctx.fiber.dispose();
 });
 

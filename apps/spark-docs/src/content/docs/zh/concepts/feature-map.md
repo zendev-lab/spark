@@ -88,7 +88,8 @@ Repro 拥有三个稳定子 Session：Implementation、Exactness 和 Formalize�
 
 Spark 运行时只有一种会话实体：Session。Role 是可复用的静态定义，运行时绑到
 Session 上。具有 child lineage 的 Session 就是 subsession；带显式 Role 绑定的
-子 Session 是 subagent。人类操作者不是 Role。Side Thread 功能创建只读子 Session。
+子 Session 是 subagent。人类操作者不是 Role。官方 DSH 的 `subagent` 工具映射为
+`session spawn|fork` 再 `session send`。Side Thread 功能创建只读子 Session。
 飞书、如流（Infoflow）和 QQ Bot 对话无需 Workspace，直接解析为 daemon 全局
 root Channel Session，也不会产生第二个执行所有者。Session 可以发送 request
 或 notification，并通过 Inbox 接收完成摘要。

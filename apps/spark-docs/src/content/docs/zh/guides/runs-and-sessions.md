@@ -58,7 +58,9 @@ spark web
 绑定 builtin `administrator`。任何具有 child lineage 的 Session 都是 subsession，
 无论 origin 来自 Side Thread、TaskRun、Workflow、driver、driver tick 还是 Invocation。
 通过 `session spawn|fork` 创建、带显式 Role 绑定的子 Session 是 subagent；这只是
-呈现用语，不是第二种运行时类型。
+呈现用语，不是第二种运行时类型。官方 DSH 的 `subagent` / `subagent_fork` 工具
+是兼容映射：内部是 `session spawn|fork` 再 `session send`；原生 session 工具
+仍可单独调用。
 活跃状态由 queued/running
 Invocation 推导，不依赖 UI 计时器。原生会话视图的 `status` 使用同一组三个值
 （`idle`、`queued`、`running`）；queued Invocation 不会被折叠成 `running`。临时 owned 子 Session 会随 owner 关闭并默认删除

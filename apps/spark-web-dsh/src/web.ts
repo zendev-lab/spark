@@ -19,9 +19,10 @@
  * 4. **dsh-tool-fusion plugin**, so the DSH-hosted web surface exposes the
  *    same bounded multi-model deliberation tool as daemon-hosted Spark.
  * 5. **spark-session-subagent plugin**, Role-bound spawn/fork providers
- *    registered onto the official DSH HOST `ctx.subagents`. The overlay
- *    disables stock in-process spawn/fork backends so they do not steal
- *    those names. Daemon mounts the same providers.
+ *    registered onto the official DSH HOST `ctx.subagents`. One-shot
+ *    `start()` maps onto create then send. The overlay disables stock
+ *    in-process spawn/fork backends so they do not steal those names.
+ *    Daemon mounts the same providers.
  * 6. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare

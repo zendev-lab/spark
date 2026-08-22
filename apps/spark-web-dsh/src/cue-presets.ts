@@ -150,6 +150,18 @@ export function replaceDshToolFsRow(source: string, specifier: string): string {
   return source.replace(row, `  name: ${JSON.stringify(specifier)}`);
 }
 
+export function mapSubagentDelegationToOneShot(source: string): string {
+  return source
+    .replace(
+      "        toolName: subagent\n        backgroundMode: continuable",
+      "        toolName: subagent\n        backgroundMode: one-shot",
+    )
+    .replace(
+      "        toolName: subagent_fork\n        backgroundMode: continuable",
+      "        toolName: subagent_fork\n        backgroundMode: one-shot",
+    );
+}
+
 function managedMetadata(source: string, id: SparkCuePreset): string {
   const mode = id === "spark-standard" ? "标准" : "PTC";
   const description =
@@ -168,9 +180,8 @@ function generatePreset(
   options: ManagedCuePresetOptions,
 ): Record<"agent.cordis.yml" | "preset.yml", string> {
   const base: UpstreamPreset = id === "spark-standard" ? "standard" : "code";
-  let composition = addCueSkillProvider(
-    removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]),
-    skillDir,
+  let composition = mapSubagentDelegationToOneShot(
+    addCueSkillProvider(removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]), skillDir),
   );
   if (options.toolFsPluginSpecifier !== undefined) {
     composition = replaceDshToolFsRow(composition, options.toolFsPluginSpecifier);
@@ -179,6 +190,12 @@ function generatePreset(
     if (composition.includes(forbidden)) {
       throw new Error(`spark web: preset transformation failed to remove ${forbidden}`);
     }
+  }
+  if (
+    composition.includes("toolName: subagent\n        backgroundMode: continuable") ||
+    composition.includes("toolName: subagent_fork\n        backgroundMode: continuable")
+  ) {
+    throw new Error("spark web: preset transformation failed to map subagent tools to one-shot");
   }
   return {
     "agent.cordis.yml": composition,

@@ -62,7 +62,10 @@ root is always bound to builtin `administrator`. Any Session with child
 lineage is a subsession regardless of whether its origin is a Side Thread,
 TaskRun, Workflow, driver, driver tick, or Invocation. A child with an
 explicit Role bind — created by `session spawn|fork` — is a subagent. That
-word is presentation language, not a second runtime type. Their active state
+word is presentation language, not a second runtime type. Official DSH
+`subagent` / `subagent_fork` tools are a compatibility mapping onto
+`session spawn|fork` plus `session send`; the native session tool remains
+callable on its own. Their active state
 comes from queued/running Invocations, not UI timers. Native session view
 `status` uses the same three values (`idle`, `queued`, `running`); a queued
 Invocation is not collapsed to `running`. Owned temporary children

@@ -347,6 +347,9 @@ describe("spark daemon Cordis root", () => {
             mode: input.mode,
           };
         },
+        async send(input) {
+          return { sessionId: input.sessionId, invocationId: "inv_child" };
+        },
       },
     });
     try {

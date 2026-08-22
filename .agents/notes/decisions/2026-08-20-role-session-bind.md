@@ -47,16 +47,21 @@ Invariants:
 DSH mapping: compose official `@deepseek-ai/dsh-subagent` as the HOST
 (`ctx.subagents`). `spark-session` exports Role-bound `spawn` / `fork`
 providers and a Cordis plugin (`inject: ["subagents"]`) that registers them.
-Persona maps onto Role (`executor` → `role:builtin-executor`; missing persona
-defaults to builtin executor). Daemon mounts `SubagentRuntime`, then the
-session plugin with `createSparkDaemonSubagentHost` so one-shot `start()`
-stays `createManagedChildSession`. spark-web-dsh inserts the same plugin and
-disables stock `subagent-spawn-in-process` / `subagent-fork-in-process`; it
-does not disable the official HOST. Do not reimplement `ctx.subagents`. Do
-not add a `dsh-spark` package. Official continuable identity reservation and
-Agent creation stay on the HOST continuation manager; Spark's Role-bound
-durable spawn is the provider `start()` path. Compaction and jobs remain
-later owner decisions.
+Official `subagent` / `subagent_fork` are a compatibility mapping, not a
+second runtime. One-shot `start()` is `createChild` then `send(kind=request)`
+— the same two primitives as `session({ action: "spawn" | "fork" })` plus
+`session({ action: "send", kind: "request" })`. Those native session tools
+remain the standalone surface. Persona maps onto Role (`executor` →
+`role:builtin-executor`; missing persona defaults to builtin executor).
+Daemon mounts `SubagentRuntime`, then the session plugin with
+`createSparkDaemonSubagentHost` so `start()` stays `createManagedChildSession`
+plus `session.send`. spark-web-dsh inserts the same plugin, disables stock
+`subagent-spawn-in-process` / `subagent-fork-in-process`, and maps its managed
+Cue `backgroundMode` for those tools to `one-shot` so the official tool hits
+provider `start()` instead of the HOST continuation manager. It does not
+disable the official HOST. Do not reimplement `ctx.subagents`. Do not add a
+`dsh-spark` package. Spark providers do not advertise `prepareContinuable`.
+Compaction and jobs remain later owner decisions.
 
 ## Rationale
 
@@ -81,8 +86,13 @@ for deletion.
 - `skill_agent` stays the only public ad-hoc (non-Role) child.
 - Builtin Roles remain `administrator | explorer | executor | reviewer`.
 - `ctx.subagents` is official. Spark registers spawn/fork only. Durable
-  one-shot children stay daemon Sessions. web-dsh's SessionStore fallback is
-  live-only and does not write Spark registry `roleBinding`.
+  one-shot children stay daemon Sessions. Official `subagent()` is
+  create+send; `session spawn|fork|send` remain independently callable.
+  web-dsh's SessionStore fallback is live-only and does not write Spark
+  registry `roleBinding`.
 - Do not create `@zendev-lab/dsh-spark`. Overlay remains spark-web-dsh.
-- Follow-up work may stamp Role bind onto continuable children the official
-  manager creates, and may surface the bind in the workbench inspector.
+- Providers do not implement `prepareContinuable`. Managed Cue presets map
+  spawn/fork tools to `backgroundMode: one-shot` so the official tool cannot
+  bypass Spark Role bind through the HOST continuation manager. Follow-up
+  work may wait the admitted Invocation to completion for a DSH-shaped
+  `SubagentRun.result`, and may surface the bind in the workbench inspector.
