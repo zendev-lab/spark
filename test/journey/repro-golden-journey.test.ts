@@ -702,7 +702,7 @@ async function createJourneyFixture(
     SPARK_DAEMON_SERVICE_MODE: "detached",
     SPARK_HEADLESS_EXECUTOR_MODULE: resolve(
       root,
-      "packages/spark-extension/src/headless-role-executor.ts",
+      "apps/spark-daemon/src/product/headless-role-executor.ts",
     ),
     SPARK_REPRO_SCRIPTED_PROVIDER_LEDGER: providerLedgerPath,
     SPARK_REPRO_FORGE_LEDGER: forgeLedgerPath,

@@ -1,14 +1,14 @@
 # spark-cue
 
-Reusable Spark extension package that exposes cue-shell as a durable, observable execution substrate.
+Reusable host-neutral capability that exposes cue-shell as a durable, observable execution substrate.
 
-`@zendev-lab/spark-cue` is infrastructure: it stays independent from Spark product packages and can be reused by Spark extension hosts.
+`@zendev-lab/spark-cue` is infrastructure: it stays independent from Spark product composition and can be reused by supported host adapters.
 
 Host adapters consume `@zendev-lab/spark-cue/operations`. Its
 `createCueToolRuntime(config)` API is the single host-neutral owner of parameter
 normalization, IPC, connection reuse, idempotent retries, cancellation,
 environment filtering, SSH cwd selection, and daemon lifecycle. The Spark/Pi
-extension and the private DSH adapter translate their host contracts into this
+legacy Pi adapter and the private DSH adapter translate their host contracts into this
 runtime rather than reimplementing Cue behavior.
 
 ## Transport profiles
@@ -48,7 +48,7 @@ status remains `Cancelled`.
 - `cue_scope` — inspect or update cue-shell's tool-local scope. It supports list/env/config/status, env set/unset, PATH prepend, cwd changes, and explicit host refresh. It never changes the immutable Spark session cwd. Scope lists omit env unless requested; sensitive values are always redacted from model-visible output.
 - `cue_history` — recent history only by default; `limit` and `tail_bytes` are passed to `cued` when supported and must be positive.
 
-The extension also disables the built-in `bash` tool on session start so command execution goes through cue-shell.
+The compatibility Pi adapter also disables the built-in `bash` tool on session start so command execution goes through cue-shell.
 
 ## Resource-gated commands
 

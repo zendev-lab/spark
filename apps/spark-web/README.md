@@ -20,7 +20,9 @@ spark web
 
 An explicit non-loopback `--host` also requires one or more `--trusted-host`
 values. The server validates Host, Origin/Fetch Metadata, mutation provenance,
-and the token. Settings distinguish API-key providers from OAuth login at
+and the token. Use `--hmr` only for local development when watching source
+changes; it switches to the Vite development server, while the long-lived
+default serves the prebuilt handler without HMR. Settings distinguish API-key providers from OAuth login at
 `/settings/oauth/:provider`; the workbench never echoes stored secrets. Shared
 presentation lives in `@zendev-lab/spark-ui`. cwd is only a launch context; an
 unregistered cwd still starts the workbench and can be registered from the home

@@ -50,9 +50,9 @@ for interpreting this file.
 - Dependencies point inward: applications may depend on composition, clients,
   capabilities, runtimes, contracts, and foundations; lower layers must not
   import application internals or product-private adapters.
-- `packages/spark-extension` is the single Spark product composition root.
-  Retain the Pi SDK kernel behind Spark boundaries; do not duplicate Spark
-  composition, recreate a second Spark extension implementation, or add a
+- The daemon's internal product modules are the single Spark product
+  composition root. Retain the Pi SDK kernel behind Spark boundaries; do not
+  create a second composition package, a Spark extension discovery path, or a
   Spark-owned `package.json#pi` discovery path.
 - Cross-surface schemas and semantics belong in `spark-protocol`. Transports
   validate and translate them; they do not define competing behavior.

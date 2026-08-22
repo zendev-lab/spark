@@ -71,6 +71,7 @@ export class SparkProviderLlmAdapter extends LlmAdapter {
       name: definition?.name ?? model,
       ...(definition
         ? {
+            inputModalities: [...definition.input],
             context: { contextWindow: definition.contextWindow },
             defaultMaxTokens: definition.maxTokens,
             ...(definition.reasoning

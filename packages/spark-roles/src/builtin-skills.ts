@@ -123,9 +123,8 @@ export async function renderBaseSystemPromptsPrompt(
 }
 
 /**
- * Discover the same builtin/Cue skill sources as the legacy full renderer but
- * inject metadata only. Kept in spark-extension so the legacy Pi host does not
- * depend on the native app's resolver.
+ * Discover the builtin/Cue skill sources used by daemon product composition
+ * and inject metadata only.
  */
 export async function renderBaseSystemPromptsCatalogPrompt(
   input: {

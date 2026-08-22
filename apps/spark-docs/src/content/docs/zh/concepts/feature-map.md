@@ -28,7 +28,7 @@ Hub 与本地 Web 也可作为独立 app package 安装。其他源码 workspace
 | 源码家族 | 职责 |
 | --- | --- |
 | `apps/spark-cli`、`spark-daemon`、`apps/spark-web`、`apps/spark-hub` | 可执行分发器与交互/运行时 host |
-| `packages/spark-extension`、`spark-daemon-client` | 产品组合根与共享 daemon client 边界 |
+| `apps/spark-daemon/src/product`、`spark-daemon-client` | daemon 内部产品组合根与共享 daemon client 边界 |
 | 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
 | `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-text` | 跨表面契约与低依赖基础层 |
 | `packages/spark-hub-*` | Hub 私有数据库、协调与本地化实现 |
@@ -96,11 +96,12 @@ root Channel Session，也不会产生第二个执行所有者。Session 可以�
 详情见[协作](/zh/guides/collaboration/)、
 [Daemon 全局 Channel](/zh/guides/channels/)和 [Side Threads](/zh/guides/side-threads/)。
 
-## 6. 模型、上下文、扩展与运维
+## 6. 模型、上下文、能力与运维
 
 - Provider、模型选择和推理强度属于共享运行时控制。
 - Memory、受限 context provider、产品 Artifact 和内部 Evidence 以不同可见性保存结果。
-- Saved workflow 扩展可重复流程；Fusion 和 Graft 需要显式启用。
+- Saved workflow 扩展可重复流程。Fusion 属于 daemon 与 DSH Web 的受支持产品组合；
+  Graft 只保留 Pi 兼容路径，不再是可发现的 Spark 产品扩展。
 - 托管更新、备份、访问 key、workspace 注册、诊断和恢复支持更复杂的运行场景。
 
 修改运行时存储前先看[配置与路径](/zh/reference/configuration-and-paths/)；

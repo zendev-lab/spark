@@ -16,7 +16,7 @@ import {
   type SparkLoopConditionReceipt,
   type SparkSessionReproWorkView,
 } from "@zendev-lab/spark-protocol";
-import sparkExtension from "@zendev-lab/spark-extension/extension";
+import registerSparkProduct from "./product/policy/index.ts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SparkDaemonLoopEvaluationTask, SparkDaemonLoopTickTask } from "./core/types.ts";
@@ -25,7 +25,7 @@ import { SparkInvocationStore } from "./store/invocations.ts";
 import { SparkLoopStore } from "./store/loops.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 
-type HostApi = Parameters<typeof sparkExtension>[0];
+type HostApi = Parameters<typeof registerSparkProduct>[0];
 type TestHostApi = HostApi &
   Pick<
     import("@zendev-lab/spark-core").SparkHostAPI,
@@ -359,7 +359,7 @@ async function createHarness(): Promise<SentinelHarness> {
       },
     }),
   };
-  sparkExtension(host);
+  registerSparkProduct(host);
 
   const harness: SentinelHarness = {
     dir,

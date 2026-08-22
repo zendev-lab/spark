@@ -25,6 +25,7 @@ import {
   type SparkDaemonStoreServices,
 } from "./cordis-root.ts";
 import { createDaemonChannelIngressRuntime } from "./channels/global-ingress-runtime.ts";
+import { loadSparkProductAgentPlugins } from "./product/host/product-composition.ts";
 
 const roots: string[] = [];
 
@@ -381,6 +382,7 @@ describe("spark daemon Cordis root", () => {
       getModel: () => model,
       streamIdleTimeoutMs: 0,
       agentPlugins: [
+        ...loadSparkProductAgentPlugins(),
         {
           name: "capture-spark-execution",
           inject: ["sparkExecution"],
@@ -421,16 +423,16 @@ describe("spark daemon Cordis root", () => {
       });
       const first = await store.load(seed.path);
       const firstMessages = first.entries.filter((entry) => entry.type === "message");
-      // The first native turn persists one DSH Skill catalog beside user/model messages.
-      expect(firstMessages).toHaveLength(3);
+      // The first native turn persists DSH Skill and sandbox-policy context beside user/model messages.
+      expect(firstMessages).toHaveLength(4);
       expect(firstMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(1);
 
       await loop.submit("second prompt");
       expect(root.ctx.agents.list()).toEqual([]);
       const second = await store.load(seed.path);
       const secondMessages = second.entries.filter((entry) => entry.type === "message");
-      // An unchanged catalog is not republished on the second turn.
-      expect(secondMessages).toHaveLength(5);
+      // Unchanged Skill and sandbox-policy context are not republished on the second turn.
+      expect(secondMessages).toHaveLength(6);
       expect(secondMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(2);
       expect(JSON.stringify(second.entries)).toContain("native reply 2");
     } finally {
