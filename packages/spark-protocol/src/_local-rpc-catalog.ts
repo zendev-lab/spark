@@ -1332,6 +1332,7 @@ const sparkLocalRpcHumanWaitSchema = z.object({
   projectId: z.string(),
   toolCallId: z.string(),
   delivery: z.enum(["blocking", "async"]),
+  mode: z.enum(["clarification", "decision", "approval", "unblock"]).optional(),
   evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   kind: z.string().min(1),
   title: z.string(),

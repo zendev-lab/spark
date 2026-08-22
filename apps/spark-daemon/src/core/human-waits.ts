@@ -3,7 +3,9 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   createAutonomousAskInteractionRequestId,
   createId,
+  hasRequiredSparkAskGateSelections,
   hasNonEmptySparkHumanAnswer,
+  isSparkAskGateMode,
   matchesAutonomousAskInteractionRequestId,
   parseSparkHumanWaitRespondent,
   sparkEvidenceAnswerEventSchema,
@@ -19,6 +21,7 @@ import {
 type JsonObject = Record<string, unknown>;
 type HumanQuestion = HumanRequestCreatedPayload["questions"][number];
 type HumanRequestKind = HumanRequestCreatedPayload["kind"];
+type HumanRequestMode = HumanRequestCreatedPayload["mode"];
 type HumanWaitStatus = SparkHumanInteractionStatus;
 
 export type SparkDaemonHumanWaitDelivery = "blocking" | "async";
@@ -34,6 +37,7 @@ export interface SparkDaemonHumanWaitInput {
   toolCallId?: string;
   delivery?: SparkDaemonHumanWaitDelivery;
   evidenceRequest?: SparkEvidenceRequestBinding;
+  mode?: HumanRequestMode;
   kind: HumanRequestKind;
   title: string;
   prompt: string;
@@ -44,10 +48,11 @@ export interface SparkDaemonHumanWaitInput {
 }
 
 export interface SparkDaemonHumanWaitRecord extends Required<
-  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest" | "respondent">
+  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest" | "mode" | "respondent">
 > {
   humanRequestId: string;
   evidenceRequest?: SparkEvidenceRequestBinding;
+  mode?: HumanRequestMode;
   respondent: SparkHumanWaitRespondent;
   status: HumanWaitStatus;
   createdAt: string;
@@ -231,6 +236,7 @@ export class SparkDaemonHumanWaitRegistry {
       toolCallId: input.toolCallId ?? "",
       delivery: input.delivery ?? "blocking",
       ...(input.evidenceRequest ? { evidenceRequest: input.evidenceRequest } : {}),
+      ...(input.mode ? { mode: input.mode } : {}),
       kind: input.kind,
       title: input.title,
       prompt: input.prompt,
@@ -341,6 +347,20 @@ export class SparkDaemonHumanWaitRegistry {
     const humanResponseId = input.humanResponseId ?? createId("hres");
     const provenance = input.provenance ?? "system";
     const acceptedAt = new Date().toISOString();
+    if (
+      existing.wait.status === "pending" &&
+      input.status === "answered" &&
+      !hasRequiredGateSelections(existing.wait, input.answers ?? {})
+    ) {
+      return {
+        outcome: "transient",
+        retryable: true,
+        returnedToTool: false,
+        message:
+          "Human answer did not select every required decision option; the wait remains pending.",
+        wait: existing.wait,
+      };
+    }
     const answerEvent = createEvidenceAnswerEvent(existing.wait, {
       humanResponseId,
       status: input.status,
@@ -1034,6 +1054,7 @@ function canonicalEvidenceOwnerAnswer(
 function canonicalQuestionAnswer(
   question: HumanQuestion,
   rawAnswer: unknown,
+  allowOptionCustomText = false,
 ): JsonObject | undefined {
   const record = recordValue(rawAnswer);
   if (record?.questionId !== undefined && record.questionId !== question.id) return undefined;
@@ -1048,10 +1069,20 @@ function canonicalQuestionAnswer(
   switch (question.type) {
     case "single":
     case "preview":
-      if (values.length !== 1 || customText || !optionValues.has(values[0]!)) return undefined;
+      if (
+        values.length !== 1 ||
+        (!allowOptionCustomText && customText) ||
+        !optionValues.has(values[0]!)
+      ) {
+        return undefined;
+      }
       break;
     case "multi":
-      if (values.length === 0 || customText || values.some((value) => !optionValues.has(value))) {
+      if (
+        values.length === 0 ||
+        (!allowOptionCustomText && customText) ||
+        values.some((value) => !optionValues.has(value))
+      ) {
         return undefined;
       }
       break;
@@ -1068,6 +1099,26 @@ function canonicalQuestionAnswer(
     values,
     ...(customText ? { customText } : {}),
   };
+}
+
+function hasRequiredGateSelections(wait: SparkDaemonHumanWaitRecord, answers: JsonObject): boolean {
+  if (!isSparkAskGateMode(wait.mode)) return true;
+  const canonicalAnswers = Object.fromEntries(
+    wait.questions.flatMap((question) => {
+      const answer = canonicalQuestionAnswer(question, answers[question.id], true);
+      if (!answer) return [];
+      return [
+        [
+          question.id,
+          {
+            values: answer.values as string[],
+            ...(typeof answer.customText === "string" ? { customText: answer.customText } : {}),
+          },
+        ],
+      ];
+    }),
+  );
+  return hasRequiredSparkAskGateSelections(wait.mode, wait.questions, canonicalAnswers);
 }
 
 function evidenceAnswerValues(answer: unknown): string[] {

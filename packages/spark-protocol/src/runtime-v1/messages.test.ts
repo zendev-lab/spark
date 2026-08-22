@@ -300,6 +300,7 @@ describe("human question option identity", () => {
     const parsed = humanRequestCreatedPayloadSchema.parse({
       kind: "ask_user",
       delivery: "async",
+      mode: "approval",
       interactionRequestId: "interaction-publish",
       evidenceRequest,
       title: "Publish?",
@@ -309,12 +310,17 @@ describe("human question option identity", () => {
           id: "approval",
           type: "single",
           prompt: "Approve?",
+          defaultValues: ["approve"],
           options: [{ value: "approve", label: "Approve" }],
         },
       ],
     });
 
     expect(parsed.evidenceRequest).toEqual(evidenceRequest);
+    expect(parsed).toMatchObject({
+      mode: "approval",
+      questions: [{ defaultValues: ["approve"] }],
+    });
     expect(
       humanRequestCreatedPayloadSchema.safeParse({
         ...parsed,

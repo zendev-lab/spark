@@ -1,7 +1,7 @@
 import { error } from "@sveltejs/kit";
 
 import { invokeSparkWebRpc } from "$lib/server/rpc";
-import type { SparkWebSession } from "$lib/daemon-surface";
+import { listSparkWebSessions } from "$lib/server/session-list";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -12,9 +12,9 @@ export const load: PageServerLoad = async ({ params }) => {
     error(404, "Workspace is not bound to this daemon");
   }
   const [sessions, artifactCatalog, roleCatalog, skillCatalog, modelCatalog] = await Promise.all([
-    invokeSparkWebRpc("session.list", {
+    listSparkWebSessions({
       scope: { kind: "workspace", workspaceId },
-    }) as Promise<SparkWebSession[]>,
+    }),
     invokeSparkWebRpc("artifact.list", { workspaceId, limit: 100 }),
     invokeSparkWebRpc("role.list", { workspaceId }),
     invokeSparkWebRpc("skill.list", { workspaceId }),

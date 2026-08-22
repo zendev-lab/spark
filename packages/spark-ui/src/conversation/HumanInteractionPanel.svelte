@@ -1,6 +1,8 @@
 <script lang="ts">
   import {
+    hasRequiredSparkAskGateSelections,
     hasSparkAskAnswerContent,
+    type SparkInteractionRequest,
     type SparkAskQuestionView,
   } from "@zendev-lab/spark-protocol";
 
@@ -15,12 +17,11 @@
     cancel: string;
   }
 
-  const customValue = "__spark_custom_answer__";
-
   let {
     title,
     prompt,
     questions,
+    mode,
     labels,
     disabled = false,
     onRespond,
@@ -28,6 +29,7 @@
     title: string;
     prompt: string;
     questions: SparkAskQuestionView[];
+    mode?: Extract<SparkInteractionRequest, { kind: "askFlow" }>["mode"];
     labels: HumanInteractionPanelLabels;
     disabled?: boolean;
     onRespond: (response: {
@@ -37,9 +39,23 @@
   } = $props();
 
   let selections = $state<Record<string, string[]>>({});
+  let customSelections = $state<Record<string, boolean>>({});
   let customAnswers = $state<Record<string, string>>({});
   let submitting = $state(false);
   let errorMessage = $state<string | null>(null);
+
+  $effect(() => {
+    const defaults = Object.fromEntries(
+      questions.flatMap((question) => {
+        if (question.type === "freeform" || selections[question.id] !== undefined) return [];
+        const optionValues = new Set(question.options.map((option) => option.value));
+        const values = (question.defaultValues ?? []).filter((value) => optionValues.has(value));
+        const selected = question.type === "multi" ? values : values.slice(0, 1);
+        return selected.length > 0 ? [[question.id, selected]] : [];
+      }),
+    );
+    if (Object.keys(defaults).length > 0) selections = { ...selections, ...defaults };
+  });
 
   function selection(questionId: string): string[] {
     return selections[questionId] ?? [];
@@ -47,6 +63,7 @@
 
   function setSingle(questionId: string, value: string) {
     selections = { ...selections, [questionId]: value ? [value] : [] };
+    customSelections = { ...customSelections, [questionId]: false };
   }
 
   function toggleMulti(questionId: string, value: string, checked: boolean) {
@@ -56,16 +73,24 @@
     selections = { ...selections, [questionId]: [...next] };
   }
 
+  function setCustom(question: SparkAskQuestionView, checked: boolean) {
+    customSelections = { ...customSelections, [question.id]: checked };
+    if (checked && question.type !== "multi") {
+      selections = { ...selections, [question.id]: [] };
+    }
+  }
+
   function answerFor(question: SparkAskQuestionView) {
     const selected = selection(question.id);
-    const customText = customAnswers[question.id]?.trim();
-    const values = selected.filter((value) => value !== customValue);
-    const labelsForValues = values.flatMap((value) => {
+    const acceptsText =
+      question.type === "freeform" || question.options.length === 0 || customSelections[question.id];
+    const customText = acceptsText ? customAnswers[question.id]?.trim() : undefined;
+    const labelsForValues = selected.flatMap((value) => {
       const option = question.options.find((candidate) => candidate.value === value);
       return option ? [option.label] : [];
     });
     return {
-      values,
+      values: selected,
       ...(labelsForValues.length > 0 ? { labels: labelsForValues } : {}),
       ...(customText ? { customText } : {}),
     };
@@ -73,10 +98,16 @@
 
   async function respond(status: "answered" | "cancelled") {
     if (submitting || disabled) return;
-    const answers = Object.fromEntries(questions.map((question) => [question.id, answerFor(question)]));
+    const answers =
+      status === "cancelled"
+        ? {}
+        : Object.fromEntries(questions.map((question) => [question.id, answerFor(question)]));
     if (
       status === "answered" &&
-      questions.some((question) => question.required && !hasSparkAskAnswerContent(answers[question.id]))
+      (questions.some(
+        (question) => question.required && !hasSparkAskAnswerContent(answers[question.id]),
+      ) ||
+        !hasRequiredSparkAskGateSelections(mode, questions, answers))
     ) {
       errorMessage = labels.required;
       return;
@@ -117,13 +148,13 @@
             <label>
               <input
                 type="checkbox"
-                checked={selection(question.id).includes(customValue)}
-                onchange={(event) => toggleMulti(question.id, customValue, event.currentTarget.checked)}
+                checked={customSelections[question.id] === true}
+                onchange={(event) => setCustom(question, event.currentTarget.checked)}
               />
               <span>{labels.customAnswer}</span>
             </label>
           </div>
-          {#if selection(question.id).includes(customValue)}
+          {#if customSelections[question.id]}
             <textarea
               aria-label={`${question.prompt}: ${labels.customAnswer}`}
               bind:value={customAnswers[question.id]}
@@ -148,12 +179,19 @@
             {#each question.options as option (option.value)}
               <option value={option.value}>{option.label}</option>
             {/each}
-            <option value={customValue}>{labels.customAnswer}</option>
           </select>
           {@const selectedOption = question.options.find((option) => option.value === selection(question.id)[0])}
           {#if selectedOption?.description}<p class="description">{selectedOption.description}</p>{/if}
           {#if selectedOption?.preview}<pre>{selectedOption.preview}</pre>{/if}
-          {#if selection(question.id)[0] === customValue}
+          <label class="custom-option">
+            <input
+              type="checkbox"
+              checked={customSelections[question.id] === true}
+              onchange={(event) => setCustom(question, event.currentTarget.checked)}
+            />
+            <span>{labels.customAnswer}</span>
+          </label>
+          {#if customSelections[question.id]}
             <textarea
               aria-label={`${question.prompt}: ${labels.customAnswer}`}
               bind:value={customAnswers[question.id]}
@@ -216,6 +254,11 @@
     display: grid;
     gap: 7px;
     grid-template-columns: auto minmax(0, 1fr);
+  }
+  .custom-option {
+    align-items: center;
+    display: flex;
+    gap: 7px;
   }
   .options span {
     display: grid;

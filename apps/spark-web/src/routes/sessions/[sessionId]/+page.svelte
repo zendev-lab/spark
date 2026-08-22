@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
@@ -29,52 +28,70 @@
   import { SessionTree, SessionWorkPanel } from "@zendev-lab/spark-ui/workbench";
   import {
     mergeEarlierSparkSessionSnapshotWindow,
+    isTerminalSparkHumanInteractionDelivery,
+    parseSparkModelValue,
     resolveSessionActivityState,
     sparkActionBarDefaultAction,
-    sparkAskQuestionViewSchema,
     sparkActionViewSchema,
     sparkSlashActionBarForInput,
     sparkSlashCommandDescriptors,
     sparkThinkingLevelOptions,
-    type SparkSessionView,
     type SparkSessionSnapshotPage,
     type SparkSessionProjection,
-    type SparkAskQuestionView,
     type SparkActionView,
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
   import { conversationMessageFromView } from "$lib/conversation";
   import { attachWebSessionEvents } from "$lib/live-events";
+  import {
+    parsePendingHumanInteractions,
+    type PendingHumanInteraction,
+  } from "$lib/pending-human-interactions";
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
   let windowOverride = $state<SparkSessionSnapshotPage | null>(null);
-  let window = $derived(windowOverride ?? data.window);
+  let window = $derived(
+    windowOverride?.snapshot.sessionId === data.window.snapshot.sessionId
+      ? windowOverride
+      : data.window,
+  );
   let snapshot = $derived(window.snapshot);
   let loadingEarlier = $state(false);
-  let treeSessionsOverride = $state<SparkSessionProjection[] | null>(null);
-  let treeSessions = $derived(treeSessionsOverride ?? data.sessions);
+  let treeSessionsOverride = $state<{
+    ownerSessionId: string;
+    sessions: SparkSessionProjection[];
+  } | null>(null);
+  let treeSessions = $derived(
+    treeSessionsOverride?.ownerSessionId === data.window.snapshot.sessionId
+      ? treeSessionsOverride.sessions
+      : data.sessions,
+  );
   let busySessionId = $state<string | undefined>();
   let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
   let prompt = $state("");
   let submitting = $state(false);
   let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
-  let artifactPreview = $state<{ ref: string; title: string; format: string; content: string } | null>(null);
-  let askWaits = $state<
-    Array<{
-      interactionRequestId: string;
-      title: string;
-      prompt: string;
-      questions: SparkAskQuestionView[];
-    }>
-  >([]);
+  let artifactPreview = $state<{
+    ref: string;
+    title: string;
+    format: string;
+    content: string;
+  } | null>(null);
+  let askError = $state<string | null>(null);
+  let askWaits = $state<PendingHumanInteraction[]>([]);
+  let askRefreshToken = 0;
   let modelValue = $state("");
+  let ownerModelValue = $state<string | null>(null);
   $effect(() => {
     const selected = snapshot.model
       ? `${snapshot.model.providerName}/${snapshot.model.modelId}`
       : "";
-    if (!modelValue) modelValue = selected;
+    if (ownerModelValue !== selected) {
+      ownerModelValue = selected;
+      modelValue = selected;
+    }
   });
   let slashSuggestions = $derived.by((): SlashCommandSuggestion[] => {
     const trimmed = prompt.trim();
@@ -128,35 +145,48 @@
   };
   const statusLabel = (status: string) => status;
 
-  async function refreshAsks() {
-    const listed = await webRpc("human.interaction.list", { sessionId: snapshot.sessionId });
-    askWaits = listed.waits
-      .filter((wait) => wait.status === "pending")
-      .map((wait) => ({
-        interactionRequestId: wait.interactionRequestId,
-        title: wait.title,
-        prompt: wait.prompt,
-        questions: wait.questions.flatMap((question, index) => {
-          const parsed = sparkAskQuestionViewSchema.safeParse(question);
-          return parsed.success
-            ? [parsed.data]
-            : [
-                sparkAskQuestionViewSchema.parse({
-                  id: `question-${index + 1}`,
-                  prompt: wait.prompt,
-                  type: "freeform",
-                  required: true,
-                }),
-              ];
-        }),
-      }));
+  async function refreshAsks(sessionId = snapshot.sessionId) {
+    const refreshToken = ++askRefreshToken;
+    try {
+      const listed = await webRpc("human.interaction.list", { sessionId });
+      if (
+        refreshToken !== askRefreshToken ||
+        data.window.snapshot.sessionId !== sessionId
+      ) {
+        return;
+      }
+      askWaits = parsePendingHumanInteractions(listed);
+      askError = null;
+    } catch (error) {
+      if (
+        refreshToken !== askRefreshToken ||
+        data.window.snapshot.sessionId !== sessionId
+      ) {
+        return;
+      }
+      askWaits = [];
+      askError = error instanceof Error ? error.message : String(error);
+    }
   }
 
-  onMount(() => {
-    void refreshAsks();
-    return attachWebSessionEvents(snapshot.sessionId, (view) => {
-      adoptLiveSnapshot(view);
-      void refreshAsks();
+  $effect(() => {
+    const sessionId = data.window.snapshot.sessionId;
+    windowOverride = null;
+    treeSessionsOverride = null;
+    busySessionId = undefined;
+    treeError = null;
+    loadingEarlier = false;
+    historyError = null;
+    prompt = "";
+    submitting = false;
+    actionFeedback = null;
+    askWaits = [];
+    askError = null;
+    void refreshAsks(sessionId);
+    return attachWebSessionEvents(sessionId, (latest) => {
+      if (latest.snapshot.sessionId !== sessionId) return;
+      adoptLiveSnapshot(latest);
+      void refreshAsks(sessionId);
     });
   });
 
@@ -164,55 +194,51 @@
     event?.preventDefault();
     const text = prompt.trim();
     if (!text || submitting) return;
+    const ownerSessionId = snapshot.sessionId;
     submitting = true;
     try {
       actionFeedback = null;
-      if (text.startsWith("/")) await applySlash(text);
-      else await webRpc("turn.submit", { sessionId: snapshot.sessionId, prompt: text });
+      if (text.startsWith("/")) await applySlash(text, ownerSessionId);
+      else await webRpc("turn.submit", { sessionId: ownerSessionId, prompt: text });
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       prompt = "";
-      adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
     } catch (error) {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       actionFeedback = {
         tone: "error",
         message: error instanceof Error ? error.message : String(error),
       };
     } finally {
-      submitting = false;
+      if (data.window.snapshot.sessionId === ownerSessionId) submitting = false;
     }
   }
 
-  async function applySlash(text: string) {
+  async function applySlash(text: string, ownerSessionId: string) {
     const [name, ...rest] = text.slice(1).split(/\s+/u);
     const argument = rest.join(" ");
     if (name === "model" && argument.includes("/")) {
-      const separator = argument.indexOf("/");
-      const providerName = argument.slice(0, separator);
-      const modelId = argument.slice(separator + 1);
-      if (providerName && modelId) {
-        await webRpc("session.model.set", {
-          sessionId: snapshot.sessionId,
-          model: { providerName, modelId },
-        });
-      }
+      await setModelValue(argument, ownerSessionId);
       return;
     }
     if (name === "thinking" && argument) {
       await webRpc("session.thinking.set", {
-        sessionId: snapshot.sessionId,
+        sessionId: ownerSessionId,
         thinkingLevel: argument as "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
       });
       return;
     }
     if (name === "compact") {
       const result = await webRpc("session.compact", {
-        sessionId: snapshot.sessionId,
+        sessionId: ownerSessionId,
         ...(argument ? { customInstructions: argument } : {}),
         idempotencyKey: globalThis.crypto.randomUUID(),
       });
-      actionFeedback = {
-        tone: "status",
-        message: `Compaction queued as ${result.invocationId}.`,
-      };
+      if (data.window.snapshot.sessionId === ownerSessionId) {
+        actionFeedback = {
+          tone: "status",
+          message: `Compaction queued as ${result.invocationId}.`,
+        };
+      }
       return;
     }
     if (argument) {
@@ -221,11 +247,18 @@
     const view = sparkSlashActionBarForInput(text);
     const action = view ? sparkActionBarDefaultAction(view) : undefined;
     if (!action) throw new Error(`Unsupported Spark Web command: /${name}`);
-    await handleSlashAction(action);
+    await handleSlashAction(action, ownerSessionId);
   }
 
-  async function handleSlashAction(action: SparkActionView) {
+  async function handleSlashAction(
+    action: SparkActionView,
+    ownerSessionId = snapshot.sessionId,
+  ) {
+    const ownerSnapshot = snapshot;
+    const ownerActivity = activity;
+    const ownerTreeSessions = treeSessions;
     const feedback = (message: string) => {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       actionFeedback = { tone: "status", message };
       prompt = "";
     };
@@ -240,7 +273,7 @@
           typeof level === "string" &&
           (sparkThinkingLevelOptions as readonly string[]).includes(level)
         ) {
-          await setThinking(level as SparkThinkingLevel);
+          await setThinking(level as SparkThinkingLevel, ownerSessionId);
           feedback(`Thinking set to ${level}.`);
         } else {
           feedback("Use the Thinking selector above the composer.");
@@ -254,53 +287,52 @@
         await goto("/settings");
         return;
       case "status.inspect":
-        adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
-        feedback(`Session status: ${snapshot.status}.`);
+        feedback(`Session status: ${ownerSnapshot.status}.`);
         return;
       case "session.select":
         prompt = "";
         await goto("/sessions");
         return;
       case "session.create": {
-        const current = treeSessions.find((session) => session.sessionId === snapshot.sessionId);
+        const current = ownerTreeSessions.find((session) => session.sessionId === ownerSessionId);
         prompt = "";
         await goto(current?.scope.kind === "workspace" ? `/workspaces/${current.scope.workspaceId}` : "/");
         return;
       }
       case "session.inspect":
-        feedback(`${snapshot.messages.length} loaded messages · ${snapshot.tools.length} tools · ${snapshot.tasks.length} tasks.`);
+        feedback(`${ownerSnapshot.messages.length} loaded messages · ${ownerSnapshot.tools.length} tools · ${ownerSnapshot.tasks.length} tasks.`);
         return;
       case "queue.inspect":
-        feedback(`${activity.pendingTurns.length} queued turn(s).`);
+        feedback(`${ownerActivity.pendingTurns.length} queued turn(s).`);
         document.querySelector<HTMLElement>("[data-session-queue]")?.focus();
         return;
       case "turn.stop":
-        await cancelTurn();
+        await cancelTurn(ownerActivity.runningTurnId);
         feedback("Cancellation requested.");
         return;
       case "turn.retry":
-        await retryTurn();
+        await retryTurn(ownerSessionId);
         feedback("Retry requested.");
         return;
       case "loop.status": {
         const result = await webRpc("loop.status", {
-          ownerSessionId: snapshot.sessionId,
+          ownerSessionId,
           includeTerminal: true,
         });
         feedback(`${result.loops.length} Loop record(s) for this Session.`);
         return;
       }
       case "repro.status": {
-        const result = await webRpc("repro.status", { ownerSessionId: snapshot.sessionId });
+        const result = await webRpc("repro.status", { ownerSessionId });
         feedback(result.repro ? `Repro status: ${result.repro.status}.` : "No Repro is bound to this Session.");
         return;
       }
       case "goal.status":
-        feedback(snapshot.work?.goal ? `Goal status: ${snapshot.work.goal.status}.` : "No Goal is bound to this Session.");
+        feedback(ownerSnapshot.work?.goal ? `Goal status: ${ownerSnapshot.work.goal.status}.` : "No Goal is bound to this Session.");
         return;
       case "workflow.open":
       case "workflow.inspect":
-        feedback(`${snapshot.runs.length} Workflow/run projection(s) are visible in this Session.`);
+        feedback(`${ownerSnapshot.runs.length} Workflow/run projection(s) are visible in this Session.`);
         return;
       case "help.commands":
         feedback(`Commands: ${sparkSlashCommandDescriptors.map((item) => `/${item.name}`).join(", ")}, /compact.`);
@@ -322,63 +354,125 @@
     }
   }
 
-  async function cancelTurn() {
-    if (!activity.runningTurnId) return;
-    await webRpc("turn.cancel", { invocationId: activity.runningTurnId });
+  function resolveSlashAction(action: SparkActionView) {
+    switch (action.intent) {
+      case "mode.select":
+      case "goal.start":
+      case "goal.restart":
+      case "goal.stop":
+      case "loop.start":
+      case "loop.restart":
+      case "loop.stop":
+      case "repro.start":
+      case "repro.stop":
+        return { enabled: false, reason: "This action needs a typed configuration panel." };
+      default:
+        return { enabled: true };
+    }
   }
 
-  async function retryTurn() {
-    const result = await webRpc("session.retry-target", { sessionId: snapshot.sessionId });
+  function invokeSlashAction(action: SparkActionView) {
+    const ownerSessionId = snapshot.sessionId;
+    void handleSlashAction(action, ownerSessionId).catch((error) => {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      actionFeedback = {
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    });
+  }
+
+  async function cancelTurn(invocationId = activity.runningTurnId) {
+    if (!invocationId) return;
+    await webRpc("turn.cancel", { invocationId });
+  }
+
+  async function retryTurn(sessionId = snapshot.sessionId) {
+    const result = await webRpc("session.retry-target", { sessionId });
     if (result.target?.invocationId) {
       await webRpc("invocation.retry", { invocationId: result.target.invocationId });
     }
   }
 
-  async function setThinking(thinkingLevel: SparkThinkingLevel) {
-    await webRpc("session.thinking.set", { sessionId: snapshot.sessionId, thinkingLevel });
-    adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
+  async function setThinking(
+    thinkingLevel: SparkThinkingLevel,
+    sessionId = snapshot.sessionId,
+  ) {
+    await webRpc("session.thinking.set", { sessionId, thinkingLevel });
   }
 
-  function adoptLiveSnapshot(view: SparkSessionView) {
-    const seen = new Set<string>();
-    const messages = [...window.snapshot.messages, ...view.messages].filter((message) => {
-      if (seen.has(message.id)) return false;
-      seen.add(message.id);
-      return true;
+  async function setModelValue(value: string, sessionId = snapshot.sessionId) {
+    await webRpc("session.model.set", {
+      sessionId,
+      model: parseSparkModelValue(value),
     });
-    const totalMessages = Math.max(window.history.totalMessages, messages.length);
-    const earlierMessages = Math.max(0, totalMessages - messages.length);
-    windowOverride = {
-      ...window,
-      snapshot: { ...view, messages },
-      history: {
-        ...window.history,
-        totalMessages,
-        loadedMessages: messages.length,
-        hiddenMessages: earlierMessages,
-        earlierMessages,
-        laterMessages: 0,
-        hasEarlierMessages: earlierMessages > 0,
+  }
+
+  function invokeSessionControl(
+    ownerSessionId: string,
+    operation: () => Promise<void>,
+    onError?: () => void,
+  ) {
+    void operation().catch((error) => {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      onError?.();
+      actionFeedback = {
+        tone: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    });
+  }
+
+  function commitModelValue(value: string) {
+    const ownerSessionId = snapshot.sessionId;
+    invokeSessionControl(
+      ownerSessionId,
+      () => setModelValue(value, ownerSessionId),
+      () => {
+        modelValue = ownerModelValue ?? "";
       },
-    };
+    );
+  }
+
+  function stopCurrentTurn() {
+    const ownerSessionId = snapshot.sessionId;
+    const invocationId = activity.runningTurnId;
+    invokeSessionControl(ownerSessionId, () => cancelTurn(invocationId));
+  }
+
+  function retryCurrentTurn() {
+    const ownerSessionId = snapshot.sessionId;
+    invokeSessionControl(ownerSessionId, () => retryTurn(ownerSessionId));
+  }
+
+  function changeThinkingLevel(thinkingLevel: SparkThinkingLevel) {
+    const ownerSessionId = snapshot.sessionId;
+    invokeSessionControl(ownerSessionId, () => setThinking(thinkingLevel, ownerSessionId));
+  }
+
+  function adoptLiveSnapshot(latest: SparkSessionSnapshotPage) {
+    windowOverride = latest;
   }
 
   async function loadEarlier() {
     const beforeMessageId = window.history.nextBeforeMessageId;
     if (!beforeMessageId || loadingEarlier) return;
+    const ownerSessionId = snapshot.sessionId;
     loadingEarlier = true;
     historyError = null;
     try {
       const page = await webRpc("session.snapshot-page", {
-        sessionId: snapshot.sessionId,
+        sessionId: ownerSessionId,
         messageLimit: 32,
         beforeMessageId,
       });
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       windowOverride = mergeEarlierSparkSessionSnapshotWindow(window, page);
     } catch (error) {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       historyError = error instanceof Error ? error.message : String(error);
     } finally {
-      loadingEarlier = false;
+      if (data.window.snapshot.sessionId === ownerSessionId) loadingEarlier = false;
     }
   }
 
@@ -387,6 +481,7 @@
     action: "archive" | "restore" | "close",
   ) {
     if (busySessionId) return;
+    const ownerSessionId = snapshot.sessionId;
     if (
       action === "close" &&
       typeof globalThis.confirm === "function" &&
@@ -406,16 +501,26 @@
                 sessionId: session.sessionId,
                 reason: "Closed from Spark Web",
               });
-      treeSessionsOverride = treeSessions.map((item) =>
-        item.sessionId === updated.sessionId ? updated : item,
-      );
-      if (session.sessionId === snapshot.sessionId && action !== "restore") {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      treeSessionsOverride = {
+        ownerSessionId,
+        sessions: treeSessions.map((item) =>
+          item.sessionId === updated.sessionId ? updated : item,
+        ),
+      };
+      if (session.sessionId === ownerSessionId && action !== "restore") {
         await goto("/sessions");
       }
     } catch (error) {
+      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       treeError = error instanceof Error ? error.message : String(error);
     } finally {
-      busySessionId = undefined;
+      if (
+        data.window.snapshot.sessionId === ownerSessionId &&
+        busySessionId === session.sessionId
+      ) {
+        busySessionId = undefined;
+      }
     }
   }
 
@@ -423,13 +528,19 @@
     interactionRequestId: string,
     response: { status: "answered" | "cancelled"; answers: Record<string, unknown> },
   ) {
-    await webRpc("human.interaction.respond", {
+    const ownerSessionId = snapshot.sessionId;
+    const result = await webRpc("human.interaction.respond", {
       interactionRequestId,
-      sessionId: snapshot.sessionId,
+      sessionId: ownerSessionId,
       status: response.status,
       answers: response.answers,
     });
-    await refreshAsks();
+    if (!isTerminalSparkHumanInteractionDelivery(result.outcome)) {
+      throw new Error(result.message || "The interaction response was not accepted.");
+    }
+    if (data.window.snapshot.sessionId === ownerSessionId) {
+      await refreshAsks(ownerSessionId);
+    }
   }
 
   async function openArtifact(artifactRef: string) {
@@ -601,22 +712,15 @@
     hasRunningTurn={activity.phase === "running"}
   />
 
+  {#if askError}<p class="error" role="alert">{askError}</p>{/if}
   {#if askWaits.length > 0}
     <section class="asks">
       {#each askWaits as wait (wait.interactionRequestId)}
         <HumanInteractionPanel
           title={wait.title}
           prompt={wait.prompt}
-          questions={wait.questions.length > 0
-            ? wait.questions
-            : [
-                sparkAskQuestionViewSchema.parse({
-                  id: "message",
-                  prompt: wait.prompt,
-                  type: "freeform",
-                  required: true,
-                }),
-              ]}
+          mode={wait.mode}
+          questions={wait.questions}
           labels={{
             region: "Pending human interaction",
             customAnswer: "Custom answer",
@@ -659,20 +763,12 @@
             closeLabel="Close"
             clearSearchLabel="Clear"
             selectedLabel="Selected"
-            onCommit={(value) => {
-              const [providerName, modelId] = value.split("/");
-              if (providerName && modelId) {
-                void webRpc("session.model.set", {
-                  sessionId: snapshot.sessionId,
-                  model: { providerName, modelId },
-                });
-              }
-            }}
+            onCommit={commitModelValue}
           />
-          <button type="button" onclick={() => void cancelTurn()} disabled={!activity.runningTurnId}>
+          <button type="button" onclick={stopCurrentTurn} disabled={!activity.runningTurnId}>
             Stop
           </button>
-          <button type="button" onclick={() => void retryTurn()}>Retry</button>
+          <button type="button" onclick={retryCurrentTurn}>Retry</button>
           <label>
             Thinking
             <select
@@ -680,7 +776,7 @@
               onchange={(event) => {
                 const value = (event.currentTarget as HTMLSelectElement).value as SparkThinkingLevel;
                 if ((sparkThinkingLevelOptions as readonly string[]).includes(value)) {
-                  void setThinking(value);
+                  changeThinkingLevel(value);
                 }
               }}
             >
@@ -696,7 +792,8 @@
           <SlashActionBar
             view={slashActionBar}
             disabled={submitting}
-            onAction={(action) => handleSlashAction(sparkActionViewSchema.parse(action))}
+            resolveAction={(action) => resolveSlashAction(sparkActionViewSchema.parse(action))}
+            onAction={(action) => invokeSlashAction(sparkActionViewSchema.parse(action))}
           />
         {:else if slashSuggestions.length > 0}
           <SlashCommandMenu
