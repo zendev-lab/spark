@@ -1332,6 +1332,28 @@ describe("Spark daemon local RPC", () => {
         error: { message: expect.stringContaining("CURSOR_GAP") },
       });
 
+      const largeText = "x".repeat(300 * 1024);
+      store.appendEvent(result.invocationId, "large-delta", { text: largeText });
+      const largePage = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "turn_stream_large_event",
+          method: "turn.stream",
+          params: { invocationId: result.invocationId, after: 2, limit: 100 },
+        }),
+        paths,
+        db,
+        undefined,
+      );
+      expect(largePage).toMatchObject({
+        ok: true,
+        result: {
+          invocationId: result.invocationId,
+          events: [{ sequence: 3, kind: "large-delta", payload: { text: largeText } }],
+          nextCursor: 3,
+          hasMore: false,
+        },
+      });
+
       const removed = await handleLocalRpcLine(
         JSON.stringify({ id: "removed_queue", method: "daemon.queue" }),
         paths,
