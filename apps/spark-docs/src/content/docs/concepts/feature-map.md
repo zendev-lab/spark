@@ -99,7 +99,8 @@ Start with [plan and implement](/guides/plan-and-execute/), then read
 Spark has one runtime conversation entity: Session. Roles are reusable
 static definitions bound onto a Session at runtime. subsession means any
 Session with child lineage; a child with an explicit Role bind is a
-subagent. The human operator is not a Role. The Side Thread
+subagent. The human operator is not a Role. Official DSH `subagent` tools
+map onto `session spawn|fork` plus `session send`. The Side Thread
 feature creates a read-only child Session. Feishu, Infoflow, and QQ Bot
 conversations resolve to daemon-global root Channel Sessions without requiring
 a Workspace or creating another execution owner. Sessions can send requests or

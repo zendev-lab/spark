@@ -5,8 +5,9 @@
  * Live sessions are `ctx.sessions`; JSONL durability is dsh-session-persistence
  * with Spark's PersistenceBackend. Official `dsh-subagent` owns `ctx.subagents`;
  * spark-session registers Role-bound spawn/fork providers when a durable host
- * is passed. Agent handles remain invocation-owned and are mounted only after
- * transcript migration makes their surface native DSH.
+ * is passed. One-shot `start()` maps onto createChild + session.send. Agent
+ * handles remain invocation-owned and are mounted only after transcript
+ * migration makes their surface native DSH.
  */
 import { lstatSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

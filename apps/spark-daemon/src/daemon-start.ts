@@ -452,12 +452,33 @@ async function createPreparedDaemonRuntime(
   };
   const executionAttemptStore = new ExecutionAttemptStore(options.db);
   const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
+  const sendCtx = sessionAskDelivery.ctx;
   const subagentHost =
-    options.sessionRegistry && options.paths.sessionRuntimeDir
+    options.sessionRegistry && options.paths.sessionRuntimeDir && sendCtx
       ? createSparkDaemonSubagentHost({
           db: options.db,
           registry: options.sessionRegistry,
           sparkHome: options.paths.sessionRuntimeDir,
+          send: async (request) => {
+            const admitted = await admitSparkDaemonSessionSend(sendCtx, {
+              toSessionId: request.sessionId,
+              fromSessionId: request.parentSessionId,
+              kind: "request",
+              intent: "work.request",
+              payload: { body: request.body },
+              idempotencyKey: `subagent.start:${request.sessionId}`,
+              body: request.body,
+              origin: { surface: "local", host: "daemon" },
+              source: "tool",
+              wake: false,
+            });
+            return {
+              sessionId: request.sessionId,
+              ...(admitted.submitted?.invocationId
+                ? { invocationId: admitted.submitted.invocationId }
+                : {}),
+            };
+          },
         })
       : undefined;
   const cordisRoot = await createSparkDaemonCordisRoot(

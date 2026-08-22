@@ -1,13 +1,17 @@
 /**
  * Role-bound spawn/fork providers for the official DSH subagent HOST.
  *
- * Spark owns the child Session and Role bind. `@deepseek-ai/dsh-subagent`
- * owns `ctx.subagents`. This module registers named providers; it does not
- * provide a second registry or in-process continuation manager.
+ * Spark's runtime remains Session + Role bind + send. Official `subagent` /
+ * `subagent_fork` are a compatibility mapping onto that surface: one-shot
+ * `start()` is `createChild` then `send(kind=request)`. Native
+ * `session({ action: "spawn" | "fork" | "send" })` stays the standalone tool.
+ * `@deepseek-ai/dsh-subagent` owns `ctx.subagents`; this module does not
+ * reimplement the HOST or a continuation manager.
  */
 import { isAbsolute } from "node:path";
 
 import type { Context } from "@deepseek-ai/cordis";
+import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 
 export const name = "spark-session-subagent";
@@ -47,8 +51,20 @@ export interface SparkSubagentStartResult {
   mode: SparkSubagentMode;
 }
 
+export interface SparkSubagentSendRequest {
+  parentSessionId: string;
+  sessionId: string;
+  body: string;
+}
+
+export interface SparkSubagentSendResult {
+  sessionId: string;
+  invocationId?: string;
+}
+
 export interface SparkSubagentHost {
   createChild(input: SparkSubagentStartRequest): Promise<SparkSubagentStartResult>;
+  send(input: SparkSubagentSendRequest): Promise<SparkSubagentSendResult>;
 }
 
 export interface SparkSubagentCapabilities {
@@ -64,14 +80,9 @@ export interface SparkDshSubagentStartRequest {
   persona?: string;
   roleRef?: string;
   cwd?: string;
+  prompt?: unknown;
   parent?: unknown;
   parentSessionId?: string;
-  signal?: AbortSignal;
-}
-
-export interface SparkDshContinuableCreateRequest {
-  sessionId?: unknown;
-  parent?: unknown;
   signal?: AbortSignal;
 }
 
@@ -90,7 +101,6 @@ export interface SparkSessionSubagentProvider {
   readonly inheritsParentContext: boolean;
   readonly capabilities: SparkSubagentCapabilities;
   start(request: SparkDshSubagentStartRequest): Promise<SparkDshSubagentRun>;
-  prepareContinuable(request: SparkDshContinuableCreateRequest): Promise<Record<string, never>>;
 }
 
 export interface SparkSubagentRegistry {
@@ -120,7 +130,9 @@ export function createSparkSessionSubagentProviders(
 /**
  * Live SessionStore fallback for DSH web. Role policy still runs here; the
  * child is a live `ctx.sessions` entry with `origin: "subagent"`. Daemon must
- * pass `config.host` so Spark registry spawn stays the owner.
+ * pass `config.host` so Spark registry spawn stays the owner. `send` appends
+ * the prompt as a user message; it does not write Spark registry `roleBinding`
+ * or admit a daemon Invocation.
  */
 export function createSparkSessionStoreSubagentHost(ctx: Context): SparkSubagentHost {
   return {
@@ -153,6 +165,28 @@ export function createSparkSessionStoreSubagentHost(ctx: Context): SparkSubagent
         roleRef: request.roleRef,
         mode: request.mode,
       };
+    },
+    async send(request) {
+      const sessions = ctx.sessions;
+      if (sessions === undefined) {
+        throw new SparkSubagentError(
+          "invalid_parent_session",
+          "spark-session-subagent requires ctx.sessions",
+        );
+      }
+      const child = sessions.get(SessionId(request.sessionId));
+      if (child === undefined) {
+        throw new SparkSubagentError("invalid_parent_session", "child session is not live");
+      }
+      child.append(
+        "user/message",
+        createUserMessage({
+          content: [{ type: "text", text: request.body }],
+          source: { kind: "user" },
+        }),
+        { surfaceOp: "append" },
+      );
+      return { sessionId: request.sessionId };
     },
   };
 }
@@ -219,44 +253,58 @@ function createProvider(
     inheritsParentContext,
     capabilities: PROVIDER_CAPABILITIES,
     async start(request) {
-      const started = await host.createChild(
-        normalizeSparkSubagentStartInput({
-          parentSessionId: parentSessionIdFrom(request),
-          roleRef: roleRefFromDshRequest(request),
-          mode,
-          ...((optionalText(request.label) ?? optionalText(request.description))
-            ? { name: optionalText(request.label) ?? optionalText(request.description) }
-            : {}),
-          ...(optionalText(request.cwd) ? { cwd: optionalText(request.cwd) } : {}),
-        }),
-      );
-      return publishedRun(started);
-    },
-    async prepareContinuable() {
-      // Continuable identity, Agent creation, and prompt delivery stay on the
-      // official HOST continuation manager. Spark participates only by being
-      // registered as the spawn/fork transport; Role-bound durable spawn is
-      // the one-shot `start()` path through `host.createChild`.
-      return {};
+      const input = normalizeSparkSubagentStartInput({
+        parentSessionId: parentSessionIdFrom(request),
+        roleRef: roleRefFromDshRequest(request),
+        mode,
+        ...((optionalText(request.label) ?? optionalText(request.description))
+          ? { name: optionalText(request.label) ?? optionalText(request.description) }
+          : {}),
+        ...(optionalText(request.cwd) ? { cwd: optionalText(request.cwd) } : {}),
+      });
+      const started = await host.createChild(input);
+      const body = promptTextFrom(request);
+      if (!body) return publishedRun(started);
+      const sent = await host.send({
+        parentSessionId: input.parentSessionId,
+        sessionId: started.sessionId,
+        body,
+      });
+      return publishedRun(started, sent);
     },
   };
 }
 
-function publishedRun(started: SparkSubagentStartResult): SparkDshSubagentRun {
+function publishedRun(
+  started: SparkSubagentStartResult,
+  sent?: SparkSubagentSendResult,
+): SparkDshSubagentRun {
+  const invocation = sent?.invocationId ? `; invocation ${sent.invocationId}` : "";
+  const text = sent
+    ? `Started Role-bound subagent ${started.sessionId} (${started.roleRef}, ${started.mode}) via session create+send${invocation}.`
+    : `Created Role-bound subagent ${started.sessionId} (${started.roleRef}, ${started.mode}).`;
   return {
     id: SessionId(started.sessionId),
     localAgent: undefined,
     result: Promise.resolve({
-      output: [
-        {
-          type: "text",
-          text: `Created Role-bound subagent ${started.sessionId} (${started.roleRef}, ${started.mode}). The child is a Spark Session; send(kind=request) is the execution trigger.`,
-        },
-      ],
+      output: [{ type: "text", text }],
       stopReason: "completed",
     }),
     async dispose() {},
   };
+}
+
+function promptTextFrom(request: SparkDshSubagentStartRequest): string | undefined {
+  const prompt = request.prompt;
+  if (typeof prompt === "string") return optionalText(prompt);
+  if (!Array.isArray(prompt)) return undefined;
+  const parts: string[] = [];
+  for (const block of prompt) {
+    if (!block || typeof block !== "object") continue;
+    const text = optionalText((block as { text?: string }).text);
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 function parentSessionIdFrom(request: SparkDshSubagentStartRequest): string {

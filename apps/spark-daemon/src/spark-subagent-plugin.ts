@@ -2,12 +2,15 @@
  * Daemon host for Role-bound subagent spawn/fork.
  *
  * Providers live in spark-session. This adapter is the durable createChild
- * hook: children are ordinary daemon Sessions.
+ * plus session.send mapping: children are ordinary daemon Sessions, and
+ * official one-shot start is create + send.
  */
 import type { DatabaseSync } from "node:sqlite";
 
 import type {
   SparkSubagentHost,
+  SparkSubagentSendRequest,
+  SparkSubagentSendResult,
   SparkSubagentStartResult,
 } from "@zendev-lab/spark-session/subagent";
 
@@ -18,6 +21,7 @@ export function createSparkDaemonSubagentHost(input: {
   db: DatabaseSync;
   registry: DaemonSessionRegistry;
   sparkHome: string;
+  send: (request: SparkSubagentSendRequest) => Promise<SparkSubagentSendResult>;
 }): SparkSubagentHost {
   return {
     async createChild(request): Promise<SparkSubagentStartResult> {
@@ -38,5 +42,6 @@ export function createSparkDaemonSubagentHost(input: {
         mode: request.mode,
       };
     },
+    send: input.send,
   };
 }

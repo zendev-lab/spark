@@ -7,6 +7,7 @@ import { cueSkillsRoot } from "@zendev-lab/cue";
 import {
   addCueSkillProvider,
   installManagedCuePresets,
+  mapSubagentDelegationToOneShot,
   readDshPackageVersion,
   removeDshShellAndJobsRows,
   replaceDshToolFsRow,
@@ -85,6 +86,11 @@ describe("managed Cue-first presets", () => {
         );
         expect(composition).not.toContain("name: '@deepseek-ai/dsh-tool-fs'");
         expect(composition).toContain('name: "../../profiles/web/plugins/spark-files/index.mjs"');
+        expect(composition).toContain("toolName: subagent\n        backgroundMode: one-shot");
+        expect(composition).toContain("toolName: subagent_fork\n        backgroundMode: one-shot");
+        expect(composition).not.toContain(
+          "toolName: subagent\n        backgroundMode: continuable",
+        );
         expect(readFileSync(join(item.path, ".spark-managed.json"), "utf8")).toContain(
           "@zendev-lab/spark-web-dsh",
         );
@@ -120,6 +126,16 @@ describe("managed Cue-first presets", () => {
       rmSync(unmarked, { recursive: true, force: true });
       rmSync(modified, { recursive: true, force: true });
     }
+  });
+
+  it("maps official spawn/fork subagent tools onto one-shot", () => {
+    expect(
+      mapSubagentDelegationToOneShot(
+        "        toolName: subagent\n        backgroundMode: continuable\n        toolName: subagent_fork\n        backgroundMode: continuable\n",
+      ),
+    ).toBe(
+      "        toolName: subagent\n        backgroundMode: one-shot\n        toolName: subagent_fork\n        backgroundMode: one-shot\n",
+    );
   });
 
   it("removes complete top-level rows without aliases", () => {

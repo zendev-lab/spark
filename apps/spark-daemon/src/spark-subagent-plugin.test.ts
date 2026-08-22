@@ -27,6 +27,7 @@ describe("daemon subagent host", () => {
       db: fixture.db,
       registry: fixture.registry,
       sparkHome: fixture.sparkHome,
+      send: async (request) => ({ sessionId: request.sessionId, invocationId: "inv_test" }),
     });
 
     const started = await host.createChild({
@@ -50,6 +51,13 @@ describe("daemon subagent host", () => {
         origin: { kind: "session" },
       },
     });
+    await expect(
+      host.send({
+        parentSessionId: fixture.administrator.sessionId,
+        sessionId: started.sessionId,
+        body: "Review the diff.",
+      }),
+    ).resolves.toEqual({ sessionId: started.sessionId, invocationId: "inv_test" });
   });
 });
 
