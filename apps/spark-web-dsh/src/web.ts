@@ -6,11 +6,11 @@
  * — no `dsh` CLI on the PATH, no dsh-managed wrapper. On top of the stock
  * profile Spark owns eight additions:
  *
- * 1. **spark-llm plugin, loaded automatically.** The Baidu OneAPI provider
- *    bundle is built from `@zendev-lab/spark-llm` (esbuild, host externals
- *    resolved by the DSH process) and placed under the profile's
- *    `plugins/spark-llm/`, then mounted through a generated patch overlay —
- *    no manual install or copy step.
+ * 1. **spark-llm plugin, loaded automatically.** The provider bundle is built
+ *    from `@zendev-lab/spark-llm` (esbuild, host externals resolved by the DSH
+ *    process) and placed under the profile's `plugins/spark-llm/`, then mounted
+ *    through a generated patch overlay. The overlay disables stock
+ *    `llm-pi-ai` so Spark remains the only provider/configuration owner.
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
  *    presets and the package-owned cue Skill**, so Cue replaces DSH
  *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
@@ -756,8 +756,10 @@ export async function runSparkWebDirect(
  *   `spark-session-subagent` host plugins
  *   (paths relative to the profile root, so the DSH loader resolves them
  *   without an install);
- * - stock in-process spawn/fork backends disabled so Spark providers own
- *   those names on the official HOST;
+ * - stock `llm-pi-ai` disabled so `spark-llm` owns provider configuration and
+ *   credentials without a competing configurable-provider directory;
+ * - stock in-process spawn/fork backends disabled so Spark providers own those
+ *   names on the official HOST;
  * - `spark-web-dsh` client plugin (package name; the client-modules host
  *   resolves it from the profile's node_modules and serves its bundle);
  * - `agent-presets` defaulting to spark-standard;
@@ -776,7 +778,7 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
   const rows = ["- insert:"];
   if (!userPatch.includes("id: spark-llm")) {
     rows.push(
-      "    # spark-llm Baidu OneAPI provider, loaded automatically by `spark web`.",
+      "    # Spark-owned LLM providers, loaded automatically by `spark web`.",
       "    - id: spark-llm",
       "      name: ./plugins/spark-llm/index.mjs",
     );
@@ -820,6 +822,14 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
     "  config:",
     "    root: !!js dshHomePath('sessions')",
     "    preparedSessionCacheSize: 1",
+  );
+  rows.push(
+    "- id: llm-pi-ai",
+    "  disabled: true",
+    "- id: subagent-spawn-in-process",
+    "  disabled: true",
+    "- id: subagent-fork-in-process",
+    "  disabled: true",
   );
   rows.push("- id: hmr", "  disabled: true");
   if (args.host !== undefined && args.host !== "127.0.0.1") {

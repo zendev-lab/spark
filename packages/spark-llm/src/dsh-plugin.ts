@@ -18,9 +18,10 @@
  *   Models page writes `BAIDU_ONEAPI_API_KEY` there), then the launching
  *   environment, then Spark's own `auth.json` store — so a machine where
  *   Spark already logged in works in DSH without re-entering the key.
- * - Declares a `spark-llm:` settings section (credential reference and
- *   display name per provider route) so configuration surfaces can render
- *   and edit the profile without hand-editing YAML.
+ * - Declares the provider profiles through DSH's `llm-pi-ai` settings-layout
+ *   ABI so the stock Models page renders its write-only API-key field. The
+ *   stock `llm-pi-ai` provider remains disabled; Spark still owns every route,
+ *   catalog, transport, and credential lookup.
  *
  * Build contract: `pnpm --filter @zendev-lab/spark-llm run build:dsh-plugin`
  * produces `dist/dsh-plugin.mjs` with `@deepseek-ai/*`, `@earendil-works/pi-ai`,
@@ -59,8 +60,15 @@ export const inject = ["llm"];
 export const BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
 /** The credential reference the Baidu route names when none is configured. */
 const DEFAULT_API_KEY_ENV = "BAIDU_ONEAPI_API_KEY";
-/** The settings namespace this plugin's section lives in. */
-const NS = settingsNamespace("spark-llm");
+/**
+ * DSH 0.1's Models page selects its API-key editor by this namespace name.
+ * This is a presentation ABI, not provider ownership: the stock llm-pi-ai
+ * plugin is disabled by spark-web-dsh and this Spark plugin installs the only
+ * section and provider directory under the name. Retire the alias once DSH's
+ * Models editor selects a layout from schema capabilities instead of ns text.
+ */
+export const DSH_MODELS_SETTINGS_NAMESPACE = "llm-pi-ai";
+const NS = settingsNamespace(DSH_MODELS_SETTINGS_NAMESPACE);
 
 /** One provider route's editable profile; the Models page renders this shape. */
 const providerProfile = z.object({
@@ -74,7 +82,7 @@ export interface SparkLlmProviderProfile {
   displayName?: string;
 }
 
-/** The `spark-llm:` settings section: provider routes keyed by route id. */
+/** Spark-owned provider routes keyed by route id. */
 export interface SparkLlmConfig {
   providers: Record<string, SparkLlmProviderProfile | undefined>;
 }

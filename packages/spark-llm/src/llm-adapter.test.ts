@@ -189,5 +189,6 @@ test("SparkProviderLlmAdapter advertises reasoning efforts only when the model s
     thinking.reasoning?.efforts.map((effort) => effort.id),
     ["minimal", "low", "medium", "high", "xhigh"],
   );
+  assert.equal(thinking.reasoning?.defaultEffort, "high");
   assert.deepEqual(thinking.inputModalities, ["text"]);
 });

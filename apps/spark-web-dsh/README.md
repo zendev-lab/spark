@@ -9,9 +9,13 @@ This application owns the managed `spark-standard` / `spark-code` presets and
 mounts the canonical [`cue` Skill](https://github.com/zendev-lab/cue/tree/main/skills/cue)
 directly from its exact `@zendev-lab/cue` dependency.
 
-The LLM plugin exposes Spark's configured `baidu-oneapi`, `kimi-coding`, and
-`openai-codex` routes. API-key providers can be configured from DSH onboarding;
-OpenAI Codex reuses credentials created by Spark's OAuth login flow.
+The Spark LLM plugin replaces stock `llm-pi-ai` and exposes Spark's configured
+`baidu-oneapi`, `kimi-coding`, and `openai-codex` routes. API-key providers
+reuse Spark's provider configuration and credential store; OpenAI Codex reuses
+credentials created by Spark's OAuth login flow. Reasoning-capable routes use
+Spark's `high` default effort unless the Session selects another level.
+The DSH Models page asks directly for the API key when adding Baidu OneAPI or
+Kimi For Coding. Kimi is API-key-only; it does not offer an OAuth flow.
 
 The managed `spark-standard` and `spark-code` presets use Spark's versioned
 `read`/`write`/`edit` adapter over DSH `ctx.fs`. Writes retain DSH sandbox
@@ -29,8 +33,8 @@ Initialize the DSH profile once with `dsh web` before the first Spark boot.
 host, client, Cue, LLM, and spark-session-subagent bundles under ignored `lib/`;
 release build and smoke generate them instead of relying on tracked output. The
 same Spark-owned spawn/fork providers are registered on the daemon Cordis root.
-The overlay disables stock in-process spawn/fork backends; the official
-`dsh-subagent` HOST stays mounted.
+The overlay disables stock `llm-pi-ai` and the in-process spawn/fork backends;
+the official `dsh-subagent` HOST stays mounted.
 
 The compatibility server keeps DSH HMR disabled by default. `spark web-dsh`
 prebuilds its managed bundles before boot, so HMR is unnecessary for the

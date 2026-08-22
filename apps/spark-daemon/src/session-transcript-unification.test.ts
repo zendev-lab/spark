@@ -192,6 +192,78 @@ describe("daemon session transcript ownership", () => {
     ).toBe(legacySource);
   });
 
+  it("relocates a retained Channel transcript after its registry cwd moves to daemon storage", async () => {
+    const harness = await createHarness("channel-relocation");
+    const relocated = await createRelocatedChannelTranscript(harness, "sess_channel_relocated");
+    const backupRoot = join(harness.root, "channel-relocation-backups");
+
+    const result = await unifyDaemonSessionTranscripts({
+      registry: harness.registry,
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot,
+      apply: true,
+    });
+
+    const targetStore = new SparkSessionStore({
+      cwd: relocated.session.cwd!,
+      sparkHome: harness.transcriptSparkHome,
+    });
+    const targetPath = targetStore.canonicalSessionPath(relocated.session.sessionId);
+    expect(result.sessions).toEqual([
+      expect.objectContaining({
+        sessionId: relocated.session.sessionId,
+        sourcePaths: [relocated.source.path],
+        targetPath,
+        entryCount: 1,
+        changed: true,
+      }),
+    ]);
+    await expect(targetStore.load(targetPath)).resolves.toMatchObject({
+      header: { id: relocated.session.sessionId, cwd: relocated.session.cwd, version: 4 },
+      entries: [expect.objectContaining({ id: relocated.source.entries[0]?.id })],
+    });
+    await expect(harness.registry.get(relocated.session.sessionId)).resolves.toMatchObject({
+      sessionPath: targetPath,
+    });
+    await expect(access(relocated.source.path)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      access(
+        join(backupRoot, relocated.session.sessionId, relocated.source.path.split("/").at(-1)!),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("keeps rejecting an ordinary Session transcript from another workspace store", async () => {
+    const harness = await createHarness("foreign-workspace");
+    const session = await createDaemonWorkspaceSession(harness.registry, {
+      sessionId: "sess_foreign_workspace",
+      workspaceId: "workspace",
+    });
+    const foreignStore = new SparkSessionStore({
+      cwd: join(harness.root, "foreign-workspace"),
+      sparkHome: harness.transcriptSparkHome,
+    });
+    const foreign = foreignStore.createCanonicalSession({
+      id: session.sessionId,
+      timestamp: "2026-07-20T00:00:00.000Z",
+    });
+    foreignStore.appendMessage(foreign, { role: "user", content: "foreign" });
+    await foreignStore.save(foreign);
+    await harness.registry.bindTranscriptPath({
+      sessionId: session.sessionId,
+      sessionPath: foreign.path,
+    });
+
+    await expect(
+      unifyDaemonSessionTranscripts({
+        registry: harness.registry,
+        transcriptSparkHome: harness.transcriptSparkHome,
+        backupRoot: join(harness.root, "foreign-backups"),
+        apply: true,
+      }),
+    ).rejects.toThrow("outside its daemon workspace store");
+  });
+
   it("restores backups after a pre-CAS interruption and retries idempotently", async () => {
     const harness = await createHarness("recover-pre-cas");
     const session = await createDaemonWorkspaceSession(harness.registry, {
@@ -250,6 +322,59 @@ describe("daemon session transcript ownership", () => {
         expect.objectContaining({ id: first.entries[0]?.id }),
         expect.objectContaining({ id: second.entries[0]?.id }),
       ],
+    });
+  });
+
+  it("recovers a relocated Channel transcript after a pre-CAS interruption", async () => {
+    const harness = await createHarness("recover-channel-relocation");
+    const relocated = await createRelocatedChannelTranscript(
+      harness,
+      "sess_recover_channel_relocation",
+    );
+    const backupRoot = join(harness.root, "recover-channel-relocation-backups");
+
+    await expect(
+      unifyDaemonSessionTranscripts({
+        registry: {
+          list: (input) => harness.registry.list(input),
+          relocateTranscriptPath: async () => {
+            throw new Error("simulated relocated registry CAS interruption");
+          },
+        },
+        transcriptSparkHome: harness.transcriptSparkHome,
+        backupRoot,
+        apply: true,
+      }),
+    ).rejects.toThrow("simulated relocated registry CAS interruption");
+    await expect(access(join(backupRoot, "active.json"))).resolves.toBeUndefined();
+    await expect(access(relocated.source.path)).resolves.toBeUndefined();
+
+    const recovered = await unifyDaemonSessionTranscripts({
+      registry: harness.registry,
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot,
+      apply: true,
+    });
+    expect(recovered.sessions).toEqual([
+      expect.objectContaining({
+        sessionId: relocated.session.sessionId,
+        sourcePaths: [relocated.source.path],
+        entryCount: 1,
+        changed: true,
+      }),
+    ]);
+    await expect(access(join(backupRoot, "active.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    const targetStore = new SparkSessionStore({
+      cwd: relocated.session.cwd!,
+      sparkHome: harness.transcriptSparkHome,
+    });
+    const targetPath = targetStore.canonicalSessionPath(relocated.session.sessionId);
+    await expect(targetStore.load(targetPath)).resolves.toMatchObject({
+      header: { cwd: relocated.session.cwd, version: 4 },
+      entries: [expect.objectContaining({ id: relocated.source.entries[0]?.id })],
+    });
+    await expect(harness.registry.get(relocated.session.sessionId)).resolves.toMatchObject({
+      sessionPath: targetPath,
     });
   });
 
@@ -390,7 +515,9 @@ async function createHarness(label: string) {
   const cwd = join(root, "workspace");
   const transcriptSparkHome = join(root, "pi-agent");
   const registry = createDaemonSessionRegistry(join(root, "registry"), {
+    daemonId: "installation-test",
     resolveWorkspaceCwd: (workspaceId) => (workspaceId === "workspace" ? cwd : undefined),
+    resolveChannelSessionCwd: async (sessionId) => join(root, "channels", sessionId, "workspace"),
   });
   return {
     root,
@@ -399,4 +526,54 @@ async function createHarness(label: string) {
     registry,
     store: new SparkSessionStore({ cwd, sparkHome: transcriptSparkHome }),
   };
+}
+
+async function createRelocatedChannelTranscript(
+  harness: Awaited<ReturnType<typeof createHarness>>,
+  label: string,
+) {
+  const session = await harness.registry.resolveChannelSession({
+    adapterId: "qqbot",
+    adapterAccountIdentity: `channel-account:${label}`,
+    externalKey: `qqbot:c2c:${label}`,
+    onUnbound: "create",
+    name: `channel ${label}`,
+  });
+  const legacyStore = new SparkSessionStore({
+    cwd: join(harness.root, "legacy-workspace"),
+    sparkHome: harness.transcriptSparkHome,
+  });
+  const source = legacyStore.createCanonicalSession({
+    id: session.sessionId,
+    timestamp: "2026-07-20T00:00:00.000Z",
+  });
+  await mkdir(legacyStore.sessionDir, { recursive: true });
+  await writeFile(
+    source.path,
+    `${[
+      {
+        type: "session",
+        version: 3,
+        id: session.sessionId,
+        timestamp: "2026-07-20T00:00:00.000Z",
+        cwd: legacyStore.cwd,
+      },
+      {
+        type: "message",
+        id: `message-${label}`,
+        parentId: null,
+        timestamp: "2026-07-20T00:00:01.000Z",
+        message: { role: "user", content: "retained channel history" },
+      },
+    ]
+      .map((value) => JSON.stringify(value))
+      .join("\n")}\n`,
+    "utf8",
+  );
+  const persistedSource = await legacyStore.load(source.path);
+  await harness.registry.bindTranscriptPath({
+    sessionId: session.sessionId,
+    sessionPath: source.path,
+  });
+  return { session: (await harness.registry.get(session.sessionId))!, source: persistedSource };
 }

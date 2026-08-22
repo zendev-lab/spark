@@ -72,13 +72,14 @@ test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest",
   assert.throws(() => parseSparkWebArgs(["--host"]), /requires a value/);
 });
 
-test("composeSparkWebPatch mounts Spark DSH plugins and bounds the long-lived web server", () => {
+test("composeSparkWebPatch replaces stock providers, mounts Spark DSH plugins, and bounds the long-lived web server", () => {
   const dir = mkdtempSync(join(tmpdir(), "spark-web-patch-"));
   try {
     const defaultPatch = composeSparkWebPatch(dir, { argv: [], trustedHosts: [] });
     const defaultText = defaultPatch.rows.join("\n");
     assert.match(defaultText, /- id: spark-llm/);
     assert.match(defaultText, /name: \.\/plugins\/spark-llm\/index\.mjs/);
+    assert.match(defaultText, /- id: llm-pi-ai\n  disabled: true/);
     assert.match(defaultText, /- id: spark-web-dsh/);
     assert.match(defaultText, /- id: dsh-tool-cue/);
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-cue\/index\.mjs/);

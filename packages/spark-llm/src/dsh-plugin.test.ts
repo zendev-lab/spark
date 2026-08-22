@@ -9,6 +9,7 @@ import LlmRuntime from "@deepseek-ai/dsh-llm";
 
 import plugin, {
   BAIDU_ONEAPI_PROVIDER,
+  DSH_MODELS_SETTINGS_NAMESPACE,
   sparkAuthApiKey,
   sparkAuthApiKeyFromFiles,
 } from "./dsh-plugin.ts";
@@ -56,7 +57,7 @@ test("dsh-plugin exposes non-empty Kimi and Codex catalogs", async () => {
   assert.equal((await ctx.llm.listModels("openai-codex")).length > 0, true);
 });
 
-test("dsh-plugin honors the configured display name in the settings directory", async () => {
+test("dsh-plugin exposes Spark providers through DSH's API-key editor layout", async () => {
   const ctx = await mount({
     providers: { [BAIDU_ONEAPI_PROVIDER]: { displayName: "My Gateway" } },
   });
@@ -68,9 +69,13 @@ test("dsh-plugin honors the configured display name in the settings directory", 
   const entry = directory.find((item) => item.provider === BAIDU_ONEAPI_PROVIDER);
   assert.ok(entry, "directory declares the baidu-oneapi route");
   assert.equal(entry.displayName, "My Gateway");
-  assert.equal(entry.settingsNs, "spark-llm");
+  assert.equal(entry.settingsNs, DSH_MODELS_SETTINGS_NAMESPACE);
   assert.deepEqual(entry.settingsPath, ["providers", BAIDU_ONEAPI_PROVIDER]);
   assert.equal(entry.declared, false, "the route ships with the plugin, not from configuration");
+  assert.deepEqual(
+    new Set(directory.map((item) => item.settingsNs)),
+    new Set([DSH_MODELS_SETTINGS_NAMESPACE]),
+  );
 });
 
 const SPARK_AUTH = {

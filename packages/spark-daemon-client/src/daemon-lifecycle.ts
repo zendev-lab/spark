@@ -81,24 +81,30 @@ export async function ensureSparkDaemonRunning(
         },
       ));
 
+  let daemonReachable = false;
+  let lastError: unknown;
   try {
-    await requestStatus(paths);
-    return;
-  } catch {
-    // Start or recover the service below, then require a real RPC response.
+    const status = await requestStatus(paths);
+    daemonReachable = true;
+    lastError = daemonReadinessError(status);
+    if (!lastError) return;
+  } catch (error) {
+    lastError = error;
   }
 
   const serviceLogPath = join(paths.logDir, "service.stderr.log");
   const serviceLogOffset = fileSize(serviceLogPath);
-  try {
-    const service = options.serviceCommand ?? resolveSparkDaemonServiceCommand({ env });
-    await (options.startService ?? startDetachedSparkDaemon)(service, paths, env);
-  } catch (error) {
-    throw new SparkDaemonStartupError({
-      diagnostic: errorMessage(error),
-      serviceLogPath,
-      cause: error,
-    });
+  if (!daemonReachable) {
+    try {
+      const service = options.serviceCommand ?? resolveSparkDaemonServiceCommand({ env });
+      await (options.startService ?? startDetachedSparkDaemon)(service, paths, env);
+    } catch (error) {
+      throw new SparkDaemonStartupError({
+        diagnostic: errorMessage(error),
+        serviceLogPath,
+        cause: error,
+      });
+    }
   }
 
   const now = options.now ?? Date.now;
@@ -106,15 +112,15 @@ export async function ensureSparkDaemonRunning(
     options.sleep ??
     ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const deadline = now() + (options.startupTimeoutMs ?? 30_000);
-  let lastError: unknown;
   do {
     try {
-      await requestStatus(paths);
-      return;
+      const status = await requestStatus(paths);
+      lastError = daemonReadinessError(status);
+      if (!lastError) return;
     } catch (error) {
       lastError = error;
-      await sleep(50);
     }
+    await sleep(50);
   } while (now() <= deadline);
 
   const connectionDetail = errorMessage(lastError);
@@ -125,6 +131,25 @@ export async function ensureSparkDaemonRunning(
     serviceLogPath,
     cause: lastError,
   });
+}
+
+function daemonReadinessError(status: unknown): Error | undefined {
+  const state = daemonLifecycleState(status);
+  if (state === "running") return undefined;
+  return new Error(
+    state
+      ? `Spark daemon lifecycle is ${state}; waiting for running.`
+      : "Spark daemon status did not report lifecycle readiness.",
+  );
+}
+
+function daemonLifecycleState(status: unknown): string | undefined {
+  if (!isRecord(status) || !isRecord(status.lifecycle)) return undefined;
+  return typeof status.lifecycle.state === "string" ? status.lifecycle.state : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export interface ResolveSparkDaemonServiceCommandOptions {

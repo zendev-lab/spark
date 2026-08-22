@@ -8,6 +8,7 @@ import {
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
 import type { Model } from "@earendil-works/pi-ai";
+import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol/model-control";
 
 import {
   generateOptionsToPiContext,
@@ -78,6 +79,7 @@ export class SparkProviderLlmAdapter extends LlmAdapter {
               ? {
                   reasoning: {
                     efforts: SPARK_LLM_REASONING_EFFORTS,
+                    defaultEffort: ReasoningEffortId(DEFAULT_SPARK_THINKING_LEVEL),
                   },
                 }
               : {}),
