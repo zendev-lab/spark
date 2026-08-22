@@ -33,6 +33,9 @@ catalogs:
     '@types/ws':
       specifier: ^8.18.1
       version: 8.18.1
+    '@zendev-lab/cue':
+      specifier: 0.1.2
+      version: 0.1.2
     axe-core:
       specifier: 4.13.0
       version: 4.13.0
@@ -402,6 +405,9 @@ importers:
       '@orpc/server':
         specifier: 'catalog:'
         version: 1.15.0(@opentelemetry/api@1.9.0)(crossws@0.3.5)(ws@8.21.3)
+      '@zendev-lab/cue':
+        specifier: 'catalog:'
+        version: 0.1.2
       '@zendev-lab/dsh-channels':
         specifier: workspace:^
         version: link:../../packages/dsh-channels
@@ -712,6 +718,9 @@ importers:
 
   apps/spark-web-dsh:
     dependencies:
+      '@zendev-lab/cue':
+        specifier: 'catalog:'
+        version: 0.1.2
       '@zendev-lab/dsh-tool-cue':
         specifier: workspace:^
         version: link:../../packages/dsh-tool-cue
@@ -5431,6 +5440,10 @@ packages:
 
   '@yuku-toolchain/types@0.5.43':
     resolution: {integrity: sha512-kSpvPntnXw5+lYjO71ffBEnQ5ycQ74KGIYknh0TS4xeyCuBkOqxyJumxZkMhLBBUCLjDAbx2+Icnr3Zh4ftjpQ==}
+
+  '@zendev-lab/cue@0.1.2':
+    resolution: {integrity: sha512-0i3jHfehxtDMFL2hv45zCwrbupEFyoNYbb7/Y/FXY5bi9nWcf0ZqIJVipE+0IRuy18SI4cLnZwYrE/c5S8j6nA==}
+    engines: {node: '>=22.14.0'}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -12299,6 +12312,8 @@ snapshots:
     optional: true
 
   '@yuku-toolchain/types@0.5.43': {}
+
+  '@zendev-lab/cue@0.1.2': {}
 
   accepts@2.0.0:
     dependencies:

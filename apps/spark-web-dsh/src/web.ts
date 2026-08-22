@@ -12,7 +12,7 @@
  *    `plugins/spark-llm/`, then mounted through a generated patch overlay —
  *    no manual install or copy step.
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
- *    presets and a verified cue Skill snapshot**, so Cue replaces DSH
+ *    presets and the package-owned cue Skill**, so Cue replaces DSH
  *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
  * 3. **Spark file-tool plugin**, whose versioned read/write/edit operations
  *    shadow the upstream file mutations inside the managed presets.
@@ -66,6 +66,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cueSkillsRoot } from "@zendev-lab/cue";
 import { installManagedCuePresets } from "./cue-presets.ts";
 
 /**
@@ -485,13 +486,16 @@ export function resolveSparkWebDshPackageDir(): string {
   return root;
 }
 
-/** Resolve the packaged Skill or the verified Cue snapshot in a source checkout. */
-export function resolveCueSkillsDir(packageDir: string = resolveSparkWebDshPackageDir()): string {
-  const packaged = join(packageDir, "skills");
-  if (existsSync(join(packaged, "cue", "SKILL.md"))) return packaged;
-  const snapshot = resolve(packageDir, "../../vendor/cue/skills");
-  if (existsSync(join(snapshot, "cue", "SKILL.md"))) return snapshot;
-  throw new Error(`spark web: cannot locate the verified Cue Skill snapshot from ${packageDir}`);
+/** Resolve the canonical Cue Skill from its exact package dependency. */
+export function resolveCueSkillsDir(explicitRoot: string = cueSkillsRoot): string {
+  const root = resolve(explicitRoot);
+  try {
+    const skillFile = lstatSync(join(root, "cue", "SKILL.md"));
+    if (skillFile.isFile() && !skillFile.isSymbolicLink()) return root;
+  } catch {
+    // Report the package or explicit override path below.
+  }
+  throw new Error(`spark web: cannot locate the package-owned Cue Skill under ${root}`);
 }
 
 export interface SparkWebPatch {
