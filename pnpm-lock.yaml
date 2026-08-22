@@ -1240,6 +1240,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:^
+        version: link:../spark-protocol
       '@zendev-lab/spark-retry':
         specifier: workspace:^
         version: link:../spark-retry

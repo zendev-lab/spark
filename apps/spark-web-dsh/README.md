@@ -11,7 +11,8 @@ bundles the verified canonical [`cue` Skill](https://github.com/zendev-lab/cue/t
 The Spark LLM plugin replaces stock `llm-pi-ai` and exposes Spark's configured
 `baidu-oneapi`, `kimi-coding`, and `openai-codex` routes. API-key providers
 reuse Spark's provider configuration and credential store; OpenAI Codex reuses
-credentials created by Spark's OAuth login flow.
+credentials created by Spark's OAuth login flow. Reasoning-capable routes use
+Spark's `high` default effort unless the Session selects another level.
 
 The managed `spark-standard` and `spark-code` presets use Spark's versioned
 `read`/`write`/`edit` adapter over DSH `ctx.fs`. Writes retain DSH sandbox

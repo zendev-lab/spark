@@ -65,6 +65,8 @@ surface instead of `SparkHostAPI`.
 the optional DSH workbench shares Spark's provider catalog and credential
 resolution instead of maintaining another owner. The Web DSH composition
 disables stock `llm-pi-ai` before mounting this adapter.
+Reasoning-capable routes advertise Spark's `high` default effort to DSH while
+preserving an explicit lower or higher effort selected for a Session.
 
 API-key routes resolve credentials from the DSH credentials service, the
 launching environment, and Spark's auth store. OpenAI Codex reuses Spark's
