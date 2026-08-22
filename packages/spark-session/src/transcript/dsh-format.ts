@@ -13,6 +13,8 @@ import {
   DEFAULT_MAX_IMAGE_PIXELS,
   DEFAULT_MAX_IMAGES_PER_MESSAGE,
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
+  DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
+  DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
   saveImageFile,
 } from "@deepseek-ai/dsh-attachment-local";
 import {
@@ -113,6 +115,11 @@ const IMAGE_LIMITS = {
   maxImagePixels: DEFAULT_MAX_IMAGE_PIXELS,
   maxImageDimension: DEFAULT_MAX_IMAGE_DIMENSION,
   mediaTypes: ["image/png", "image/jpeg", "image/webp", "image/gif"] as const,
+};
+
+const IMAGE_NORMALIZATION_POLICY = {
+  maxDimension: DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
+  maxBytes: DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
 };
 
 const SPARK_DSH_EVENT_TYPES = new Set([
@@ -722,6 +729,7 @@ async function convertContent(
         attachmentRoot,
         { data: new Uint8Array(Buffer.from(value.data, "base64")), mediaType: value.mimeType },
         IMAGE_LIMITS,
+        IMAGE_NORMALIZATION_POLICY,
       );
       blocks.push({ type: "image", attachment });
       blockMeta.push(jsonData(value));

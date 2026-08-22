@@ -6,10 +6,10 @@ import { isNativeError } from "node:util/types";
 /**
  * spark-core — Spark host contract + lightweight primitives.
  *
- * This package centralises the SparkHostAPI shape that Spark extension hosts
+ * This package centralises the SparkHostAPI shape that daemon product composition
  * and retained Pi-compatible adapters in this workspace speak to. Both the
  * upstream pi-coding-agent runtime and the Spark native host family implement
- * (a superset of) this surface; extensions stay portable as long as they only
+ * (a superset of) this surface; capability adapters stay portable as long as they only
  * depend on the names exported from here.
  *
  * Runtime impact: intentionally tiny. Besides type declarations, this package
@@ -19,7 +19,7 @@ import { isNativeError } from "node:util/types";
  * and those small primitives live here.
  *
  * Design rules:
- *   - Every method is `optional` so extensions must guard each call. This lets
+ *   - Every method is `optional` so adapters must guard each call. This lets
  *     a host implement only the slice it cares about while still satisfying the
  *     contract (e.g. a roles-only host might omit `registerTool`).
  *   - SparkHostContext is a union of capabilities observed across pi-coding-agent

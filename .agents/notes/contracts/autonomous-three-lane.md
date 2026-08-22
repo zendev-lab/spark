@@ -17,7 +17,7 @@ binding-revision, or Git-topology runtime.
 | Tasks and TaskRun history | TaskGraph |
 | Evidence payload and provenance | Evidence store |
 | Session identity, lineage, model, lifecycle | daemon Session registry |
-| Commands, tools, and Role definitions | `@zendev-lab/spark-extension` |
+| Commands, tools, and Role definitions | `apps/spark-daemon/src/product` |
 | Shared result and projection schemas | `@zendev-lab/spark-protocol` |
 | Session-tree presentation | daemon projection consumed by TUI and Hub |
 

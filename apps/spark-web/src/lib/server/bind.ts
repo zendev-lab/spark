@@ -50,12 +50,14 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
   port: number;
   open: boolean;
   trustedHosts: string[];
+  hmr: boolean;
   argv: string[];
 } {
   let host = SPARK_WEB_DEFAULT_HOST;
   let port = SPARK_WEB_DEFAULT_PORT;
   let open = true;
   const trustedHosts: string[] = [];
+  let hmr = false;
   const rest: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
@@ -85,6 +87,10 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
       port = Number(raw);
       continue;
     }
+    if (arg === "--hmr") {
+      hmr = true;
+      continue;
+    }
     if (arg === "--no-open") {
       open = false;
       continue;
@@ -109,5 +115,5 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
   if (!isSparkWebLoopbackHost(host) && uniqueTrustedHosts.length === 0) {
     throw new Error("spark web requires --trusted-host when --host is not loopback");
   }
-  return { host, port, open, trustedHosts: uniqueTrustedHosts, argv: rest };
+  return { host, port, open, trustedHosts: uniqueTrustedHosts, hmr, argv: rest };
 }

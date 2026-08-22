@@ -5,8 +5,8 @@ Codex, Kimi For Coding), model routing, auth/catalog, and the `models` tool.
 
 This package is not the LLM abstraction owner. That role belongs to
 `@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm` implements
-those adapters. `spark-extension` registers Invocation-scoped provider routes
-on the single daemon Cordis root, and `spark-turn` consumes the injected
+those adapters. Daemon product composition registers Invocation-scoped
+provider routes on the single daemon Cordis root, and `spark-turn` consumes the injected
 `LlmRuntime` through `dsh-agent-loop`. See
 [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../../.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md).
 `SparkProviderRegistry` remains the catalog/auth loader used to
