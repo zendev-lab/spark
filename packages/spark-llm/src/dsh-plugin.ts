@@ -77,13 +77,13 @@ const providerProfile = z.object({
 });
 
 /** The editable shape of one provider route, mirroring {@link providerProfile}. */
-export interface SparkLlmProviderProfile {
+interface SparkLlmProviderProfile {
   apiKeyEnv?: string;
   displayName?: string;
 }
 
 /** Spark-owned provider routes keyed by route id. */
-export interface SparkLlmConfig {
+interface SparkLlmConfig {
   providers: Record<string, SparkLlmProviderProfile | undefined>;
 }
 
@@ -154,7 +154,7 @@ export function sparkAuthApiKey(authJson: unknown, keys: readonly string[]): str
  * explicit `SPARK_HOME`, the XDG config root, the XDG default, and the
  * legacy `~/.spark` home used by earlier Spark versions. First hit wins.
  */
-export function sparkAuthCandidates(): string[] {
+function sparkAuthCandidates(): string[] {
   const home = homedir();
   const candidates: string[] = [];
   const sparkHome = process.env.SPARK_HOME;

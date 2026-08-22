@@ -269,7 +269,7 @@ export function createQqbotC2CReplyStream(options: QqbotC2CReplyStreamOptions): 
 }
 
 /** QQ stream updates must keep the previously delivered body as a prefix. */
-export function preservesQqbotStreamPrefix(committed: string, next: string): boolean {
+function preservesQqbotStreamPrefix(committed: string, next: string): boolean {
   const previous = committed.trimEnd();
   if (!previous) return true;
   const candidate = next.trimEnd();

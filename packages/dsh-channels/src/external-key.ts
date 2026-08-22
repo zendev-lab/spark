@@ -1,5 +1,4 @@
-export const channelAdapterTypes = ["feishu", "infoflow", "qqbot"] as const;
-export type ChannelAdapterType = (typeof channelAdapterTypes)[number];
+export type ChannelAdapterType = "feishu" | "infoflow" | "qqbot";
 
 const defaultScopes: Record<ChannelAdapterType, string> = {
   feishu: "chat",

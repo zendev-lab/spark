@@ -212,7 +212,7 @@ export interface ResolvedChannelRoute {
   recipient: string;
 }
 
-export type ChannelNotifyAction = "send" | "list" | "test";
+type ChannelNotifyAction = "send" | "list" | "test";
 
 export interface ChannelNotifyInput {
   action: ChannelNotifyAction;

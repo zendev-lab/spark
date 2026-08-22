@@ -36,7 +36,7 @@ export function normalizeProjectRoadmap(
   };
 }
 
-export function normalizeRoadmapItem(item: RoadmapItem, path: string): RoadmapItem {
+function normalizeRoadmapItem(item: RoadmapItem, path: string): RoadmapItem {
   validateRoadmapItem(item, path);
   return {
     ref: item.ref,

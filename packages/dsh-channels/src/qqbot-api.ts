@@ -18,7 +18,7 @@ export const QQBOT_TOKEN_URL = `${
     : undefined) || "https://bots.qq.com"
 }/app/getAppAccessToken`;
 
-export const QQBOT_USER_AGENT = "SparkQQBot/0.1.0";
+const QQBOT_USER_AGENT = "SparkQQBot/0.1.0";
 export const DEFAULT_QQBOT_REQUEST_TIMEOUT_MS = 30_000;
 
 export class QqbotRequestTimeoutError extends Error {

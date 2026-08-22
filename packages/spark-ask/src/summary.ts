@@ -1,5 +1,5 @@
 import type { SparkAskAnswerSource } from "./answer-source.ts";
-import type { SparkAskFlowAnswerEntry, SparkAskFlowRequest, SparkAskFlowResult } from "./schema.ts";
+import type { SparkAskFlowRequest, SparkAskFlowResult } from "./schema.ts";
 import { formatAskAnswerForDisplay, missingRequiredAskAnswerIds } from "./shared-semantics.ts";
 
 export interface AskSummaryAnswer {
@@ -112,12 +112,6 @@ export function isAskEvidenceBody(value: unknown): value is AskEvidenceBody {
     typeof (value as { result?: unknown }).result === "object" &&
     typeof (value as { summary?: unknown }).summary === "string",
   );
-}
-
-export function answerEntriesFromFlow(
-  answers: Record<string, SparkAskFlowAnswerEntry>,
-): Record<string, AskSummaryAnswer> {
-  return answers;
 }
 
 function omitUndefinedFields(value: unknown): unknown {

@@ -145,7 +145,7 @@ function isFileOp(command: string): boolean {
  * alternate binary path, or executable callback remains external_write and is
  * therefore denied by Explorer/Reviewer effect ceilings.
  */
-export function resolveCueExecPolicy(args: Readonly<Record<string, unknown>>) {
+function resolveCueExecPolicy(args: Readonly<Record<string, unknown>>) {
   if (args.background === true || args.pty === true || args.needs !== undefined) {
     return CUE_EXECUTION_TOOL_POLICY;
   }
@@ -886,7 +886,7 @@ async function runPythonExecution(
   return { content: [{ type: "text" as const, text: lines.join("\n") }], details };
 }
 
-export interface PythonRunnerResolution {
+interface PythonRunnerResolution {
   executable: "uv";
   source: "uv";
   argv: string[];

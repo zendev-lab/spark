@@ -156,7 +156,7 @@ interface InfoflowHttpResponse<T = unknown> {
 }
 
 /** SDK schema adapter whose public request method never retries a message mutation. */
-export class SingleAttemptInfoflowHttpClient extends HttpClient {
+class SingleAttemptInfoflowHttpClient extends HttpClient {
   readonly #config: ConfigManager;
   readonly #fetch: typeof globalThis.fetch;
   readonly #accessTokenProvider: () => Promise<string>;
@@ -228,9 +228,9 @@ export class SingleAttemptInfoflowHttpClient extends HttpClient {
 }
 
 /** Outer card status (star row). Inner details row uses a different label. */
-export const INFOFLOW_STREAM_DONE_LABEL = "已完成";
+const INFOFLOW_STREAM_DONE_LABEL = "已完成";
 /** Details / expandable row label — must not duplicate the outer done label. */
-export const INFOFLOW_STREAM_DETAILS_LABEL = "处理过程";
+const INFOFLOW_STREAM_DETAILS_LABEL = "处理过程";
 
 /**
  * SDK-schema Infoflow outbound. Ordinary message mutations use the SDK's
@@ -347,7 +347,7 @@ export function createInfoflowSdkOutbound(
   };
 }
 
-export interface WrapInfoflowReplyStreamOptions {
+interface WrapInfoflowReplyStreamOptions {
   /** Deliver all answer text past the card budget in one ordinary mutation. */
   sendOverflow?: (text: string) => Promise<void>;
 }
@@ -363,7 +363,7 @@ export interface WrapInfoflowReplyStreamOptions {
  * message. The daemon skips a second sendReply when this stream completes
  * successfully.
  */
-export function wrapInfoflowReplyStream(
+function wrapInfoflowReplyStream(
   session: InfoflowStreamingSession,
   deliveryRecovery?: ChannelReplyRecovery,
   options: WrapInfoflowReplyStreamOptions = {},

@@ -25,7 +25,7 @@ export interface SparkBehaviorCeNumericSummary {
   coefficientOfVariation: number | null;
 }
 
-export interface SparkBehaviorCeCaseSummary {
+interface SparkBehaviorCeCaseSummary {
   caseId: string;
   expectedRuns: number;
   observedRuns: number;
@@ -42,14 +42,14 @@ export interface SparkBehaviorCeCaseSummary {
   failureSamples: string[];
 }
 
-export interface SparkBehaviorCeRunInventory {
+interface SparkBehaviorCeRunInventory {
   runId: string;
   caseIds: string[];
   missingCaseIds: string[];
   unexpectedCaseIds: string[];
 }
 
-export interface SparkBehaviorCeDuplicateSample {
+interface SparkBehaviorCeDuplicateSample {
   runId: string;
   caseId: string;
 }

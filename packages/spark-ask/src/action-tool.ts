@@ -27,7 +27,7 @@ import { requireCanonicalAskTransport } from "./transport.ts";
 import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
 
 export type SparkAskAction = "ask" | "flow" | "answer";
-export type SparkAskAutoAnswerMode = boolean;
+type SparkAskAutoAnswerMode = boolean;
 export const DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
 const MAX_ASK_WAIT_TIMEOUT_MS = 24 * 60 * 60_000;
 
@@ -46,7 +46,7 @@ export interface SparkAskActionToolOptions {
   autoAnswer?: SparkAskAutoAnswerResolver;
   request?: SparkAskDaemonRequest;
 }
-export interface SparkAskAutoAnswerQuestion {
+interface SparkAskAutoAnswerQuestion {
   id: string;
   prompt: string;
   header?: string;
@@ -56,21 +56,21 @@ export interface SparkAskAutoAnswerQuestion {
   options?: SparkAskAutoAnswerOption[];
 }
 
-export interface SparkAskAutoAnswerOption {
+interface SparkAskAutoAnswerOption {
   value: string;
   label: string;
   description?: string;
   preview?: string;
 }
 
-export interface SparkAskAutoAnswerEntry {
+interface SparkAskAutoAnswerEntry {
   values?: string[];
   customText?: string;
   notes?: string;
   comment?: string;
 }
 
-export interface SparkAskAutoAnswerResult {
+interface SparkAskAutoAnswerResult {
   answers?: Record<string, SparkAskAutoAnswerEntry>;
   blocked?: boolean;
   reason?: string;

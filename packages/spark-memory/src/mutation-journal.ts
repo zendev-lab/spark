@@ -10,7 +10,7 @@ import {
 import { memoryContentDigest, type MemoryLifecycleEnvelope } from "./lifecycle.ts";
 import type { MemoryApprovalVerifier } from "./approval.ts";
 
-export type MemoryMutationJournalState = "prepared" | "persisted";
+type MemoryMutationJournalState = "prepared" | "persisted";
 
 export interface MemoryMutationJournalRecord {
   version: 1;
@@ -31,7 +31,7 @@ export interface MemoryMutationJournalRecord {
   proof: SparkMemoryApprovalProof;
 }
 
-export class MemoryMutationRecoveryError extends Error {
+class MemoryMutationRecoveryError extends Error {
   constructor(message: string) {
     super(`memory mutation recovery required: ${message}`);
     this.name = "MemoryMutationRecoveryError";
@@ -80,7 +80,7 @@ export function assertMemoryMutationJournalTarget(
   return true;
 }
 
-export function isMemoryMutationJournalTarget(
+function isMemoryMutationJournalTarget(
   lifecycle: Pick<MemoryLifecycleEnvelope, "recordRef" | "revision" | "revisionHistory">,
   content: unknown,
   journal: MemoryMutationJournalRecord,

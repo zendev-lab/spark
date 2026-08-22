@@ -804,7 +804,7 @@ function scalarString(value: unknown): string {
 }
 
 /** Convert SDK event → Spark transport raw shape expected by InfoflowAdapter. */
-export function normalizeInfoflowSdkEvent(
+function normalizeInfoflowSdkEvent(
   event: EventMessage<NormalizedEventData>,
   options: { agentId?: string } = {},
 ): InfoflowNormalizedInbound | null {

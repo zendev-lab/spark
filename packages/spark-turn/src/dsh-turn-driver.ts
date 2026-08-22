@@ -48,7 +48,7 @@ declare module "@deepseek-ai/cordis" {
   }
 }
 
-export interface SparkTurnDriverCheckpoint {
+interface SparkTurnDriverCheckpoint {
   toolCalls: ToolCall[];
   promptItems: readonly SparkPromptItem[];
   roundtrips: number;
@@ -59,7 +59,7 @@ const SPARK_AUXILIARY_MODEL_PREFIX = "spark-auxiliary-model:";
 const STREAM_IDLE_TIMEOUT_CODE = "STREAM_IDLE_TIMEOUT";
 const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
 
-export interface SparkTurnDriverTool {
+interface SparkTurnDriverTool {
   name: string;
   description: string;
   parallelSafe?: boolean;
@@ -85,7 +85,7 @@ export interface SparkDshToolDescriptor {
   readonly policy: SparkDshToolPolicyMetadata | undefined;
 }
 
-export interface SparkPreparedTurn {
+interface SparkPreparedTurn {
   context: PiContext;
   requestedOutputTokens: number;
 }
@@ -135,7 +135,7 @@ export interface RunSparkDshTurnInput {
   hooks: SparkTurnDriverHooks;
 }
 
-export type SparkTurnToolRegistration =
+type SparkTurnToolRegistration =
   | { readonly owner: "spark-host" }
   | {
       readonly owner: "dsh";
@@ -305,7 +305,7 @@ export function installSparkConsentPlugin(
   });
 }
 
-export function installSparkHostGuardPlugin(
+function installSparkHostGuardPlugin(
   ctx: Context,
   guard: (signal: AbortSignal) => void | Promise<void>,
 ): void {
@@ -316,7 +316,7 @@ export function installSparkHostGuardPlugin(
   ctx.on("agent/request-error", async (_payload, next) => next());
 }
 
-export function installSparkHangTimeoutPlugin(ctx: Context, idleTimeoutMs: number): void {
+function installSparkHangTimeoutPlugin(ctx: Context, idleTimeoutMs: number): void {
   if (idleTimeoutMs <= 0) return;
   ctx.on("llm/stream", async function* (options: GenerateOptions, next) {
     const watchdog = idleWatchdog(options.signal, idleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE);

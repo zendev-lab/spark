@@ -15,7 +15,7 @@ export const SPARK_DRIVER_AUTHORITY_QUESTION_ID = "driver_authority";
 export const SPARK_DRIVER_AUTHORITY_GRANT = "grant";
 export const SPARK_DRIVER_AUTHORITY_DENY = "deny";
 
-export function sessionContextFromHost(input: {
+function sessionContextFromHost(input: {
   cwd: string;
   sessionId?: string;
   sparkStateRoot?: string;

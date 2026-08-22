@@ -20,7 +20,7 @@ export const FUSION_TOOL_GUIDANCE = [
   "A partial or failed result is not consensus. Preserve uncertainty and continue mechanically instead of inventing a synthesis.",
 ] as const;
 
-export const FUSION_TOOL_PARAMETERS = Type.Object(
+const FUSION_TOOL_PARAMETERS = Type.Object(
   {
     action: Type.Literal("deliberate"),
     question: Type.String({

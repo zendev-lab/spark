@@ -210,7 +210,7 @@ export function toolRequiresApproval(
   return false;
 }
 
-export function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {
+function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {
   const approvalPolicy = (config as { approvalPolicy?: unknown }).approvalPolicy;
   if (approvalPolicy === true || approvalPolicy === "always") return true;
   return Boolean(
@@ -272,8 +272,8 @@ export function errorToolResult(
   };
 }
 
-export type SparkToolFailureCertainty = "not-sent" | "unknown";
-export type SparkToolFailureRetryability = "transient" | "permanent" | "agent-decides";
+type SparkToolFailureCertainty = "not-sent" | "unknown";
+type SparkToolFailureRetryability = "transient" | "permanent" | "agent-decides";
 
 export interface SparkToolFailureDisposition {
   certainty: SparkToolFailureCertainty;
@@ -289,7 +289,7 @@ export function sparkToolFailureDisposition(error: unknown): SparkToolFailureDis
 }
 
 /** Only an explicit cross-process not-sent tag permits replay. */
-export function sparkToolFailureCertainty(error: unknown): SparkToolFailureCertainty {
+function sparkToolFailureCertainty(error: unknown): SparkToolFailureCertainty {
   const tagged = errorRecord(error);
   if (
     tagged?.certainty === "not-sent" ||
@@ -307,7 +307,7 @@ export function sparkToolFailureCertainty(error: unknown): SparkToolFailureCerta
 }
 
 /** Missing retry metadata is always delegated to the Agent rather than retried implicitly. */
-export function sparkToolFailureRetryability(error: unknown): SparkToolFailureRetryability {
+function sparkToolFailureRetryability(error: unknown): SparkToolFailureRetryability {
   const tagged = errorRecord(error);
   const payload = errorRecord(tagged?.payload);
   const data = errorRecord(tagged?.data) ?? errorRecord(payload?.data);

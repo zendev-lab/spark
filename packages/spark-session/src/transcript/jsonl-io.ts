@@ -57,7 +57,7 @@ export function parseSparkSessionEntries(content: string): SparkSessionFileEntry
   return entries;
 }
 
-export function throwIfAtomicWriteAborted(signal: AbortSignal | undefined): void {
+function throwIfAtomicWriteAborted(signal: AbortSignal | undefined): void {
   if (!signal?.aborted) return;
   throw signal.reason instanceof Error ? signal.reason : new Error("Session write aborted");
 }
