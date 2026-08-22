@@ -7,17 +7,24 @@ import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
 import { invokeSparkWebRpc, sanitizeSparkWebRpcInput, SparkWebRpcForbiddenError } from "./rpc.ts";
 import { collectSessionLiveEvents, formatSseFrame, sessionSnapshotCursor } from "./sse.ts";
 
+test("bind arguments default HMR off and accept explicit HMR opt-in", () => {
+  assert.equal(parseSparkWebBindArgs([]).hmr, false);
+  assert.equal(parseSparkWebBindArgs(["--hmr"]).hmr, true);
+});
+
 test("bind arguments default to loopback and accept an explicit network host", () => {
   assert.deepEqual(parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311"]), {
     host: "0.0.0.0",
     port: 4311,
     open: true,
+    hmr: false,
     argv: [],
   });
-  assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open"]), {
+  assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open", "--hmr"]), {
     host: "127.0.0.1",
     port: 4311,
     open: false,
+    hmr: true,
     argv: [],
   });
 });

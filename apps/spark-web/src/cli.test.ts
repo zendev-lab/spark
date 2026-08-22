@@ -4,7 +4,12 @@ import { test } from "vitest";
 import { SparkDaemonStartupError } from "@zendev-lab/spark-daemon-client";
 import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
-import { runSparkWebCli } from "./cli.ts";
+import { runSparkWebCli, sparkWebHelpText } from "./cli.ts";
+
+test("spark web help documents opt-in HMR", () => {
+  assert.match(sparkWebHelpText(), /\[--hmr\]/);
+  assert.match(sparkWebHelpText(), /Vite development server/);
+});
 
 test("spark web reports invalid options with the shared usage-error surface", async () => {
   await assert.rejects(

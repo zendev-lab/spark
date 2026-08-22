@@ -12,8 +12,8 @@ spark web
 ```
 
 An explicit `--host` may expose the token-protected workbench on another
-interface, including `0.0.0.0`. Settings distinguish API-key providers from
-OAuth login at `/settings/oauth/:provider`; the workbench never echoes stored
-secrets. Shared presentation lives in `@zendev-lab/spark-ui`. cwd is only a
-launch context; an unregistered cwd still starts the workbench and can be
-registered from the home page.
+interface, including `0.0.0.0`. Use `--hmr` only for local development when
+watching source changes; it switches to the Vite development server. The
+long-lived default serves the prebuilt handler without HMR. Shared presentation
+lives in `@zendev-lab/spark-ui`. cwd is only a launch context; an unregistered
+cwd still starts the workbench and can be registered from the home page.

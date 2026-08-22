@@ -25,6 +25,11 @@ same Spark-owned spawn/fork providers are registered on the daemon Cordis root.
 The overlay disables stock in-process spawn/fork backends; the official
 `dsh-subagent` HOST stays mounted.
 
+The compatibility server keeps DSH HMR disabled by default. `spark web-dsh`
+prebuilds its managed bundles before boot, so HMR is unnecessary for the
+long-lived server and can retain reload state. Use the upstream DSH profile
+command directly when developing with HMR.
+
 For the supported DSH release, Spark rejects cold history artifacts larger than 8 MiB
 before upstream `inspect()` can materialize the complete transcript. Servable
 history pages are sized adaptively from the artifact, then checked against an

@@ -5,11 +5,13 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
   host: string;
   port: number;
   open: boolean;
+  hmr: boolean;
   argv: string[];
 } {
   let host = SPARK_WEB_DEFAULT_HOST;
   let port = SPARK_WEB_DEFAULT_PORT;
   let open = true;
+  let hmr = false;
   const rest: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
@@ -39,11 +41,15 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
       port = Number(raw);
       continue;
     }
+    if (arg === "--hmr") {
+      hmr = true;
+      continue;
+    }
     if (arg === "--no-open") {
       open = false;
       continue;
     }
     rest.push(arg);
   }
-  return { host, port, open, argv: rest };
+  return { host, port, open, hmr, argv: rest };
 }

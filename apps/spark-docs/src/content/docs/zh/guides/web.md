@@ -13,8 +13,9 @@ spark web
 URL，例如 `http://127.0.0.1:4310/?token=...`。显式传入 `--host` 可将受 token
 保护的工作台暴露到其他网络接口，包括 `0.0.0.0`。
 
-需要改变绑定、端口或跳过打开浏览器时，使用 `--host`、`--port` 和
-`--no-open`。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
+需要改变绑定、端口或跳过打开浏览器时，使用 `--host`、`--port` 和 `--no-open`。
+本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
+默认关闭 HMR。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
 本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
 Hub 仍是多 daemon 代理与管理界面。
 
