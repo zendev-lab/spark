@@ -25,13 +25,16 @@ spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
 ```
 
 Pass `--hmr` for local development when you need Vite to watch source changes;
-it is disabled by default for the long-lived server. This workbench lists every
-workspace bound to this local daemon. Register a local directory from the home
-page; Hub origin and announce stay on `spark daemon login`, not this form. Hub
-remains the multi-daemon proxy and management UI.
+it is disabled by default for the long-lived server. The home page is a
+daemon-wide Session tree and Invocation view, with pending human waits and
+recent Artifacts. It works when no Workspace is registered, including for
+daemon-scoped Channel Sessions. Workspace remains repository, cwd, and Artifact
+context; register a local directory from the collapsed context section. Hub
+origin and announce stay on `spark daemon login`, not this form. Hub remains the
+multi-daemon proxy and management UI.
 
 The workbench uses typed daemon projections for Session history and lifecycle,
-Ask and approval recovery, Work and Artifact inspection, Role and Skill
+Invocation list/detail, Ask and approval recovery, Work and Artifact inspection, Role and Skill
 catalogs, model and provider settings, search, export, and diagnostics. It does
 not read `.spark/`, Hub databases, or arbitrary host paths in the browser.
 Directory selection remains confined to registered workspaces and owning Spark
@@ -137,8 +140,9 @@ offline cache; only immutable app assets are cached.
 
 ## Session attach
 
-Sessions are workspace-bound. Start `spark web` against the same daemon and
-open the workspace and Session from the list.
+Start `spark web` against the same daemon and open the Session from the
+daemon-wide tree. Workspace-scoped Sessions retain their cwd/repository context;
+daemon Channel Sessions do not require a Workspace.
 Do not invent execution state from the browser timer or transcript text;
 inspect the daemon when two views disagree:
 

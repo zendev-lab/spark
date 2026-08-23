@@ -89,22 +89,24 @@
               {#if row.diagnostic === "cycle"} · {labels.cycle}{/if}
             </small>
           </a>
-          <div class="tree-actions">
-            {#if row.session.placement === "archived"}
-              <button type="button" disabled={busySessionId === row.session.sessionId} onclick={() => void onRestore?.(row.session)}>
-                {labels.restore}
-              </button>
-            {:else}
-              <button type="button" disabled={busySessionId === row.session.sessionId} onclick={() => void onArchive?.(row.session)}>
-                {labels.archive}
-              </button>
-            {/if}
-            {#if row.session.lifecycle !== "closed"}
-              <button class="danger" type="button" disabled={busySessionId === row.session.sessionId} onclick={() => void onClose?.(row.session)}>
-                {labels.close}
-              </button>
-            {/if}
-          </div>
+          {#if onArchive || onRestore || onClose}
+            <div class="tree-actions">
+              {#if row.session.placement === "archived" && onRestore}
+                <button type="button" disabled={busySessionId === row.session.sessionId} onclick={() => void onRestore?.(row.session)}>
+                  {labels.restore}
+                </button>
+              {:else if row.session.placement !== "archived" && onArchive}
+                <button type="button" disabled={busySessionId === row.session.sessionId} onclick={() => void onArchive?.(row.session)}>
+                  {labels.archive}
+                </button>
+              {/if}
+              {#if row.session.lifecycle !== "closed" && onClose}
+                <button class="danger" type="button" disabled={busySessionId === row.session.sessionId} onclick={() => void onClose?.(row.session)}>
+                  {labels.close}
+                </button>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/each}
     </div>

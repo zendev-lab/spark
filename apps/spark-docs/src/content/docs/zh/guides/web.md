@@ -21,12 +21,14 @@ spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
 ```
 
 本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
-默认关闭 HMR。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
-本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
-Hub 仍是多 daemon 代理与管理界面。
+默认关闭 HMR。首页直接展示 daemon 全局 Session tree、Invocation、待处理人工交互
+与最近 Artifact；没有注册 Workspace 时也能打开，包括 daemon-scoped Channel
+Session。Workspace 只保留仓库、cwd 与 Artifact 上下文，可从折叠的上下文区注册
+本地目录；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。Hub 仍是多
+daemon 代理与管理界面。
 
-工作台通过 typed daemon projection 读取和操作 Session 历史及生命周期、
-Ask/Approval 恢复、Work 与 Artifact、Role/Skill catalog、模型与 Provider 设置、
+工作台通过 typed daemon projection 读取和操作 Session 历史及生命周期、Invocation
+列表与详情、Ask/Approval 恢复、Work 与 Artifact、Role/Skill catalog、模型与 Provider 设置、
 搜索、导出和诊断。浏览器不会直接读取 `.spark/`、Hub 数据库或任意宿主路径。
 目录选择只能落在已注册 workspace 或 owning Spark worktree 中，并由 daemon 对
 realpath 与 symlink 边界做校验。
@@ -114,8 +116,9 @@ Create Local Share 会生成随机的只读 URL，HTML 只保留在当前 Spark 
 
 ## 会话 attach
 
-会话与 canonical workspace 绑定。请连接同一 daemon，启动 `spark web`，再从
-workspace 和 Session 列表打开会话。不要用浏览器计时器或 transcript
+请连接同一 daemon，启动 `spark web`，再从 daemon 全局会话树打开 Session。
+Workspace-scoped Session 保留自己的 cwd/仓库上下文；daemon Channel Session 不要求
+Workspace。不要用浏览器计时器或 transcript
 文本推断执行状态；两个视图不一致时先检查 daemon：
 
 ```bash

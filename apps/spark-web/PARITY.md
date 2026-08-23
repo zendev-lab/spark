@@ -14,7 +14,8 @@ Status meanings:
 
 | Capability | Status | Authoritative owner | Automated coverage | Runtime evidence |
 | --- | --- | --- | --- | --- |
-| Workspace and Session discovery | verified | daemon workspace/session registry | `apps/spark-daemon/src/local-rpc/service.test.ts`; Web server loads | Node 24 production build; isolated Chromium workspace registration and Session creation |
+| Daemon-wide Session and Workspace-context discovery | verified | daemon session/workspace registry | `apps/spark-daemon/src/local-rpc/service.test.ts`; Web dashboard tests | Node 24 production build; isolated Chromium workspace registration and Session creation |
+| Invocation list and detail | automated | daemon Invocation store and scheduler | Web dashboard/detail tests; daemon turn handler tests | Live running/cancel/retry browser journey pending |
 | Session snapshot pagination and cold history | automated | daemon session store; `spark-protocol` window contract | protocol snapshot tests; daemon local RPC tests | Real long-history browser run pending |
 | Transcript, attachments, media, queue removal, cancel, retry, reconnect | automated | daemon invocation/session control; `spark-ui` conversation | daemon suite; Web unit tests; `spark-ui` browser tests | Full browser journey pending |
 | Markdown, code, tables, math, Mermaid, quote/source/media rendering | automated | `spark-ui` safe rendering | `spark-ui` unit/component/catalog tests | Full content fixture browser run pending |
