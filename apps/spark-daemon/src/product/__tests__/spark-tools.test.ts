@@ -55,7 +55,7 @@ import {
   killActiveSparkRoleRunProcesses,
   listActiveSparkRoleRunProcesses,
   runSparkTask,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   defaultTaskGraphStore,
   defaultTaskTodoStore,

@@ -7,7 +7,7 @@ import { test } from "vitest";
 import type { RoleRef, RunRef } from "@zendev-lab/spark-core";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
-import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
+import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 import { evaluateSparkTaskClaimRecovery } from "../policy/task-claim-recovery.ts";
 import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";

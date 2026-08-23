@@ -12,7 +12,7 @@ import type {
   RoleRunJsonEventsTail,
   RoleRunTextTail,
   SparkRoleRunInputControl,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { WorkflowRunStatus } from "@zendev-lab/spark-workflows";
 
 export type SparkBackgroundChildStatus =

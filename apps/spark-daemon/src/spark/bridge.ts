@@ -6,7 +6,7 @@ import {
   createDefaultRoleRegistry,
   hydrateDefaultRoleRegistry,
 } from "@zendev-lab/spark-roles";
-import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
+import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
 

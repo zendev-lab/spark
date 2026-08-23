@@ -24,7 +24,7 @@ import {
   type SparkRoleRunResult,
   type SparkWorkflowRoleRunRequest,
   type SparkWorkflowModelRunRequest,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import { sessionModelName } from "./session-model.ts";
 import {

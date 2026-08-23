@@ -16,7 +16,7 @@ import {
   killActiveSparkRoleRunProcesses,
   listActiveSparkRoleRunProcesses,
   runSparkTask,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { stableId, type RunRef, type TaskPlan } from "@zendev-lab/spark-core";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { setSessionGoal, updateSessionGoalStatus } from "@zendev-lab/spark-loop";

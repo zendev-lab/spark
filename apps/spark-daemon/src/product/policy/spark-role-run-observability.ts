@@ -10,7 +10,7 @@ import type {
   TaskRunStatus,
 } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
+import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
 
 export type SparkRoleRunObservedStatus =
   | "queued"

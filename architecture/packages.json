@@ -300,8 +300,8 @@
       "stability": "supported",
       "stateWriter": "host"
     },
-    "@zendev-lab/spark-runtime": {
-      "path": "packages/spark-runtime",
+    "@zendev-lab/spark-task-runtime": {
+      "path": "packages/spark-task-runtime",
       "layer": "runtime",
       "owner": "task-execution",
       "stability": "supported",
