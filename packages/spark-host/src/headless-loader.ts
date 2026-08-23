@@ -8,7 +8,10 @@ import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
+  SparkDriverAuthority,
   SparkHostLoopContext,
+  SparkInvocationAttempt,
+  SparkInvocationRole,
   SparkSessionLeaseIdentity,
   ToolEffect,
 } from "@zendev-lab/spark-core";
@@ -102,6 +105,9 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  invocationAttempt?: SparkInvocationAttempt;
+  invocationRole?: SparkInvocationRole;
+  driverAuthority?: SparkDriverAuthority;
   /** @deprecated Compatibility input; normalized before host construction. */
   taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
   loop?: SparkHostLoopContext;

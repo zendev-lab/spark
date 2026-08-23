@@ -71,11 +71,24 @@ function context(
 ): SparkDaemonTaskExecutionContext {
   return {
     invocationId: "invocation-1",
+    invocationAttempt: {
+      epoch: 1,
+      daemonGeneration: 1,
+      correlationId: "attempt:invocation-1:1",
+    },
     signal,
     emitEvent: (event) => {
       emitted.push(event);
     },
   };
+}
+
+function invocationAttempt(invocationId: string) {
+  return {
+    epoch: 1,
+    daemonGeneration: 1,
+    correlationId: `attempt:${invocationId}:1`,
+  } as const;
 }
 
 function daemonChannelSession(
@@ -216,6 +229,7 @@ describe("daemon native session execution", () => {
         { type: "session.run", sessionId, prompt: "finish" },
         {
           invocationId,
+          invocationAttempt: invocationAttempt(invocationId),
           signal: new AbortController().signal,
           emitEvent: (event) => {
             if (event.type !== "daemon.view_event") return;
@@ -337,6 +351,7 @@ describe("daemon native session execution", () => {
 
     const running = executor(task, {
       invocationId: "invocation-retry-terminal-bundle",
+      invocationAttempt: invocationAttempt("invocation-retry-terminal-bundle"),
       signal: new AbortController().signal,
       emitEvent: (event) => {
         if (event.type !== "daemon.view_event") return;
@@ -803,6 +818,16 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "sess_task_execution",
+        invocationId: "invocation-1",
+        invocationAttempt: {
+          epoch: 1,
+          daemonGeneration: 1,
+          correlationId: "attempt:invocation-1:1",
+        },
+        invocationRole: expect.objectContaining({
+          ref: "role:builtin-explorer",
+          revision: expect.any(String),
+        }),
         sessionLease: {
           workspaceId: "workspace-task",
           clientId: "client-task",

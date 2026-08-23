@@ -5,7 +5,11 @@ Host-neutral model/tool turn execution for Spark hosts.
 The default entry point exports `SparkAgentLoop` and its turn-facing types. That
 facade owns prompt items, outbox, views, and Spark tool policy.
 `@deepseek-ai/dsh-agent-loop` is the low-level model/tool driver on a
-process-local Cordis root. Invocation durability stays daemon SQLite. See
+process-local Cordis root. Invocation durability stays daemon SQLite. A
+daemon-admitted turn mounts the immutable `ctx.sparkInvocation` plugin and
+records an ignorable `spark/invocation` correlation event before queuing input.
+One execution attempt may reserve at most one DSH Turn; replacement attempts
+and later idle follow-ups receive distinct durable identities. See
 [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../../.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md).
 The `./side-thread` entry point exposes side-thread state primitives; `./testing/scripted-provider` supports the scripted-provider CE fixture. Behavior evaluation and repeated-run CE summaries are internal modules imported by the CE driver scripts.
 

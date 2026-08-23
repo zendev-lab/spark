@@ -27,6 +27,7 @@ import {
   type ChannelMessageReference,
   type InfoflowAttachment,
 } from "@zendev-lab/dsh-channels";
+import type { SparkInvocationAttempt } from "@zendev-lab/spark-core";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
@@ -192,6 +193,8 @@ export type SparkDaemonTokenUsageSettlementSink = (input: {
 
 export interface SparkDaemonTaskExecutionContext {
   invocationId: string;
+  /** Exact daemon execution epoch authorized to start at most one DSH Turn. */
+  invocationAttempt: SparkInvocationAttempt;
   signal: AbortSignal;
   timeoutMs?: number;
   /**

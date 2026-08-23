@@ -11,6 +11,11 @@ const paths = resolveSparkPaths({
 function context(): SparkDaemonTaskExecutionContext {
   return {
     invocationId: "invocation-index-refresh",
+    invocationAttempt: {
+      epoch: 1,
+      daemonGeneration: 1,
+      correlationId: "attempt:invocation-index-refresh:1",
+    },
     signal: new AbortController().signal,
   };
 }

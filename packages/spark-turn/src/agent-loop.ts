@@ -69,11 +69,11 @@ import { createHash } from "node:crypto";
 import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
 
 import {
+  createSparkInvocationService,
   hasActiveDriverBinding,
   type SparkDriverAuthority,
   type SparkHostDelegationEnvelope,
   type SparkHostContext,
-  type SparkExecutionService,
   type SparkDshToolPolicyMetadata,
   type SparkDelegationThinkingLevel,
   type ToolExecutionResult,
@@ -81,6 +81,13 @@ import {
   type ToolExecutionRetryability,
 } from "@zendev-lab/spark-core";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
+export {
+  SPARK_INVOCATION_EVENT_TYPE,
+  SparkInvocationTurnAlreadyReservedError,
+  createSparkInvocationPlugin,
+  reserveSparkInvocationTurn,
+  type SparkInvocationEventData,
+} from "./invocation-plugin.ts";
 
 import {
   compactToolResultContent,
@@ -1264,27 +1271,45 @@ export class SparkAgentLoop {
     }
     const executionContext = this.host.makeContext();
     const activeModel = this.getModel();
-    const execution: SparkExecutionService = Object.freeze({
-      ...(executionContext.workspaceId ? { workspaceId: executionContext.workspaceId } : {}),
-      cwd: executionContext.cwd ?? process.cwd(),
-      sessionId: this.viewSessionId,
-      ...(executionContext.invocationId ? { invocationId: executionContext.invocationId } : {}),
-      ...(this.currentMode ? { mode: this.currentMode } : {}),
-      ...(executionContext.driverAuthority
-        ? { driverAuthority: executionContext.driverAuthority }
-        : {}),
-      model: { provider: activeModel.provider, id: activeModel.id },
-      ...(executionContext.runLeaf ? { runLeaf: executionContext.runLeaf } : {}),
-      ...(executionContext.ui?.interaction ? { interaction: executionContext.ui.interaction } : {}),
-    });
+    const invocationId = executionContext.invocationId?.trim();
+    const invocationAttempt = executionContext.invocationAttempt;
+    if (Boolean(invocationId) !== Boolean(invocationAttempt)) {
+      throw new Error(
+        "SparkAgentLoop requires invocationId and invocationAttempt to be supplied together",
+      );
+    }
+    const invocation =
+      invocationId && invocationAttempt
+        ? createSparkInvocationService({
+            ...(executionContext.workspaceId ? { workspaceId: executionContext.workspaceId } : {}),
+            cwd: executionContext.cwd ?? process.cwd(),
+            sessionId: this.viewSessionId,
+            invocationId,
+            attempt: invocationAttempt,
+            ...(executionContext.invocationRole ? { role: executionContext.invocationRole } : {}),
+            ...(this.currentMode ? { mode: this.currentMode } : {}),
+            ...(executionContext.driverAuthority
+              ? { driverAuthority: executionContext.driverAuthority }
+              : {}),
+            model: { provider: activeModel.provider, id: activeModel.id },
+            signal: abortController.signal,
+            ports: {
+              ...(executionContext.runLeaf ? { runLeaf: executionContext.runLeaf } : {}),
+              ...(executionContext.ui?.interaction
+                ? { interaction: executionContext.ui.interaction }
+                : {}),
+            },
+          })
+        : undefined;
+    const cwd = executionContext.cwd ?? process.cwd();
     const driveOperation = runSparkDshTurn({
       ctx: dshContext,
       llm: this.llm,
       sessionId: this.viewSessionId,
       ...(this.dshSessionMetadata ? { sessionMetadata: this.dshSessionMetadata } : {}),
-      execution,
+      ...(invocation ? { invocation } : {}),
       agentPlugins: this.agentPlugins,
-      cwd: execution.cwd,
+      ...(!invocation ? { cwd } : {}),
       followupText: this.followupTextForDriver(),
       tools,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,
