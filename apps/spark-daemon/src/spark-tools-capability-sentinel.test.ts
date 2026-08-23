@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { stableId, type SparkHostLoopContext } from "@zendev-lab/spark-core";
+import { stableId, type SparkHostLoopContext } from "@zendev-lab/spark-invocation";
 import {
   clearSessionGoal,
   loadSessionGoal,
@@ -28,7 +28,7 @@ import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 type HostApi = Parameters<typeof registerSparkProduct>[0];
 type TestHostApi = HostApi &
   Pick<
-    import("@zendev-lab/spark-core").SparkHostAPI,
+    import("@zendev-lab/spark-invocation").SparkHostAPI,
     "getActiveTools" | "getAllTools" | "setActiveTools"
   >;
 type Tool = Parameters<NonNullable<HostApi["registerTool"]>>[0];

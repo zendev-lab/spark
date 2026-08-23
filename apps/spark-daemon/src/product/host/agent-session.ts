@@ -23,7 +23,7 @@ import {
   type SparkPromptItem,
   type SparkRunOutcome,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "./agent-runtime/agent-loop.ts";
 
 import type { SparkCliHostServices } from "./contracts.ts";
 import {

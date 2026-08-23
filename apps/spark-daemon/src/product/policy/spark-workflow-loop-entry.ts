@@ -1,4 +1,5 @@
-import { sparkStateCwd, type RunRef } from "@zendev-lab/spark-core";
+import { type RunRef } from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   dispatchSparkAgentInstruction,

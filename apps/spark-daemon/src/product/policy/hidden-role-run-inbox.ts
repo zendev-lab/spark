@@ -1,4 +1,4 @@
-import type { RunRef } from "@zendev-lab/spark-core";
+import type { RunRef } from "@zendev-lab/spark-invocation";
 import {
   legacyHiddenRoleRunInboxStorePath,
   rebuildSessionIndex,

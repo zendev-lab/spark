@@ -30,13 +30,15 @@ import {
   type RoleRef,
   type RoleRunCompletionOutcome,
   type RunRef,
+  type TaskRef,
+} from "@zendev-lab/spark-invocation";
+import {
   type Task,
   type TaskResourceAllocation,
-  type TaskRef,
   type TaskRun,
   type TaskRunCompletionSummary,
   type TaskTodo,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import type { RoleInstruction, RoleRunRecord, RoleSpec } from "@zendev-lab/spark-roles";
 import {
   taskCompletionReadiness,

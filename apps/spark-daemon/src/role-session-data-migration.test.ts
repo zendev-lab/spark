@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
-import { contentHash } from "@zendev-lab/spark-core";
+import { contentHash } from "@zendev-lab/spark-invocation";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";

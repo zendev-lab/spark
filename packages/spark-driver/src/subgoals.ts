@@ -11,7 +11,7 @@ import {
   type SparkSubgoalVerificationResult,
   type SubgoalRef,
   type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 
 export interface CreateSubgoalInput extends SparkSubgoalDefinition {
   ref?: SubgoalRef;

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { registerArtifactTool, registerGitLifecycleTool } from "@zendev-lab/spark-artifacts";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 import {
   createEditToolConfig,
   createFindToolConfig,

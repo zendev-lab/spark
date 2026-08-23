@@ -1,4 +1,4 @@
-import type { ResolvedToolPolicy, ToolConfig } from "@zendev-lab/spark-core";
+import type { ResolvedToolPolicy, ToolConfig } from "@zendev-lab/spark-invocation";
 
 export interface SparkTurnRegisteredTool {
   config: ToolConfig;

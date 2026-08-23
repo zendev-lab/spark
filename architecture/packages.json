@@ -80,10 +80,10 @@
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 40,
-      "ceiling": 40,
+      "current": 38,
+      "ceiling": 38,
       "nonGrowth": true,
-      "reason": "The 40-workspace transition graph still contains spark-host and spark-turn; ten in-place renames and deletion of spark-host, spark-turn, and spark-modes converge to 38 while native spark-web and spark-web-dsh remain explicit applications. spark-modes was removed here: durable session modes are retired in favor of one-shot /plan, /execute, and /fleet commands."
+      "reason": "The normalized 38-workspace graph keeps native spark-web and spark-web-dsh as explicit applications while daemon product composition owns the former host and turn facades; spark-modes was removed: durable session modes are retired in favor of one-shot /plan, /execute, and /fleet commands."
     },
     "packageNaming": {
       "temporaryDshDependencyExceptionsNonGrowth": true
@@ -143,10 +143,10 @@
       "stateWriter": "none",
       "distribution": "public-npm"
     },
-    "@zendev-lab/spark-core": {
-      "path": "packages/spark-core",
+    "@zendev-lab/spark-invocation": {
+      "path": "packages/spark-invocation",
       "layer": "foundation",
-      "owner": "host-contract",
+      "owner": "invocations",
       "stability": "supported",
       "stateWriter": "none"
     },
@@ -194,13 +194,6 @@
       "owner": "execution-adapters",
       "stability": "internal",
       "stateWriter": "external"
-    },
-    "@zendev-lab/spark-host": {
-      "path": "packages/spark-host",
-      "layer": "runtime",
-      "owner": "extension-host",
-      "stability": "supported",
-      "stateWriter": "host"
     },
     "@zendev-lab/spark-hub": {
       "path": "apps/spark-hub",
@@ -338,13 +331,6 @@
       "stability": "supported",
       "stateWriter": "user",
       "namingRationale": "Spark Web tools retain product cache, code search, content retrieval, and response identity contracts."
-    },
-    "@zendev-lab/spark-turn": {
-      "path": "packages/spark-turn",
-      "layer": "runtime",
-      "owner": "turn-runtime",
-      "stability": "supported",
-      "stateWriter": "none"
     },
     "@zendev-lab/spark-ui": {
       "path": "packages/spark-ui",

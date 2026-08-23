@@ -7,8 +7,7 @@ import type {
   SparkHostContext,
   ToolConfig,
   ToolEffect,
-  ToolRenderComponent,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   loadSparkSkillByName,
   SparkSkillResolver,

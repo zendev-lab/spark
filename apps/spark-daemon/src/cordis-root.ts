@@ -30,11 +30,11 @@ import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 import * as DshCueService from "@zendev-lab/dsh-cue/plugin";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
+import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-invocation";
 import sparkSessionSubagentPlugin, {
   type SparkSubagentHost,
 } from "@zendev-lab/spark-session/subagent";
-import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "@zendev-lab/spark-turn";
+import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "./product/host/agent-runtime/agent-loop.ts";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
 import { SparkDaemonInvocationRegistry } from "./core/index.ts";

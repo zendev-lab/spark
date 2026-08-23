@@ -3,7 +3,7 @@
 Working-tree file tools for Spark-native extension hosts: `read`, `write`,
 `edit`, `grep`, and `find`. These give a Spark host a stable coding-agent file
 surface without depending on pi-coding-agent; the implementation depends only
-on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
+on `@zendev-lab/spark-invocation`, `typebox`, `diff`, `ignore`, and `minimatch` — no
 `@earendil-works/pi-coding-agent` runtime, no `@earendil-works/pi-tui`, and no
 `rg`/`fd`/`bash` subprocess.
 

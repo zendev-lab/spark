@@ -1,7 +1,7 @@
 /** Spark TUI native host service construction. */
 
 import { basename, join, resolve } from "node:path";
-import { stableId } from "@zendev-lab/spark-core";
+import { stableId } from "@zendev-lab/spark-invocation";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   adaptersFromProviderRegistry,
@@ -17,7 +17,7 @@ import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
 } from "../system-prompt.ts";
-import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
+import type { SparkHeadlessTokenUsageContext } from "./headless-loader.ts";
 import {
   SparkRolesReviewerRunner,
   createSparkRoleRegistry,
@@ -48,7 +48,7 @@ import {
   loadSparkProductAgentPlugins,
   registerSparkProductCapabilities,
 } from "./product-composition.ts";
-import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
+import { SparkKeybindings } from "./keybindings.ts";
 import {
   SparkModelSelector,
   registerSparkModelSelectorKeybindings,
@@ -62,7 +62,7 @@ import {
   type SparkPromptTemplateResolveResult,
 } from "./prompt-templates.ts";
 import { SparkProviderRegistry, type SparkActiveSelection } from "./provider-registry.ts";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "./runtime.ts";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   SparkSkillResolver,

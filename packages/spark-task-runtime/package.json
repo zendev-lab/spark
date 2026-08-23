@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
-    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
     "@zendev-lab/spark-roles": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^"

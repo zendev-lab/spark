@@ -8,13 +8,15 @@ import {
   type ProjectRef,
   type RoleRef,
   type RunRef,
-  type Task,
   type TaskRef,
+} from "@zendev-lab/spark-invocation";
+import {
+  type Task,
   type TaskExecutionPolicy,
   type TaskResourceAllocation,
   type TaskRun,
   type TaskRunExecutionBinding,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import {
   setSessionGoal,
   sparkSessionKey,

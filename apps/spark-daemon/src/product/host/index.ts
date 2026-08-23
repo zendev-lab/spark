@@ -1,7 +1,7 @@
 /**
  * Public barrel for the SparkHostRuntime native SparkHostAPI host.
  *
- * Extensions speak to `spark-core`'s `SparkHostAPI` shape; this
+ * Extensions speak to `spark-invocation`'s `SparkHostAPI` shape; this
  * package's job is to provide a runtime that satisfies that contract for the
  * composition-coupled headless host. The barrel keeps the import surface stable
  * across follow-up tasks (`agent-turn-loop`, `model-selector-ui`,
@@ -9,8 +9,8 @@
  * extend the runtime in place.
  */
 
-export { SparkHostRuntime, createSparkHostRuntime } from "@zendev-lab/spark-host";
-export type { SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
+export { SparkHostRuntime, createSparkHostRuntime } from "./runtime.ts";
+export type { SparkHostRuntimeOptions } from "./runtime.ts";
 export { SparkAgentLoop } from "./agent-loop.ts";
 export {
   SparkAuthStore,
@@ -61,14 +61,14 @@ export {
   SparkKeybindings,
   defaultKeybindingsPath,
   defaultSparkKeybindings,
-} from "@zendev-lab/spark-host/keybindings";
+} from "./keybindings.ts";
 export type {
   SparkKeybindingContext,
   SparkKeybindingDefinition,
   SparkKeybindingId,
   SparkKeybindingsOptions,
   SparkKeybindingsSnapshot,
-} from "@zendev-lab/spark-host/keybindings";
+} from "./keybindings.ts";
 export { SparkProviderRegistry } from "./provider-registry.ts";
 export type {
   ProviderConfig,
@@ -337,4 +337,4 @@ export type {
   SparkHostSessionManagerStub,
   SparkHostUiTransport,
   ToolRegistrationListener,
-} from "@zendev-lab/spark-host/types";
+} from "./types.ts";

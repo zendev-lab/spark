@@ -1,9 +1,5 @@
-import {
-  nowIso,
-  type RunRef,
-  type TaskRun,
-  type TaskRunCompletionSummary,
-} from "@zendev-lab/spark-core";
+import { nowIso, type RunRef } from "@zendev-lab/spark-invocation";
+import { type TaskRun, type TaskRunCompletionSummary } from "@zendev-lab/spark-tasks";
 
 import type {
   WorkflowRunCompletionFollowUp,

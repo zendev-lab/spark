@@ -44,7 +44,6 @@ import type {
   Context,
   Message,
   Model,
-  StreamOptions,
   Tool,
   ToolCall,
   ToolResultMessage,
@@ -79,7 +78,7 @@ import {
   type ToolExecutionResult,
   type ToolExecutionReconciliation,
   type ToolExecutionRetryability,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
 export {
   SPARK_INVOCATION_EVENT_TYPE,
@@ -87,7 +86,7 @@ export {
   createSparkInvocationPlugin,
   reserveSparkInvocationTurn,
   type SparkInvocationEventData,
-} from "./invocation-plugin.ts";
+} from "@zendev-lab/spark-invocation/plugin";
 
 import {
   compactToolResultContent,
@@ -1342,7 +1341,7 @@ export class SparkAgentLoop {
         beforeToolCalls: hooks?.beforeToolCalls,
         preExecute: async (name, args, signal, registration) => {
           throwIfSignalAborted(signal);
-          if (registration.owner === "spark-host") return { kind: "allow" };
+          if (registration.owner === "daemon-product") return { kind: "allow" };
           return await this.preExecuteDshTool(
             registration.callId,
             name,

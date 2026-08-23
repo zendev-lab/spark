@@ -7,14 +7,18 @@ import { CallId } from "@deepseek-ai/dsh-llm";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { cueSkillsRoot } from "@zendev-lab/cue";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "./product/host/runtime.ts";
 import {
   CURRENT_SPARK_SESSION_VERSION,
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SparkSessionStore,
 } from "@zendev-lab/spark-session/transcript";
 import type { Model } from "@zendev-lab/spark-llm-providers";
-import { SparkAgentLoop, type SparkRunOutcome, type SparkTurnLlm } from "@zendev-lab/spark-turn";
+import {
+  SparkAgentLoop,
+  type SparkRunOutcome,
+  type SparkTurnLlm,
+} from "./product/host/agent-runtime/agent-loop.ts";
 
 import {
   createSparkDaemonCordisDispose,

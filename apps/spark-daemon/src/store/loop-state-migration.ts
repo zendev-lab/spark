@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { stableId } from "@zendev-lab/spark-core";
+import { stableId } from "@zendev-lab/spark-invocation";
 import { sessionGoalStorePathV2, sessionLoopStorePathV2 } from "@zendev-lab/spark-driver";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";

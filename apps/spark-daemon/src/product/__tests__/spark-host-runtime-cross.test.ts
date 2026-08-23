@@ -3,7 +3,7 @@ import { test } from "vitest";
 
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import piGraftExtension from "@zendev-lab/spark-graft/extension";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "../host/runtime.ts";
 
 test("SparkHostRuntime accepts piGraftExtension(pi) and records its tools", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });

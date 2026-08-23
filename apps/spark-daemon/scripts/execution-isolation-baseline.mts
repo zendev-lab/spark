@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
 
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "../src/product/host/runtime.ts";
 import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   SparkAgentLoop,
@@ -13,7 +13,7 @@ import {
   type AssistantMessage,
   type Model,
   type SparkAgentStreamFunction,
-} from "@zendev-lab/spark-turn";
+} from "../src/product/host/agent-runtime/agent-loop.ts";
 
 import { SparkInvocationScheduler } from "../src/core/invocation-scheduler.ts";
 import { ExecutionAttemptStore } from "../src/execution/state.ts";

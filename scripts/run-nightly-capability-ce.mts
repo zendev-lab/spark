@@ -7,7 +7,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   summarizeSparkBehaviorCe,
   type SparkBehaviorCeSample,
-} from "../packages/spark-turn/src/behavior-ce.ts";
+} from "../apps/spark-daemon/src/product/host/agent-runtime/behavior-ce.ts";
 import {
   capabilitySentinelCommand,
   capabilitySentinelTestFiles,

@@ -2,12 +2,12 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   nowIso,
-  sparkStateCwd,
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
   type RoleRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { updateSessionGoalStatus, type SparkSessionGoal } from "./spark-session-goals.ts";
 import {
   goalCompletionProtocolBlockers,

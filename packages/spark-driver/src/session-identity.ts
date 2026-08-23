@@ -1,6 +1,7 @@
-import { sparkStateCwd, sparkStateRootPath, stableId } from "@zendev-lab/spark-core";
+import { stableId } from "@zendev-lab/spark-invocation";
+import { sparkStateRootPath } from "@zendev-lab/spark-platform-node/paths";
 
-export { sparkStateCwd, sparkStateRootPath } from "@zendev-lab/spark-core";
+export { sparkStateCwd, sparkStateRootPath } from "@zendev-lab/spark-platform-node/paths";
 
 export interface SparkSessionContext {
   cwd?: string;

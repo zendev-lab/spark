@@ -58,13 +58,13 @@ describe("architecture governance transitions", () => {
   test("rejects adding or reviving a DSH dependency exception after bootstrap", () => {
     const changed = structuredClone(inventory);
     changed.packages["@zendev-lab/dsh-tool-cue"].dshIndependenceException = {
-      dependencies: ["@zendev-lab/spark-core"],
+      dependencies: ["@zendev-lab/spark-invocation"],
       reason: "Synthetic added exception fixture.",
       exitCondition: "Remove immediately.",
     };
 
     expect(validateArchitectureGovernanceTransition(inventory, changed)).toContain(
-      "Architecture transition adds or revives DSH dependency exception @zendev-lab/dsh-tool-cue->@zendev-lab/spark-core",
+      "Architecture transition adds or revives DSH dependency exception @zendev-lab/dsh-tool-cue->@zendev-lab/spark-invocation",
     );
   });
 
@@ -73,7 +73,7 @@ describe("architecture governance transitions", () => {
     (field) => {
       const previous = structuredClone(inventory);
       previous.packages["@zendev-lab/dsh-tool-cue"].dshIndependenceException = {
-        dependencies: ["@zendev-lab/spark-core"],
+        dependencies: ["@zendev-lab/spark-invocation"],
         reason: "Synthetic immutable exception fixture.",
         exitCondition: "Remove immediately.",
       };
@@ -83,7 +83,7 @@ describe("architecture governance transitions", () => {
       exception[field] = `${exception[field]} changed`;
 
       expect(validateArchitectureGovernanceTransition(previous, changed)).toContain(
-        "Architecture transition changes immutable DSH dependency exception metadata for @zendev-lab/dsh-tool-cue->@zendev-lab/spark-core",
+        "Architecture transition changes immutable DSH dependency exception metadata for @zendev-lab/dsh-tool-cue->@zendev-lab/spark-invocation",
       );
     },
   );

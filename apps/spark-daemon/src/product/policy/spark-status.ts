@@ -1,4 +1,5 @@
-import type { Task, TaskStatus, ProjectRef } from "@zendev-lab/spark-core";
+import type { ProjectRef } from "@zendev-lab/spark-invocation";
+import type { Task, TaskStatus } from "@zendev-lab/spark-tasks";
 import {
   countSparkTaskStatuses,
   formatSparkTaskStatusCounts,

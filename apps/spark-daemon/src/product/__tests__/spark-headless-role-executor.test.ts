@@ -6,12 +6,12 @@ import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
   type ToolConfig,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   loadSparkHeadlessSessionModule,
   type SparkHeadlessTokenUsageObservation,
-} from "@zendev-lab/spark-host/headless-loader";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+} from "../host/headless-loader.ts";
+import { SparkHostRuntime } from "../host/runtime.ts";
 import {
   preloadSparkHeadlessSessionRuntime,
   runSparkHeadlessRoleInstruction,

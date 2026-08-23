@@ -6,8 +6,8 @@ import {
   isRef,
   type ProjectRef,
   type TaskRef,
-  type TaskResourceAllocation,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type TaskResourceAllocation } from "@zendev-lab/spark-tasks";
 import {
   discoverTaskResourceInventory,
   packTaskResourceFrontier,

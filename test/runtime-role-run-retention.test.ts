@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { JsonValue, RoleRef, RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
+import type { JsonValue, RoleRef, RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-invocation";
 import {
   collectRoleRunEvidenceRetentionPlan,
   isRoleRunEvidenceBody,

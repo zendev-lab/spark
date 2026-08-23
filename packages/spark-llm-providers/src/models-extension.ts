@@ -1,4 +1,8 @@
-import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
+import type {
+  ToolConfig,
+  ToolRenderComponent,
+  ToolRenderTheme,
+} from "@zendev-lab/spark-invocation";
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import { Type } from "typebox";
 

@@ -7,7 +7,8 @@ The composition-coupled headless role executor and host bootstrap live here
 because they statically register Spark product capabilities. The daemon injects
 the single shared DSH Cordis root; these modules only register
 Invocation-scoped provider routes and do not create a second LLM runtime.
-`spark-host` remains the host-neutral runtime and must not import composition.
+The former host-neutral runtime now lives beside composition under `product/host`;
+shared capability owners still must not import daemon internals.
 
 The product modules register commands, tools, Roles, renderers, and host
 adapters. Cue and Fusion use their Cordis-native DSH plugins on each Agent;

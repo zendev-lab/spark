@@ -1,6 +1,10 @@
 import { relative } from "node:path";
 
-import { nowIso, sparkStateRootPath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+import { nowIso } from "@zendev-lab/spark-invocation";
+import {
+  sparkStateRootPath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   collectSparkProtectedStoreSummaries,

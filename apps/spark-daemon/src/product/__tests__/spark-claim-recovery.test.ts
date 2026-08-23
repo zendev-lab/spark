@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { RoleRef, RunRef } from "@zendev-lab/spark-core";
+import type { RoleRef, RunRef } from "@zendev-lab/spark-invocation";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
 import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";

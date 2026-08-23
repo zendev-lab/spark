@@ -25,9 +25,10 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
     "@zendev-lab/spark-lens": "workspace:^",
+    "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "marked": "^18.0.7",

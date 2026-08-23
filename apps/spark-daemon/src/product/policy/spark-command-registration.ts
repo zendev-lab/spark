@@ -4,7 +4,7 @@ import {
   loopContinuationPrompt,
 } from "@zendev-lab/spark-driver";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
-import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
+import { type ProjectRef } from "@zendev-lab/spark-invocation";
 import type { SparkLoopSessionLifetime, SparkLoopView } from "@zendev-lab/spark-protocol";
 import type { SparkEntryIntent } from "./spark-entry.ts";
 
@@ -16,7 +16,6 @@ import { startOrInferSessionGoal } from "./spark-goal-tool-registration.ts";
 import {
   clearSessionGoal,
   loadSessionGoal,
-  setSessionGoal,
   updateSessionGoalStatus,
   type SparkSessionGoal,
 } from "./spark-session-goals.ts";

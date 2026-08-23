@@ -23,8 +23,8 @@ import type {
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   SparkTaskExecutionScope,
-} from "@zendev-lab/spark-core";
-import { contentHash } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { contentHash } from "@zendev-lab/spark-invocation";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   createDefaultRoleRegistry,
@@ -41,7 +41,7 @@ import {
   type CreateSparkHeadlessSessionExecutorFn,
   type SparkHeadlessSessionCompactor,
   type SparkHeadlessSessionExecutor,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   SPARK_CHANNEL_ALLOWED_TOOLS,
@@ -58,7 +58,7 @@ import {
   isSparkTurnRestartYieldError,
   type SparkDshTurnRuntime,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import {
   channelDeliveryFailureOutcome,
   channelDeliveryOutcomeUnknown,

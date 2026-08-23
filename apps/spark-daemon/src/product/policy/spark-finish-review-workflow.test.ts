@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { LeafCapabilityRequest, Task, TaskPlan } from "@zendev-lab/spark-core";
+import type { LeafCapabilityRequest } from "@zendev-lab/spark-invocation";
+import { type Task, type TaskPlan } from "@zendev-lab/spark-tasks";
 import type { TaskReviewInput } from "@zendev-lab/spark-roles";
 
 import {

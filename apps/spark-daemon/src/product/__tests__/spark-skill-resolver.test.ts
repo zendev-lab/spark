@@ -10,7 +10,7 @@ import {
   loadMatchingSparkSkillsForPrompt,
   parseSkillFrontmatter,
 } from "../host/index.ts";
-import { splitSparkSystemPrompt } from "@zendev-lab/spark-turn";
+import { splitSparkSystemPrompt } from "../host/agent-runtime/agent-loop.ts";
 import { loadBuiltinSkills } from "@zendev-lab/spark-roles/builtin-skills";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../../../..");

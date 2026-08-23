@@ -5,7 +5,7 @@ import type {
   ExtensionInteractionResponse,
   ExtensionEvidenceRequestBinding,
   SparkHostContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   SPARK_PROTOCOL_VERSION,

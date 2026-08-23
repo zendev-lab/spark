@@ -1,8 +1,7 @@
 import { Type } from "typebox";
 
-import type { Task } from "@zendev-lab/spark-core";
+import { type Task } from "@zendev-lab/spark-tasks";
 import { defaultTaskGraphStore, TaskDependencyReplacementError } from "@zendev-lab/spark-tasks";
-import { sparkStateCwd } from "./session-state.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 
 const ALLOWED_FIELDS = new Set(["task", "taskRef", "dependsOn"]);

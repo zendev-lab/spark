@@ -6,7 +6,7 @@ import {
   type SparkTaskExecutionScope,
   type ProjectRef,
   type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   sparkSessionWorkspaceState,
   legacyCurrentProjectStorePath,

@@ -1,11 +1,5 @@
-import type {
-  RoleRef,
-  Task,
-  TaskCancellation,
-  TaskClaim,
-  TaskRun,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
+import type { RoleRef } from "@zendev-lab/spark-invocation";
+import type { Task, TaskCancellation, TaskClaim, TaskRun, TaskStatus } from "./types.ts";
 import type { TaskGraph } from "./graph.ts";
 import { isUnfinishedTaskStatus } from "./internal.ts";
 

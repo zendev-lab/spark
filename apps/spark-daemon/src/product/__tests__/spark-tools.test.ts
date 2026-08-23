@@ -15,11 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "vitest";
 
-import {
-  sparkEvidenceAnswerEventSchema,
-  sparkLoopCountersSchema,
-  sparkLoopPolicySchema,
-} from "@zendev-lab/spark-protocol";
+import { sparkLoopCountersSchema, sparkLoopPolicySchema } from "@zendev-lab/spark-protocol";
 
 import { defaultProjectRoleModelSettingsStore, RoleRegistry } from "@zendev-lab/spark-roles";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
@@ -38,16 +34,12 @@ import {
   type RoleRef,
   type RunRef,
   type SubgoalRef,
-  type TaskPlan,
   type TaskRef,
   type ProjectRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type TaskPlan } from "@zendev-lab/spark-tasks";
 
-import {
-  defaultArtifactStore,
-  defaultEvidenceStore,
-  type ArtifactRef,
-} from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultLearningStore } from "@zendev-lab/spark-memory";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
 import { registerSparkWorkflowTool } from "@zendev-lab/spark-workflows/extension";
@@ -59,7 +51,6 @@ import {
 import {
   defaultTaskGraphStore,
   defaultTaskTodoStore,
-  decideTaskPlanBeforeCreate,
   isActiveSessionTodo,
   TaskGraph,
   TaskGraphStore,

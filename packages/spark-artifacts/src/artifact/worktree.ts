@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { sparkWorkspaceStatePath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import type { ForgeHost, PrArtifactBody, WorktreeStatus } from "./types.ts";
 
 export interface AttachPrWorktreeInput {

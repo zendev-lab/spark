@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { type TaskRef } from "@zendev-lab/spark-core";
+import { type TaskRef } from "@zendev-lab/spark-invocation";
 import {
   legacyTodoDisplayNumberStorePath,
   rebuildSessionIndex,

@@ -7,7 +7,7 @@ import type {
   SparkHostContext,
   SparkSessionLeaseIdentity,
   ToolPolicy,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type { ToolCallComponent, ToolCallRenderTheme } from "./tool-rendering.ts";
 
 export interface SparkRegisteredToolConfig {

@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
-import type { SparkDshToolPolicyMetadata, SparkHostAPI } from "@zendev-lab/spark-core";
+import type { SparkDshToolPolicyMetadata, SparkHostAPI } from "@zendev-lab/spark-invocation";
 import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
 
 import * as dshCuePlugin from "@zendev-lab/dsh-tool-cue";
@@ -19,7 +19,7 @@ import sparkMemoryCapability, {
 import sparkRolesCapability from "@zendev-lab/spark-roles/extension";
 import sparkSessionCapability from "@zendev-lab/spark-session/extension";
 import sparkWebCapability from "@zendev-lab/spark-tool-web/extension";
-import { encodeSparkAuxiliaryModelRoute } from "@zendev-lab/spark-turn";
+import { encodeSparkAuxiliaryModelRoute } from "./agent-runtime/agent-loop.ts";
 
 import registerSparkProductPolicy from "../policy/index.ts";
 import { createAskBackedMemoryApprovalVerifier } from "../policy/memory-approval-verifier.ts";

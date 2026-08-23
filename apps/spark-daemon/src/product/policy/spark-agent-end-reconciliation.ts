@@ -1,3 +1,4 @@
+import type { Task } from "@zendev-lab/spark-tasks";
 import { isActiveSessionTodo, type SessionTodoEntry } from "@zendev-lab/spark-tasks";
 import { loadIndependentTodos } from "./session-todos.ts";
 import { sparkSessionOwnerKey } from "./session-state.ts";

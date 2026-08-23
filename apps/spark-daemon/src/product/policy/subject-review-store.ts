@@ -3,14 +3,16 @@ import { dirname, join, relative, sep } from "node:path";
 
 import {
   nowIso,
-  sparkStateRootPath,
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
   type RoleRef,
+} from "@zendev-lab/spark-invocation";
+import {
+  sparkStateRootPath,
   type SparkStateRootContext,
-  type Task,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
+import { type Task } from "@zendev-lab/spark-tasks";
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 import { sessionDirectoryNameForKey } from "@zendev-lab/spark-driver";

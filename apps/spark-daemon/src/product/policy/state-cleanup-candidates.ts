@@ -1,6 +1,7 @@
 import { basename, dirname, join, relative } from "node:path";
 
-import type { Task, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
+import type { TaskRef, ProjectRef } from "@zendev-lab/spark-invocation";
+import { type Task } from "@zendev-lab/spark-tasks";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   fileScope,

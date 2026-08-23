@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TaskRun } from "@zendev-lab/spark-core";
+import { type TaskRun } from "@zendev-lab/spark-tasks";
 import { normalizeTaskExecutionPolicy, normalizeTaskRun } from "./internal.ts";
 
 describe("Task Session lifetime compatibility", () => {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { newRef } from "@zendev-lab/spark-invocation";
 import {
-  newRef,
   type TaskExecutionPolicy,
   type TaskResourceInventory,
   type TaskRun,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import { packTaskResourceFrontier, parseTaskResourceInventory } from "@zendev-lab/spark-workflows";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 

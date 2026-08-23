@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, relative, sep } from "node:path";
 
-import type { ArtifactRef, SparkHostContext } from "@zendev-lab/spark-core";
+import type { ArtifactRef, SparkHostContext } from "@zendev-lab/spark-invocation";
 import { resolveToCwd } from "./path-utils.ts";
 
 export async function resolveTaskScopedWriteTarget(

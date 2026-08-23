@@ -9,7 +9,7 @@ import {
   type RoleRegistry,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
-import type { RoleRef, ProjectRef } from "@zendev-lab/spark-core";
+import type { RoleRef, ProjectRef } from "@zendev-lab/spark-invocation";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-task-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 

@@ -23,8 +23,8 @@ import {
   assertRef,
   type SparkDshToolPolicyMetadata,
   type SparkHostDelegationEnvelope,
-} from "@zendev-lab/spark-core";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+} from "@zendev-lab/spark-invocation";
+import { SparkHostRuntime } from "../runtime.ts";
 import {
   SPARK_PROTOCOL_VERSION,
   type SparkDaemonEvent,

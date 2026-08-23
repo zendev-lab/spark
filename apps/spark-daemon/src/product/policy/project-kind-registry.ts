@@ -6,7 +6,8 @@
  * This file is kept as a thin stub to avoid breaking imports during migration.
  * Remove once all consumers are updated.
  */
-import type { JsonValue, Project } from "@zendev-lab/spark-core";
+import type { JsonValue } from "@zendev-lab/spark-invocation";
+import type { Project } from "@zendev-lab/spark-tasks";
 
 // ---- Minimal retained types for backward-compat during migration ----
 

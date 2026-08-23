@@ -5,11 +5,9 @@ import {
   stableId,
   type EvidenceRef,
   type RoleRef,
-  type Task,
-  type TaskPlan,
   type ProjectRef,
-  type TaskTodo,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type Task, type TaskPlan, type TaskTodo } from "@zendev-lab/spark-tasks";
 import {
   defaultTaskGraphStore,
   isUnfinishedTaskStatus,

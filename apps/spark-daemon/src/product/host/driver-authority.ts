@@ -1,4 +1,4 @@
-import type { SparkDriverAuthority, SparkHostContext } from "@zendev-lab/spark-core";
+import type { SparkDriverAuthority, SparkHostContext } from "@zendev-lab/spark-invocation";
 import {
   loadSparkSessionWorkspaceState,
   setSparkSessionDriverAuthority,

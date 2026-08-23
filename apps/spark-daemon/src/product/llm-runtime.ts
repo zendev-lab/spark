@@ -8,7 +8,7 @@ import {
   type PreparedAdapterCall,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
-import type { SparkTurnLlm } from "@zendev-lab/spark-turn";
+import type { SparkTurnLlm } from "./host/agent-runtime/agent-loop.ts";
 
 export interface SparkLlmAdapterRegistration {
   providers: string[];

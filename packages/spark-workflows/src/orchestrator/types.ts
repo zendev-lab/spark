@@ -1,10 +1,5 @@
-import type {
-  ProjectRef,
-  RunRef,
-  TaskRef,
-  TaskRun,
-  TaskRunCompletionSummary,
-} from "@zendev-lab/spark-core";
+import type { ProjectRef, RunRef, TaskRef } from "@zendev-lab/spark-invocation";
+import type { TaskRun, TaskRunCompletionSummary } from "@zendev-lab/spark-tasks";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 
 export type WorkflowRunManagerStatus = "idle" | "running" | "failed";

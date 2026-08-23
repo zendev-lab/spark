@@ -5,8 +5,8 @@ import type {
   RoleRef,
   RunRef,
   TaskRef,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import type { TaskStatus } from "@zendev-lab/spark-tasks";
 import type {
   RoleRunEvidencePreview,
   RoleRunJsonEventsTail,

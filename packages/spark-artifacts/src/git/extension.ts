@@ -3,8 +3,7 @@ import {
   type SparkHostAPI,
   type SparkHostContext,
   type ToolConfig,
-  type ToolRenderComponent,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   defaultArtifactStore,

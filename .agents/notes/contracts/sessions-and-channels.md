@@ -113,7 +113,7 @@ cross-scope, or disappeared paths fail closed.
 
 ## Transcript persistence
 
-Canonical Session transcripts are DSH session JSONL. `packages/spark-host`
+Canonical Session transcripts are DSH session JSONL. The daemon product host's
 `SparkSessionStore` is the transition codec: transcript v4 writes model-visible
 content as native DSH surface events. It does not duplicate active messages in
 `spark/record`; ignorable Spark events carry only projection metadata,

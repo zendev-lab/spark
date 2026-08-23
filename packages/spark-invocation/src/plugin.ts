@@ -4,9 +4,9 @@ import {
   SPARK_INVOCATION_EVENT_TYPE,
   type SparkInvocationEventData,
   type SparkInvocationService,
-} from "@zendev-lab/spark-core";
+} from "./index.ts";
 
-export { SPARK_INVOCATION_EVENT_TYPE, type SparkInvocationEventData } from "@zendev-lab/spark-core";
+export { SPARK_INVOCATION_EVENT_TYPE, type SparkInvocationEventData } from "./index.ts";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {

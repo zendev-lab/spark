@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import type { LeafCapabilityRequest, LeafCapabilityResult } from "@zendev-lab/spark-core";
+import type { LeafCapabilityRequest, LeafCapabilityResult } from "@zendev-lab/spark-invocation";
 
 import { createProviderRegistryLeafRunner } from "../leaf-host-runner.ts";
 import {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  TaskClaim,
-  TaskCompletionReadiness,
-  TaskPlanItem,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
+import { type TaskClaim } from "@zendev-lab/spark-tasks";
+import {
+  type TaskCompletionReadiness,
+  type TaskPlanItem,
+  type TaskStatus,
+} from "@zendev-lab/spark-tasks";
 import type { TaskPlanInput } from "@zendev-lab/spark-tasks";
 import {
   finishProjectionIssue,

@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import type { SparkStateRootContext, ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
+import { type SparkStateRootContext } from "@zendev-lab/spark-platform-node/paths";
 
 import { createRecallCandidateGcPlan, type RecallCandidateGcPlan } from "./candidate-lifecycle.ts";
 import {

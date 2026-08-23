@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { nowIso, type TaskRef } from "@zendev-lab/spark-core";
+import { nowIso, type TaskRef } from "@zendev-lab/spark-invocation";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkReleaseTaskClaimTool } from "./spark-release-task-claim-tool-registration.ts";
 import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";

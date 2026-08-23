@@ -14,8 +14,8 @@ import type {
   SparkInvocationRole,
   SparkSessionLeaseIdentity,
   ToolEffect,
-} from "@zendev-lab/spark-core";
-import type { SparkDshTurnRuntime, SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+} from "@zendev-lab/spark-invocation";
+import type { SparkDshTurnRuntime, SparkTurnResumeCheckpoint } from "./agent-runtime/agent-loop.ts";
 import type {
   SparkReproUsageScope,
   SparkUsageExecutionKind,
@@ -109,7 +109,7 @@ export interface SparkHeadlessSessionRunInput {
   invocationRole?: SparkInvocationRole;
   driverAuthority?: SparkDriverAuthority;
   /** @deprecated Compatibility input; normalized before host construction. */
-  taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
+  taskExecutionScope?: import("@zendev-lab/spark-invocation").SparkTaskExecutionScope;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];

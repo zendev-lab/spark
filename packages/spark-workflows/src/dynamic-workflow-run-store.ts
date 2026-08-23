@@ -4,15 +4,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
 
+import { newRef, nowIso, type RunRef } from "@zendev-lab/spark-invocation";
 import {
-  newRef,
-  nowIso,
   readJsonFileOptional,
-  sparkWorkspaceStatePath,
-  type RunRef,
-  type SparkStateRootContext,
   writeJsonFileAtomic,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import { parseWorkflowScript } from "./metadata.ts";
 import type {
   WorkflowAgentTelemetry,

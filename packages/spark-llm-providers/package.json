@@ -35,7 +35,7 @@
     "@deepseek-ai/dsh-timeout": "catalog:dsh",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@earendil-works/pi-ai": "^0.84.0",
-    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
     "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",

@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 export type SparkApp = "hub" | "daemon";
 
@@ -53,6 +53,30 @@ export interface SparkPathOverrides {
   cacheDir?: string;
   stateDir?: string;
   runtimeDir?: string;
+}
+
+export interface SparkStateRootContext {
+  sparkStateRoot?: string;
+}
+
+/** Resolve the durable workspace-owned Spark state directory for a host context. */
+export function sparkStateRootPath(cwd: string, ctx?: SparkStateRootContext): string {
+  return ctx?.sparkStateRoot?.trim() || join(cwd, ".spark");
+}
+
+/** Resolve a path under the workspace Spark state root, honoring `sparkStateRoot`. */
+export function sparkWorkspaceStatePath(
+  cwd: string,
+  segments: readonly string[],
+  ctx?: SparkStateRootContext,
+): string {
+  return join(sparkStateRootPath(cwd, ctx), ...segments);
+}
+
+/** Convert the explicit `.spark` state root back to the owning workspace directory. */
+export function sparkStateCwd(cwd: string, ctx?: SparkStateRootContext): string {
+  const root = sparkStateRootPath(cwd, ctx);
+  return basename(root) === ".spark" ? dirname(root) : cwd;
 }
 
 export interface ResolveSparkPathsOptions extends ResolveSparkHomeOptions {

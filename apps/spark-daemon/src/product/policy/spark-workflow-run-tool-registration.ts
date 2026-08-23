@@ -4,7 +4,8 @@ import {
   type EvidenceFormat,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
-import { sparkStateCwd, type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-core";
+import { type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { finalAssistantTextFromRoleRunEvents } from "@zendev-lab/spark-roles";
 import {
   parseWorkflowScript,

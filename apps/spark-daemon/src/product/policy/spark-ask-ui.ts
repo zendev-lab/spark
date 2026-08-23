@@ -1,7 +1,7 @@
 import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 
 export function sparkAskUi(ctx: unknown, toolCallId?: string) {
   if (!ctx || typeof ctx !== "object") return undefined;

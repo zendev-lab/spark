@@ -1,11 +1,11 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import {
   sparkWorkspaceStatePath,
-  writeJsonFileAtomic,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 
 import type { MemoryMutationAuthorization } from "./approval.ts";
 import { memoryContentDigest, type MemoryLifecycleScope, type MemoryRisk } from "./lifecycle.ts";

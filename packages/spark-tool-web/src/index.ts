@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { isIP } from "node:net";
 
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import {
   sparkWorkspaceStatePath,
-  writeJsonFileAtomic,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 
 export type SparkWebContentExtractor = "direct" | "jina";
 

@@ -1,4 +1,4 @@
-import type { SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
+import type { SparkHostAPI, ToolConfig } from "@zendev-lab/spark-invocation";
 import registerSparkRolesExtension from "./extension.ts";
 import { registerSparkSkillAgentTool } from "./skill-extension.ts";
 

@@ -16,7 +16,8 @@
     "./extension": "./src/extension.ts"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
+    "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "typebox": "catalog:"
   }

@@ -6,8 +6,8 @@ Codex, Kimi For Coding), model routing, auth/catalog, and the `models` tool.
 This package is not the LLM abstraction owner. That role belongs to
 `@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm-providers` implements
 those adapters. Daemon product composition registers Invocation-scoped
-provider routes on the single daemon Cordis root, and `spark-turn` consumes the injected
-`LlmRuntime` through `dsh-agent-loop`. See
+provider routes on the single daemon Cordis root, and the daemon agent runtime consumes
+the injected `LlmRuntime` through `dsh-agent-loop`. See
 [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../../.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md).
 `SparkProviderRegistry` remains the catalog/auth loader used to
 construct adapters; it is not the turn-loop injection point.
@@ -45,7 +45,7 @@ target LLM abstraction:
 
 - `SparkProviderRegistry` (`ProviderRegistrationAPI`) caches `{name, baseUrl, apiKey, api, streamSimple, models[]}` provider plugins, validates active selection, and materializes a pi-ai `Model<Api>` per provider/model.
 - `createProviderRegistryStreamFunction` remains the internal pi-ai stream
-  adapter used by `SparkProviderLlmAdapter`; `spark-turn` no longer takes it.
+  adapter used by `SparkProviderLlmAdapter`; product composition does not bypass it.
 - `createProviderRegistryWorkflowModelRunner` runs a single read-only workflow model agent against a selected provider/model.
 - `normalizeProviderStream` / `resolveWorkflowModelSelection` / `assistantMessageToText` are the shared helpers behind those factories.
 

@@ -5,7 +5,7 @@ import {
   type SparkSessionLineageOrigin,
   type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
-import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
+import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-invocation";
 import { sparkSessionKey } from "@zendev-lab/spark-driver";
 import type {
   SparkDaemonSessionCompactTask,
