@@ -69,7 +69,7 @@
       "@zendev-lab/spark-ui/markdown": ["./packages/spark-ui/src/markdown/index.ts"],
       "@zendev-lab/spark-ui/git-change": ["./packages/spark-ui/src/git-change.ts"],
       "@zendev-lab/spark-ui/conversation": ["./packages/spark-ui/src/conversation/index.ts"],
-      "@zendev-lab/spark-hub-db": ["./packages/spark-hub-db/src/index.ts"],
+      "@zendev-lab/spark-hub-storage-sqlite": ["./packages/spark-hub-storage-sqlite/src/index.ts"],
       "@zendev-lab/spark-i18n": ["./packages/spark-i18n/src/index.ts"],
       "@zendev-lab/spark-i18n/cli": ["./packages/spark-i18n/src/cli.ts"],
       "@zendev-lab/spark-i18n/hub": ["./packages/spark-i18n/src/hub/index.ts"],

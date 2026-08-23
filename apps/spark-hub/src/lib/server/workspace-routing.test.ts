@@ -1,4 +1,4 @@
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { describe, expect, it } from "vitest";
 
 import { requireWorkspaceByRouteId } from "./workspace-routing";

@@ -43,7 +43,7 @@ import {
   createWorkspaceWithLease,
   hashSecret,
 } from "@zendev-lab/spark-hub-coordination";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createOwnerSession, getCurrentUserId } from "./auth.ts";
 import { createHubRuntimeModelChannelClient } from "./hub-runtime-model-channel-client.ts";
 import { createHubRuntimeSessionClient } from "./hub-runtime-session-client.ts";

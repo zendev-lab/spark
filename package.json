@@ -109,7 +109,7 @@
     "@types/react": "^19.0.0",
     "@zendev-lab/spark-daemon": "workspace:*",
     "@zendev-lab/spark-daemon-client": "workspace:*",
-    "@zendev-lab/spark-hub-db": "workspace:*",
+    "@zendev-lab/spark-hub-storage-sqlite": "workspace:*",
     "@zendev-lab/spark-lens": "workspace:^",
     "@zendev-lab/spark-system": "workspace:*",
     "ajv": "8.20.0",

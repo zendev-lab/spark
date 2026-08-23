@@ -1,4 +1,4 @@
-# @zendev-lab/spark-hub-db
+# @zendev-lab/spark-hub-storage-sqlite
 
 Hub-private SQLite migrations, database open helpers, Kysely dialect integration, and database types.
 

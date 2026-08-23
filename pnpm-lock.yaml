@@ -257,9 +257,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:packages/spark-daemon-client
-      '@zendev-lab/spark-hub-db':
+      '@zendev-lab/spark-hub-storage-sqlite':
         specifier: workspace:*
-        version: link:packages/spark-hub-db
+        version: link:packages/spark-hub-storage-sqlite
       '@zendev-lab/spark-lens':
         specifier: workspace:^
         version: link:packages/spark-lens
@@ -523,9 +523,9 @@ importers:
       '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
         version: link:../../packages/spark-hub-coordination
-      '@zendev-lab/spark-hub-db':
+      '@zendev-lab/spark-hub-storage-sqlite':
         specifier: workspace:*
-        version: link:../../packages/spark-hub-db
+        version: link:../../packages/spark-hub-storage-sqlite
       esbuild:
         specifier: ^0.28.0
         version: 0.28.2
@@ -587,9 +587,9 @@ importers:
       '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
         version: link:../../packages/spark-hub-coordination
-      '@zendev-lab/spark-hub-db':
+      '@zendev-lab/spark-hub-storage-sqlite':
         specifier: workspace:*
-        version: link:../../packages/spark-hub-db
+        version: link:../../packages/spark-hub-storage-sqlite
       '@zendev-lab/spark-i18n':
         specifier: workspace:*
         version: link:../../packages/spark-i18n
@@ -1158,9 +1158,9 @@ importers:
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
-      '@zendev-lab/spark-hub-db':
+      '@zendev-lab/spark-hub-storage-sqlite':
         specifier: workspace:*
-        version: link:../spark-hub-db
+        version: link:../spark-hub-storage-sqlite
       tsx:
         specifier: ^4.20.5
         version: 4.23.12
@@ -1171,7 +1171,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  packages/spark-hub-db:
+  packages/spark-hub-storage-sqlite:
     dependencies:
       '@zendev-lab/spark-system':
         specifier: workspace:*

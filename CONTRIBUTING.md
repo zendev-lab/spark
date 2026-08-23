@@ -63,7 +63,7 @@ and keep transports and presentation layers thin.
 | Domain | Authoritative owner |
 | --- | --- |
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
-| Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
+| Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-storage-sqlite` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
 | Product composition and host runtime | `apps/spark-daemon/src/product` |
 | Local daemon workbench | `apps/spark-web` via daemon-client |

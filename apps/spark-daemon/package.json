@@ -95,7 +95,7 @@
     "@types/ws": "catalog:",
     "@zendev-lab/spark-graft": "workspace:*",
     "@zendev-lab/spark-hub-coordination": "workspace:*",
-    "@zendev-lab/spark-hub-db": "workspace:*",
+    "@zendev-lab/spark-hub-storage-sqlite": "workspace:*",
     "esbuild": "^0.28.0",
     "typescript": "catalog:",
     "vitest": "catalog:"

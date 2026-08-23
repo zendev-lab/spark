@@ -7,7 +7,7 @@ import {
   revokeWorkspaceAccessToken,
   type WorkspaceAccessTokenSummary,
 } from "@zendev-lab/spark-hub-coordination/workspace-access";
-import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 
 export type WorkspaceAccessOperation = "create" | "list" | "revoke";
 

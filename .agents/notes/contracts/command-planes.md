@@ -63,7 +63,7 @@ session id and only connection-local active-invocation routing is retained.
 ## Boundary invariants
 
 - Every stateful domain has exactly one authoritative owner. The Hub modules in
-  `packages/spark-hub-coordination` and `packages/spark-hub-db` own
+  `packages/spark-hub-coordination` and `packages/spark-hub-storage-sqlite` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
   inventory `stateWriter: hub` records the canonical storage boundary, not a
@@ -102,7 +102,7 @@ session id and only connection-local active-invocation routing is retained.
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
-| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-db` | `spark-hub`; target daemon retains execution truth |
+| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-storage-sqlite` | `spark-hub`; target daemon retains execution truth |
 | local browser presentation and interaction | `apps/spark-web` behind `spark-web` / `spark-ui` boundaries | no durable business-state ownership |
 | product composition | `apps/spark-daemon/src/product` | daemon statically assembles host-neutral capabilities and supported DSH/Cordis plugins; no second facade owns behavior |
 

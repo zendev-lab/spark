@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {

@@ -7,7 +7,7 @@ import {
   revokeHubAccessToken,
   type HubAccessTokenSummary,
 } from "@zendev-lab/spark-hub-coordination/hub-access";
-import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 
 export type HubAccessOperation = "create" | "list" | "revoke";
 
