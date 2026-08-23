@@ -109,3 +109,16 @@ export function renderAgentRuntimeContextPrompt(input: { cwd: string; now?: Date
     "Default relative file/tool paths and bare directory listings to this working directory. Do not use the filesystem root (/) unless the user explicitly asks for it.",
   ].join("\n");
 }
+
+/**
+ * Join identity / surface / directive / skills sections into one system prompt.
+ * Empty sections are dropped; remaining sections are separated by a blank line.
+ */
+export function composeSparkSystemPrompt(
+  sections: ReadonlyArray<string | undefined | null>,
+): string {
+  return sections
+    .map((section) => section?.trim())
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
+}

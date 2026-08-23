@@ -10,7 +10,7 @@ import {
   type ToolCall,
   type UserMessage,
 } from "@zendev-lab/spark-llm";
-import { sparkTextPhaseFromSignature } from "@zendev-lab/spark-protocol";
+import { parseSparkSlashInput, sparkTextPhaseFromSignature } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   lowerSparkPromptItems,
@@ -117,6 +117,13 @@ function promptWithResumeNotice(
   if (typeof prompt === "string") return `${DAEMON_RESUME_NOTICE}\n\n${prompt}`;
   return [{ type: "text", text: DAEMON_RESUME_NOTICE }, ...prompt];
 }
+
+/**
+ * Slash commands the daemon resolves itself on the turn-submission channel.
+ * Each one injects its working-intent guidance into the current invocation
+ * only; nothing persists and the next plain turn is neutral again.
+ */
+const SPARK_ONE_SHOT_COMMANDS = new Set(["plan", "execute", "fleet"]);
 
 export interface SparkAgentSessionRunResult {
   sessionId: string;
@@ -277,6 +284,7 @@ export class SparkAgentSession {
         );
       }
       const prompt = promptWithResumeNotice(options.prompt, options.resumeFromInterrupt);
+      await this.dispatchSparkOneShotCommand(prompt);
       await this.tryPreflightCompaction(record, prompt);
       let beforeCount = this.loadPromptItems(record);
       let outcome = await this.services.agentLoop.submitWithOutcome(
@@ -509,6 +517,29 @@ export class SparkAgentSession {
   private loadPromptItems(record: SparkSessionRecord): number {
     this.services.agentLoop.replacePromptItems(sessionRecordToPromptItems(record));
     return this.services.agentLoop.getPromptItems().length;
+  }
+
+  /**
+   * Resolve a daemon-owned one-shot command (`/plan`, `/execute`, `/fleet`)
+   * submitted as turn text. The registered product command renders its
+   * working-intent guidance into this invocation's outbox; the original text
+   * is still submitted as the user turn so the transcript records the command.
+   * Unknown or unregistered commands fall through to an ordinary turn.
+   */
+  private async dispatchSparkOneShotCommand(prompt: UserMessage["content"]): Promise<void> {
+    if (typeof prompt !== "string") return;
+    const parsed = parseSparkSlashInput(prompt);
+    if (!parsed || !SPARK_ONE_SHOT_COMMANDS.has(parsed.command)) return;
+    const command = this.services.runtime.getCommand(parsed.command);
+    if (!command) return;
+    await command.handler(parsed.args, {
+      ...this.services.runtime.makeContext(),
+      // Deliver the directive through this session's outbox instead of
+      // triggering a separate turn while this submission is being admitted.
+      sendUserMessage: async (content: string) => {
+        this.services.runtime.sendUserMessage(content);
+      },
+    });
   }
 
   private async tryPreflightCompaction(

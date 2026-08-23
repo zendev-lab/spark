@@ -11,5 +11,5 @@ export * from "./session-identity.ts";
 export * from "./session-directory-store.ts";
 export * from "./session-goals.ts";
 export * from "./session-loops.ts";
-export * from "./session-mode-state.ts";
+export * from "./session-workspace-state.ts";
 export * from "./subgoals.ts";

@@ -454,6 +454,16 @@
       }
       return;
     }
+    if (name === "plan" || name === "execute" || name === "fleet") {
+      // One-shot directives are parsed by the daemon on the ordinary
+      // turn-submission channel; no separate RPC exists for them.
+      await webRpc("turn.submit", {
+        sessionId: ownerSessionId,
+        prompt: text,
+        messageMetadata: sparkWebTurnMessageMetadata(),
+      });
+      return;
+    }
     if (argument) {
       throw new Error(`/${name} does not accept free-form arguments in Spark Web.`);
     }
@@ -554,20 +564,19 @@
       case "help.hotkeys":
         feedback("Composer: Cmd/Ctrl+Enter sends. Escape closes open dialogs. Tab moves through controls.");
         return;
-      case "mode.select":
-        if (
-          action.payload.mode !== "plan" &&
-          action.payload.mode !== "execute" &&
-          action.payload.mode !== "fleet"
-        ) {
-          throw new Error(copy.modeUnsupported);
+      case "directive.run": {
+        const directive = action.payload.directive;
+        if (directive !== "plan" && directive !== "execute" && directive !== "fleet") {
+          throw new Error(copy.directiveUnsupported);
         }
-        await webRpc("session.mode.set", {
+        await webRpc("turn.submit", {
           sessionId: ownerSessionId,
-          mode: action.payload.mode,
+          prompt: `/${directive}`,
+          messageMetadata: sparkWebTurnMessageMetadata(),
         });
-        feedback(`${copy.modeSet} ${action.payload.mode}.`);
+        feedback(`${copy.directiveIssued} /${directive}.`);
         return;
+      }
       case "goal.start":
       case "goal.restart":
       case "goal.stop":

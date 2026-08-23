@@ -127,11 +127,6 @@
       "kind": "action",
       "effect": "unclassified"
     },
-    "mode": {
-      "owner": "@zendev-lab/spark-daemon",
-      "kind": "action",
-      "effect": "unclassified"
-    },
     "models": {
       "owner": "@zendev-lab/spark-llm",
       "kind": "capability",

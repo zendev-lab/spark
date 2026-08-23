@@ -13,17 +13,15 @@ import {
 import { createSparkLlmComposition } from "../llm-runtime.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import {
+  composeSparkSystemPrompt,
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
 } from "../system-prompt.ts";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   SparkRolesReviewerRunner,
   createSparkRoleRegistry,
-  loadSparkMode,
   renderSparkActiveSystemPrompt,
-  type SparkSessionContext,
 } from "../host-support.ts";
 import type {
   SparkCliHostServices,
@@ -265,9 +263,8 @@ export async function createSparkCliHostServices(
   let selectedSkillMatches: SparkSkillPromptMatch[] = [];
   let selectedSkillsPrompt = "";
   const baseSystemPrompt = options.systemPrompt ?? DEFAULT_SPARK_IDENTITY_PROMPT;
-  const initialPromptState = await resolveSparkCliAgentPromptState(
+  const initialSystemPrompt = composeSparkCliAgentSystemPrompt(
     cwd,
-    runtime.makeContext(),
     baseSystemPrompt,
     skillsCatalogPrompt,
     selectedSkillsPrompt,
@@ -316,7 +313,7 @@ export async function createSparkCliHostServices(
       error.code = "SPARK_CONTEXT_OVERFLOW_PREFLIGHT";
       throw error;
     },
-    systemPrompt: initialPromptState.systemPrompt,
+    systemPrompt: initialSystemPrompt,
     streamTimeoutMs: options.streamTimeoutMs,
     streamIdleTimeoutMs: options.streamIdleTimeoutMs,
     toolTimeoutMs: options.toolTimeoutMs,
@@ -333,15 +330,14 @@ export async function createSparkCliHostServices(
       } finally {
         // A disappearing/unreadable skill may reject this submit, but it must
         // never leave the previous request's bodies installed in the prompt.
-        const promptState = await resolveSparkCliAgentPromptState(
-          cwd,
-          runtime.makeContext(),
-          baseSystemPrompt,
-          skillsCatalogPrompt,
-          selectedSkillsPrompt,
+        agentLoop.setSystemPrompt(
+          composeSparkCliAgentSystemPrompt(
+            cwd,
+            baseSystemPrompt,
+            skillsCatalogPrompt,
+            selectedSkillsPrompt,
+          ),
         );
-        agentLoop.setSystemPrompt(promptState.systemPrompt);
-        agentLoop.setCurrentMode(options.sessionMode ?? promptState.mode);
       }
     },
     finishUserSubmit: () => clearRequestSkillSelection(),
@@ -378,7 +374,6 @@ export async function createSparkCliHostServices(
       };
     },
   });
-  agentLoop.setCurrentMode(options.sessionMode ?? initialPromptState.mode);
   clearRequestSkillSelection = () => {
     const hadSelection = selectedSkillMatches.length > 0 || selectedSkillsPrompt.length > 0;
     selectedSkillMatches = [];
@@ -390,45 +385,28 @@ export async function createSparkCliHostServices(
         baseSystemPrompt,
         skillsCatalogPrompt,
         selectedSkillsPrompt,
-        agentLoop.getCurrentMode() ?? initialPromptState.mode,
       ),
     );
   };
-  runtime.on("before_agent_start", async (event, ctx) => {
-    if (options.sessionMode) {
-      agentLoop.setSystemPrompt(
-        composeSparkCliAgentSystemPrompt(
-          cwd,
-          baseSystemPrompt,
-          skillsCatalogPrompt,
-          selectedSkillsPrompt,
-          options.sessionMode,
-        ),
-      );
-      agentLoop.setCurrentMode(options.sessionMode);
-      return;
-    }
+  runtime.on("before_agent_start", async (event) => {
     if (sparkAgentLifecycleSource(event) === "triggerTurn") {
       // Loop/background turns (goal, repro, workflow, scheduled continuations)
-      // are not assist-plan turns. Do not inherit a request skill body or a
-      // persisted plan/implement tool profile from the last user session.
+      // do not inherit a request skill body from the last user session.
       selectedSkillMatches = [];
       selectedSkillsPrompt = "";
       agentLoop.setSystemPrompt(
         composeSparkCliLoopSystemPrompt(cwd, baseSystemPrompt, skillsCatalogPrompt),
       );
-      agentLoop.setCurrentMode(undefined);
       return;
     }
-    const promptState = await resolveSparkCliAgentPromptState(
-      cwd,
-      ctx,
-      baseSystemPrompt,
-      skillsCatalogPrompt,
-      selectedSkillsPrompt,
+    agentLoop.setSystemPrompt(
+      composeSparkCliAgentSystemPrompt(
+        cwd,
+        baseSystemPrompt,
+        skillsCatalogPrompt,
+        selectedSkillsPrompt,
+      ),
     );
-    agentLoop.setSystemPrompt(promptState.systemPrompt);
-    agentLoop.setCurrentMode(promptState.mode);
   });
 
   return {
@@ -498,35 +476,14 @@ function withProviderAttemptIdentity(
   return hasProviderIdentity ? record : { ...record, responseId: syntheticResponseId };
 }
 
-async function resolveSparkCliAgentPromptState(
-  cwd: string,
-  ctx: SparkSessionContext,
-  baseSystemPrompt: string,
-  skillsCatalogPrompt: string,
-  selectedSkillsPrompt: string,
-): Promise<{ systemPrompt: string; mode: "plan" | "execute" | "fleet" }> {
-  const mode = (await loadSparkMode(cwd, ctx)).mode;
-  return {
-    mode,
-    systemPrompt: composeSparkCliAgentSystemPrompt(
-      cwd,
-      baseSystemPrompt,
-      skillsCatalogPrompt,
-      selectedSkillsPrompt,
-      mode,
-    ),
-  };
-}
-
 function composeSparkCliAgentSystemPrompt(
   cwd: string,
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-  phase: "plan" | "execute" | "fleet",
 ): string {
-  return composeAgentSystemPrompt([
-    renderSparkActiveSystemPrompt(baseSystemPrompt, phase),
+  return composeSparkSystemPrompt([
+    renderSparkActiveSystemPrompt(baseSystemPrompt),
     skillsCatalogPrompt,
     selectedSkillsPrompt,
     renderAgentRuntimeContextPrompt({ cwd }),
@@ -538,7 +495,7 @@ function composeSparkCliLoopSystemPrompt(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
 ): string {
-  return composeAgentSystemPrompt([
+  return composeSparkSystemPrompt([
     baseSystemPrompt,
     skillsCatalogPrompt,
     renderAgentRuntimeContextPrompt({ cwd }),

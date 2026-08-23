@@ -96,7 +96,7 @@ describe("SparkHostRuntime.ensureDriverAuthority", () => {
     await expect(
       loadSparkSessionWorkspaceState(dir, { sessionId: "session:silent" }),
     ).resolves.toEqual({
-      version: 4,
+      version: 5,
       driverAuthority: "granted",
     });
   });
@@ -122,7 +122,7 @@ describe("SparkHostRuntime.ensureDriverAuthority", () => {
     await expect(
       loadSparkSessionWorkspaceState(dir, { sessionId: "session:grant" }),
     ).resolves.toEqual({
-      version: 4,
+      version: 5,
       driverAuthority: "granted",
     });
   });
@@ -142,7 +142,7 @@ describe("SparkHostRuntime.ensureDriverAuthority", () => {
     await expect(
       loadSparkSessionWorkspaceState(dir, { sessionId: "session:deny" }),
     ).resolves.toEqual({
-      version: 4,
+      version: 5,
       driverAuthority: "denied",
     });
   });

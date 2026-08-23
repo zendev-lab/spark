@@ -5,24 +5,30 @@ import { withPathMutation } from "./path-mutation.ts";
 import { rebuildSessionIndex, sessionStateStorePath } from "./session-directory-store.ts";
 import type { SparkSessionContext } from "./session-identity.ts";
 
-export type SparkSessionMode = "plan" | "execute" | "fleet";
-
-export const SPARK_SESSION_WORKSPACE_STATE_VERSION = 4 as const;
+export const SPARK_SESSION_WORKSPACE_STATE_VERSION = 5 as const;
 
 export interface SparkSessionWorkspaceState {
   version: typeof SPARK_SESSION_WORKSPACE_STATE_VERSION;
   projectRef?: ProjectRef;
   currentTaskRef?: TaskRef;
-  mode?: SparkSessionMode;
   driverAuthority?: SparkDriverAuthority;
 }
 
 export function sparkSessionWorkspaceState(
   input: Omit<SparkSessionWorkspaceState, "version">,
 ): SparkSessionWorkspaceState {
-  return state(input.projectRef, input.currentTaskRef, input.mode, input.driverAuthority);
+  return state(input.projectRef, input.currentTaskRef, input.driverAuthority);
 }
 
+/**
+ * Normalize a persisted snapshot, migrating supported older versions.
+ *
+ * Versions 1-4 carried a durable session `mode` (v1 as `phase`). Persistent
+ * session modes are retired: the value is historical data and is dropped
+ * without being interpreted, and the snapshot is rewritten at the current
+ * version on load. The migration is idempotent — a current-version file is
+ * returned untouched.
+ */
 export function normalizeSparkSessionWorkspaceState(
   raw: Record<string, unknown>,
   filePath: string,
@@ -34,11 +40,15 @@ export function normalizeSparkSessionWorkspaceState(
     const currentTaskRef = optionalString(raw.currentTaskRef, filePath, "currentTaskRef") as
       | TaskRef
       | undefined;
-    const mode = normalizeLegacyPhase(raw.phase, filePath);
-    return state(projectRef, currentTaskRef, mode, undefined);
+    return state(projectRef, currentTaskRef, undefined);
   }
-  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4) {
-    throw new JsonStoreFormatError(filePath, "version must be 1, 2, 3, or 4");
+  if (
+    raw.version !== 2 &&
+    raw.version !== 3 &&
+    raw.version !== 4 &&
+    raw.version !== SPARK_SESSION_WORKSPACE_STATE_VERSION
+  ) {
+    throw new JsonStoreFormatError(filePath, "version must be 1, 2, 3, 4, or 5");
   }
   const projectRef = optionalString(raw.projectRef, filePath, "projectRef") as
     | ProjectRef
@@ -46,22 +56,11 @@ export function normalizeSparkSessionWorkspaceState(
   const currentTaskRef = optionalString(raw.currentTaskRef, filePath, "currentTaskRef") as
     | TaskRef
     | undefined;
-  const mode =
-    raw.version === 2
-      ? normalizeLegacyV2Mode(raw.mode, filePath)
-      : normalizeSparkSessionMode(raw.mode, filePath);
   const driverAuthority =
-    raw.version === 4 ? normalizeDriverAuthority(raw.driverAuthority, filePath) : undefined;
-  return state(projectRef, currentTaskRef, mode, driverAuthority);
-}
-
-export function normalizeSparkSessionMode(
-  value: unknown,
-  filePath = "<input>",
-): SparkSessionMode | undefined {
-  if (value === undefined) return undefined;
-  if (value === "plan" || value === "execute" || value === "fleet") return value;
-  throw new JsonStoreFormatError(filePath, "mode must be plan, execute, or fleet");
+    raw.version === 4 || raw.version === SPARK_SESSION_WORKSPACE_STATE_VERSION
+      ? normalizeDriverAuthority(raw.driverAuthority, filePath)
+      : undefined;
+  return state(projectRef, currentTaskRef, driverAuthority);
 }
 
 export async function loadSparkSessionWorkspaceState(
@@ -119,21 +118,6 @@ export async function updateSparkSessionWorkspaceState(
   });
 }
 
-export async function setSparkSessionMode(
-  cwd: string,
-  ctx: SparkSessionContext,
-  mode: SparkSessionMode,
-): Promise<SparkSessionWorkspaceState> {
-  return updateSparkSessionWorkspaceState(cwd, ctx, (existing) =>
-    sparkSessionWorkspaceState({
-      ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
-      ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
-      mode,
-      ...(existing?.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
-    }),
-  );
-}
-
 export async function setSparkSessionDriverAuthority(
   cwd: string,
   ctx: SparkSessionContext | undefined,
@@ -143,7 +127,6 @@ export async function setSparkSessionDriverAuthority(
     sparkSessionWorkspaceState({
       ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
       ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
-      ...(existing?.mode ? { mode: existing.mode } : {}),
       driverAuthority,
     }),
   );
@@ -169,14 +152,12 @@ async function writeSparkSessionWorkspaceStateFile(
 function state(
   projectRef: ProjectRef | undefined,
   currentTaskRef: TaskRef | undefined,
-  mode: SparkSessionMode | undefined,
   driverAuthority: SparkDriverAuthority | undefined,
 ): SparkSessionWorkspaceState {
   return {
     version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
     ...(projectRef ? { projectRef } : {}),
     ...(currentTaskRef ? { currentTaskRef } : {}),
-    ...(mode ? { mode } : {}),
     ...(driverAuthority ? { driverAuthority } : {}),
   };
 }
@@ -188,19 +169,6 @@ function normalizeDriverAuthority(
   if (value === undefined) return undefined;
   if (value === "granted" || value === "denied") return value;
   throw new JsonStoreFormatError(filePath, "driverAuthority must be granted or denied");
-}
-
-function normalizeLegacyV2Mode(value: unknown, filePath: string): SparkSessionMode | undefined {
-  if (value === undefined) return undefined;
-  if (value === "plan" || value === "execute") return value;
-  throw new JsonStoreFormatError(filePath, "v2 mode must be plan or execute");
-}
-
-function normalizeLegacyPhase(value: unknown, filePath: string): SparkSessionMode | undefined {
-  if (value === undefined) return undefined;
-  if (value === "research" || value === "plan") return "plan";
-  if (value === "implement") return "execute";
-  throw new JsonStoreFormatError(filePath, "legacy phase must be research, plan, or implement");
 }
 
 function optionalString(value: unknown, filePath: string, path: string): string | undefined {

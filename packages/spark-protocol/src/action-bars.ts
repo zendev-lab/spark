@@ -22,7 +22,7 @@ export const sparkActionIntentOptions = [
   "queue.inspect",
   "turn.stop",
   "turn.retry",
-  "mode.select",
+  "directive.run",
   "goal.status",
   "goal.start",
   "goal.restart",
@@ -234,19 +234,24 @@ const enabledModelsActionBar = actionBar({
   ],
 });
 
-function modeActionBar(mode: "plan" | "execute" | "fleet", title: string): SparkActionBarView {
+function directiveActionBar(
+  directive: "plan" | "execute" | "fleet",
+  title: string,
+): SparkActionBarView {
   return actionBar({
-    id: `mode-${mode}`,
+    id: `directive-${directive}`,
     title,
-    description: `Enter Spark ${mode} mode for this Session.`,
-    defaultActionId: `enter-${mode}`,
-    actions: [action(`enter-${mode}`, `Enter ${title}`, "mode.select", "primary", { mode })],
+    description: `Run the one-shot /${directive} command for this Session's next turn.`,
+    defaultActionId: `run-${directive}`,
+    actions: [
+      action(`run-${directive}`, `Run /${directive}`, "directive.run", "primary", { directive }),
+    ],
   });
 }
 
-const planModeActionBar = modeActionBar("plan", "Plan");
-const executeModeActionBar = modeActionBar("execute", "Execute");
-const fleetModeActionBar = modeActionBar("fleet", "Fleet");
+const planDirectiveActionBar = directiveActionBar("plan", "Plan");
+const executeDirectiveActionBar = directiveActionBar("execute", "Execute");
+const fleetDirectiveActionBar = directiveActionBar("fleet", "Fleet");
 
 const goalActionBar = lifecycleActionBar("goal", "Goal controls", {
   status: "Inspect goal",
@@ -317,9 +322,9 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("status", statusActionBar),
   slashCommand("queue", queueActionBar),
   slashCommand("enabled-models", enabledModelsActionBar, ["enabled"], ["enabled"]),
-  slashCommand("plan", planModeActionBar),
-  slashCommand("execute", executeModeActionBar),
-  slashCommand("fleet", fleetModeActionBar),
+  slashCommand("plan", planDirectiveActionBar),
+  slashCommand("execute", executeDirectiveActionBar),
+  slashCommand("fleet", fleetDirectiveActionBar),
   slashCommand("goal", goalActionBar),
   slashCommand("loop", loopActionBar),
   slashCommand("repro", reproActionBar),

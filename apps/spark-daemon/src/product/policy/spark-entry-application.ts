@@ -44,7 +44,10 @@ export async function applySparkEntryResolution(
       return;
     case "enter_mode": {
       if (!graph) {
-        ctx.ui?.notify?.("Spark mode needs initialized Spark state.", "warning");
+        ctx.ui?.notify?.(
+          "Spark /plan, /execute, and /fleet need initialized Spark state.",
+          "warning",
+        );
         return;
       }
       if (resolution.mode === "plan")

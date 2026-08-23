@@ -11,10 +11,9 @@ import {
   normalizeSparkSessionWorkspaceState,
   sparkSessionWorkspaceState,
   setSparkSessionDriverAuthority,
-  setSparkSessionMode,
   SPARK_SESSION_WORKSPACE_STATE_VERSION,
   updateSparkSessionWorkspaceState,
-} from "./session-mode-state.ts";
+} from "./session-workspace-state.ts";
 
 const indexWriteControl = vi.hoisted(() => ({
   beforeWrite: undefined as (() => Promise<void>) | undefined,
@@ -42,7 +41,7 @@ async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-test("v1 and v3 session workspace state migrate to v4", async () => {
+test("legacy session workspace state migrates to v5 and drops the retired mode field", async () => {
   await withTempDir(async (dir) => {
     const ctx = { sessionId: "sess_migrate" };
     const path = sessionStateStorePath(dir, ctx);
@@ -52,19 +51,42 @@ test("v1 and v3 session workspace state migrate to v4", async () => {
     assert.deepEqual(await loadSparkSessionWorkspaceState(dir, ctx), {
       version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
       projectRef: "proj:one",
-      mode: "execute",
     });
-    assert.match(await readFile(path, "utf8"), /"version": 4/u);
+    const rewritten = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    assert.equal(rewritten.version, SPARK_SESSION_WORKSPACE_STATE_VERSION);
+    assert.equal("mode" in rewritten, false);
+    assert.equal("phase" in rewritten, false);
 
-    await writeFile(path, '{"version":3,"mode":"fleet"}\n', "utf8");
+    await writeFile(path, '{"version":4,"mode":"fleet","driverAuthority":"granted"}\n', "utf8");
     assert.deepEqual(await loadSparkSessionWorkspaceState(dir, ctx), {
       version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
-      mode: "fleet",
+      driverAuthority: "granted",
     });
   });
 });
 
-test("v4 driverAuthority round-trips and survives mode writes", async () => {
+test("mode migration is idempotent and never interprets historical mode values", async () => {
+  await withTempDir(async (dir) => {
+    const ctx = { sessionId: "sess_idempotent" };
+    const path = sessionStateStorePath(dir, ctx);
+    await mkdir(dirname(path), { recursive: true });
+    // An unrecognized legacy mode value is dropped unread instead of failing.
+    await writeFile(path, '{"version":3,"mode":"obsolete","projectRef":"proj:two"}\n', "utf8");
+    assert.deepEqual(await loadSparkSessionWorkspaceState(dir, ctx), {
+      version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
+      projectRef: "proj:two",
+    });
+    const once = await readFile(path, "utf8");
+    // Re-loading the migrated file leaves the persisted bytes untouched.
+    assert.deepEqual(await loadSparkSessionWorkspaceState(dir, ctx), {
+      version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
+      projectRef: "proj:two",
+    });
+    assert.equal(await readFile(path, "utf8"), once);
+  });
+});
+
+test("v5 driverAuthority round-trips", async () => {
   await withTempDir(async (dir) => {
     const ctx = { sessionId: "sess_authority" };
     await setSparkSessionDriverAuthority(dir, ctx, "granted");
@@ -72,17 +94,10 @@ test("v4 driverAuthority round-trips and survives mode writes", async () => {
       version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
       driverAuthority: "granted",
     });
-
-    await setSparkSessionMode(dir, ctx, "execute");
-    assert.deepEqual(await loadSparkSessionWorkspaceState(dir, ctx), {
-      version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
-      mode: "execute",
-      driverAuthority: "granted",
-    });
   });
 });
 
-test("a concurrent mode change preserves a project mutation", async () => {
+test("a concurrent driver-authority change preserves a project mutation", async () => {
   await withTempDir(async (dir) => {
     const ctx = { sessionId: "sess_concurrent" };
     let releaseProject!: () => void;
@@ -93,21 +108,20 @@ test("a concurrent mode change preserves a project mutation", async () => {
       projectMutationStarted();
       await release;
       return sparkSessionWorkspaceState({
-        ...(current?.mode ? { mode: current.mode } : {}),
         ...(current?.driverAuthority ? { driverAuthority: current.driverAuthority } : {}),
         projectRef: "proj:concurrent",
       });
     });
     await started;
-    const modeMutation = setSparkSessionMode(dir, ctx, "fleet");
+    const authorityMutation = setSparkSessionDriverAuthority(dir, ctx, "granted");
 
     releaseProject();
-    await Promise.all([projectMutation, modeMutation]);
+    await Promise.all([projectMutation, authorityMutation]);
 
     assert.deepEqual(await loadSparkSessionWorkspaceState(dir, ctx), {
       version: SPARK_SESSION_WORKSPACE_STATE_VERSION,
       projectRef: "proj:concurrent",
-      mode: "fleet",
+      driverAuthority: "granted",
     });
   });
 });
@@ -160,13 +174,17 @@ test("concurrent Session mutations leave the shared index complete", async () =>
 
 test("unknown workspace versions and invalid driverAuthority fail closed", () => {
   assert.throws(
-    () => normalizeSparkSessionWorkspaceState({ version: 5, mode: "plan" }, "state.json"),
+    () => normalizeSparkSessionWorkspaceState({ version: 6, projectRef: "proj:x" }, "state.json"),
     (error: unknown) =>
-      error instanceof JsonStoreFormatError && /version must be 1, 2, 3, or 4/.test(error.message),
+      error instanceof JsonStoreFormatError &&
+      /version must be 1, 2, 3, 4, or 5/.test(error.message),
   );
   assert.throws(
     () =>
-      normalizeSparkSessionWorkspaceState({ version: 4, driverAuthority: "always" }, "state.json"),
+      normalizeSparkSessionWorkspaceState(
+        { version: SPARK_SESSION_WORKSPACE_STATE_VERSION, driverAuthority: "always" },
+        "state.json",
+      ),
     (error: unknown) =>
       error instanceof JsonStoreFormatError &&
       /driverAuthority must be granted or denied/.test(error.message),

@@ -85,7 +85,6 @@ export {
   type SparkAgentLifecycleSource,
   type SparkAgentLoopEvent,
   type SparkAgentLoopState,
-  type SparkAgentMode,
   type SparkAgentStreamFunction,
   type SparkTurnLlm,
   type SparkPromptAuthority,

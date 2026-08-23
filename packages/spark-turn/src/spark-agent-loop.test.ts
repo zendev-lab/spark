@@ -693,7 +693,6 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
       effect: "read",
       executionMode: "parallel",
       domains: ["files"],
-      modes: ["execute"],
       approval: "none",
     },
     async execute() {
@@ -785,7 +784,6 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
       executionMode: "parallel",
       approval: "none",
       domains: ["files"],
-      modes: ["execute"],
     },
   ]);
   assert.deepEqual(manifest.roundtrip, { index: 1 });
@@ -809,272 +807,6 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
   );
   assert.equal(baseline.passed, true);
   assert.equal(outcome.roundtrips, 1);
-});
-
-test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispatch", async () => {
-  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-phase-profile-test" });
-  const lifecycleSources: unknown[] = [];
-  host.on("before_agent_start", (event) => {
-    lifecycleSources.push((event as { source?: unknown }).source);
-  });
-  let implementExecutions = 0;
-  host.registerTool({
-    name: "plan_probe",
-    description: "available only while planning",
-    parameters: { type: "object" },
-    policy: { effect: "read", executionMode: "parallel", modes: ["plan"], approval: "none" },
-    async execute() {
-      return { content: [{ type: "text", text: "plan" }] };
-    },
-  });
-  host.registerTool({
-    name: "implement_action",
-    description: "available only while implementing",
-    parameters: { type: "object" },
-    policy: {
-      effect: "local_write",
-      executionMode: "sequential",
-      modes: ["execute"],
-      approval: "none",
-    },
-    async execute() {
-      implementExecutions += 1;
-      return { content: [{ type: "text", text: "implemented" }] };
-    },
-  });
-  host.registerTool({
-    name: "unphased_probe",
-    description: "available in every phase",
-    parameters: { type: "object" },
-    policy: { effect: "read", executionMode: "parallel", approval: "none" },
-    async execute() {
-      return { content: [{ type: "text", text: "unphased" }] };
-    },
-  });
-
-  const schemaToolNames: string[][] = [];
-  const manifestToolNames: string[][] = [];
-  const forgedPlanCall: ToolCall = {
-    type: "toolCall",
-    id: "tc-phase-forged",
-    name: "implement_action",
-    arguments: {},
-  };
-  const allowedImplementCall: ToolCall = {
-    type: "toolCall",
-    id: "tc-phase-allowed",
-    name: "implement_action",
-    arguments: {},
-  };
-  let modelCall = 0;
-  const streamFunction: SparkAgentStreamFunction = (model, context, options) => {
-    schemaToolNames.push((context.tools ?? []).map((tool: { name: string }) => tool.name));
-    const call = modelCall;
-    modelCall += 1;
-    const message =
-      call === 0
-        ? buildAssistant([forgedPlanCall], "toolUse")
-        : call === 2
-          ? buildAssistant([allowedImplementCall], "toolUse")
-          : buildAssistant([{ type: "text", text: `phase complete ${call}` }]);
-    const event: AssistantMessageEvent =
-      message.stopReason === "toolUse"
-        ? { type: "done", reason: "toolUse", message }
-        : { type: "done", reason: "stop", message };
-    return makeFakeStream({ rounds: [[event]] })(model, context, options);
-  };
-  const loop = new SparkAgentLoop({
-    host,
-    llm: asSparkTurnLlm(streamFunction),
-    getModel: () => TEST_MODEL,
-  });
-  loop.onEvent((event) => {
-    if (event.type === "prompt_manifest") {
-      manifestToolNames.push(event.manifest.tools.map((tool) => tool.name));
-    }
-  });
-
-  assert.equal(loop.getCurrentMode(), undefined);
-  loop.setCurrentMode("plan");
-  assert.equal(loop.getCurrentMode(), "plan");
-  await loop.submit("plan without writes");
-
-  assert.equal(implementExecutions, 0);
-  assert.deepEqual(schemaToolNames[0], ["plan_probe", "unphased_probe"]);
-  const rejected = asToolResult(
-    loop
-      .getMessages()
-      .find((message) => message.role === "toolResult" && message.toolCallId === "tc-phase-forged"),
-  );
-  assert.equal(rejected?.isError, true);
-  assert.match(toolResultText(rejected), /mode-inactive tool: implement_action/u);
-
-  loop.setCurrentMode("execute");
-  assert.equal(loop.getCurrentMode(), "execute");
-  await loop.submit("implement now");
-
-  assert.equal(implementExecutions, 1);
-  assert.deepEqual(schemaToolNames[2], ["implement_action", "unphased_probe"]);
-  const allowed = asToolResult(
-    loop
-      .getMessages()
-      .find(
-        (message) => message.role === "toolResult" && message.toolCallId === "tc-phase-allowed",
-      ),
-  );
-  assert.equal(allowed?.isError, false);
-  assert.deepEqual(manifestToolNames, schemaToolNames);
-  assert.deepEqual(lifecycleSources, ["agentLoop", "agentLoop", "agentLoop", "agentLoop"]);
-});
-
-test("SparkAgentLoop rechecks phase availability after async approval", async () => {
-  const host = new SparkHostRuntime({
-    cwd: "/tmp/spark-agent-loop-phase-approval-test",
-    ui: {
-      interaction: async (request) => ({
-        version: SPARK_PROTOCOL_VERSION,
-        kind: "toolApproval",
-        requestId: request.requestId,
-        status: "answered",
-        approved: true,
-        metadata: {},
-      }),
-    },
-  });
-  let executions = 0;
-  host.registerTool({
-    name: "approved_implement_action",
-    description: "phase may change while approval is pending",
-    parameters: { type: "object" },
-    policy: {
-      effect: "local_write",
-      executionMode: "sequential",
-      modes: ["execute"],
-      approval: "required",
-    },
-    async execute() {
-      executions += 1;
-      return { content: [{ type: "text", text: "must not run" }] };
-    },
-  });
-  const toolCall: ToolCall = {
-    type: "toolCall",
-    id: "tc-phase-after-approval",
-    name: "approved_implement_action",
-    arguments: {},
-  };
-  let loop!: SparkAgentLoop;
-  loop = new SparkAgentLoop({
-    host,
-    llm: asSparkTurnLlm(
-      makeFakeStream({
-        rounds: [
-          [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
-          [
-            {
-              type: "done",
-              reason: "stop",
-              message: buildAssistant([{ type: "text", text: "phase changed" }]),
-            },
-          ],
-        ],
-      }),
-    ),
-    getModel: () => TEST_MODEL,
-    approvalMethod: "auto",
-    reviewToolApproval: async () => {
-      loop.setCurrentMode("plan");
-      return { outcome: "approved", summary: "approved before phase transition" };
-    },
-  });
-  loop.setCurrentMode("execute");
-
-  await loop.submit("approve then switch phase");
-
-  assert.equal(executions, 0);
-  const result = asToolResult(
-    loop
-      .getMessages()
-      .find((message) => message.role === "toolResult" && message.toolCallId === toolCall.id),
-  );
-  assert.equal(result?.isError, true);
-  assert.match(toolResultText(result), /mode-inactive tool: approved_implement_action/u);
-});
-
-test("SparkAgentLoop enforces action-resolved Fleet policy at dispatch", async () => {
-  const run = async (action: "read" | "write") => {
-    const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-fleet-policy-test" });
-    let executions = 0;
-    host.registerTool({
-      name: "action_tool",
-      description: "action-aware tool",
-      parameters: { type: "object" },
-      policy: {
-        effect: "local_write",
-        executionMode: "sequential",
-        modes: ["plan", "execute", "fleet"],
-        approval: "none",
-      },
-      resolvePolicy(args) {
-        return args.action === "read"
-          ? {
-              effect: "read",
-              executionMode: "parallel",
-              modes: ["plan", "execute", "fleet"],
-              approval: "none",
-            }
-          : {
-              effect: "local_write",
-              executionMode: "sequential",
-              modes: ["execute"],
-              approval: "none",
-            };
-      },
-      async execute() {
-        executions += 1;
-        return { content: [{ type: "text", text: action }] };
-      },
-    });
-    const call: ToolCall = {
-      type: "toolCall",
-      id: `tc-fleet-${action}`,
-      name: "action_tool",
-      arguments: { action },
-    };
-    const loop = new SparkAgentLoop({
-      host,
-      llm: asSparkTurnLlm(
-        makeFakeStream({
-          rounds: [
-            [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
-            [
-              {
-                type: "done",
-                reason: "stop",
-                message: buildAssistant([{ type: "text", text: "done" }]),
-              },
-            ],
-          ],
-        }),
-      ),
-      getModel: () => TEST_MODEL,
-    });
-    loop.setCurrentMode("fleet");
-    await loop.submit(action);
-    const result = asToolResult(
-      loop.getMessages().find((message) => message.role === "toolResult"),
-    );
-    return { executions, result };
-  };
-
-  const denied = await run("write");
-  assert.equal(denied.executions, 0);
-  assert.equal(denied.result?.isError, true);
-  assert.match(toolResultText(denied.result), /mode-inactive tool: action_tool/u);
-
-  const allowed = await run("read");
-  assert.equal(allowed.executions, 1);
-  assert.equal(allowed.result?.isError, false);
 });
 
 test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async () => {
@@ -3542,7 +3274,6 @@ test("SparkAgentLoop applies human approval to a Cordis-native DSH tool", async 
           effect: "read",
           executionMode: "sequential",
           domains: ["test"],
-          modes: ["execute"],
           approval: "required",
           reconcile: "none",
         },
@@ -3556,7 +3287,6 @@ test("SparkAgentLoop applies human approval to a Cordis-native DSH tool", async 
   loop.onEvent((event) => {
     if (event.type === "prompt_manifest") manifests.push(event);
   });
-  loop.setCurrentMode("execute");
 
   await loop.submit("try native guarded tool");
 
@@ -3579,7 +3309,6 @@ test("SparkAgentLoop applies human approval to a Cordis-native DSH tool", async 
       executionMode: "sequential",
       approval: "required",
       domains: ["test"],
-      modes: ["execute"],
     },
   );
   assert.equal(
@@ -3643,7 +3372,6 @@ test("SparkAgentLoop hides and denies a DSH tool outside the host effect allowli
           effect: "local_write",
           executionMode: "sequential",
           domains: ["filesystem"],
-          modes: ["execute"],
           approval: "required",
           reconcile: "tool_owner",
         },
@@ -3654,7 +3382,6 @@ test("SparkAgentLoop hides and denies a DSH tool outside the host effect allowli
       ),
     ],
   });
-  loop.setCurrentMode("execute");
 
   await loop.submit("try native write");
 

@@ -34,7 +34,7 @@ describe("architecture inventory governance", () => {
     expect(governance.validateArchitectureGovernance(inventory, manifests, rootManifest)).toEqual(
       [],
     );
-    expect(Object.keys(inventory.packages)).toHaveLength(41);
+    expect(Object.keys(inventory.packages)).toHaveLength(40);
     for (const packageInfo of Object.values(inventory.packages)) {
       expect(packageInfo).toHaveProperty("stateWriter");
       expect(packageInfo).not.toHaveProperty("stateAuthority");
@@ -202,7 +202,7 @@ describe("architecture inventory governance", () => {
       dependencyCruiserConfig.forbidden.map(({ name }: NamedRule) => name),
     );
 
-    expect(generatedRules).toHaveLength(41);
+    expect(generatedRules).toHaveLength(40);
     for (const rule of generatedRules) expect(configuredRuleNames.has(rule.name)).toBe(true);
     expect(
       governance.classifyWorkspaceDependency(
@@ -448,7 +448,7 @@ describe("architecture inventory governance", () => {
     const compactMarkdown = governance.formatArchitectureHealthMarkdown(report);
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
-    expect(report.inventory.workspaceCount).toBe(41);
+    expect(report.inventory.workspaceCount).toBe(40);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
@@ -460,7 +460,7 @@ describe("architecture inventory governance", () => {
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
-    expect(Object.keys(report.workspaces)).toHaveLength(41);
+    expect(Object.keys(report.workspaces)).toHaveLength(40);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
     expect(report.workspaces["@zendev-lab/spark-daemon"].layer).toBe("composition");
     expect(report.workspaces["@zendev-lab/spark-web"].layer).toBe("application");

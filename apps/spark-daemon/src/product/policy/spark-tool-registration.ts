@@ -66,9 +66,6 @@ export interface SparkToolContext {
     sparkHome?: string;
     controlSparkHome?: string;
   };
-  sparkActiveMode?: {
-    mode: "plan" | "execute" | "fleet";
-  };
   isIdle?: () => boolean;
   sessionManager?: {
     getSessionId?: () => string;

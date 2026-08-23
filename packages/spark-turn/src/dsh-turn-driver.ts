@@ -583,7 +583,6 @@ function sparkNativeDshToolPolicy(name: string): SparkDshToolPolicyMetadata | un
       effect: "read",
       executionMode: "sequential",
       domains: ["session", "schedule"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
       reconcile: "tool_owner",
     };
@@ -593,7 +592,6 @@ function sparkNativeDshToolPolicy(name: string): SparkDshToolPolicyMetadata | un
       effect: "control",
       executionMode: "sequential",
       domains: ["session", "schedule"],
-      modes: ["plan", "execute", "fleet"],
       approval: "required",
       reconcile: "tool_owner",
     };

@@ -186,31 +186,6 @@ describe("Spark daemon oRPC socket client", () => {
     }
   });
 
-  it("sends Session mode changes through the exact typed path", async () => {
-    const fixture = await rawOrpcFixture((_line, socket) => socket.end());
-    const handle = await createSparkDaemonOrpcClient({ socketPath: fixture.socketPath });
-
-    try {
-      const result = invokeSparkDaemonOrpcLiveMethod(handle.client, "session.mode.set", {
-        sessionId: "session-1",
-        mode: "fleet",
-      }).catch((error: unknown) => error);
-      const frame = JSON.parse(await within(fixture.requestLine)) as { data: string };
-      const request = JSON.parse(frame.data) as unknown;
-
-      expect(request).toMatchObject({
-        p: {
-          u: "/session/mode/set",
-          b: { json: { sessionId: "session-1", mode: "fleet" } },
-        },
-      });
-      await expect(within(result)).resolves.toBeInstanceOf(Error);
-    } finally {
-      handle.close();
-      await fixture.close();
-    }
-  });
-
   it("settles an invocation when an oversized response frame closes the port", async () => {
     const fixture = await rawOrpcFixture((_line, socket) => {
       socket.write("x".repeat(128));

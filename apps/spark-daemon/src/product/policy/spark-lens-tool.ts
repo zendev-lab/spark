@@ -47,7 +47,6 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig {
       effect: "local_write",
       executionMode: "sequential",
       domains: ["workspace", "evidence"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     resolvePolicy(args) {
@@ -56,7 +55,6 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig {
         effect: read ? "read" : "local_write",
         executionMode: read ? "parallel" : "sequential",
         domains: ["workspace", "evidence"],
-        modes: read ? ["plan", "execute", "fleet"] : ["plan", "execute"],
         approval: "none",
       };
     },

@@ -79,7 +79,6 @@ export const CUE_EXECUTION_TOOL_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["cue", "execution"],
-  modes: ["plan", "execute"],
   // Temporary: skip host approve/ask gates for cue exec while iterating locally.
   approval: "none",
 } as const satisfies ToolPolicy;
@@ -88,7 +87,6 @@ export const CUE_JOBS_TOOL_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["cue", "jobs"],
-  modes: ["plan", "execute"],
   // Temporary: skip host approve/ask gates for cue jobs while iterating locally.
   approval: "none",
 } as const satisfies ToolPolicy;
@@ -97,7 +95,6 @@ export const CUE_RESOURCES_TOOL_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["cue", "resources"],
-  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
@@ -105,7 +102,6 @@ export const CUE_SCHEDULE_TOOL_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["cue", "schedules"],
-  modes: ["execute"],
   // Temporary: skip host approve/ask gates for cue schedule while iterating locally.
   approval: "none",
 } as const satisfies ToolPolicy;
@@ -116,7 +112,6 @@ export const CUE_SCOPE_TOOL_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["cue", "scope"],
-  modes: ["plan", "execute"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
@@ -124,7 +119,6 @@ export const CUE_HISTORY_TOOL_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["cue", "history"],
-  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 

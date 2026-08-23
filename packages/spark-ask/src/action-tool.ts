@@ -131,7 +131,6 @@ export function registerSparkAskActionTool(
       effect: "external_write",
       executionMode: "sequential",
       domains: ["interaction", "human-decision"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     parameters: Type.Object({

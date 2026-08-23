@@ -69,7 +69,6 @@ export function registerSparkGoalTool(
       effect: "local_write",
       executionMode: "sequential",
       domains: ["goals"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     resolvePolicy(args) {
@@ -78,7 +77,6 @@ export function registerSparkGoalTool(
         effect: status ? "read" : "local_write",
         executionMode: status ? "parallel" : "sequential",
         domains: ["goals"],
-        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
         approval: "none",
       };
     },

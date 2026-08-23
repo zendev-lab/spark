@@ -74,7 +74,7 @@ export function slashActionAvailability(
       return ctx.retryState === "submitting"
         ? unavailable(ctx.reasons.retryInProgress)
         : { enabled: true };
-    case "mode.select":
+    case "directive.run":
       if (!ctx.canAssign) return unavailable(ctx.reasons.ownerOffline);
       return hasSelectedSession ? { enabled: true } : unavailable(ctx.reasons.sessionRequired);
     case "help.commands":

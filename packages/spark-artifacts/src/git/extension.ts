@@ -52,7 +52,6 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       effect: "destructive",
       executionMode: "sequential",
       domains: ["git", "artifact"],
-      modes: ["plan", "execute", "fleet"],
       approval: "required",
     },
     resolvePolicy(args) {
@@ -62,7 +61,6 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           effect: "read",
           executionMode: "parallel",
           domains: ["git", "artifact"],
-          modes: ["plan", "execute", "fleet"],
           approval: "none",
         };
       }
@@ -71,7 +69,6 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           effect: "external_write",
           executionMode: "sequential",
           domains: ["git", "artifact"],
-          modes: ["plan", "execute"],
           approval: action === "submit" && args.ready === true ? "required" : "manual_only",
         };
       }
@@ -80,7 +77,6 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           effect: "destructive",
           executionMode: "sequential",
           domains: ["git", "artifact"],
-          modes: ["plan", "execute"],
           approval: "required",
         };
       }
@@ -88,7 +84,6 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         effect: "local_write",
         executionMode: "sequential",
         domains: ["git", "artifact"],
-        modes: ["plan", "execute"],
         approval: "none",
       };
     },

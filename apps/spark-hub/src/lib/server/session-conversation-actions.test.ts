@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   loadProjectedModelControlForHub: vi.fn(),
   requireWorkspaceByRouteId: vi.fn(),
   setSessionModelForHub: vi.fn(),
-  setManagedSessionModeForHub: vi.fn(),
   setSessionThinkingLevelForHub: vi.fn(),
   submitConversationTurnForHub: vi.fn(),
 }));
@@ -23,7 +22,6 @@ vi.mock("$lib/server/managed-sessions", () => ({
   createManagedSessionForHub: mocks.createManagedSessionForHub,
   getManagedSessionForHub: mocks.getManagedSessionForHub,
   getProjectedManagedSessionForHub: mocks.getProjectedManagedSessionForHub,
-  setManagedSessionModeForHub: mocks.setManagedSessionModeForHub,
   listProjectedManagedSessionsForHub: mocks.listProjectedManagedSessionsForHub,
   listManagedSessionsForHub: mocks.listManagedSessionsForHub,
 }));
@@ -187,7 +185,6 @@ beforeEach(() => {
   }));
   mocks.setSessionModelForHub.mockResolvedValue(session);
   mocks.setSessionThinkingLevelForHub.mockResolvedValue(session);
-  mocks.setManagedSessionModeForHub.mockImplementation(async (input) => input);
   mocks.cancelConversationTurnForHub.mockResolvedValue({
     turnId: "inv_conversation",
     status: "running",
@@ -662,7 +659,6 @@ describe("session conversation actions", () => {
       ["cancelTurn", { sessionId: "sess_global", turnId: "turn_global" }],
       ["selectModel", { sessionId: "sess_global", model: "baidu-oneapi/gpt-5.6-sol" }],
       ["selectThinking", { sessionId: "sess_global", thinkingLevel: "high" }],
-      ["selectMode", { sessionId: "sess_global", mode: "fleet" }],
       ["archiveSession", { sessionId: "sess_global" }],
     ] as const) {
       await expect(requireAction(name)(actionEvent(values))).resolves.toMatchObject({
@@ -673,7 +669,6 @@ describe("session conversation actions", () => {
     expect(mocks.cancelConversationTurnForHub).not.toHaveBeenCalled();
     expect(mocks.setSessionModelForHub).not.toHaveBeenCalled();
     expect(mocks.setSessionThinkingLevelForHub).not.toHaveBeenCalled();
-    expect(mocks.setManagedSessionModeForHub).not.toHaveBeenCalled();
     expect(mocks.archiveManagedSessionForHub).not.toHaveBeenCalled();
   });
 
@@ -696,7 +691,6 @@ describe("session conversation actions", () => {
       ["cancelTurn", { sessionId: "sess_conversation", turnId: "turn_demo" }],
       ["selectModel", { sessionId: "sess_conversation", model: "provider/model" }],
       ["selectThinking", { sessionId: "sess_conversation", thinkingLevel: "high" }],
-      ["selectMode", { sessionId: "sess_conversation", mode: "fleet" }],
       ["archiveSession", { sessionId: "sess_conversation" }],
     ] as const) {
       const result = await Promise.resolve(requireAction(name)(actionEvent(values, "other"))).catch(
@@ -710,7 +704,6 @@ describe("session conversation actions", () => {
     expect(mocks.cancelConversationTurnForHub).not.toHaveBeenCalled();
     expect(mocks.setSessionModelForHub).not.toHaveBeenCalled();
     expect(mocks.setSessionThinkingLevelForHub).not.toHaveBeenCalled();
-    expect(mocks.setManagedSessionModeForHub).not.toHaveBeenCalled();
     expect(mocks.archiveManagedSessionForHub).not.toHaveBeenCalled();
   });
 
@@ -761,24 +754,6 @@ describe("session conversation actions", () => {
     expect(mocks.setSessionModelForHub).toHaveBeenCalledWith("sess_conversation", {
       providerName: "baidu-oneapi",
       modelId: "gpt-5.6-sol",
-    });
-  });
-
-  it("persists Fleet mode through the daemon control plane", async () => {
-    const result = await requireAction("selectMode")(
-      actionEvent({ sessionId: "sess_conversation", mode: "fleet" }),
-    );
-
-    expect(result).toEqual({
-      intent: "selectMode",
-      success: true,
-      message: "Session mode updated.",
-      mode: "fleet",
-      values: { sessionId: "sess_conversation", mode: "fleet" },
-    });
-    expect(mocks.setManagedSessionModeForHub).toHaveBeenCalledWith({
-      sessionId: "sess_conversation",
-      mode: "fleet",
     });
   });
 

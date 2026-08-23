@@ -1,9 +1,9 @@
 import type { ProjectRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { RoadmapPlanningContext } from "../../flows/roadmap-flow.ts";
-import { renderRoadmapPlanningContext } from "../../flows/roadmap-flow.ts";
-import type { SparkEntryMode } from "../spark-entry.ts";
-import type { SparkPlanningModeSource } from "../session-state.ts";
+import type { RoadmapPlanningContext } from "../flows/roadmap-flow.ts";
+import { renderRoadmapPlanningContext } from "../flows/roadmap-flow.ts";
+import type { SparkEntryMode } from "./spark-entry.ts";
+import type { SparkPlanningModeSource } from "./session-state.ts";
 
 const PLANNING_AFFECTING_CHOICES =
   "scope, dependencies, priorities, success criteria, evidence, architecture, dependency choices, or execution order";
@@ -25,10 +25,10 @@ const NO_CANNED_ASKS =
   "Keep asks dynamic and grounded in inspected context; do not use canned intake templates or ask questions whose answers would not change the task plan.";
 
 export const WORKFLOW_AND_SUBAGENT_ARE_TOOLS =
-  "Workflow and subagent role runs are execution tools, not session modes. First select the governing mode (plan, execute, or fleet), then use role/workflow only within that mode's responsibility and evidence boundaries.";
+  "Workflow and subagent role runs are execution tools. Follow the current one-shot directive (plan, execute, or fleet), then use role/workflow only within that directive's responsibility and evidence boundaries.";
 
 export const DURABLE_STATE_AUTHORITY =
-  'Compact summaries, restored conversation history, and hidden mode text are historical hints only. Before planning, claiming, finishing, or deciding a goal/project transition, verify durable state with scoped tools: task_read({ action: "project_status" }) for the selected project, task_read({ action: "workspace_status" }) or task_read({ action: "project_list" }) before selecting a project, and goal({ action: "status" }) before relying on a goal.';
+  'Compact summaries, restored conversation history, and hidden directive text are historical hints only. Before planning, claiming, finishing, or deciding a goal/project transition, verify durable state with scoped tools: task_read({ action: "project_status" }) for the selected project, task_read({ action: "workspace_status" }) or task_read({ action: "project_list" }) before selecting a project, and goal({ action: "status" }) before relying on a goal.';
 
 const RESEARCH_SUBAGENT_STRATEGY =
   'Default lightweight research should use Role-bound child Sessions plus main-agent synthesis when parallel inspection, cross-checking, or specialist review materially improves coverage. Create or select a static Role, call session({ action: "spawn", roleRef }) for an empty child or session({ action: "fork", roleRef }) when the stable parent transcript is required, then call session({ action: "send", kind: "request", toSessionId, message }) with a focused brief. The main agent remains responsible for summarizing, reconciling, and qualifying the findings.';
@@ -133,10 +133,7 @@ export function renderModePrompt(
     renderSparkProjectSummary(graph, selectedProjectRef),
     renderModeFocus(mode, focus),
     extraContext?.trim() || undefined,
-    [
-      mode.endsWith("Loop") ? `## ${mode} requirements` : `## ${mode} mode requirements`,
-      ...scopedRequirements.map((item) => `- ${item}`),
-    ].join("\n"),
+    [`## ${mode} requirements`, ...scopedRequirements.map((item) => `- ${item}`)].join("\n"),
   ].filter((section): section is string => Boolean(section));
   return sections.join("\n\n");
 }
@@ -185,10 +182,10 @@ export function renderSparkModeVisibleMessage(
 ): string {
   const title =
     mode === "plan"
-      ? "Spark plan mode requested"
+      ? "Spark /plan directive issued"
       : mode === "execute"
-        ? "Spark execute mode requested"
-        : "Spark fleet mode requested";
+        ? "Spark /execute directive issued"
+        : "Spark /fleet directive issued";
   const parts = [title];
   if (projectTitle?.trim()) parts.push(`project: ${projectTitle.trim()}`);
   if (focus?.trim()) parts.push(`focus: ${focus.trim()}`);

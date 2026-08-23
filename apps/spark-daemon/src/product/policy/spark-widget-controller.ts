@@ -12,7 +12,6 @@ import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
-  loadSparkMode,
   saveSparkGraphAndTodos,
   sparkSessionKey,
   sparkSessionOwnerKey,
@@ -26,7 +25,6 @@ import {
 } from "./session-todos.ts";
 import { independentTodoDisplayKey } from "@zendev-lab/spark-tasks";
 import { renderSparkProjectKindDisplay } from "./project-kind-registry.ts";
-import { sparkActiveMode } from "./spark-mode-state.ts";
 import { ensureSparkGraphInvariants, isPlaceholderProjectTitle } from "./spark-graph-invariants.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop, loadSessionLoop } from "./spark-session-loops.ts";
@@ -58,8 +56,6 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   loadSessionGoal: (cwd, ctx) => loadSessionGoal(cwd, ctx),
   loadSessionLoop: (cwd, ctx) => loadSessionLoop(cwd, ctx),
   clearSessionLoop: (cwd, ctx) => clearSessionLoop(cwd, ctx),
-  loadSparkMode: (cwd, ctx) => loadSparkMode(cwd, ctx),
-  sparkActiveMode,
   renderSparkProjectKindDisplay,
   isPlaceholderProjectTitle,
   latestRunsByTaskRef,

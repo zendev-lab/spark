@@ -15,7 +15,6 @@ export function registerSparkReproTool(
       effect: "local_write",
       executionMode: "sequential",
       domains: ["repro"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     resolvePolicy(args) {
@@ -24,7 +23,6 @@ export function registerSparkReproTool(
         effect: status ? "read" : "local_write",
         executionMode: status ? "parallel" : "sequential",
         domains: ["repro"],
-        modes: ["plan", "execute", "fleet"],
         approval: "none",
       };
     },

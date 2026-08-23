@@ -76,7 +76,6 @@ test("models registers one standalone tool", () => {
     effect: "read",
     executionMode: "parallel",
     domains: ["models"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
 });

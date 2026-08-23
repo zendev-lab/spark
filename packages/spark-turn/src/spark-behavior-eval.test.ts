@@ -33,7 +33,7 @@ test("prompt manifest exposes diagnostics without retaining sensitive prompt/ses
   const result = manifest();
   const serialized = JSON.stringify(result);
 
-  assert.equal(result.schemaVersion, 5);
+  assert.equal(result.schemaVersion, 6);
   assert.equal(result.prompt.stableChars, "stable secret prompt".length);
   assert.equal(result.prompt.dynamicChars, "dynamic user data".length);
   assert.equal(result.sessionFingerprint.length, 16);

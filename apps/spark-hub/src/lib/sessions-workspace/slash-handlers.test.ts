@@ -34,7 +34,7 @@ function createDeps(openActivityPane: () => void): SlashHandlerDeps {
     getLatestRetryPrompt: () => null,
     retryConversationTurn: vi.fn(),
     submitThinkingSelection: vi.fn(async () => undefined),
-    submitModeSelection: vi.fn(async () => undefined),
+    submitDirectiveSelection: vi.fn(async () => undefined),
     openActivityPane,
   };
 }
@@ -58,22 +58,22 @@ beforeEach(() => {
 });
 
 describe("session slash activity routing", () => {
-  it("routes Fleet through typed Session mode control", async () => {
+  it("routes Fleet as a one-shot directive command turn", async () => {
     const deps = createDeps(() => undefined);
     const handlers = createSlashHandlers(deps);
 
     await handlers.handleSlashAction(
       {
-        id: "enter-fleet",
-        intent: "mode.select",
-        label: "Enter Fleet",
-        payload: { mode: "fleet" },
+        id: "run-fleet",
+        intent: "directive.run",
+        label: "Run /fleet",
+        payload: { directive: "fleet" },
       },
       "session",
     );
 
     expect(deps.composer.message).toBe("");
-    expect(deps.submitModeSelection).toHaveBeenCalledWith("fleet");
+    expect(deps.submitDirectiveSelection).toHaveBeenCalledWith("fleet");
   });
 
   it("routes enabled-model settings to the models page", async () => {

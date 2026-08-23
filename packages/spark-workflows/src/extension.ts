@@ -62,12 +62,12 @@ export function registerSparkWorkflowTool(
       "Use action=runs for WorkflowRun status and lifecycle control. task_read run_status is read-only compatibility inspection.",
       "workflow action=tick is internal to a daemon-owned Workflow Loop and is rejected in ordinary turns.",
     ],
-    policy: workflowToolPolicy("read", ["plan", "execute", "fleet"]),
+    policy: workflowToolPolicy("read"),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
       return action === "list" || action === "read"
-        ? workflowToolPolicy("read", ["plan", "execute", "fleet"])
-        : workflowToolPolicy("external_write", ["plan", "execute"]);
+        ? workflowToolPolicy("read")
+        : workflowToolPolicy("external_write");
     },
     parameters: Type.Object(
       {
@@ -224,15 +224,11 @@ function renderWorkflowList(workflows: WorkflowDescriptor[], total: number): str
   return lines.join("\n");
 }
 
-function workflowToolPolicy(
-  effect: "read" | "external_write",
-  modes: readonly string[],
-): NonNullable<ToolConfig["policy"]> {
+function workflowToolPolicy(effect: "read" | "external_write"): NonNullable<ToolConfig["policy"]> {
   return {
     effect,
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["workflows"],
-    modes,
     approval: "none",
   };
 }

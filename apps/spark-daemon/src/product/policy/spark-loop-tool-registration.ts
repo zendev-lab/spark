@@ -28,7 +28,6 @@ export function registerSparkLoopTool(
       effect: "local_write",
       executionMode: "sequential",
       domains: ["loops"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     resolvePolicy(args) {
@@ -37,7 +36,6 @@ export function registerSparkLoopTool(
         effect: status ? "read" : "local_write",
         executionMode: status ? "parallel" : "sequential",
         domains: ["loops"],
-        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
         approval: "none",
       };
     },

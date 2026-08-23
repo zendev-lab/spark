@@ -44,7 +44,6 @@ const SPARK_FUSION_POLICY = Object.freeze({
   effect: "read",
   executionMode: "sequential",
   domains: ["models", "deliberation"],
-  modes: ["plan", "execute"],
   approval: "required",
   reconcile: "none",
 } as const satisfies SparkDshToolPolicyMetadata);

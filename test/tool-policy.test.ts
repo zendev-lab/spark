@@ -13,7 +13,6 @@ describe("argument-aware tool policy", () => {
       effect: "read",
       executionMode: "parallel",
       domains: [],
-      modes: [],
       approval: "none",
     });
   });
@@ -31,7 +30,6 @@ describe("argument-aware tool policy", () => {
       effect: "unknown",
       executionMode: "sequential",
       domains: [],
-      modes: [],
       approval: "required",
     });
   });

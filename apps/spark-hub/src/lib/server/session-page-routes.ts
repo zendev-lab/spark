@@ -1,5 +1,5 @@
 import { error as httpError, fail, redirect } from "@sveltejs/kit";
-import { createId, sparkSessionModeSchema } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import { titleFromPrompt } from "@zendev-lab/spark-hub-coordination/agents-product";
 import {
@@ -21,7 +21,6 @@ import {
   createManagedSessionForHub,
   getManagedSessionForHub,
   getProjectedManagedSessionForHub,
-  setManagedSessionModeForHub,
   listProjectedManagedSessionsForHub,
 } from "$lib/server/managed-sessions";
 import {
@@ -637,52 +636,6 @@ export const actions = {
         success: false,
         message: t.workbench.thinkingFailed,
         values: { sessionId, thinkingLevel },
-      });
-    }
-  },
-
-  selectMode: async ({ cookies, params, request }: SessionActionEvent) => {
-    const t = getRequestDictionary({
-      cookieLocale: cookies.get(localeCookieName),
-      acceptLanguage: request.headers.get("accept-language"),
-    }).sessions;
-    const formData = await request.formData();
-    const sessionId = formText(formData, "sessionId").trim();
-    const parsedMode = sparkSessionModeSchema.safeParse(formText(formData, "mode").trim());
-    if (!sessionId || !parsedMode.success) {
-      return fail(400, {
-        intent: "selectMode",
-        success: false,
-        message: t.selectModeRequired,
-      });
-    }
-    const mode = parsedMode.data;
-    try {
-      const session = await getManagedSessionForHub(sessionId);
-      const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-      if (!session || !workspaceId) {
-        return fail(400, {
-          intent: "selectMode",
-          success: false,
-          message: t.selectModeRequired,
-          values: { sessionId, mode },
-        });
-      }
-      assertRouteWorkspace(params, workspaceId, "Session not found.");
-      const result = await setManagedSessionModeForHub({ sessionId, mode });
-      return {
-        intent: "selectMode",
-        success: true,
-        message: t.workbench.modeUpdated,
-        mode: result.mode,
-        values: { sessionId, mode: result.mode },
-      };
-    } catch {
-      return fail(400, {
-        intent: "selectMode",
-        success: false,
-        message: t.workbench.modeFailed,
-        values: { sessionId, mode },
       });
     }
   },

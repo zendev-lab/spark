@@ -75,7 +75,6 @@ export interface SparkHeadlessRoleInstructionInput {
   };
   cwd: string;
   timeoutMs: number;
-  mode?: "plan" | "execute" | "fleet";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;
@@ -266,7 +265,6 @@ export async function runSparkHeadlessSession(
     allowedToolEffects: input.roleRunRef
       ? [...new Set([...(input.allowedToolEffects ?? []), "control" as const])]
       : input.allowedToolEffects,
-    sessionMode: input.mode,
     hasUI: false,
     ...(input.interaction
       ? {
@@ -279,7 +277,6 @@ export async function runSparkHeadlessSession(
         }
       : {}),
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-    ...(input.roleRunRef ? { sessionMode: "execute" as const } : {}),
     // Daemon scheduler owns wall-clock execution budget. Model streams use idle
     // hang detection instead of a short hard stream deadline so long tool/model
     // turns can finish, and interrupted work can resume after restart.
@@ -432,7 +429,6 @@ export async function runSparkHeadlessRoleInstruction(
       hasUI: false,
       systemPrompt: input.role.systemPrompt,
       approvalMethod: "auto",
-      sessionMode: input.mode ?? "execute",
       tokenUsage: options.tokenUsage,
       allowedToolEffects: input.role.allowedToolEffects,
       roleNativeCompatibilityRecovery: {
@@ -832,7 +828,6 @@ function registerRoleOutcomeTool(
     policy: {
       effect: "control",
       executionMode: "sequential",
-      modes: ["execute"],
       approval: "none",
     },
     async execute(_toolCallId, params) {

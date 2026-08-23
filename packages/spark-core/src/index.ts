@@ -150,14 +150,13 @@ export type SparkDriverAuthority = "granted" | "denied";
 
 /**
  * Declarative tool policy owned by the package that implements the tool.
- * Domain and mode values are intentionally opaque strings: the shared
- * extension contract carries policy data but does not own product routing.
+ * Domain values are intentionally opaque strings: the shared extension
+ * contract carries policy data but does not own product routing.
  */
 export interface ToolPolicy {
   readonly effect?: ToolEffect;
   readonly executionMode?: ToolExecutionMode;
   readonly domains?: readonly string[];
-  readonly modes?: readonly string[];
   readonly approval?: ToolApprovalPolicy;
 }
 
@@ -174,7 +173,6 @@ export interface ResolvedToolPolicy {
   readonly effect: ResolvedToolEffect;
   readonly executionMode: ToolExecutionMode;
   readonly domains: readonly string[];
-  readonly modes: readonly string[];
   readonly approval: ToolApprovalPolicy;
 }
 
@@ -270,8 +268,7 @@ export function resolveToolPolicy(config: ToolConfig): ResolvedToolPolicy {
     declarationsConflict(policy?.executionMode, config.executionMode) ||
     !isOptionalToolApproval(policy?.approval) ||
     (config.requiresApproval !== undefined && typeof config.requiresApproval !== "boolean") ||
-    !isOptionalPolicyLabels(policy?.domains) ||
-    !isOptionalPolicyLabels(policy?.modes);
+    !isOptionalPolicyLabels(policy?.domains);
 
   const canonicalEffect = policy?.effect;
   const legacyEffect: unknown = config.effect;
@@ -292,7 +289,6 @@ export function resolveToolPolicy(config: ToolConfig): ResolvedToolPolicy {
     effect,
     executionMode,
     domains: Object.freeze(normalizePolicyLabels(policy?.domains)),
-    modes: Object.freeze(normalizePolicyLabels(policy?.modes)),
     approval,
   });
 }
@@ -327,7 +323,6 @@ function unknownRequiredToolPolicy(): ResolvedToolPolicy {
     effect: "unknown",
     executionMode: "sequential",
     domains: Object.freeze([]),
-    modes: Object.freeze([]),
     approval: "required",
   });
 }
@@ -788,7 +783,6 @@ export interface SparkInvocationService {
   readonly invocationId: string;
   readonly attempt: SparkInvocationAttempt;
   readonly role?: SparkInvocationRole;
-  readonly mode?: "plan" | "execute" | "fleet";
   readonly driverAuthority?: SparkDriverAuthority;
   readonly model?: Readonly<SessionModelRef>;
   readonly signal: AbortSignal;
@@ -802,7 +796,6 @@ export interface CreateSparkInvocationServiceInput {
   invocationId: string;
   attempt: SparkInvocationAttempt;
   role?: SparkInvocationRole;
-  mode?: SparkInvocationService["mode"];
   driverAuthority?: SparkDriverAuthority;
   model?: SessionModelRef;
   signal: AbortSignal;
@@ -851,7 +844,6 @@ export function createSparkInvocationService(
     invocationId,
     attempt: Object.freeze({ epoch, daemonGeneration, correlationId }),
     ...(role ? { role } : {}),
-    ...(input.mode ? { mode: input.mode } : {}),
     ...(input.driverAuthority ? { driverAuthority: input.driverAuthority } : {}),
     ...(model ? { model } : {}),
     signal: input.signal,
@@ -964,7 +956,6 @@ export interface ExtensionRoleRunRequest {
   };
   cwd: string;
   timeoutMs: number;
-  mode?: "plan" | "execute" | "fleet";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;

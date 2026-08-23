@@ -19,7 +19,6 @@ interface IsolatedExecutorRequest {
   record: ExtensionRoleRunRequest["record"];
   cwd: string;
   timeoutMs: number;
-  mode?: ExtensionRoleRunRequest["mode"];
   requireStructuredOutcome?: boolean;
   sessionDir?: string;
   runName?: string;
@@ -194,7 +193,6 @@ export function serializeIsolatedExecutorRequest(
     record: { ...request.record },
     cwd: request.cwd,
     timeoutMs: request.timeoutMs,
-    mode: request.mode,
     requireStructuredOutcome: request.requireStructuredOutcome,
     sessionDir: request.sessionDir,
     runName: request.runName,

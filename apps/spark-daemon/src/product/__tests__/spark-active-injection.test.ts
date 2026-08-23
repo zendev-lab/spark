@@ -12,8 +12,8 @@ import {
   type SparkInputModeRouter,
 } from "../policy/spark-active-injection.ts";
 import { analyzeSparkEntryMode } from "../policy/spark-entry.ts";
-import { loadSparkMode, saveCurrentProjectRef } from "../policy/session-state.ts";
-import { setSessionGoal } from "@zendev-lab/spark-loop";
+import { saveCurrentProjectRef } from "../policy/session-state.ts";
+import { loadSparkSessionWorkspaceState, setSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkToolContext } from "../policy/spark-tool-registration.ts";
 
 interface TestSparkInputContext extends SparkToolContext {
@@ -54,7 +54,8 @@ test("injectSparkHints injects default plan lens without initialized Spark graph
     const result = await injectSparkHints({ systemPrompt: "Base prompt." }, ctx);
 
     assert.equal(typeof result, "object");
-    assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+    // injectSparkHints must not persist any retired session mode state.
+    assert.equal(await loadSparkSessionWorkspaceState(dir, ctx), undefined);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -74,7 +75,11 @@ test("handleSparkInput lets an ordinary investigation request continue in plan",
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+      // Input handling never persists a session mode.
+      assert.deepEqual(Object.keys((await loadSparkSessionWorkspaceState(dir, ctx)) ?? {}).sort(), [
+        "projectRef",
+        "version",
+      ]);
     },
   );
 });
@@ -93,7 +98,11 @@ test("handleSparkInput does not turn until-done input into a template ask", asyn
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+      // Input handling never persists a session mode.
+      assert.deepEqual(Object.keys((await loadSparkSessionWorkspaceState(dir, ctx)) ?? {}).sort(), [
+        "projectRef",
+        "version",
+      ]);
     },
   );
 });
@@ -118,7 +127,11 @@ test("handleSparkInput lets active goal input bypass phase route ask", async () 
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+      // Input handling never persists a session mode.
+      assert.deepEqual(Object.keys((await loadSparkSessionWorkspaceState(dir, ctx)) ?? {}).sort(), [
+        "projectRef",
+        "version",
+      ]);
     },
   );
 });
@@ -187,7 +200,11 @@ test("handleSparkInput lets slash commands bypass default plan routing", async (
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+      // Input handling never persists a session mode.
+      assert.deepEqual(Object.keys((await loadSparkSessionWorkspaceState(dir, ctx)) ?? {}).sort(), [
+        "projectRef",
+        "version",
+      ]);
     },
   );
 });

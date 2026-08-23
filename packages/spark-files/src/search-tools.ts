@@ -36,7 +36,6 @@ const FILE_SEARCH_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["files", "search"],
-  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
