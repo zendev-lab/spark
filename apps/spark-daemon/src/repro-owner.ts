@@ -31,7 +31,7 @@ import {
 import {
   sparkSessionWorkspaceState,
   updateSparkSessionWorkspaceState,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";

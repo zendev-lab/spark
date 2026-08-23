@@ -2,7 +2,7 @@ import {
   LOOP_COMPLETION_BOUNDARY_GUIDANCE,
   createLoop,
   loopContinuationPrompt,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
 import type { SparkLoopSessionLifetime, SparkLoopView } from "@zendev-lab/spark-protocol";

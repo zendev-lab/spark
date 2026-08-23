@@ -3,4 +3,4 @@ export type SparkPlanningModeSource = "auto" | "direct";
 export {
   normalizeSparkSessionWorkspaceState as normalizeCurrentProjectStoreSnapshot,
   type SparkSessionWorkspaceState as CurrentProjectStoreSnapshot,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";

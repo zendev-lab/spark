@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
+import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-driver";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   enterSparkExecuteMode,

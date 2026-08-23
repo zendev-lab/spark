@@ -16,7 +16,7 @@ import {
   sparkSessionOwnerKey,
   sparkStateCwd,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { loadSparkGraph } from "./session-state.ts";
 import { shortRoleLabel } from "./task-ownership.ts";
 import { truncateInline } from "./tool-rendering.ts";

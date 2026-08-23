@@ -3,7 +3,7 @@ import {
   loadSessionGoal,
   loadSparkSessionWorkspaceState,
   type SparkSessionGoal,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import {
   sparkSessionGoalWorkViewSchema,
   sparkSessionReproWorkViewSchema,

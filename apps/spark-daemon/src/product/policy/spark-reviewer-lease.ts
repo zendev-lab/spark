@@ -1,4 +1,4 @@
-import { sparkSessionOwnerKey, type SparkSessionContext } from "@zendev-lab/spark-loop";
+import { sparkSessionOwnerKey, type SparkSessionContext } from "@zendev-lab/spark-driver";
 
 const activeReviewerLeases = new Set<string>();
 

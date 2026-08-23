@@ -1,8 +1,8 @@
 {
-  "name": "@zendev-lab/spark-loop",
+  "name": "@zendev-lab/spark-driver",
   "version": "0.5.0",
   "private": true,
-  "description": "Generic loop and goal lifecycle, tick, and continuation prompt primitives for Spark capability hosts.",
+  "description": "Driver authority for Spark loop and goal state and policy: lifecycle, tick, subgoal, and reviewer-gated completion primitives for capability hosts.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [

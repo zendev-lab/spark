@@ -11,7 +11,7 @@ import {
   validateObjective,
 } from "./index.ts";
 
-test("spark-loop goal helpers create goals and continuation prompts", () => {
+test("spark-driver goal helpers create goals and continuation prompts", () => {
   assert.equal(validateObjective("  ship feature  "), null);
   const goal = createGoal("  ship feature  ", 123);
   assert.equal(goal.objective, "ship feature");
@@ -25,7 +25,7 @@ test("spark-loop goal helpers create goals and continuation prompts", () => {
   assert.equal(response.goal?.status, "active");
 });
 
-test("spark-loop exposes non-completing loop primitives alongside goal helpers", () => {
+test("spark-driver exposes non-completing loop primitives alongside goal helpers", () => {
   const loop = createLoop("Continue without completing", 123);
   const tick = evaluateLoopTick({ loop, now: 124, reason: "start" });
 

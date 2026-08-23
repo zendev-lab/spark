@@ -381,7 +381,7 @@ function piAllowedSparkFoundationDirs() {
     "spark-artifacts",
     "spark-core",
     "spark-host",
-    "spark-loop",
+    "spark-driver",
     "spark-phases",
     "spark-tasks",
     "spark-turn",

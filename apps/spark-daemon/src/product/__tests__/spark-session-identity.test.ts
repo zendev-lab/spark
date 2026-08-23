@@ -23,7 +23,7 @@ import {
   sparkStateCwd,
   sparkStateCwd as sparkLoopStateCwd,
   sparkStateRootPath as sparkLoopStateRootPath,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 
 test("sparkSessionKey prefers host sessionId over sessionManager stubs", () => {
   assert.equal(

@@ -20,7 +20,7 @@ import {
   sparkSessionKey,
   sparkStateCwd,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-task-runtime";

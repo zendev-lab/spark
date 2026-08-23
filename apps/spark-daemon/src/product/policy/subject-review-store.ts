@@ -13,7 +13,7 @@ import {
 } from "@zendev-lab/spark-core";
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
-import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";
+import { sessionDirectoryNameForKey } from "@zendev-lab/spark-driver";
 import type { SparkSessionGoal } from "./spark-session-goals.ts";
 import type {
   GoalReviewInput,

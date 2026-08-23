@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
+import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-driver";
 import {
   SPARK_PROTOCOL_VERSION,
   parseSparkInteractionResponse,

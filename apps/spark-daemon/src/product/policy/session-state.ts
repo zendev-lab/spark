@@ -21,7 +21,7 @@ import {
   type SparkSessionContext,
   type SparkSessionIndexEntry,
   type SparkSessionIndexSnapshot,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 
 export {
   clearCurrentProjectRef,

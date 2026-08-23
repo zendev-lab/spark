@@ -12,7 +12,7 @@ import type {
   TaskResourceAllocation,
   TaskRun,
 } from "@zendev-lab/spark-core";
-import { loadSessionGoal } from "@zendev-lab/spark-loop";
+import { loadSessionGoal } from "@zendev-lab/spark-driver";
 import type { SparkFleetWorkerBinding, SparkSessionLineage } from "@zendev-lab/spark-protocol";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";

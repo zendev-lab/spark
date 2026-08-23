@@ -1,5 +1,5 @@
 import type { Task, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
-import { sparkSessionKey, type SparkSessionContext } from "@zendev-lab/spark-loop";
+import { sparkSessionKey, type SparkSessionContext } from "@zendev-lab/spark-driver";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { isClaimOwnedBySession } from "./task-ownership.ts";
 
