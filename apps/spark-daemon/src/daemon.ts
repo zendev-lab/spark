@@ -19,7 +19,7 @@ import {
   type RuntimeFeature,
   type RuntimeWorkspaceBindingSummary,
 } from "@zendev-lab/spark-protocol";
-import { readSparkBuildInfo } from "@zendev-lab/spark-update";
+import { readSparkBuildInfo } from "@zendev-lab/spark-deployment";
 import { type SparkDaemonConfig } from "./config.js";
 import {
   SparkDaemonHumanWaitRegistry,

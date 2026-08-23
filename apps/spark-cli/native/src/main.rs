@@ -1,6 +1,6 @@
 use bpaf::{Parser, construct, long};
 use serde::Deserialize;
-use spark_update::{
+use spark_deployment::{
     ConfigureChange, Manager, ManagerOptions, UpdateChannel, UpdateError, UpdatePolicy,
     UpdateStatus,
 };

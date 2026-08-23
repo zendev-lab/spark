@@ -11,7 +11,7 @@ const fixtures = resolve(import.meta.dirname, "../fixtures");
 
 describe("native deployment schema fixtures", () => {
   it("reads the same generation v2 state shape exposed by Rust", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "spark-update-contract-"));
+    const directory = await mkdtemp(join(tmpdir(), "spark-deployment-contract-"));
     const stateFile = join(directory, "state.json");
     const fixture = JSON.parse(await readFile(resolve(fixtures, "native-state-v2.json"), "utf8"));
     await writeFile(stateFile, `${JSON.stringify(fixture)}\n`);

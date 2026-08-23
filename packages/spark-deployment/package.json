@@ -1,5 +1,5 @@
 {
-  "name": "@zendev-lab/spark-update",
+  "name": "@zendev-lab/spark-deployment",
   "version": "0.5.0",
   "private": true,
   "description": "Read-only TypeScript projection for the native Spark deployment owner.",
@@ -14,8 +14,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "vp check --no-fmt --no-lint . && cargo clippy -p spark-update --all-targets -- -D warnings",
-    "test": "vp test run && cargo test -p spark-update"
+    "check": "vp check --no-fmt --no-lint . && cargo clippy -p spark-deployment --all-targets -- -D warnings",
+    "test": "vp test run && cargo test -p spark-deployment"
   },
   "dependencies": {
     "@zendev-lab/spark-protocol": "workspace:^",

@@ -178,6 +178,9 @@ importers:
       '@zendev-lab/spark-cue':
         specifier: workspace:^
         version: link:packages/spark-cue
+      '@zendev-lab/spark-deployment':
+        specifier: workspace:^
+        version: link:packages/spark-deployment
       '@zendev-lab/spark-files':
         specifier: workspace:^
         version: link:packages/spark-files
@@ -229,9 +232,6 @@ importers:
       '@zendev-lab/spark-turn':
         specifier: workspace:^
         version: link:packages/spark-turn
-      '@zendev-lab/spark-update':
-        specifier: workspace:^
-        version: link:packages/spark-update
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:packages/spark-workflows
@@ -432,6 +432,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../../packages/spark-daemon-client
+      '@zendev-lab/spark-deployment':
+        specifier: workspace:^
+        version: link:../../packages/spark-deployment
       '@zendev-lab/spark-files':
         specifier: workspace:^
         version: link:../../packages/spark-files
@@ -486,9 +489,6 @@ importers:
       '@zendev-lab/spark-turn':
         specifier: workspace:^
         version: link:../../packages/spark-turn
-      '@zendev-lab/spark-update':
-        specifier: workspace:^
-        version: link:../../packages/spark-update
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:../../packages/spark-workflows
@@ -581,6 +581,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:../../packages/spark-daemon-client
+      '@zendev-lab/spark-deployment':
+        specifier: workspace:*
+        version: link:../../packages/spark-deployment
       '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
         version: link:../../packages/spark-hub-coordination
@@ -605,9 +608,6 @@ importers:
       '@zendev-lab/spark-ui':
         specifier: workspace:*
         version: link:../../packages/spark-ui
-      '@zendev-lab/spark-update':
-        specifier: workspace:*
-        version: link:../../packages/spark-update
       smol-toml:
         specifier: ^1.6.1
         version: 1.8.0
@@ -1007,6 +1007,19 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
+
+  packages/spark-deployment:
+    dependencies:
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:^
+        version: link:../spark-protocol
+      '@zendev-lab/spark-system':
+        specifier: workspace:^
+        version: link:../spark-system
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
 
   packages/spark-files:
     dependencies:
@@ -1709,19 +1722,6 @@ importers:
       vitest-browser-svelte:
         specifier: 3.0.0
         version: 3.0.0(svelte@5.56.9)(vitest@4.1.10)
-
-  packages/spark-update:
-    dependencies:
-      '@zendev-lab/spark-protocol':
-        specifier: workspace:^
-        version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
-    devDependencies:
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
 
   packages/spark-workflows:
     dependencies:

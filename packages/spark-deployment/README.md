@@ -1,4 +1,4 @@
-# @zendev-lab/spark-update
+# @zendev-lab/spark-deployment
 
 This owner contains the Rust library that exclusively writes Spark
 managed-install, update-policy, quarantine, and rollback state. Its TypeScript

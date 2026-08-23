@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { resolveSparkUpdatePaths } from "@zendev-lab/spark-update";
+import { resolveSparkUpdatePaths } from "@zendev-lab/spark-deployment";
 import { readHubUpdateProjection } from "./update-projection.ts";
 
 const roots: string[] = [];
