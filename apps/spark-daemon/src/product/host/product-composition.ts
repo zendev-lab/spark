@@ -9,16 +9,7 @@ import * as dshCuePlugin from "@zendev-lab/dsh-tool-cue";
 import * as dshFusionPlugin from "@zendev-lab/dsh-tool-fusion";
 import sparkAskCapability, { type SparkAskDaemonRequest } from "@zendev-lab/spark-ask/extension";
 import sparkArtifactsCapability from "@zendev-lab/spark-artifacts/extension";
-import {
-  CUE_EXECUTION_TOOL_POLICY,
-  CUE_HISTORY_TOOL_POLICY,
-  CUE_JOBS_TOOL_POLICY,
-  CUE_RESOURCES_TOOL_POLICY,
-  CUE_SCHEDULE_TOOL_POLICY,
-  CUE_SCOPE_TOOL_POLICY,
-  CUE_TOOL_NAMES,
-  type CueToolName,
-} from "@zendev-lab/spark-cue/operations";
+import { CUE_TOOL_NAMES, type CueToolName } from "@zendev-lab/spark-cue/operations";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesCapability from "@zendev-lab/spark-files/extension";
 import sparkModelsCapability from "@zendev-lab/spark-llm-providers/models-extension";
@@ -48,17 +39,59 @@ const SPARK_FUSION_POLICY = Object.freeze({
   reconcile: "none",
 } as const satisfies SparkDshToolPolicyMetadata);
 
+const SPARK_CUE_EXECUTION_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "execution"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_JOBS_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "jobs"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_RESOURCES_POLICY = {
+  effect: "read",
+  executionMode: "parallel",
+  domains: ["cue", "resources"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_SCHEDULE_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "schedules"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_SCOPE_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "scope"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_HISTORY_POLICY = {
+  effect: "read",
+  executionMode: "parallel",
+  domains: ["cue", "history"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
 const SPARK_CUE_POLICIES: Readonly<Record<CueToolName, SparkDshToolPolicyMetadata>> = {
-  cue_exec: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  cue_run: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  cue_script: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  script_run: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  script_eval: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  cue_jobs: withDshReconciliation(CUE_JOBS_TOOL_POLICY),
-  cue_resources: withDshReconciliation(CUE_RESOURCES_TOOL_POLICY),
-  cue_schedule: withDshReconciliation(CUE_SCHEDULE_TOOL_POLICY),
-  cue_scope: withDshReconciliation(CUE_SCOPE_TOOL_POLICY),
-  cue_history: withDshReconciliation(CUE_HISTORY_TOOL_POLICY),
+  cue_exec: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  cue_run: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  cue_script: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  script_run: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  script_eval: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  cue_jobs: withDshReconciliation(SPARK_CUE_JOBS_POLICY),
+  cue_resources: withDshReconciliation(SPARK_CUE_RESOURCES_POLICY),
+  cue_schedule: withDshReconciliation(SPARK_CUE_SCHEDULE_POLICY),
+  cue_scope: withDshReconciliation(SPARK_CUE_SCOPE_POLICY),
+  cue_history: withDshReconciliation(SPARK_CUE_HISTORY_POLICY),
 };
 
 const SPARK_CUE_PLUGIN: Plugin = {

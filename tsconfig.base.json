@@ -25,7 +25,6 @@
       "@zendev-lab/spark-ask/extension": ["./packages/spark-ask/src/extension.ts"],
       "@zendev-lab/spark-core": ["./packages/spark-core/src/index.ts"],
       "@zendev-lab/spark-cue": ["./packages/spark-cue/src/index.ts"],
-      "@zendev-lab/spark-cue/extension": ["./packages/spark-cue/src/extension/index.ts"],
       "@zendev-lab/spark-files": ["./packages/spark-files/src/index.ts"],
       "@zendev-lab/spark-files/extension": ["./packages/spark-files/src/extension.ts"],
       "@zendev-lab/dsh-tool-fusion": ["./packages/dsh-tool-fusion/src/extension.ts"],

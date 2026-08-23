@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path";
 /**
  * Build the process environment used to launch Cue companion binaries.
  *
- * GUI and service managers commonly start Spark with a system-only PATH, while
+ * GUI and service managers commonly start processes with a system-only PATH, while
  * Cue's supported installers place commands in ~/.local/bin (uv) or
  * ~/.cargo/bin (Cargo). Keep the caller's PATH authoritative, then add those
  * user-owned install locations without mutating the host process environment.

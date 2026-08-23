@@ -14,7 +14,6 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./extension": "./src/extension/index.ts",
     "./operations": "./src/operations/index.ts"
   },
   "scripts": {
@@ -22,10 +21,6 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-platform-node": "workspace:^",
-    "@zendev-lab/spark-retry": "workspace:^",
-    "@zendev-lab/spark-text-rendering": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {

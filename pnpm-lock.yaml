@@ -966,18 +966,6 @@ importers:
 
   packages/spark-cue:
     dependencies:
-      '@zendev-lab/spark-core':
-        specifier: workspace:^
-        version: link:../spark-core
-      '@zendev-lab/spark-platform-node':
-        specifier: workspace:^
-        version: link:../spark-platform-node
-      '@zendev-lab/spark-retry':
-        specifier: workspace:^
-        version: link:../spark-retry
-      '@zendev-lab/spark-text-rendering':
-        specifier: workspace:^
-        version: link:../spark-text-rendering
       typebox:
         specifier: 'catalog:'
         version: 1.3.14

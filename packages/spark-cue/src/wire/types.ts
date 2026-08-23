@@ -18,9 +18,9 @@ export type CueResolvedTransport =
 
 /** Stable inputs used to derive a bounded daemon operation id. */
 export interface CueOperationKey {
-  /** Logical Spark/Cue session identity, not a transport connection id. */
+  /** Logical host session identity, not a transport connection id. */
   sessionId: string;
-  /** Pi's stable tool-call id. */
+  /** Stable host operation or tool-call id. */
   toolCallId: string;
   /** A distinct semantic step within the tool call (for example submit or cancel). */
   kind: string;

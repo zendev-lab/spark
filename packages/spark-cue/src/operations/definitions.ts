@@ -1,7 +1,6 @@
 /** Canonical Cue operation definitions shared by host adapters. */
 
 import { execFileSync } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import * as nodePath from "node:path";
 import { Type } from "typebox";
 import {
@@ -16,17 +15,8 @@ import {
 } from "../client/cue-client.ts";
 import {
   registerCueTool,
-  ToolCallText,
-  type SparkCueHostApi,
-  type SparkCueToolContext,
-  type ToolCallComponent,
-  type ToolCallRenderTheme,
-  CUE_EXECUTION_TOOL_POLICY,
-  CUE_JOBS_TOOL_POLICY,
-  CUE_RESOURCES_TOOL_POLICY,
-  CUE_SCHEDULE_TOOL_POLICY,
-  CUE_SCOPE_TOOL_POLICY,
-  CUE_HISTORY_TOOL_POLICY,
+  type CueOperationHost,
+  type CueOperationContext,
 } from "../tools/host-types.ts";
 import {
   getClient,
@@ -108,72 +98,11 @@ const CUE_SCOPE_ACTIONS = [
   "status",
 ] as const;
 const SCRIPT_LANGUAGES = ["cue", "python"] as const;
-const SAFE_EXEC_COMMANDS = new Set([
-  "basename",
-  "cat",
-  "dirname",
-  "file",
-  "grep",
-  "head",
-  "ls",
-  "pwd",
-  "readlink",
-  "rg",
-  "stat",
-  "tail",
-  "wc",
-  "which",
-]);
-const UNSAFE_SAFE_EXEC_ARGUMENTS = new Set([
-  "--files-from",
-  "--path-separator",
-  "--pre",
-  "--pre-glob",
-  "--replace",
-]);
-
 function isFileOp(command: string): boolean {
   const firstWord = command.trim().split(/\s+/)[0];
   if (!firstWord) return false;
   const base = firstWord.split("/").pop() ?? firstWord;
   return SHORT_TIMEOUT_COMMANDS.has(base);
-}
-
-/**
- * Classify only a deliberately small direct-exec subset as read-only. Any
- * parse ambiguity, composition operator, background execution, PTY, resource need,
- * alternate binary path, or executable callback remains external_write and is
- * therefore denied by Explorer/Reviewer effect ceilings.
- */
-function resolveCueExecPolicy(args: Readonly<Record<string, unknown>>) {
-  if (args.background === true || args.pty === true || args.needs !== undefined) {
-    return CUE_EXECUTION_TOOL_POLICY;
-  }
-  const command = typeof args.command === "string" ? args.command.trim() : "";
-  if (!command || /[\n\r|&;`$()<>~'"\\]/u.test(command)) return CUE_EXECUTION_TOOL_POLICY;
-  const tokens = command.split(/\s+/u);
-  const executable = tokens[0];
-  if (!executable || executable.includes("/") || !SAFE_EXEC_COMMANDS.has(executable)) {
-    return CUE_EXECUTION_TOOL_POLICY;
-  }
-  if (
-    tokens
-      .slice(1)
-      .some((token) =>
-        [...UNSAFE_SAFE_EXEC_ARGUMENTS].some(
-          (argument) => token === argument || token.startsWith(`${argument}=`),
-        ),
-      )
-  ) {
-    return CUE_EXECUTION_TOOL_POLICY;
-  }
-  return {
-    effect: "read",
-    executionMode: "sequential",
-    domains: ["cue", "safe-exec"],
-    phases: ["plan", "implement"],
-    approval: "none",
-  } as const;
 }
 
 function statusLabel(status: ExecutionSummary["status"]): string {
@@ -467,26 +396,14 @@ export function resolveCueWorkingDirectory(
 
 export async function resolveCueExecTarget(
   requestedCwd: string | undefined,
-  ctx: SparkCueToolContext,
-): Promise<{ cwd: string; ctx: SparkCueToolContext }> {
-  if (
-    ctx.taskExecutionScope &&
-    (ctx.cueRemoteCwd || ctx.cueResolvedTransport?.transport === "ssh")
-  ) {
-    throw new Error("Task execution scope forbids remote Cue execution");
-  }
+  ctx: CueOperationContext,
+): Promise<{ cwd: string; ctx: CueOperationContext }> {
   if (ctx.cueClient) {
-    const cwd = await authorizeTaskCueTarget(
-      resolveCueWorkingDirectory(requestedCwd, ctx.cwd),
-      ctx,
-    );
+    const cwd = resolveCueWorkingDirectory(requestedCwd, ctx.cwd);
     return { cwd, ctx };
   }
   const transport = ctx.cueResolvedTransport ?? (await resolveCueTransport());
   if (transport.transport === "ssh") {
-    if (ctx.taskExecutionScope) {
-      throw new Error("Task execution scope forbids remote Cue execution");
-    }
     const remoteCwd =
       requestedCwd ??
       ctx.cueRemoteCwd?.trim() ??
@@ -510,37 +427,11 @@ export async function resolveCueExecTarget(
       },
     };
   }
-  const cwd = await authorizeTaskCueTarget(resolveCueWorkingDirectory(requestedCwd, ctx.cwd), ctx);
+  const cwd = resolveCueWorkingDirectory(requestedCwd, ctx.cwd);
   return {
     cwd,
     ctx: { ...ctx, cueResolvedTransport: transport },
   };
-}
-
-async function authorizeTaskCueTarget(
-  requestedCwd: string,
-  ctx: SparkCueToolContext,
-): Promise<string> {
-  const scope = ctx.taskExecutionScope;
-  if (!scope) return requestedCwd;
-  if (scope.isolation === "readonly") {
-    throw new Error("Task execution scope is readonly");
-  }
-  const cwd = await realpath(requestedCwd);
-  const roots =
-    scope.isolation === "isolated_results"
-      ? scope.resultsRoot
-        ? [scope.resultsRoot]
-        : []
-      : scope.writableRoots;
-  for (const root of roots) {
-    const canonicalRoot = await realpath(root);
-    const relative = nodePath.relative(canonicalRoot, cwd);
-    if (relative === "" || (relative !== ".." && !relative.startsWith(`..${nodePath.sep}`))) {
-      return cwd;
-    }
-  }
-  throw new Error(`Cue cwd escapes the daemon-authorized Task scope: ${cwd}`);
 }
 
 export interface CueCommandIssue {
@@ -949,7 +840,7 @@ function pythonVersion(executable: string): string | undefined {
     });
     return output.trim() || undefined;
   } catch (error) {
-    console.debug(`[spark-cue] python --version failed for ${executable}`, error);
+    console.debug(`[cue] python --version failed for ${executable}`, error);
     return undefined;
   }
 }
@@ -978,102 +869,25 @@ function limitLines(text: string, maxLines: number): { text: string; truncated: 
   return { text: lines.slice(Math.max(0, lines.length - maxLines)).join("\n"), truncated: true };
 }
 
-const TOOL_CALL_DEFAULT_ARG_MAX_LENGTH = 80;
-const TOOL_CALL_COMMAND_MAX_LENGTH = 120;
-const TOOL_CALL_PATH_MAX_LENGTH = 60;
-const TOOL_CALL_LABEL_MAX_LENGTH = 40;
-const TOOL_CALL_INLINE_SCRIPT_PREVIEW_LINES = 5;
-const TOOL_CALL_INLINE_SCRIPT_PREVIEW_MAX_LENGTH = 240;
-
-function renderToolCall(
-  toolName: string,
-  parts: Array<string | undefined>,
-  theme: ToolCallRenderTheme,
-): ToolCallComponent {
-  const title =
-    theme.fg?.("toolTitle", theme.bold?.(`${toolName} `) ?? `${toolName} `) ?? `${toolName} `;
-  const renderedParts = parts.filter((part): part is string => Boolean(part));
-  const args = theme.fg?.("muted", renderedParts.join(" ")) ?? renderedParts.join(" ");
-  return new ToolCallText(`${title}${args}`.trimEnd());
-}
-
-function formatStringArg(
-  value: unknown,
-  options: { prefix?: string; fallback?: string; maxLength?: number } = {},
-): string | undefined {
-  const text = typeof value === "string" && value.trim() ? value.trim() : options.fallback;
-  if (!text) return undefined;
-  const rendered = needsQuoting(text) ? JSON.stringify(text) : text;
-  return `${options.prefix ?? ""}${truncateInline(rendered, options.maxLength ?? TOOL_CALL_DEFAULT_ARG_MAX_LENGTH)}`;
-}
-
-function formatInlineScriptPreview(script: unknown): string[] {
-  if (typeof script !== "string" || !script.trim()) return [];
-  const nonEmptyLines = script
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim());
-  const lineCountArg = `inline=${nonEmptyLines.length}line(s)`;
-  const preview = nonEmptyLines.slice(0, TOOL_CALL_INLINE_SCRIPT_PREVIEW_LINES).join(" ↵ ");
-  return [
-    lineCountArg,
-    formatStringArg(preview, {
-      prefix: "preview=",
-      maxLength: TOOL_CALL_INLINE_SCRIPT_PREVIEW_MAX_LENGTH,
-    }),
-  ].filter((part): part is string => Boolean(part));
-}
-
-function formatNumberArg(
-  value: unknown,
-  options: { prefix?: string; suffix?: string } = {},
-): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-  return `${options.prefix ?? ""}${value}${options.suffix ?? ""}`;
-}
-
-function formatNeedsArg(value: unknown): string | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length === 0) return undefined;
-  const text = entries
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, quantity]) => `${key}=${String(quantity)}`)
-    .join(",");
-  return `needs=${truncateInline(text, TOOL_CALL_DEFAULT_ARG_MAX_LENGTH)}`;
-}
-
-function needsQuoting(value: string): boolean {
-  return /\s|["'`]/.test(value);
-}
-
-function truncateInline(value: string, maxLength: number): string {
-  const normalized = value.replaceAll(/\s+/g, " ");
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
-}
-
 // ── Extension ──────────────────────────────────────────────────────────────
 
-export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
-  const clientOwner: CueClientOwner = Symbol("spark-cue-extension");
+export function registerCueOperationDefinitions(host: CueOperationHost) {
+  const clientOwner: CueClientOwner = Symbol("cue-operation-definitions");
 
   // ═══════════════════════════════════════════════════════════════════
   //  cue_exec — submit one execution
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_exec",
     label: "Run Command",
-    policy: CUE_EXECUTION_TOOL_POLICY,
-    resolvePolicy: resolveCueExecPolicy,
     description:
       "Execute a command in Cue using the active cue-client transport profile (Unix socket or SSH gateway). " +
-      "SSH profiles connect through the configured remote `cued gateway --stdio`; spark-cue does not auto-start remote daemons. " +
+      "SSH profiles connect through the configured remote `cued gateway --stdio`; the runtime does not auto-start remote daemons. " +
       "Cue is direct-exec (execvp), not bash: do not use shell-only syntax such as semicolon command lists, redirection, or subshell tests. " +
       "Its composition operators compile into one execution plan: |> pipelines stdout, &&/-> continue on success, || continues on failure, ~> always continues, ||| waits for all branches, and |?| succeeds when any branch does. " +
-      "Prefer direct-exec commands and Pi file tools; do not use shell wrappers for shell-only syntax. " +
-      "Use Spark grep/find tools for repository search; do not rely on environment wrappers such as rtk to translate find/rg flags. " +
+      "Prefer direct-exec commands and host file tools; do not use shell wrappers for shell-only syntax. " +
+      "Use the host's file-search tools for repository search; do not rely on environment wrappers such as rtk to translate find/rg flags. " +
       "Set background=true to start without waiting; track with cue_jobs action=status/wait, stop with cue_jobs action=stop. " +
       "Foreground timeout is a wait budget: expiry detaches and leaves the execution running. " +
       "For resource-gated executions, pass needs={ gpu: 1, gpu_mem: '24GiB' } instead of embedding :run(need...) in command. " +
@@ -1082,7 +896,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     parameters: Type.Object({
       command: Type.String({
         description:
-          "Command to compile into one Cue ExecutionPlan, not bash. Use '|>' for a pipeline, '&&'/'->' for on-success, '||' for on-failure, '~>' for always, '|||' for parallel-all, and '|?|' for any-success. Prefer separate tool calls/Pi file tools over shell wrappers. Examples: 'cargo build |> grep error -> cargo test', '(cargo build ||| cargo audit) -> cargo test'.",
+          "Command to compile into one Cue ExecutionPlan, not bash. Use '|>' for a pipeline, '&&'/'->' for on-success, '||' for on-failure, '~>' for always, '|||' for parallel-all, and '|?|' for any-success. Prefer separate tool calls and host file tools over shell wrappers. Examples: 'cargo build |> grep error -> cargo test', '(cargo build ||| cargo audit) -> cargo test'.",
       }),
       background: Type.Optional(
         Type.Boolean({
@@ -1100,7 +914,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       cwd: Type.Optional(
         Type.String({
           description:
-            "Working directory for the daemon-side execution. Defaults to the current Pi session working directory; with SSH profiles this must be valid on the remote host.",
+            "Working directory for the daemon-side execution. Defaults to the current host session working directory; with SSH profiles this must be valid on the remote host.",
         }),
       ),
       pty: Type.Optional(
@@ -1123,27 +937,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_exec",
-        [
-          formatStringArg(args.command, { maxLength: TOOL_CALL_COMMAND_MAX_LENGTH }),
-          args.background === true ? "background" : undefined,
-          formatNumberArg(args.timeout, { prefix: "timeout=", suffix: "s" }),
-          formatStringArg(args.cwd, { prefix: "cwd=" }),
-          args.pty === true ? "pty=true" : undefined,
-          formatNeedsArg(args.needs),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       rejectRemovedCueParam(params, "tail", "tail_bytes", "cue_exec");
       const command = normalizeRequiredCueString(params.command, "cue_exec command");
@@ -1365,7 +1164,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
       signal: AbortSignal;
       onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void;
     },
-    ctx: SparkCueToolContext,
+    ctx: CueOperationContext,
   ) {
     const {
       resolvedPath,
@@ -1425,10 +1224,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     return { ...output, details };
   }
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_run",
     label: "Run Cue File",
-    policy: CUE_EXECUTION_TOOL_POLICY,
     description:
       "Run the direct-execution subset of a .cue file in Cue. " +
       "The file compiles locally into one typed fail-fast execution plan; top-level commands execute sequentially. " +
@@ -1439,7 +1237,7 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     parameters: Type.Object({
       path: Type.String({
         description:
-          "Path to a .cue file to run. Required. Resolved against the current Pi session working directory when relative.",
+          "Path to a .cue file to run. Required. Resolved against the current host session working directory when relative.",
       }),
       timeout: Type.Optional(
         Type.Number({
@@ -1455,23 +1253,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_run",
-        [
-          formatStringArg(args.path, { prefix: "path=", maxLength: TOOL_CALL_PATH_MAX_LENGTH }),
-          formatNumberArg(args.timeout, { prefix: "timeout=", suffix: "s" }),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const pathParam = normalizeRequiredCueString(params.path, "cue_run path");
       const timeout = normalizeCueTimeoutSeconds(params.timeout, 300, "cue_run timeout");
@@ -1513,10 +1300,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     },
   });
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_script",
     label: "Run Cue Script",
-    policy: CUE_EXECUTION_TOOL_POLICY,
     description:
       "Run the direct-execution subset of an inline .cue script body in Cue. " +
       "The body compiles locally into one typed fail-fast execution plan; top-level commands execute sequentially. " +
@@ -1549,31 +1335,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
     }),
-    renderCall(args, theme) {
-      const scriptArg =
-        typeof args.script === "string" && args.script.trim()
-          ? `inline=${(args.script as string).split(/\r?\n/).filter((l) => l.trim()).length}line(s)`
-          : undefined;
-      return renderToolCall(
-        "cue_script",
-        [
-          scriptArg,
-          formatStringArg(args.pathLabel, {
-            prefix: "label=",
-            maxLength: TOOL_CALL_LABEL_MAX_LENGTH,
-          }),
-          formatNumberArg(args.timeout, { prefix: "timeout=", suffix: "s" }),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const scriptParam = normalizeRequiredCueString(params.script, "cue_script script");
       const pathLabel =
@@ -1606,10 +1373,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
   //  script_run / script_eval — generic script runners
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "script_run",
     label: "Run Script File",
-    policy: CUE_EXECUTION_TOOL_POLICY,
     description:
       "Run a script file with an explicit language runner. " +
       "Supported languages in this version: Cue and python. " +
@@ -1632,25 +1398,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         Type.String({ description: "Python virtualenv path. Only valid for language=python." }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "script_run",
-        [
-          formatStringArg(args.language, { prefix: "lang=" }),
-          formatStringArg(args.path, { prefix: "path=", maxLength: TOOL_CALL_PATH_MAX_LENGTH }),
-          formatNumberArg(args.timeout, { prefix: "timeout=", suffix: "s" }),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-          formatStringArg(args.venv, { prefix: "venv=", maxLength: TOOL_CALL_LABEL_MAX_LENGTH }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const language = normalizeCueEnum(
         params.language,
@@ -1728,10 +1481,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     },
   });
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "script_eval",
     label: "Evaluate Script",
-    policy: CUE_EXECUTION_TOOL_POLICY,
     description:
       "Run an inline script body with an explicit language runner. " +
       "Supported languages in this version: Cue and python. " +
@@ -1757,29 +1509,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         Type.String({ description: "Python virtualenv path. Only valid for language=python." }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "script_eval",
-        [
-          formatStringArg(args.language, { prefix: "lang=" }),
-          ...formatInlineScriptPreview(args.script),
-          formatStringArg(args.pathLabel, {
-            prefix: "label=",
-            maxLength: TOOL_CALL_LABEL_MAX_LENGTH,
-          }),
-          formatNumberArg(args.timeout, { prefix: "timeout=", suffix: "s" }),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-          formatStringArg(args.venv, { prefix: "venv=", maxLength: TOOL_CALL_LABEL_MAX_LENGTH }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const language = normalizeCueEnum(
         params.language,
@@ -1850,10 +1585,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
   //  cue_jobs — manage and inspect executions
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_jobs",
     label: "Cue Executions",
-    policy: CUE_JOBS_TOOL_POLICY,
     description:
       "Manage Cue executions. action='list' lists executions, action='status' inspects one execution or schedule, action='wait' waits for an execution, and action='stop' cancels an execution or removes a schedule.",
     parameters: Type.Object({
@@ -1887,26 +1621,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_jobs",
-        [
-          formatStringArg(args.action, { prefix: "action=", fallback: "list" }),
-          formatStringArg(args.id, { prefix: "id=" }),
-          formatStringArg(args.status, { prefix: "status=" }),
-          formatNumberArg(args.limit, { prefix: "limit=" }),
-          formatNumberArg(args.timeout, { prefix: "timeout=", suffix: "s" }),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const action = normalizeCueEnum(params.action, "list", CUE_JOB_ACTIONS, "cue_jobs action");
       const id = normalizeOptionalCueString(params.id, "cue_jobs id");
@@ -2071,10 +1791,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
   //  cue_resources — inspect resource providers and capacity
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_resources",
     label: "Cue Resources",
-    policy: CUE_RESOURCES_TOOL_POLICY,
     description:
       "Inspect Cue resource scheduling state. action='providers' lists registered providers, routed resource keys, and active reservations; action='resources' shows current provider snapshots/units when providers support probing.",
     parameters: Type.Object({
@@ -2084,19 +1803,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_resources",
-        [formatStringArg(args.action, { prefix: "action=", fallback: "providers" })],
-        theme,
-      );
-    },
     async execute(
       _toolCallId: string,
       params: Record<string, unknown>,
       _signal: AbortSignal,
       _onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const action = normalizeCueEnum(
         params.action,
@@ -2168,10 +1880,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
   //  cue_schedule — unified schedule management
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_schedule",
     label: "Cue Schedule",
-    policy: CUE_SCHEDULE_TOOL_POLICY,
     description:
       "Manage scheduled Cue executions. " +
       "action='add': schedule a recurring or one-shot execution (requires schedule + command). " +
@@ -2208,32 +1919,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         Type.Number({ description: "Maximum schedules to show for action=list. Default: 20." }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_schedule",
-        [
-          formatStringArg(args.action, { prefix: "action=", fallback: "list" }),
-          formatStringArg(args.id, { prefix: "id=" }),
-          formatStringArg(args.schedule, {
-            prefix: "schedule=",
-            maxLength: TOOL_CALL_LABEL_MAX_LENGTH,
-          }),
-          formatStringArg(args.command, {
-            prefix: "command=",
-            maxLength: TOOL_CALL_DEFAULT_ARG_MAX_LENGTH,
-          }),
-          formatStringArg(args.status, { prefix: "status=" }),
-          formatNumberArg(args.limit, { prefix: "limit=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const action = normalizeCueEnum(
         params.action,
@@ -2397,10 +2088,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
   //  cue_scope — inspect scopes, env, or config
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_scope",
     label: "Cue Scope",
-    policy: CUE_SCOPE_TOOL_POLICY,
     description:
       "Inspect or mutate Cue session state. action='list' lists scopes, 'env' shows session env, 'config' shows config, 'env_set' sets KEY=VALUE, 'env_unset' removes KEY, 'path_prepend' prepends PATH, 'cd' changes session cwd, 'refresh' explicitly refreshes the session from host cwd/env, and 'status' shows bounded cwd/PATH status.",
     parameters: Type.Object({
@@ -2436,26 +2126,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         Type.String({ description: "Path for action='path_prepend' or action='cd'." }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_scope",
-        [
-          formatStringArg(args.action, { prefix: "action=", fallback: "list" }),
-          formatNumberArg(args.limit, { prefix: "limit=" }),
-          args.includeEnv === true ? "include-env" : undefined,
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-          formatStringArg(args.key, { prefix: "key=" }),
-          formatStringArg(args.path, { prefix: "path=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       toolCallId: string,
       params: Record<string, unknown>,
       signal: AbortSignal,
       onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       rejectRemovedCueParam(params, "env_tail_bytes", "tail_bytes", "cue_scope");
       const action = normalizeCueEnum(params.action, "list", CUE_SCOPE_ACTIONS, "cue_scope action");
@@ -2646,10 +2322,9 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
   //  cue_history — show history
   // ═══════════════════════════════════════════════════════════════════
 
-  registerCueTool(pi, {
+  registerCueTool(host, {
     name: "cue_history",
     label: "Cue History",
-    policy: CUE_HISTORY_TOOL_POLICY,
     description:
       "Show recent Cue history. Pass an id to focus on one execution. Output is bounded by default.",
     parameters: Type.Object({
@@ -2669,23 +2344,12 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
         }),
       ),
     }),
-    renderCall(args, theme) {
-      return renderToolCall(
-        "cue_history",
-        [
-          formatStringArg(args.id),
-          formatNumberArg(args.limit, { prefix: "limit=" }),
-          formatNumberArg(args.tail_bytes, { prefix: "tail=" }),
-        ],
-        theme,
-      );
-    },
     async execute(
       _toolCallId: string,
       params: Record<string, unknown>,
       _signal: AbortSignal,
       _onUpdate: (u: { content: Array<{ type: "text"; text: string }> }) => void,
-      ctx: SparkCueToolContext,
+      ctx: CueOperationContext,
     ) {
       const id = normalizeOptionalCueString(params.id, "cue_history id");
       const limit = normalizeCueLimit(params.limit, 80, "cue_history limit");
@@ -2719,18 +2383,8 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
 
   // ── Lifecycle ──────────────────────────────────────────────────────
 
-  pi.on?.("session_start", () => {
-    if (!pi.getActiveTools || !pi.setActiveTools) return;
-    const withoutBash = pi.getActiveTools().filter((name) => name !== "bash");
-    pi.setActiveTools(withoutBash);
-  });
-
-  pi.on?.("session_shutdown", (_event, ctx) => {
-    releaseClientOwner(clientOwner, ctx as SparkCueToolContext | undefined);
-  });
-
   return {
-    releaseSession(ctx?: SparkCueToolContext) {
+    releaseSession(ctx?: CueOperationContext) {
       releaseClientOwner(clientOwner, ctx);
     },
     dispose() {

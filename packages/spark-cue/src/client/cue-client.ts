@@ -572,7 +572,7 @@ function stableHash(value: string): string {
 
 export function isSensitiveCueEnvKey(key: string): boolean {
   // Keep this classifier in lockstep with Cue's daemon-side scope
-  // persistence policy. Spark must use at least the same superset because the
+  // persistence policy. Hosts must use at least the same superset because the
   // handshake and cue_scope output cross the model boundary before Cue's
   // persistence guard can protect them.
   const words = key
@@ -859,7 +859,7 @@ export class CueClient {
    * Connect to the cued daemon.
    *
    * An explicit `socketPath` is always honored as a Unix socket override. Without
-   * an override, spark-cue asks `cue-client target resolve --json` (falling back to
+   * an override, the client asks `cue-client target resolve --json` (falling back to
    * `cue client target ...`) for the active client transport profile and then
    * connects either to a Unix socket or to an SSH gateway stream.
    */
@@ -1613,7 +1613,7 @@ export class CueClient {
     if (!this.#closed) {
       // The daemon may already have committed a side effect before a malformed
       // or uncorrelatable response makes its result unknowable. Treat this as
-      // transport ambiguity so Pi can replay only with the exact same key.
+      // transport ambiguity so the host can replay only with the exact same key.
       this.#rejectAll(new CueTransportError(`protocol failure: ${err.message}`));
       this.#socket.destroy();
     }

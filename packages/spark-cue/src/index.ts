@@ -1,5 +1,5 @@
 /**
- * spark-cue extension
+ * Cue execution client and host-neutral operation runtime.
  *
  * Atomic execution tools organized by the three category objects:
  *
@@ -63,32 +63,3 @@ export {
   renderWarning as renderCuedVersionWarning,
 } from "./version-check.ts";
 export type { DaemonVersion, VersionCheckOptions, VersionVerdict } from "./version-check.ts";
-
-export type {
-  SparkCueHostApi,
-  SparkCueNotifyLevel,
-  SparkCueToolContext,
-  SparkCueToolConfig,
-  SparkCueToolRegistration,
-} from "./tools/host-types.ts";
-export {
-  __resetSparkCueClientForTests,
-  DEFAULT_CUED_AUTOSTART_TIMEOUT_MS,
-} from "./tools/runtime.ts";
-export {
-  registerSparkCueTools,
-  renderCueScriptResult,
-  normalizeCueTerminalOutput,
-  normalizeCueStderrForDisplay,
-  normalizeCueTailBytes,
-  normalizeCueLimit,
-  normalizeCueTimeoutSeconds,
-  normalizeCueBoolean,
-  resolveCueWorkingDirectory,
-  normalizeCueResourceNeeds,
-  resolvePythonRunner,
-  cueCommandIssue,
-  cueCommandSyntaxIssue,
-} from "./tools/register.ts";
-
-export { default } from "./tools/register.ts";

@@ -4,18 +4,9 @@ import type {
   ResourceNeeds,
   SpawnAdapterHandle,
 } from "../client/cue-client.ts";
-import type { SparkCueToolConfig, SparkCueToolContext } from "../tools/host-types.ts";
+import type { CueOperationDefinition, CueOperationContext } from "../tools/host-types.ts";
 import type { ExecutionCancelReason } from "../wire/types.ts";
 import { registerCueOperationDefinitions } from "./definitions.ts";
-
-export {
-  CUE_EXECUTION_TOOL_POLICY,
-  CUE_HISTORY_TOOL_POLICY,
-  CUE_JOBS_TOOL_POLICY,
-  CUE_RESOURCES_TOOL_POLICY,
-  CUE_SCHEDULE_TOOL_POLICY,
-  CUE_SCOPE_TOOL_POLICY,
-} from "../tools/host-types.ts";
 
 export const CUE_TOOL_NAMES = [
   "cue_exec",
@@ -480,7 +471,7 @@ function canonicalize<Name extends CueToolName>(
 }
 
 export function createCueToolRuntime(config: CueToolRuntimeConfig = {}): CueToolRuntime {
-  const tools = new Map<CueToolName, SparkCueToolConfig>();
+  const tools = new Map<CueToolName, CueOperationDefinition>();
   const registration = registerCueOperationDefinitions({
     registerTool(tool) {
       if ((CUE_TOOL_NAMES as readonly string[]).includes(tool.name)) {
@@ -488,7 +479,7 @@ export function createCueToolRuntime(config: CueToolRuntimeConfig = {}): CueTool
       }
     },
   });
-  const sessions = new Map<string, SparkCueToolContext>();
+  const sessions = new Map<string, CueOperationContext>();
   let disposed = false;
 
   return {
@@ -498,7 +489,7 @@ export function createCueToolRuntime(config: CueToolRuntimeConfig = {}): CueTool
       if (!tool) throw new Error(`Unknown Cue tool: ${name}`);
       validateConditionalArgs(name, args);
       const signal = context.signal ?? new AbortController().signal;
-      const toolContext: SparkCueToolContext = {
+      const toolContext: CueOperationContext = {
         sessionId: context.sessionId,
         cwd: context.cwd,
         env: context.env,

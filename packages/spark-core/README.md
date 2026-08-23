@@ -8,9 +8,8 @@ revival of the retired workspace capability bag formerly named `spark-core`.
 
 ## Why this package exists
 
-Before this package, every capability adapter (`@zendev-lab/spark-ask`,
-`@zendev-lab/spark-cue`, `@zendev-lab/spark-graft`, and
-`@zendev-lab/spark-roles`) maintained its own `pi-types.d.ts` shim
+Before this package, every Spark host capability adapter (`@zendev-lab/spark-ask`,
+`@zendev-lab/spark-graft`, and `@zendev-lab/spark-roles`) maintained its own `pi-types.d.ts` shim
 that re-declared a slice of `SparkHostAPI` via `declare module
 "@earendil-works/pi-coding-agent"`. That meant:
 
@@ -43,8 +42,8 @@ supersets of these types:
   to `spark-invocation`.
 
 - Spark native host family — `@zendev-lab/spark-host` provides `SparkHostRuntime`, implementing the retained
-  surface needed by `@zendev-lab/spark-ask`, `@zendev-lab/spark-cue`,
-  `@zendev-lab/spark-roles`, `@zendev-lab/spark-graft`, and daemon product composition,
+  surface needed by `@zendev-lab/spark-ask`, `@zendev-lab/spark-roles`,
+  `@zendev-lab/spark-graft`, and daemon product composition,
   plus host-only helpers for keybindings, message renderers, provider/model
   registry adapters, session glue, and native UI bridges.
 - Tests and host-neutral adapters may supply the same structural methods without
