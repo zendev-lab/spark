@@ -9,7 +9,7 @@ import {
   resolveSparkPaths,
   resolveSparkUserPaths,
   writePrivateFile,
-} from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node";
 import {
   emptySparkUpdateState,
   isSparkBuildInfo,

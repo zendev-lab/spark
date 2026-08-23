@@ -8,7 +8,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { defaultSparkSessionsRoot } from "@zendev-lab/spark-session/transcript";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-platform-node";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import {
   readSparkDaemonConfig,

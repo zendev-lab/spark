@@ -13,7 +13,7 @@ import {
   resolveSparkPaths,
   writePrivateFile,
   type ResolveSparkHomeOptions,
-} from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node";
 
 const CHANNEL_CONFIG_MIGRATION_VERSION = 1;
 

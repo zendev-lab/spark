@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { createId, type HumanRequestCreatedPayload } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { readSparkDaemonConfig } from "./config.js";
 import {
   leaseTransferDecisionFromAnswers,

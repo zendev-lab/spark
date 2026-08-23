@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import type { SparkDaemonLoopTickTask } from "./core/types.ts";
 import {
   commitLoopInvocationAdmission,

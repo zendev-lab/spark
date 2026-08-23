@@ -3,7 +3,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync } from 
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-platform-node";
 
 import { requestSparkDaemon } from "./daemon-client.ts";
 

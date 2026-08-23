@@ -53,7 +53,7 @@ import {
   loadSparkSessionSnapshotTail,
   SparkSessionRegistryError,
 } from "@zendev-lab/spark-session";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSparkRoleRegistry,
   defaultProjectRoleModelSettingsStore,

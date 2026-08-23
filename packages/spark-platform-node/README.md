@@ -1,6 +1,7 @@
-# @zendev-lab/spark-system
+# @zendev-lab/spark-platform-node
 
-Filesystem path, private-file permission, command, SQLite, and local runtime primitives shared by Spark packages.
+Node platform adapters for filesystem paths, private-file permissions, commands,
+SQLite, local IPC, and runtime primitives shared by Spark packages.
 
 Daemon RPC transport and protocol-aware client code lives in
 `@zendev-lab/spark-daemon-client`; this package deliberately has no Spark

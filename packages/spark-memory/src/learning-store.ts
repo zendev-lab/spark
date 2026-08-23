@@ -20,7 +20,7 @@ import {
   stableId,
   type SparkStateRootContext,
 } from "@zendev-lab/spark-core";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   appendMemoryRevision,

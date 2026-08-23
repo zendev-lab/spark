@@ -21,7 +21,7 @@ import type {
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 
 import type { ProviderConfig } from "../provider-registry.ts";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import { withPathMutation } from "./path-mutation.ts";
 
 export type SparkStoredCredential =

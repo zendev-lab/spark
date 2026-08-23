@@ -41,7 +41,7 @@ import {
   type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
-import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { createHash, randomUUID } from "node:crypto";
 
 import { readFile } from "node:fs/promises";

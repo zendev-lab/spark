@@ -19,11 +19,11 @@ import {
   isSparkSideThreadErrorCode,
   type SparkSideThreadErrorCode,
 } from "@zendev-lab/spark-protocol/side-thread";
-import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSocketMessagePort,
   type SocketMessagePortLike,
-} from "@zendev-lab/spark-system/socket-message-port";
+} from "@zendev-lab/spark-platform-node/socket-message-port";
 
 export interface SparkDaemonOrpcClientOptions {
   paths?: Pick<SparkPaths, "runtimeDir">;

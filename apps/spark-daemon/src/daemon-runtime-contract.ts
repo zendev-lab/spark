@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import type {

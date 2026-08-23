@@ -10,7 +10,7 @@ import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadSubmitResultSchema,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";

@@ -22,8 +22,8 @@
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
-    "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "typebox": "catalog:"
   }

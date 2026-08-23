@@ -13,7 +13,7 @@ import {
   type ToolEffect,
 } from "@zendev-lab/spark-core";
 import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   loadSparkSkillByName,
   SparkSkillResolver,
@@ -22,7 +22,7 @@ import {
 import {
   defaultProjectResourceDirs,
   orderedSparkResourceRoots,
-} from "@zendev-lab/spark-system/resource-paths";
+} from "@zendev-lab/spark-platform-node/resource-paths";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { resolveRoleNativeExecutor } from "./native-executor.ts";
 import {

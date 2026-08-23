@@ -3,7 +3,7 @@ import {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
   resolveSparkHeadlessExecutorSpecifier,
-} from "@zendev-lab/spark-system/headless-module";
+} from "@zendev-lab/spark-platform-node/headless-module";
 
 export interface SparkHeadlessRoleExecutorModule {
   createSparkHeadlessRoleExecutor?: (options?: { sparkHome?: string }) => ExtensionRoleRunner;

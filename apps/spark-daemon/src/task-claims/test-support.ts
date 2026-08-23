@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { attachWorkspaceClient, registerWorkspace } from "../store/workspaces.ts";
 

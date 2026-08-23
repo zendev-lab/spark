@@ -15,7 +15,7 @@ import {
   type WorkspaceSessionSurface,
 } from "@zendev-lab/spark-protocol";
 import type { SparkTaskClaimLeaseIdentity } from "@zendev-lab/spark-protocol/task-claim";
-import { asciiSlug } from "@zendev-lab/spark-system";
+import { asciiSlug } from "@zendev-lab/spark-platform-node";
 import { SparkDaemonControlError } from "../control-error.ts";
 
 export interface WorkspaceProfileRegistration {

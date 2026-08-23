@@ -9,7 +9,11 @@ import {
   type ChannelsService,
   type ChannelsConfig,
 } from "@zendev-lab/dsh-channel-transports";
-import { channelConfigPath, resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import {
+  channelConfigPath,
+  resolveSparkPaths,
+  writePrivateFile,
+} from "@zendev-lab/spark-platform-node";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
 import { migrateDaemonChannelsConfig } from "./config-migration.ts";
 import {

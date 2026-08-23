@@ -3,12 +3,12 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   defaultProjectResourceDirs,
   orderedSparkResourceRoots,
   type SparkResourceLayer,
-} from "@zendev-lab/spark-system/resource-paths";
+} from "@zendev-lab/spark-platform-node/resource-paths";
 import {
   defaultBuiltinSkillsDir,
   parseSkillFrontmatter,

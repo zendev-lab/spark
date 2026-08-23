@@ -36,9 +36,9 @@
     "@deepseek-ai/schemastery": "^3.18.1",
     "@earendil-works/pi-ai": "^0.84.0",
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
-    "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "minimatch": "^10.2.5",
     "typebox": "catalog:"

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { asciiSlug } from "@zendev-lab/spark-system";
+import { asciiSlug } from "@zendev-lab/spark-platform-node";
 
 /** Top-level Hub route segments that cannot be workspace slugs. */
 export const reservedWorkbenchPathSegments = [

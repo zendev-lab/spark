@@ -21,7 +21,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@zendev-lab/spark-system": "workspace:*",
+    "@zendev-lab/spark-platform-node": "workspace:*",
     "kysely": "^0.29.0"
   },
   "devDependencies": {

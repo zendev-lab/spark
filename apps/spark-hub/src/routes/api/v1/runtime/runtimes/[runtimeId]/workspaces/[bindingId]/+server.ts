@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { unbindRuntimeWorkspace } from "@zendev-lab/spark-hub-coordination/runtime-registration";
-import { bearerTokenFromAuthorization } from "@zendev-lab/spark-system";
+import { bearerTokenFromAuthorization } from "@zendev-lab/spark-platform-node";
 import { getDatabase } from "$lib/server/db";
 import { errorJson } from "$lib/server/json";
 import {

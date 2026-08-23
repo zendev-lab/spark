@@ -6,7 +6,7 @@ import {
   type SparkInvocationStatus,
   type SparkModelControlSnapshot,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 
 import { localRpcRequest } from "./local-rpc/client.js";
 import { padColumn, shortTimestamp, truncateColumn, yesNo, type CliIo } from "./cli-shared.ts";

@@ -275,7 +275,7 @@ the inventory rather than a new constant in a checker.
 
 - `spark-protocol` is a pure wire-contract package. It has no production
   dependency on another Spark workspace.
-- `spark-system` contains only local-system mechanisms: paths, permissions,
+- `spark-platform-node` contains only local-system mechanisms: paths, permissions,
   commands, SQLite opening, strings, and the socket MessagePort adapter. It has
   no Spark workspace dependency.
 - `spark-daemon-client` owns the protocol-aware daemon client facade. Typed oRPC

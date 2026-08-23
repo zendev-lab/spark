@@ -15,7 +15,7 @@ import type {
   SparkProtocolJsonValue,
   SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkHome } from "@zendev-lab/spark-system";
+import { resolveSparkHome } from "@zendev-lab/spark-platform-node";
 
 export type {
   SparkSessionMailChannelTarget,

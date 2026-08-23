@@ -8,7 +8,7 @@ import {
   type VersionedDataDiagnosticOptions,
   type VersionedDataIssue,
 } from "@zendev-lab/spark-protocol/versioned-data";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   SPARK_UPDATE_STATE_SCHEMA_VERSION,

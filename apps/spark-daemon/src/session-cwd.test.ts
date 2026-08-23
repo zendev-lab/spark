@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultArtifactStore, type GitChangeArtifactBody } from "@zendev-lab/spark-artifacts";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   resolveSessionCwdForWorkspace,
   resolveSessionCwdOwner,

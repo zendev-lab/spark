@@ -5,7 +5,7 @@ import {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
   resolveSparkHeadlessExecutorSpecifier,
-} from "@zendev-lab/spark-system/headless-module";
+} from "@zendev-lab/spark-platform-node/headless-module";
 
 export const ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE =
   "host-provided native role executor was incompatible; Spark headless fallback failed";

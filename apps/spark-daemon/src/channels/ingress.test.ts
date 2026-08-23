@@ -9,7 +9,7 @@ import {
   type ChannelTransport,
 } from "@zendev-lab/dsh-channel-transports";
 import { parseSparkSessionState, type SparkSessionState } from "@zendev-lab/spark-protocol";
-import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_INGRESS_FAILURE_REPLY,

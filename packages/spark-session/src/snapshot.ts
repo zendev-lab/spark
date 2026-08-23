@@ -33,7 +33,7 @@ import {
   type SparkSessionView,
   type SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
-import { gitCommand } from "@zendev-lab/spark-system";
+import { gitCommand } from "@zendev-lab/spark-platform-node";
 import {
   SPARK_DSH_MESSAGE_META_EVENT_TYPE,
   parseSparkDshMessageMetaData,

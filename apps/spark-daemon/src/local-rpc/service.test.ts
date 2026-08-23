@@ -8,7 +8,7 @@ import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
