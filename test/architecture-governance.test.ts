@@ -228,7 +228,7 @@ describe("architecture inventory governance", () => {
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("apps/spark-daemon/");
     expect(rule.from.pathNot).toContain("packages/spark-turn/");
-    expect(rule.from.pathNot).toContain("packages/spark-llm/");
+    expect(rule.from.pathNot).toContain("packages/spark-llm-providers/");
   });
 
   test("allows spark-turn to import dsh-llm as the agent-loop driver", () => {
@@ -238,7 +238,7 @@ describe("architecture inventory governance", () => {
     );
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("packages/spark-turn/");
-    expect(rule.from.pathNot).toContain("packages/spark-llm/");
+    expect(rule.from.pathNot).toContain("packages/spark-llm-providers/");
   });
 
   test("allows the daemon to import dsh-session persistence on the Cordis root", () => {

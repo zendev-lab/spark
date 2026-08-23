@@ -6,7 +6,7 @@ import type {
   Context,
   Model,
   StreamOptions,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 import {
   generateOptionsToPiContext,
   generateOptionsToPiModel,
@@ -14,7 +14,7 @@ import {
   llmChunksToPiAiStream,
   piEventsToLlmChunks,
   sparkContextToGenerateOptions,
-} from "@zendev-lab/spark-llm/pi-ai-stream";
+} from "@zendev-lab/spark-llm-providers/pi-ai-stream";
 
 export type SparkAgentStreamFunction = (
   model: Model<string>,

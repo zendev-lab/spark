@@ -2,7 +2,12 @@
  * Session/view-model projection helpers for SparkAgentLoop.
  */
 import { isTaskStatus } from "@zendev-lab/spark-core";
-import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "@zendev-lab/spark-llm";
+import type {
+  AssistantMessage,
+  Message,
+  ToolCall,
+  ToolResultMessage,
+} from "@zendev-lab/spark-llm-providers";
 import {
   SPARK_PROTOCOL_VERSION,
   summarizeToolCallArguments,

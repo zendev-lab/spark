@@ -7,7 +7,7 @@ import {
   type SparkOAuthFlowSnapshot,
   type SparkProviderControl,
   type SparkProviderControlSnapshot,
-} from "@zendev-lab/spark-llm/control";
+} from "@zendev-lab/spark-llm-providers/control";
 import { createSparkDaemonModelControl } from "./model-control.js";
 import { createDaemonSessionRegistry } from "./session-registry.js";
 import { createDaemonWorkspaceSession } from "../../../test/support/session-fixtures.ts";

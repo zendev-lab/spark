@@ -24,7 +24,7 @@ import type {
   Model,
   ToolCall,
   ToolResultMessage,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 
 import {
   encodeSparkAuxiliaryModelRoute,

@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@zendev-lab/spark-llm";
+import type { ToolResultMessage } from "@zendev-lab/spark-llm-providers";
 import { describe, expect, it } from "vitest";
 
 import { toolResultToMessageView } from "./view-projection.ts";

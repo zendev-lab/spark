@@ -9,7 +9,12 @@ import {
   type SparkHostContext,
   type ToolConfig,
 } from "@zendev-lab/spark-core";
-import type { AssistantMessage, Tool, ToolCall, ToolResultMessage } from "@zendev-lab/spark-llm";
+import type {
+  AssistantMessage,
+  Tool,
+  ToolCall,
+  ToolResultMessage,
+} from "@zendev-lab/spark-llm-providers";
 import {
   compactToolResultContent,
   type SparkToolResultRawRecoveryDecision,

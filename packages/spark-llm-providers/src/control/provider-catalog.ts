@@ -10,10 +10,13 @@ import registerKimiCodingProvider from "../kimi-coding-provider.ts";
 import { withPathMutation } from "./path-mutation.ts";
 
 export const DEFAULT_SPARK_PROVIDER_SPECS = [
-  "@zendev-lab/spark-llm/baidu-oneapi-provider",
-  "@zendev-lab/spark-llm/openai-codex-provider",
-  "@zendev-lab/spark-llm/kimi-coding-provider",
+  "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+  "@zendev-lab/spark-llm-providers/openai-codex-provider",
+  "@zendev-lab/spark-llm-providers/kimi-coding-provider",
 ] as const;
+
+const LEGACY_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm";
+const CURRENT_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm-providers";
 
 /** Initial enabled-model policy for daemon-selectable models. */
 export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
@@ -102,7 +105,9 @@ export async function loadSparkProviderCatalog(
 ): Promise<SparkLoadedProviderCatalog> {
   const registry = options.registry ?? new SparkProviderRegistry();
   const importer = options.importer ?? createSparkProviderImporter();
-  const specifiers = options.specifiers ?? DEFAULT_SPARK_PROVIDER_SPECS;
+  const specifiers = (options.specifiers ?? DEFAULT_SPARK_PROVIDER_SPECS)
+    .map(normalizeSparkProviderSpec)
+    .filter(Boolean);
   const outcomes: SparkProviderLoadOutcome[] = [];
 
   for (const specifier of specifiers) {
@@ -163,7 +168,22 @@ export async function readSparkProviderConfig(
 
 /** Bundled providers are product capabilities; config.providers adds plugins. */
 export function mergeSparkProviderSpecs(configured: readonly string[] | undefined): string[] {
-  return [...new Set([...DEFAULT_SPARK_PROVIDER_SPECS, ...(configured ?? [])])];
+  return [
+    ...new Set([
+      ...DEFAULT_SPARK_PROVIDER_SPECS,
+      ...(configured ?? []).map(normalizeSparkProviderSpec).filter(Boolean),
+    ]),
+  ];
+}
+
+/** Canonicalize the retired private workspace specifier without retaining a package alias. */
+export function normalizeSparkProviderSpec(specifier: string): string {
+  const normalized = specifier.trim();
+  if (normalized === LEGACY_SPARK_PROVIDER_PACKAGE) return CURRENT_SPARK_PROVIDER_PACKAGE;
+  if (normalized.startsWith(`${LEGACY_SPARK_PROVIDER_PACKAGE}/`)) {
+    return `${CURRENT_SPARK_PROVIDER_PACKAGE}${normalized.slice(LEGACY_SPARK_PROVIDER_PACKAGE.length)}`;
+  }
+  return normalized;
 }
 
 /** Resolve enabled-model patterns against the complete provider capability catalog. */
@@ -296,19 +316,20 @@ export function createSparkProviderImporter(
   fallbackImporter: SparkProviderImporter = (specifier) => import(specifier),
 ): SparkProviderImporter {
   return (specifier) => {
+    const normalizedSpecifier = normalizeSparkProviderSpec(specifier);
     // Keep product-bundled providers reachable through static imports. A built
     // daemon or TUI executes without private workspace packages in node_modules,
     // so dynamically importing these public specifiers would silently remove the
     // bundled provider catalog from installed headless reviewer sessions.
-    if (specifier === "@zendev-lab/spark-llm/baidu-oneapi-provider") {
+    if (normalizedSpecifier === "@zendev-lab/spark-llm-providers/baidu-oneapi-provider") {
       return Promise.resolve({ default: registerBaiduOneApiProvider });
     }
-    if (specifier === "@zendev-lab/spark-llm/openai-codex-provider") {
+    if (normalizedSpecifier === "@zendev-lab/spark-llm-providers/openai-codex-provider") {
       return Promise.resolve({ default: registerOpenAiCodexProvider });
     }
-    if (specifier === "@zendev-lab/spark-llm/kimi-coding-provider") {
+    if (normalizedSpecifier === "@zendev-lab/spark-llm-providers/kimi-coding-provider") {
       return Promise.resolve({ default: registerKimiCodingProvider });
     }
-    return fallbackImporter(specifier);
+    return fallbackImporter(normalizedSpecifier);
   };
 }

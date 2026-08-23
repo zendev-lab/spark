@@ -204,7 +204,7 @@ test("ensureSparkFilesBundle installs the owner adapter idempotently", async () 
   }
 });
 
-test("spark-llm package resolves from the workspace and exposes the plugin entry", () => {
+test("spark-llm-providers package resolves from the workspace and exposes the plugin entry", () => {
   const llmDir = resolveSparkLlmPackageDir();
   assert.ok(existsSync(join(llmDir, "src", "dsh-plugin.ts")), "plugin entry exists");
 });

@@ -4,6 +4,8 @@ import { test } from "vitest";
 import { SparkProviderRegistry } from "../provider-registry.ts";
 import {
   DEFAULT_SPARK_ENABLED_MODEL_PATTERNS,
+  DEFAULT_SPARK_PROVIDER_SPECS,
+  mergeSparkProviderSpecs,
   normalizeSparkEnabledModelPatterns,
   resolveSparkEnabledModelIds,
 } from "./provider-catalog.ts";
@@ -34,6 +36,17 @@ const fakeProvider = {
     },
   ],
 };
+
+test("legacy provider package specifiers migrate to the canonical package once", () => {
+  const migrated = mergeSparkProviderSpecs([
+    "@zendev-lab/spark-llm/baidu-oneapi-provider",
+    "@zendev-lab/spark-llm/kimi-coding-provider",
+    "custom-provider",
+  ]);
+
+  assert.deepEqual(migrated, [...DEFAULT_SPARK_PROVIDER_SPECS, "custom-provider"]);
+  assert.deepEqual(mergeSparkProviderSpecs(migrated), migrated);
+});
 
 test("scope resolution can retain compatibility catalog entries without enabling them", () => {
   const registry = new SparkProviderRegistry();

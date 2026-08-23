@@ -135,7 +135,7 @@ export interface SparkHostRuntimeOptions {
   sessionManager?: SparkHostSessionManagerStub;
   modelRegistry?: SparkHostModelRegistryLike;
   keybindings?: SparkKeybindings | SparkKeybindingsOptions;
-  /** Optional single-shot spark-llm leaf runner exposed to tools via ctx.runLeaf. */
+  /** Optional single-shot spark-llm-providers leaf runner exposed to tools via ctx.runLeaf. */
   leafRunner?: LeafCapabilityRunner;
   /** Optional daemon-native role runner exposed to tools via ctx.runRole. */
   roleRunner?: ExtensionRoleRunner;

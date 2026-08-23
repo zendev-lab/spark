@@ -142,7 +142,7 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
     await writeFile(
       join(sparkHome, "config.json"),
       `${JSON.stringify({
-        providers: ["@zendev-lab/spark-llm/baidu-oneapi-provider"],
+        providers: ["@zendev-lab/spark-llm-providers/baidu-oneapi-provider"],
         activeModelId: "baidu-oneapi/gpt-5.5",
       })}\n`,
     );
@@ -158,7 +158,7 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
     assert.equal(kimi?.modelCount && kimi.modelCount > 0, true);
     assert.equal(
       snapshot.loadOutcomes.find(
-        (outcome) => outcome.specifier === "@zendev-lab/spark-llm/kimi-coding-provider",
+        (outcome) => outcome.specifier === "@zendev-lab/spark-llm-providers/kimi-coding-provider",
       )?.ok,
       true,
     );
@@ -181,7 +181,7 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
     );
     assert.equal(
       snapshot.loadOutcomes.find(
-        (outcome) => outcome.specifier === "@zendev-lab/spark-llm/openai-codex-provider",
+        (outcome) => outcome.specifier === "@zendev-lab/spark-llm-providers/openai-codex-provider",
       )?.ok,
       true,
     );

@@ -12,7 +12,7 @@ export {
   listOAuthProviderSummaries,
   registerSparkOAuthProvider,
   resetSparkOAuthProviders,
-} from "@zendev-lab/spark-llm/control";
+} from "@zendev-lab/spark-llm-providers/control";
 export type {
   SparkAuthFile,
   SparkAuthStoreOptions,
@@ -20,4 +20,4 @@ export type {
   SparkProviderAuthResolverOptions,
   SparkProviderAuthStatus,
   SparkStoredCredential,
-} from "@zendev-lab/spark-llm/control";
+} from "@zendev-lab/spark-llm-providers/control";

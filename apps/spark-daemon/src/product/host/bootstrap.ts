@@ -9,7 +9,7 @@ import {
   createProviderRegistryWorkflowModelRunner,
   type Model,
   type SparkProviderAttemptObservation,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 import { createSparkLlmComposition } from "../llm-runtime.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import {
@@ -517,11 +517,11 @@ export {
   assistantMessageToText,
   createProviderRegistryStreamFunction,
   createProviderRegistryWorkflowModelRunner,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 export type {
   SparkWorkflowModelRunRequest,
   SparkWorkflowModelRunResponse,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 
 function formatProviderLoadError(providerLoadResult: ProviderPluginLoadResult): string | undefined {
   const failures = providerLoadResult.outcomes.filter((outcome) => !outcome.ok);

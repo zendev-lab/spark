@@ -12,13 +12,13 @@ import type {
   Context,
   Model,
   ToolCall,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import {
   MODEL_EMPTY_RESPONSE_ERROR_CODE,
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 import {
   assertRef,
   type SparkDshToolPolicyMetadata,

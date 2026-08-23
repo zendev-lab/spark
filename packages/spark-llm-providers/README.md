@@ -1,10 +1,10 @@
-# @zendev-lab/spark-llm
+# @zendev-lab/spark-llm-providers
 
 Spark's LLM **provider** owner: bundled transports (pi-ai, Baidu OneAPI, OpenAI
 Codex, Kimi For Coding), model routing, auth/catalog, and the `models` tool.
 
 This package is not the LLM abstraction owner. That role belongs to
-`@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm` implements
+`@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm-providers` implements
 those adapters. Daemon product composition registers Invocation-scoped
 provider routes on the single daemon Cordis root, and `spark-turn` consumes the injected
 `LlmRuntime` through `dsh-agent-loop`. See
@@ -55,7 +55,7 @@ surface instead of `SparkHostAPI`.
 
 ## Models tool
 
-`@zendev-lab/spark-llm/models-extension` registers the read-only `models` tool for inspecting the active Spark host model registry. The tool lists available models by default, can include unavailable registered models with auth status, and keeps route/provider details as catalog data rather than a separate model-selection package.
+`@zendev-lab/spark-llm-providers/models-extension` registers the read-only `models` tool for inspecting the active Spark host model registry. The tool lists available models by default, can include unavailable registered models with auth status, and keeps route/provider details as catalog data rather than a separate model-selection package.
 
 ## DSH compatibility adapter
 
@@ -67,9 +67,11 @@ resolution instead of maintaining another owner. The Web DSH composition
 disables stock `llm-pi-ai` before mounting this adapter.
 Reasoning-capable routes advertise Spark's `high` default effort to DSH while
 preserving an explicit lower or higher effort selected for a Session.
+The generated DSH profile keeps the compatibility plugin id and directory
+`spark-llm`; those are runtime profile surfaces, not package aliases.
 The adapter uses DSH's `llm-pi-ai` settings-layout namespace only so the stock
 Models page renders its write-only API-key editor; this does not remount the
-stock provider or transfer provider ownership away from `spark-llm`.
+stock provider or transfer provider ownership away from `spark-llm-providers`.
 
 API-key routes resolve credentials from the DSH credentials service, the
 launching environment, and Spark's auth store. OpenAI Codex reuses Spark's
@@ -77,7 +79,7 @@ OAuth credential and must be configured through a Spark OAuth login surface.
 
 ## Baidu OneAPI provider
 
-`@zendev-lab/spark-llm/baidu-oneapi-provider` is the bundled standalone
+`@zendev-lab/spark-llm-providers/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
 adaptive-friendly model ids (`claude-opus-5`,
 `deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`,
@@ -136,11 +138,11 @@ Authentication:
 - `BAIDU_ONEAPI_API_KEY` is supported as an environment variable.
 - `BAIDU_ONEAPI_BASE_URL` optionally overrides the endpoint; it defaults to `https://oneapi-comate.baidu-int.com`.
 
-spark-llm does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-oneapi`.
+spark-llm-providers does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-oneapi`.
 
 ## OpenAI Codex provider
 
-`@zendev-lab/spark-llm/openai-codex-provider` is the thin Spark adapter over
+`@zendev-lab/spark-llm-providers/openai-codex-provider` is the thin Spark adapter over
 pi-ai's maintained OpenAI Codex catalog and transport. The daemon and local
 web load it as a bundled provider, while Spark's shared provider control owns
 model selection and its own OAuth credential store. Configure it from Hub or
@@ -149,7 +151,7 @@ files at runtime.
 
 ## Kimi For Coding provider
 
-`@zendev-lab/spark-llm/kimi-coding-provider` is the thin Spark adapter over
+`@zendev-lab/spark-llm-providers/kimi-coding-provider` is the thin Spark adapter over
 pi-ai's maintained Kimi For Coding catalog. It uses the Anthropic-compatible
 `https://api.kimi.com/coding` endpoint. Authentication is an API key stored
 through Spark's credential store or `KIMI_API_KEY`. Default `enabledModels`

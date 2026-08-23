@@ -257,7 +257,7 @@ if (
 }
 const diagnostics = String(result.stderr ?? "") + "\\n" + String(result.outcome.reason ?? "");
 if (
-  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm'") ||
+  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm-providers'") ||
   diagnostics.includes("defaultSparkConfigPath") ||
   diagnostics.includes("Dynamic require of")
 ) {

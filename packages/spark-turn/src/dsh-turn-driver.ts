@@ -31,12 +31,12 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 import {
   llmChunksToPiAiStream,
   piEventToLlmChunks,
   sparkContextToGenerateOptions,
-} from "@zendev-lab/spark-llm/pi-ai-stream";
+} from "@zendev-lab/spark-llm-providers/pi-ai-stream";
 
 import type { SparkPromptItem } from "./prompt-items.ts";
 import { createSparkInvocationPlugin, reserveSparkInvocationTurn } from "./invocation-plugin.ts";

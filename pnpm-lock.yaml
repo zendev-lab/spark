@@ -196,9 +196,9 @@ importers:
       '@zendev-lab/spark-hub-coordination':
         specifier: workspace:^
         version: link:packages/spark-hub-coordination
-      '@zendev-lab/spark-llm':
+      '@zendev-lab/spark-llm-providers':
         specifier: workspace:^
-        version: link:packages/spark-llm
+        version: link:packages/spark-llm-providers
       '@zendev-lab/spark-mcp':
         specifier: workspace:^
         version: link:packages/spark-mcp
@@ -450,9 +450,9 @@ importers:
       '@zendev-lab/spark-lens':
         specifier: workspace:^
         version: link:../../packages/spark-lens
-      '@zendev-lab/spark-llm':
+      '@zendev-lab/spark-llm-providers':
         specifier: workspace:^
-        version: link:../../packages/spark-llm
+        version: link:../../packages/spark-llm-providers
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../../packages/spark-memory
@@ -727,9 +727,9 @@ importers:
       '@zendev-lab/spark-files':
         specifier: workspace:^
         version: link:../../packages/spark-files
-      '@zendev-lab/spark-llm':
+      '@zendev-lab/spark-llm-providers':
         specifier: workspace:^
-        version: link:../../packages/spark-llm
+        version: link:../../packages/spark-llm-providers
       '@zendev-lab/spark-session':
         specifier: workspace:^
         version: link:../../packages/spark-session
@@ -1255,7 +1255,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  packages/spark-llm:
+  packages/spark-llm-providers:
     dependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.1
@@ -1660,9 +1660,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
-      '@zendev-lab/spark-llm':
+      '@zendev-lab/spark-llm-providers':
         specifier: workspace:^
-        version: link:../spark-llm
+        version: link:../spark-llm-providers
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol

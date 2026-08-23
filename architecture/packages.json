@@ -74,7 +74,7 @@
       "sdkDependencies": [
         {
           "dependency": "@earendil-works/pi-ai",
-          "owner": "@zendev-lab/spark-llm"
+          "owner": "@zendev-lab/spark-llm-providers"
         }
       ],
       "temporaryDependencyExceptions": []
@@ -243,8 +243,8 @@
       "stability": "internal",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-llm": {
-      "path": "packages/spark-llm",
+    "@zendev-lab/spark-llm-providers": {
+      "path": "packages/spark-llm-providers",
       "layer": "capability",
       "owner": "llm",
       "stability": "supported",

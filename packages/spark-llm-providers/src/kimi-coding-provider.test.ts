@@ -29,8 +29,9 @@ test("bundled catalog importer loads kimi-coding without a dynamic package impor
   assert.equal(registry.hasProvider(KIMI_CODING_PROVIDER_ID), true);
   assert.ok(registry.listModelsFor(KIMI_CODING_PROVIDER_ID).length > 0);
   assert.equal(
-    outcomes.find((outcome) => outcome.specifier === "@zendev-lab/spark-llm/kimi-coding-provider")
-      ?.ok,
+    outcomes.find(
+      (outcome) => outcome.specifier === "@zendev-lab/spark-llm-providers/kimi-coding-provider",
+    )?.ok,
     true,
   );
 });

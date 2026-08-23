@@ -18,7 +18,7 @@ import { DatabaseSync } from "node:sqlite";
 import { object, or } from "@optique/core/constructs";
 import { parse } from "@optique/core/parser";
 import { command, constant, passThrough } from "@optique/core/primitives";
-import { resolvePiAuthSourcePath } from "@zendev-lab/spark-llm/control";
+import { resolvePiAuthSourcePath } from "@zendev-lab/spark-llm-providers/control";
 import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
 import {

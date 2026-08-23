@@ -18,7 +18,7 @@ test("Spark product composition has a fixed capability set", () => {
       "@zendev-lab/spark-ask",
       "@zendev-lab/spark-artifacts",
       "@zendev-lab/spark-files",
-      "@zendev-lab/spark-llm",
+      "@zendev-lab/spark-llm-providers",
       "@zendev-lab/spark-memory",
       "@zendev-lab/spark-roles",
       "@zendev-lab/spark-session",
@@ -121,9 +121,9 @@ test("loadProviderPlugins resolves bundled providers without installed workspace
   const result = await loadProviderPlugins({
     providerApi: registry,
     providers: [
-      "@zendev-lab/spark-llm/baidu-oneapi-provider",
-      "@zendev-lab/spark-llm/openai-codex-provider",
-      "@zendev-lab/spark-llm/kimi-coding-provider",
+      "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm-providers/openai-codex-provider",
+      "@zendev-lab/spark-llm-providers/kimi-coding-provider",
     ],
   });
 

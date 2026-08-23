@@ -69,7 +69,7 @@
     "@zendev-lab/spark-host": "workspace:^",
     "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-lens": "workspace:^",
-    "@zendev-lab/spark-llm": "workspace:^",
+    "@zendev-lab/spark-llm-providers": "workspace:^",
     "@zendev-lab/spark-memory": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
