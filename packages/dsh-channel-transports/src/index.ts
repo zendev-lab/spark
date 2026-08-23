@@ -182,7 +182,7 @@ export {
   apply,
   createChannelsPlugin,
   name,
-  type DshChannelsPluginOptions,
+  type DshChannelTransportsPluginOptions,
 } from "./plugin.ts";
 export { FakeChannelTransport } from "./transport.ts";
 export {

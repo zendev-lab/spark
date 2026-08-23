@@ -7,7 +7,7 @@ import {
   type ChannelAdapterConfig,
   type ChannelRouteConfig,
   type ChannelsConfig,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import {
   channelConfigPath,
   resolveSparkPaths,

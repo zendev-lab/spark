@@ -173,7 +173,7 @@ export class QqbotAdapter implements ChannelAdapter {
       // inbound receipt. A thrown receipt error must remain redeliverable.
       if (dedupeKey) markMessageSeen(this.seenMessages, dedupeKey, now);
     } catch (error) {
-      console.error("[dsh-channels] qqbot inbound receipt failed", error);
+      console.error("[dsh-channel-transports] qqbot inbound receipt failed", error);
       throw error;
     }
   }

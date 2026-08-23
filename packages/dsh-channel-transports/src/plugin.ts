@@ -27,7 +27,7 @@ import type {
   ResolvedChannelRoute,
 } from "./types.ts";
 
-export const name = "dsh-channels";
+export const name = "dsh-channel-transports";
 
 export type Config = ChannelsConfig;
 
@@ -35,7 +35,7 @@ export const Config = z.transform(z.any(), (value) =>
   parseChannelsConfig(value),
 ) as unknown as NonNullable<Plugin.Object<Config>["Config"]>;
 
-export interface DshChannelsPluginOptions {
+export interface DshChannelTransportsPluginOptions {
   createTransport?: ChannelRegistryOptions["createTransport"];
   onMessage?: (message: IncomingMessage) => void;
   onInteraction?: ChannelRegistryOptions["onInteraction"];
@@ -67,9 +67,9 @@ export class ChannelsService {
   private generation?: ChannelGeneration;
   private nextGeneration = 1;
   private readonly ctx: Context;
-  private readonly options: DshChannelsPluginOptions;
+  private readonly options: DshChannelTransportsPluginOptions;
 
-  constructor(ctx: Context, options: DshChannelsPluginOptions) {
+  constructor(ctx: Context, options: DshChannelTransportsPluginOptions) {
     this.ctx = ctx;
     this.options = options;
   }
@@ -157,7 +157,7 @@ export class ChannelsService {
   }
 
   async start(config: Config): Promise<void> {
-    if (this.generation) throw new Error("dsh-channels service is already started");
+    if (this.generation) throw new Error("dsh-channel-transports service is already started");
     this.generation = await this.stage(config);
   }
 
@@ -226,13 +226,13 @@ export class ChannelsService {
   }
 
   private requireRegistry(): ChannelRegistry {
-    if (!this.generation) throw new Error("dsh-channels service is not active");
+    if (!this.generation) throw new Error("dsh-channel-transports service is not active");
     return this.generation.registry;
   }
 }
 
 export function createChannelsPlugin(
-  options: DshChannelsPluginOptions = {},
+  options: DshChannelTransportsPluginOptions = {},
 ): Plugin.Object<Config> {
   return {
     name,

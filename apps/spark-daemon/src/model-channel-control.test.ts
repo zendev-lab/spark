@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test, vi } from "vitest";
 
-import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channels";
+import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import type {
   SparkModelControlSnapshot,
   SparkModelRef,

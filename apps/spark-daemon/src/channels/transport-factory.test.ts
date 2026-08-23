@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
-import { FakeChannelTransport, type QqbotTransportOptions } from "@zendev-lab/dsh-channels";
+import {
+  FakeChannelTransport,
+  type QqbotTransportOptions,
+} from "@zendev-lab/dsh-channel-transports";
 import { describe, expect, it, vi } from "vitest";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { createDaemonChannelTransportFactory } from "./transport-factory.ts";

@@ -1,5 +1,8 @@
-import type { ChannelsConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
-import { startQqbotQrAuth, type QqbotQrCredentials } from "@zendev-lab/dsh-channels/qqbot-auth";
+import type { ChannelsConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channel-transports";
+import {
+  startQqbotQrAuth,
+  type QqbotQrCredentials,
+} from "@zendev-lab/dsh-channel-transports/qqbot-auth";
 import {
   createId,
   parseSparkQqbotQrAuthFlow,

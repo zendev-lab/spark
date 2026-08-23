@@ -9,7 +9,7 @@ import {
   ChannelRegistry,
   FakeChannelTransport,
   parseChannelsConfig,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 
 const roots: string[] = [];
 

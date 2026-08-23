@@ -464,7 +464,7 @@ export function createQqbotTransport(
     const attempt = reconnectAttempt;
     connectionState = "reconnecting";
     console.error(
-      `[dsh-channels] qqbot supervised reconnect scheduled attempt=${attempt} delayMs=${delay}`,
+      `[dsh-channel-transports] qqbot supervised reconnect scheduled attempt=${attempt} delayMs=${delay}`,
     );
     reconnectTimer = setTimeout(() => {
       void connect().catch((error) => {
@@ -472,7 +472,7 @@ export function createQqbotTransport(
         connectionState = "degraded";
         connectionError = sanitizeQqbotConnectionError(error, sensitiveLogValues());
         console.error(
-          `[dsh-channels] qqbot supervised reconnect failed attempt=${attempt}` +
+          `[dsh-channel-transports] qqbot supervised reconnect failed attempt=${attempt}` +
             ` error=${JSON.stringify(connectionError)}`,
         );
         scheduleReconnect();
@@ -522,7 +522,8 @@ export function createQqbotTransport(
           connectionState = "degraded";
           connectionError = sanitizeQqbotConnectionError(error, sensitiveLogValues());
           console.error(
-            `[dsh-channels] qqbot ${label} failed` + ` error=${JSON.stringify(connectionError)}`,
+            `[dsh-channel-transports] qqbot ${label} failed` +
+              ` error=${JSON.stringify(connectionError)}`,
           );
           const reconnectDirectly = readyConfirmed;
           cleanupSocket(error);
@@ -561,7 +562,7 @@ export function createQqbotTransport(
             connectionError = undefined;
             if (reconnectAttemptAtStart > 0) {
               console.error(
-                `[dsh-channels] qqbot supervised reconnect succeeded attempt=${reconnectAttemptAtStart}`,
+                `[dsh-channel-transports] qqbot supervised reconnect succeeded attempt=${reconnectAttemptAtStart}`,
               );
             }
             reconnectAttempt = 0;
@@ -576,7 +577,7 @@ export function createQqbotTransport(
             connectionError = undefined;
             if (reconnectAttemptAtStart > 0) {
               console.error(
-                `[dsh-channels] qqbot supervised reconnect succeeded attempt=${reconnectAttemptAtStart}`,
+                `[dsh-channel-transports] qqbot supervised reconnect succeeded attempt=${reconnectAttemptAtStart}`,
               );
             }
             reconnectAttempt = 0;
@@ -784,7 +785,7 @@ export function createQqbotTransport(
         connectionState = "degraded";
         connectionError = sanitizeQqbotConnectionError(error, sensitiveLogValues());
         console.error(
-          `[dsh-channels] qqbot initial connect failed` +
+          `[dsh-channel-transports] qqbot initial connect failed` +
             ` error=${JSON.stringify(connectionError)}`,
         );
         scheduleReconnect();
@@ -823,7 +824,7 @@ export async function materializeQqbotInboundImages(
   return await materializeChannelImages(sources, {
     fetchImpl,
     onError: (error) => {
-      console.error(`[dsh-channels] qqbot image skipped: ${error.message}`);
+      console.error(`[dsh-channel-transports] qqbot image skipped: ${error.message}`);
     },
   });
 }

@@ -228,7 +228,9 @@ export function createInfoflowTransport(
     }
     const callbackNormalized = normalizeInfoflowSdkEvent(event, { agentId: appAgentId });
     if (!callbackNormalized) {
-      console.error(`[dsh-channels] infoflow skipped sdk event type=${String(event.type ?? "")}`);
+      console.error(
+        `[dsh-channel-transports] infoflow skipped sdk event type=${String(event.type ?? "")}`,
+      );
       return;
     }
     let normalized = callbackNormalized;
@@ -255,14 +257,14 @@ export function createInfoflowTransport(
         }
       } catch (error) {
         console.error(
-          `[dsh-channels] infoflow message detail unavailable: ${
+          `[dsh-channel-transports] infoflow message detail unavailable: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
       }
     }
     console.error(
-      `[dsh-channels] infoflow inbound ${normalized.chat_type}` +
+      `[dsh-channel-transports] infoflow inbound ${normalized.chat_type}` +
         ` textChars=${normalized.text.length}` +
         (normalized.mentions?.length ? ` mentions=${JSON.stringify(normalized.mentions)}` : ""),
     );
@@ -287,7 +289,7 @@ export function createInfoflowTransport(
           }
         : {}),
       onError: (error) => {
-        console.error(`[dsh-channels] infoflow image skipped: ${error.message}`);
+        console.error(`[dsh-channel-transports] infoflow image skipped: ${error.message}`);
       },
     });
     onMessage?.({ ...normalized, ...(images.length ? { images } : {}) });
@@ -352,13 +354,13 @@ export function createInfoflowTransport(
           connectionState = state;
           connectionError = undefined;
           reconnectAttempt = 0;
-          console.error("[dsh-channels] infoflow supervised reconnect succeeded");
+          console.error("[dsh-channel-transports] infoflow supervised reconnect succeeded");
         })
         .catch((error: unknown) => {
           if (!running || client !== wsClient || generation !== connectionGeneration) return;
           connectionState = "degraded";
           connectionError = error instanceof Error ? error.message : String(error);
-          console.error("[dsh-channels] infoflow supervised reconnect failed", error);
+          console.error("[dsh-channel-transports] infoflow supervised reconnect failed", error);
           scheduleWrapperReconnect(generation);
         });
     }, delay);
@@ -402,7 +404,7 @@ export function createInfoflowTransport(
     try {
       wsClient?.disconnect();
     } catch (disconnectError) {
-      console.error("[dsh-channels] infoflow receipt disconnect failed", disconnectError);
+      console.error("[dsh-channel-transports] infoflow receipt disconnect failed", disconnectError);
     }
     scheduleWrapperReconnect(connectionGeneration);
   }
@@ -442,7 +444,7 @@ export function createInfoflowTransport(
       try {
         await handleTrackedSdkEvent(event);
       } catch (error) {
-        console.error("[dsh-channels] infoflow private handler failed", error);
+        console.error("[dsh-channel-transports] infoflow private handler failed", error);
         rejectDurableReceipt(error);
         throw error;
       }
@@ -452,7 +454,7 @@ export function createInfoflowTransport(
       try {
         await handleTrackedSdkEvent(event);
       } catch (error) {
-        console.error("[dsh-channels] infoflow group handler failed", error);
+        console.error("[dsh-channel-transports] infoflow group handler failed", error);
         rejectDurableReceipt(error);
         throw error;
       }
@@ -466,7 +468,7 @@ export function createInfoflowTransport(
           ? Object.keys(raw).slice(0, 12).join(",")
           : "";
       console.error(
-        `[dsh-channels] infoflow sdk event type=${scalarString(event.type)}` +
+        `[dsh-channel-transports] infoflow sdk event type=${scalarString(event.type)}` +
           ` chatType=${scalarString(data.chatType)} keys=${keys}`,
       );
     };
@@ -486,7 +488,7 @@ export function createInfoflowTransport(
         pongTimer = null;
         if (!isActiveClient()) return;
         const error = new Error(`infoflow websocket pong timed out after ${pongTimeoutMs}ms`);
-        console.error(`[dsh-channels] ${error.message}`);
+        console.error(`[dsh-channel-transports] ${error.message}`);
         rejectDurableReceipt(error);
       }, pongTimeoutMs);
       pongTimer.unref?.();
@@ -502,13 +504,13 @@ export function createInfoflowTransport(
       reconnectAttempt = 0;
       connectionState = "connected";
       connectionError = undefined;
-      console.error("[dsh-channels] infoflow websocket connected");
+      console.error("[dsh-channel-transports] infoflow websocket connected");
     };
     disconnectedHandler = () => {
       if (!isCurrentClient()) return;
       clearPongDeadline();
       connectionState = running ? "reconnecting" : "stopped";
-      console.error("[dsh-channels] infoflow websocket disconnected");
+      console.error("[dsh-channel-transports] infoflow websocket disconnected");
       if (!running) return;
       // The SDK dispatches this event synchronously before starting its own
       // reconnect loop. Marking the disconnect as manual here prevents that
@@ -516,7 +518,7 @@ export function createInfoflowTransport(
       try {
         client.disconnect();
       } catch (error) {
-        console.error("[dsh-channels] infoflow reconnect handoff failed", error);
+        console.error("[dsh-channel-transports] infoflow reconnect handoff failed", error);
       }
       scheduleWrapperReconnect(generation);
     };
@@ -524,7 +526,7 @@ export function createInfoflowTransport(
       if (!isActiveClient()) return;
       connectionState = "degraded";
       connectionError = infoflowEventError(event);
-      console.error("[dsh-channels] infoflow websocket error", event);
+      console.error("[dsh-channel-transports] infoflow websocket error", event);
     };
     wsClient.on("connected", connectedHandler);
     wsClient.on("disconnected", disconnectedHandler);
@@ -542,13 +544,13 @@ export function createInfoflowTransport(
           return;
         }
         connectionState = infoflowConnectionState(client.getState(), running);
-        console.error("[dsh-channels] infoflow websocket connect() resolved");
+        console.error("[dsh-channel-transports] infoflow websocket connect() resolved");
       })
       .catch((error: unknown) => {
         if (!running || generation !== connectionGeneration) return;
         connectionState = "degraded";
         connectionError = error instanceof Error ? error.message : String(error);
-        console.error("[dsh-channels] infoflow initial connect failed", error);
+        console.error("[dsh-channel-transports] infoflow initial connect failed", error);
         scheduleWrapperReconnect(generation);
       });
   }

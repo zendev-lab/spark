@@ -68,8 +68,8 @@ import {
   resolveInfoflowCustomSystemPrompt,
   type ChannelReplyStream,
   type ChannelReplyTarget,
-} from "@zendev-lab/dsh-channels";
-import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
+import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channel-transports";
 import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
 import { loadDaemonGlobalChannelsConfig } from "../channels/config-migration.ts";
 import type {

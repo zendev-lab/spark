@@ -1,5 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-lab/dsh-channels";
+import {
+  ChannelDeliveryError,
+  channelDeliveryFailureCertainty,
+} from "@zendev-lab/dsh-channel-transports";
 import {
   isSparkInvocationTerminalStatus,
   parseSparkSessionView,

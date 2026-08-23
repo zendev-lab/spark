@@ -186,7 +186,7 @@ lane Session.
 
 A message-platform Channel is daemon-global ingress and delivery bound to one
 daemon Channel Session. It is not a Session owner, executor, Task store, or
-scheduler. `@zendev-lab/dsh-channels` is the Cordis lifecycle plugin and typed
+scheduler. `@zendev-lab/dsh-channel-transports` is the Cordis lifecycle plugin and typed
 `ctx.channels` service; Spark Session Registry, Invocation, outbox, retry,
 human wait, and SQLite remain the only durable authorities.
 

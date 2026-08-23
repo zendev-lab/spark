@@ -7,7 +7,7 @@ import {
   channelAdapterAccountIdentity,
   parseChannelsConfig,
   type ChannelTransport,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import { parseSparkSessionState, type SparkSessionState } from "@zendev-lab/spark-protocol";
 import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
 import { afterEach, describe, expect, it, vi } from "vitest";
