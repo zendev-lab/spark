@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@zendev-lab/cue": "catalog:",
+    "@zendev-lab/dsh-cue": "workspace:^",
     "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-files": "workspace:^",

@@ -19,7 +19,7 @@ function send(socket: Socket, id: number, ok: unknown): void {
 }
 
 test("CueClient rejects a v3 Pong without required runtime identity", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-cue-instance-id-"));
+  const dir = await mkdtemp(join(tmpdir(), "dsh-cue-instance-id-"));
   const socketPath = join(dir, "cued.sock");
   const sockets = new Set<Socket>();
   const server = net.createServer((socket) => {

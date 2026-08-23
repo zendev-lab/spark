@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CueClient, CueError, CueTransportError } from "../index.ts";
+import { CueClient, CueError, CueTransportError, cueOperationId } from "../index.ts";
 import type { ExecutionInfo, ExecutionPlan, ExecutionSpec } from "../wire/types.ts";
 
 type Frame = Record<string, unknown>;
@@ -15,6 +15,12 @@ const cleanups: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map(async (cleanup) => cleanup()));
+});
+
+it("preserves persisted operation ids across the package rename", () => {
+  expect(cueOperationId({ sessionId: "session-a", toolCallId: "call-a", kind: "submit" })).toBe(
+    "spark-cue:v1:anDJIffvRiGgmO7V0oRTjY2VLbIpbhg9MfVlbbdm-ps",
+  );
 });
 
 function encode(message: unknown): Buffer {
@@ -73,7 +79,7 @@ async function startServer(
   handler: (message: Frame, socket: Socket) => void,
   options: { protocolVersion?: number; capabilities?: string[] } = {},
 ) {
-  const root = await mkdtemp(join(tmpdir(), "spark-cue-v3-"));
+  const root = await mkdtemp(join(tmpdir(), "dsh-cue-v3-"));
   const socketPath = join(root, "cued.sock");
   const sockets = new Set<Socket>();
   const requests: Frame[] = [];

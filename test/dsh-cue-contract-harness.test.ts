@@ -6,14 +6,14 @@ import { test } from "vitest";
 
 import {
   cueContractHarnessExitCode,
-  runSparkCueContractHarness,
-} from "../scripts/spark-cue-contract-harness.mts";
+  runDshCueContractHarness,
+} from "../scripts/dsh-cue-contract-harness.mts";
 
 test("cue contract harness reports a missing cued binary as a non-strict blocker", async () => {
-  const temp = await mkdtemp(join(tmpdir(), "spark-cue-contract-unit-"));
+  const temp = await mkdtemp(join(tmpdir(), "dsh-cue-contract-unit-"));
   const outputPath = join(temp, "report.json");
   try {
-    const report = await runSparkCueContractHarness({
+    const report = await runDshCueContractHarness({
       cuedBin: join(temp, "missing-cued"),
       outputPath,
       strict: false,

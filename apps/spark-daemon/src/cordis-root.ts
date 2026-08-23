@@ -28,6 +28,7 @@ import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { cueSkillsRoot } from "@zendev-lab/cue";
+import * as DshCueService from "@zendev-lab/dsh-cue/plugin";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
 import sparkSessionSubagentPlugin, {
@@ -210,6 +211,7 @@ async function mountSparkDshRuntime(
   await ctx.plugin(LlmRuntime);
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
+  await ctx.plugin(DshCueService);
   await ctx.plugin(SandboxPolicy, {
     mode: "danger-full-access",
     workspaceRoot: process.cwd(),

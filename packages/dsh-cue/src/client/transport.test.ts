@@ -126,7 +126,7 @@ test("resolveCueTransport times out hung resolver commands", async () => {
         await chmod(executable, 0o755);
       }),
     );
-    process.env.PI_CUE_RESOLVER_TIMEOUT_MS = "10";
+    process.env.DSH_CUE_RESOLVER_TIMEOUT_MS = "10";
     await assert.rejects(resolveCueTransport(), /timed out after 10ms/u);
   });
 });
@@ -134,20 +134,20 @@ test("resolveCueTransport times out hung resolver commands", async () => {
 async function withCommandFixture(
   run: (fixture: { root: string; log: string }) => Promise<void>,
 ): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "spark-cue-command-contract-"));
+  const root = await mkdtemp(join(tmpdir(), "dsh-cue-command-contract-"));
   const log = join(root, "commands.log");
   const previous = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     CARGO_HOME: process.env.CARGO_HOME,
     UV_TOOL_BIN_DIR: process.env.UV_TOOL_BIN_DIR,
-    PI_CUE_RESOLVER_TIMEOUT_MS: process.env.PI_CUE_RESOLVER_TIMEOUT_MS,
+    DSH_CUE_RESOLVER_TIMEOUT_MS: process.env.DSH_CUE_RESOLVER_TIMEOUT_MS,
   };
   process.env.PATH = root;
   process.env.HOME = root;
   process.env.CARGO_HOME = join(root, "cargo");
   process.env.UV_TOOL_BIN_DIR = root;
-  delete process.env.PI_CUE_RESOLVER_TIMEOUT_MS;
+  delete process.env.DSH_CUE_RESOLVER_TIMEOUT_MS;
   try {
     await run({ root, log });
   } finally {

@@ -4,7 +4,7 @@
  *
  * This file owns the *contract surface* exposed to extensions plus the minimum
  * internal plumbing needed to make the existing 5 retained extensions
- * (`spark`, `spark-cue`, `spark-graft`, `spark-roles`, `spark-ask`) load and run without
+ * (`spark`, `spark-graft`, `spark-roles`, `spark-ask`) load and run without
  * crashing. Wiring it into a real agent turn loop, model selector, session
  * store, and presentation is split into follow-up tasks
  * (`agent-turn-loop`, `model-selector-ui`, `session-format-and-store`,

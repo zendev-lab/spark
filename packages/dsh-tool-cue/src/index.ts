@@ -6,7 +6,6 @@ import {
   type ToolResult,
   type ValueSchemaSpec,
 } from "@deepseek-ai/dsh-tools";
-import z from "@deepseek-ai/schemastery";
 import {
   ESCALATION_TARGETS,
   approveEscalation,
@@ -18,14 +17,14 @@ import {
 } from "@deepseek-ai/dsh-sandbox";
 import {
   CUE_TOOL_NAMES,
-  createCueToolRuntime,
   type CueToolRuntime,
   type CueToolArgsMap,
   type CueToolName,
   type CueToolResultMap,
-} from "@zendev-lab/spark-cue/operations";
-import { resolveCueTransport } from "@zendev-lab/spark-cue";
-import type { CueResolvedTransport } from "@zendev-lab/spark-cue";
+} from "@zendev-lab/dsh-cue/operations";
+import { resolveCueTransport } from "@zendev-lab/dsh-cue";
+import type { CueResolvedTransport } from "@zendev-lab/dsh-cue";
+import type {} from "@zendev-lab/dsh-cue/plugin";
 import {
   startSpawnAdapterBroker,
   type SandboxSpawnFact,
@@ -39,24 +38,20 @@ import type {} from "@deepseek-ai/dsh-system-prompt";
 import type {} from "@deepseek-ai/dsh-user-approval";
 
 export const name = "dsh-tool-cue";
-export const inject = ["tools", "systemPrompt", "sandboxPolicy", "sandbox", "approval", "shellEnv"];
-
-export interface Config {
-  autoStartLocal?: boolean;
-  remoteCwd?: string;
-  forwardSensitiveEnv?: boolean;
-}
-
-export const Config = z.object({
-  autoStartLocal: z.boolean().default(true),
-  remoteCwd: z.string(),
-  forwardSensitiveEnv: z.boolean().default(false),
-}) as z<Config>;
+export const inject = [
+  "cue",
+  "tools",
+  "systemPrompt",
+  "sandboxPolicy",
+  "sandbox",
+  "approval",
+  "shellEnv",
+];
 
 /**
  * Shared "not bash" guidance appended to every cue-* tool description so the
  * LLM sees it before the first call. Keep this in one place; the DSH adapter
- * owns only the host ABI, spark-cue remains the semantic owner.
+ * owns only the host ABI; dsh-cue remains the semantic owner.
  */
 const CUE_BASH_NOTICE =
   "Cue is direct-exec (execvp), not bash — do not use raw '|', ';', '<', '>', '$()' or backticks. " +
@@ -715,13 +710,9 @@ export function registerCueToolDefinitions(
   for (const toolName of CUE_TOOL_NAMES) registerDefinition(ctx, runtime, toolName, brokerRegistry);
 }
 
-export function apply(ctx: Context, config: Config = {}): void {
+export function apply(ctx: Context): void {
   const brokerRegistry = createBrokerRegistry();
-  const runtime = createCueToolRuntime({
-    autoStartLocal: config.autoStartLocal ?? true,
-    remoteCwd: config.remoteCwd,
-    forwardSensitiveEnv: config.forwardSensitiveEnv ?? false,
-  });
+  const runtime = ctx.cue;
 
   ctx.tools.guard((exec) => {
     if (!(CUE_TOOL_NAMES as readonly string[]).includes(exec.name)) return undefined;
@@ -748,11 +739,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   });
   ctx.effect(
     () => () => {
-      runtime.dispose();
       void brokerRegistry.dispose().catch((error) => {
         console.error("[dsh-tool-cue] failed to dispose sandbox brokers", error);
       });
     },
-    "dsh-tool-cue runtime teardown",
+    "dsh-tool-cue sandbox teardown",
   );
 }

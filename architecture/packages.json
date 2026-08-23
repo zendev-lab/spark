@@ -98,18 +98,20 @@
       "stability": "supported",
       "stateWriter": "none"
     },
+    "@zendev-lab/dsh-cue": {
+      "path": "packages/dsh-cue",
+      "layer": "runtime",
+      "owner": "execution-adapters",
+      "stability": "supported",
+      "stateWriter": "external"
+    },
     "@zendev-lab/dsh-tool-cue": {
       "path": "packages/dsh-tool-cue",
       "layer": "adapter",
       "owner": "execution-adapters",
       "stability": "internal",
       "stateWriter": "none",
-      "distribution": "private",
-      "dshIndependenceException": {
-        "dependencies": ["@zendev-lab/spark-cue"],
-        "reason": "The existing Cue tool adapter still consumes the pre-Cordis Spark Cue execution kernel.",
-        "exitCondition": "Remove when the Cue execution kernel becomes the independent dsh-cue service."
-      }
+      "distribution": "private"
     },
     "@zendev-lab/spark-acp": {
       "path": "packages/spark-acp",
@@ -147,13 +149,6 @@
       "owner": "host-contract",
       "stability": "supported",
       "stateWriter": "none"
-    },
-    "@zendev-lab/spark-cue": {
-      "path": "packages/spark-cue",
-      "layer": "adapter",
-      "owner": "execution-adapters",
-      "stability": "supported",
-      "stateWriter": "external"
     },
     "@zendev-lab/spark-daemon": {
       "path": "apps/spark-daemon",

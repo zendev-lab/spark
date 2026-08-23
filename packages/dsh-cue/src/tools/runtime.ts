@@ -37,11 +37,6 @@ interface CueClientRegistryEntry {
 
 const clientRegistry = new Map<string, CueClientRegistryEntry>();
 
-export function __resetSparkCueClientForTests(): void {
-  for (const entry of clientRegistry.values()) closeClientRegistryEntry(entry);
-  clientRegistry.clear();
-}
-
 function closeClientRegistryEntry(entry: CueClientRegistryEntry): void {
   if (clientRegistry.get(entry.key) === entry) clientRegistry.delete(entry.key);
   if (entry.client) {
@@ -167,8 +162,8 @@ export async function getClient(
       ? (() => {
           const remoteCwd =
             ctx?.cueRemoteCwd?.trim() ||
-            ctx?.env?.SPARK_CUE_REMOTE_CWD?.trim() ||
-            process.env.SPARK_CUE_REMOTE_CWD?.trim();
+            ctx?.env?.DSH_CUE_REMOTE_CWD?.trim() ||
+            process.env.DSH_CUE_REMOTE_CWD?.trim();
           if (!remoteCwd) {
             throw new Error(
               `cue profile \`${transport.profile_name}\` uses SSH; provide an explicit remote cwd instead of reusing the local session cwd.`,

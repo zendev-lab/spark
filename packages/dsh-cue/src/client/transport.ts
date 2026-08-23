@@ -21,7 +21,10 @@ export function defaultSocketPath(): string {
 }
 
 export async function resolveCueTransport(): Promise<CueResolvedTransport> {
-  const timeoutMs = timeoutMsFromEnv("PI_CUE_RESOLVER_TIMEOUT_MS", DEFAULT_CUE_RESOLVER_TIMEOUT_MS);
+  const timeoutMs = timeoutMsFromEnv(
+    "DSH_CUE_RESOLVER_TIMEOUT_MS",
+    DEFAULT_CUE_RESOLVER_TIMEOUT_MS,
+  );
   const contract = await requireCueCommandContract({ timeoutMs });
   const command = contract.client.command;
   const args = [...contract.client.args, "target", "resolve", "--json"];
@@ -48,7 +51,7 @@ function runResolverAttempt(attempt: { command: string; args: string[] }): Promi
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     const timeoutMs = timeoutMsFromEnv(
-      "PI_CUE_RESOLVER_TIMEOUT_MS",
+      "DSH_CUE_RESOLVER_TIMEOUT_MS",
       DEFAULT_CUE_RESOLVER_TIMEOUT_MS,
     );
     let settled = false;

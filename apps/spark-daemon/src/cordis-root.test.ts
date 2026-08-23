@@ -96,6 +96,7 @@ describe("spark daemon Cordis root", () => {
       expect(root.ctx.llm).toBeDefined();
       expect(root.ctx.systemPrompt).toBeDefined();
       expect(root.ctx.tools).toBeDefined();
+      expect(root.ctx.cue).toBeDefined();
       expect(root.ctx.skills).toBeDefined();
       expect(root.ctx.tools.get("skill")).toMatchObject({
         sparkPolicy: {
@@ -122,6 +123,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.get("llm")).toBeUndefined();
     expect(root.ctx.get("systemPrompt")).toBeUndefined();
     expect(root.ctx.get("tools")).toBeUndefined();
+    expect(root.ctx.get("cue")).toBeUndefined();
     expect(root.ctx.get("skills")).toBeUndefined();
     expect(root.ctx.get("agents")).toBeUndefined();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
@@ -138,6 +140,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.llm).toBeDefined();
     expect(root.ctx.systemPrompt).toBeDefined();
     expect(root.ctx.tools).toBeDefined();
+    expect(root.ctx.cue).toBeDefined();
     expect(root.ctx.skills).toBeDefined();
     expect(root.ctx.agents).toBeDefined();
     expect(root.ctx.agentLoop).toBeDefined();
@@ -146,6 +149,7 @@ describe("spark daemon Cordis root", () => {
 
     await root.dispose();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
+    expect(root.ctx.get("cue")).toBeUndefined();
   });
 
   it("mounts the verified Cue Skill through the daemon-owned DSH provider", async () => {

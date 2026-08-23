@@ -282,7 +282,7 @@ async function syncGoalInteractiveToolAvailability(
   if (activeAutonomous) {
     // Snapshot the currently *active* tools, not every registered tool. Using
     // getAllTools() here would re-activate tools that other extensions disabled
-    // on purpose (e.g. spark-cue removes `bash` at session start), silently
+    // on purpose, silently
     // re-enabling them for the rest of the session when the goal toggles.
     const baseline = baselines.get(key) ?? pi.getActiveTools();
     baselines.set(key, baseline);

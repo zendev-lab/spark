@@ -29,7 +29,7 @@ describe("managed Cue-first presets", () => {
   });
 
   it("rejects invalid package metadata without duplicating the supported release", () => {
-    const packageDir = mkdtempSync(join(tmpdir(), "spark-cue-dsh-version-"));
+    const packageDir = mkdtempSync(join(tmpdir(), "dsh-cue-dsh-version-"));
     try {
       writeFileSync(
         join(packageDir, "package.json"),
@@ -61,7 +61,7 @@ describe("managed Cue-first presets", () => {
   });
 
   it("installs deterministic presets, is idempotent, and removes DSH execution tools", () => {
-    const home = mkdtempSync(join(tmpdir(), "spark-cue-presets-"));
+    const home = mkdtempSync(join(tmpdir(), "dsh-cue-presets-"));
     const options = {
       toolFsPluginSpecifier: "../../profiles/web/plugins/spark-files/index.mjs",
     };
@@ -109,8 +109,8 @@ describe("managed Cue-first presets", () => {
   });
 
   it("refuses unmarked and user-modified preset directories", () => {
-    const unmarked = mkdtempSync(join(tmpdir(), "spark-cue-unmarked-"));
-    const modified = mkdtempSync(join(tmpdir(), "spark-cue-modified-"));
+    const unmarked = mkdtempSync(join(tmpdir(), "dsh-cue-unmarked-"));
+    const modified = mkdtempSync(join(tmpdir(), "dsh-cue-modified-"));
     try {
       mkdirSync(join(unmarked, ".agent-presets", "spark-standard"), { recursive: true });
       expect(() => installManagedCuePresets(unmarked, dshPackageDir, skillDir)).toThrow(
@@ -153,7 +153,7 @@ describe("managed Cue-first presets", () => {
   });
 
   it("safely adopts unmodified presets from the former adapter owner", () => {
-    const home = mkdtempSync(join(tmpdir(), "spark-cue-legacy-presets-"));
+    const home = mkdtempSync(join(tmpdir(), "dsh-cue-legacy-presets-"));
     try {
       const installed = installManagedCuePresets(home, dshPackageDir, skillDir);
       for (const preset of installed) {

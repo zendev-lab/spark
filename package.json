@@ -76,11 +76,11 @@
   },
   "dependencies": {
     "@zendev-lab/dsh-channel-transports": "workspace:^",
+    "@zendev-lab/dsh-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-cue": "workspace:^",
     "@zendev-lab/spark-deployment": "workspace:^",
     "@zendev-lab/spark-driver": "workspace:^",
     "@zendev-lab/spark-files": "workspace:^",

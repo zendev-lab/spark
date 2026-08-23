@@ -7281,7 +7281,7 @@ test("active session goal preserves tools disabled by other extensions", async (
     const run = registerSparkToolsForTest();
     await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Preserve disabled" });
 
-    // Simulate another extension (spark-cue) that registers `bash` and then
+    // Simulate another extension that registers `bash` and then
     // deactivates it at session start, leaving it registered-but-inactive.
     run.registerActiveTool("bash");
     run.setActiveTools(run.getActiveToolNames().filter((name) => name !== "bash"));
@@ -11751,7 +11751,7 @@ function registerSparkToolsForTest(
     eventHandlers,
     getActiveToolNames: () => [...activeToolNames],
     // Register a no-op tool and mark it active, simulating a tool contributed
-    // by another extension (e.g. spark-cue's `bash`) so tests can verify Spark
+    // by another extension so tests can verify Spark
     // goal toggling never silently re-activates externally disabled tools.
     registerActiveTool: (name: string) => {
       tools.set(name, {

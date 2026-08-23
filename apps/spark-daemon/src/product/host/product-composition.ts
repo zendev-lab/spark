@@ -9,7 +9,7 @@ import * as dshCuePlugin from "@zendev-lab/dsh-tool-cue";
 import * as dshFusionPlugin from "@zendev-lab/dsh-tool-fusion";
 import sparkAskCapability, { type SparkAskDaemonRequest } from "@zendev-lab/spark-ask/extension";
 import sparkArtifactsCapability from "@zendev-lab/spark-artifacts/extension";
-import { CUE_TOOL_NAMES, type CueToolName } from "@zendev-lab/spark-cue/operations";
+import { CUE_TOOL_NAMES, type CueToolName } from "@zendev-lab/dsh-cue/operations";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesCapability from "@zendev-lab/spark-files/extension";
 import sparkModelsCapability from "@zendev-lab/spark-llm-providers/models-extension";
@@ -94,7 +94,7 @@ const SPARK_CUE_POLICIES: Readonly<Record<CueToolName, SparkDshToolPolicyMetadat
   cue_history: withDshReconciliation(SPARK_CUE_HISTORY_POLICY),
 };
 
-const SPARK_CUE_PLUGIN: Plugin = {
+const SPARK_CUE_TOOL_PLUGIN: Plugin = {
   name: dshCuePlugin.name,
   inject: dshCuePlugin.inject,
   apply(ctx: Context) {
@@ -203,7 +203,7 @@ export function loadSparkProductCapabilities(): SparkProductCapability[] {
 }
 
 export function loadSparkProductAgentPlugins(): Plugin[] {
-  return [SPARK_CUE_PLUGIN, SPARK_FUSION_PLUGIN];
+  return [SPARK_CUE_TOOL_PLUGIN, SPARK_FUSION_PLUGIN];
 }
 
 export interface SparkProductDshToolSurface {

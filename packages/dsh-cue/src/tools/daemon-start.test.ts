@@ -6,7 +6,7 @@ import { test } from "vitest";
 
 import { autoStartDaemon } from "./daemon-start.ts";
 
-const SOCKET = "/tmp/spark-cue-selected.sock";
+const SOCKET = "/tmp/dsh-cue-selected.sock";
 
 const cases = {
   aggregate: {
@@ -72,7 +72,7 @@ test("aggregate daemon business failure never falls back to cued", async () => {
 
     await assert.rejects(
       autoStartDaemon(SOCKET),
-      /cue daemon start --socket \/tmp\/spark-cue-selected\.sock exited with code 42.*socket configuration rejected/su,
+      /cue daemon start --socket \/tmp\/dsh-cue-selected\.sock exited with code 42.*socket configuration rejected/su,
     );
     const commands = await commandLog(log);
     assert.deepEqual(commands, [
@@ -102,20 +102,20 @@ function assertNoLifecycleMutation(commands: string[]): void {
 async function withDaemonFixture(
   run: (fixture: { root: string; log: string }) => Promise<void>,
 ): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "spark-cue-daemon-start-"));
+  const root = await mkdtemp(join(tmpdir(), "dsh-cue-daemon-start-"));
   const log = join(root, "commands.log");
   const previous = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     CARGO_HOME: process.env.CARGO_HOME,
     UV_TOOL_BIN_DIR: process.env.UV_TOOL_BIN_DIR,
-    PI_CUE_AUTOSTART_TIMEOUT_MS: process.env.PI_CUE_AUTOSTART_TIMEOUT_MS,
+    DSH_CUE_AUTOSTART_TIMEOUT_MS: process.env.DSH_CUE_AUTOSTART_TIMEOUT_MS,
   };
   process.env.PATH = root;
   process.env.HOME = root;
   process.env.CARGO_HOME = join(root, "cargo");
   process.env.UV_TOOL_BIN_DIR = root;
-  process.env.PI_CUE_AUTOSTART_TIMEOUT_MS = "2000";
+  process.env.DSH_CUE_AUTOSTART_TIMEOUT_MS = "2000";
   try {
     await run({ root, log });
   } finally {

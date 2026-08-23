@@ -124,7 +124,7 @@ test("renderCueScriptResult summarizes a successful execution with no output", (
   assert.match(rendered, /Execution E2 completed with no output/);
 });
 
-test("spark-cue numeric and boolean normalizers reject invalid explicit values", () => {
+test("dsh-cue numeric and boolean normalizers reject invalid explicit values", () => {
   assert.equal(normalizeCueTailBytes(undefined, 128), 128);
   assert.equal(normalizeCueTailBytes(4096), 4096);
   assert.throws(() => normalizeCueTailBytes("4096"), /tail_bytes must be a finite number/);
@@ -180,7 +180,7 @@ test("resolveCueWorkingDirectory anchors explicit relative cwd to the Pi context
   );
 });
 
-test("spark-cue tools validate bad parameters before connecting to cued", async () => {
+test("dsh-cue tools validate bad parameters before connecting to cued", async () => {
   const tools = registerCueToolsForTest();
   const execTool = tools.get("cue_exec");
   const runTool = tools.get("cue_run");
@@ -248,9 +248,9 @@ test("spark-cue tools validate bad parameters before connecting to cued", async 
         { path: "notes.txt" },
         new AbortController().signal,
         () => undefined,
-        { cwd: "/tmp/spark-cue-test" },
+        { cwd: "/tmp/dsh-cue-test" },
       ),
-    /cue_run path must end in \.cue \(got \/tmp\/spark-cue-test\/notes\.txt\)/,
+    /cue_run path must end in \.cue \(got \/tmp\/dsh-cue-test\/notes\.txt\)/,
   );
 
   await assert.rejects(
@@ -260,9 +260,9 @@ test("spark-cue tools validate bad parameters before connecting to cued", async 
         { path: "missing.cue" },
         new AbortController().signal,
         () => undefined,
-        { cwd: "/tmp/spark-cue-test" },
+        { cwd: "/tmp/dsh-cue-test" },
       ),
-    /cue_run failed to read \/tmp\/spark-cue-test\/missing\.cue:/,
+    /cue_run failed to read \/tmp\/dsh-cue-test\/missing\.cue:/,
   );
 
   await assert.rejects(
@@ -494,7 +494,7 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
   const evalTool = tools.get("script_eval");
   assert.ok(runTool);
   assert.ok(evalTool);
-  const dir = await mkdtemp(join(tmpdir(), "spark-cue-script-scope-"));
+  const dir = await mkdtemp(join(tmpdir(), "dsh-cue-script-scope-"));
   const scriptPath = join(dir, "build.cue");
   await writeFile(scriptPath, "msg\n", "utf8");
   const calls: Array<{ path: string; input: string; scope?: string }> = [];

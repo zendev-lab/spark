@@ -62,7 +62,7 @@ test("Spark product policy canonical facade tools render parameter-aware tool ca
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-spark.txt"));
   assert.equal(tools.has("patch"), false, "patch workflows are owned by spark-graft");
-  assert.equal(tools.has("cue_exec"), false, "spark-cue is registered as its own extension");
+  assert.equal(tools.has("cue_exec"), false, "Cue tools are registered through DSH plugins");
   assert.deepEqual(
     [...tools.keys()].filter((name) => name.startsWith("spark_")),
     [],

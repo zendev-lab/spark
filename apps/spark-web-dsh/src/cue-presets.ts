@@ -11,9 +11,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-export const SPARK_CUE_PRESETS = ["spark-standard", "spark-code"] as const;
+export const MANAGED_CUE_PRESETS = ["spark-standard", "spark-code"] as const;
 
-type SparkCuePreset = (typeof SPARK_CUE_PRESETS)[number];
+type ManagedCuePreset = (typeof MANAGED_CUE_PRESETS)[number];
 type UpstreamPreset = "standard" | "code";
 
 const UPSTREAM_FILES = {
@@ -35,7 +35,7 @@ interface ManagedMarker {
 }
 
 export interface ManagedPresetResult {
-  id: SparkCuePreset;
+  id: ManagedCuePreset;
   path: string;
   updated: boolean;
   contentDigest: string;
@@ -162,7 +162,7 @@ export function mapSubagentDelegationToOneShot(source: string): string {
     );
 }
 
-function managedMetadata(source: string, id: SparkCuePreset): string {
+function managedMetadata(source: string, id: ManagedCuePreset): string {
   const mode = id === "spark-standard" ? "标准" : "PTC";
   const description =
     id === "spark-standard"
@@ -175,7 +175,7 @@ function managedMetadata(source: string, id: SparkCuePreset): string {
 
 function generatePreset(
   upstream: Record<keyof typeof UPSTREAM_FILES, string>,
-  id: SparkCuePreset,
+  id: ManagedCuePreset,
   skillDir: string,
   options: ManagedCuePresetOptions,
 ): Record<"agent.cordis.yml" | "preset.yml", string> {
@@ -269,7 +269,7 @@ function assertManagedTargetSafe(target: string): ManagedMarker | undefined {
 
 function installOne(
   root: string,
-  id: SparkCuePreset,
+  id: ManagedCuePreset,
   files: Record<"agent.cordis.yml" | "preset.yml", string>,
   dshVersion: string,
   sourceDigest: string,
@@ -332,7 +332,7 @@ export function installManagedCuePresets(
   }
   const upstream = readVerifiedUpstream(dshPackageDir);
   const sourceDigest = digestFiles(upstream);
-  const generated = SPARK_CUE_PRESETS.map((id) => ({
+  const generated = MANAGED_CUE_PRESETS.map((id) => ({
     id,
     files: generatePreset(upstream, id, skillDir, options),
   }));
