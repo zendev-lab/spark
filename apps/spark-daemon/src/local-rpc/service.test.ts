@@ -789,6 +789,45 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
+  it("manages daemon-user access tokens through create/list/revoke/verify", async () => {
+    const { paths, db } = createFixture();
+    const created = await invokeLocalRpcService(
+      "daemon.access.create",
+      { label: "laptop" },
+      { paths, db },
+    );
+    expect(created.token).toMatch(/^sdu_[A-Za-z0-9_-]{32}$/u);
+    expect(created.record.label).toBe("laptop");
+
+    const listed = await invokeLocalRpcService("daemon.access.list", {}, { paths, db });
+    expect(listed.tokens.map((token) => token.id)).toEqual([created.record.id]);
+    expect(JSON.stringify(listed)).not.toContain(created.token);
+
+    const valid = await invokeLocalRpcService(
+      "daemon.access.verify",
+      { token: created.token },
+      { paths, db },
+    );
+    expect(valid).toEqual({ valid: true });
+    expect(
+      await invokeLocalRpcService("daemon.access.verify", { token: "sdu_nope" }, { paths, db }),
+    ).toEqual({ valid: false });
+
+    const revoked = await invokeLocalRpcService(
+      "daemon.access.revoke",
+      { id: created.record.id },
+      { paths, db },
+    );
+    expect(revoked).toEqual({ id: created.record.id, revoked: true });
+    expect(
+      await invokeLocalRpcService("daemon.access.revoke", { id: created.record.id }, { paths, db }),
+    ).toEqual({ id: created.record.id, revoked: true });
+    expect(
+      await invokeLocalRpcService("daemon.access.verify", { token: created.token }, { paths, db }),
+    ).toEqual({ valid: false });
+    db.close();
+  });
+
   it("exhaustively groups methods behind their protocol output parser", () => {
     const groupedMethods = Object.values(localRpcServiceHandlerMethodGroups).flat();
     const catalogMethods = Object.keys(sparkLocalRpcProcedureSchemas) as SparkLocalRpcMethod[];

@@ -1,30 +1,43 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 
 import { isSparkWebLoopbackHost, normalizeSparkWebTrustedHost } from "./bind.ts";
 
 export const SPARK_WEB_TOKEN_COOKIE = "spark_web_token";
 export const SPARK_WEB_TOKEN_QUERY = "token";
-export const SPARK_WEB_TOKEN_ENV = "SPARK_WEB_TOKEN";
 export const SPARK_WEB_TOKEN_HEADER = "x-spark-web-token";
 export const SPARK_WEB_BIND_HOST_ENV = "SPARK_WEB_BIND_HOST";
 export const SPARK_WEB_BIND_PORT_ENV = "SPARK_WEB_BIND_PORT";
 export const SPARK_WEB_TRUSTED_HOSTS_ENV = "SPARK_WEB_TRUSTED_HOSTS";
 
-export function generateSparkWebToken(): string {
-  return randomBytes(24).toString("base64url");
+/**
+ * Spark Web is an authentication adapter, not a token owner. The daemon owns
+ * the `daemon-user` token family (hashed storage, expiry, revocation); this
+ * surface only presents a token and asks the daemon to verify it. Loopback
+ * listeners are tokenless; every non-loopback listener requires a valid
+ * daemon-user token and fails closed when the daemon is unavailable.
+ */
+export type SparkWebTokenVerification = "valid" | "invalid" | "unavailable";
+
+export type SparkWebTokenVerifier = (token: string) => Promise<SparkWebTokenVerification>;
+
+async function verifySparkWebTokenWithDaemon(token: string): Promise<SparkWebTokenVerification> {
+  try {
+    const result = await requestSparkDaemon("daemon.access.verify", { token });
+    return result.valid ? "valid" : "invalid";
+  } catch {
+    return "unavailable";
+  }
 }
 
-export function resolveSparkWebToken(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env[SPARK_WEB_TOKEN_ENV]?.trim();
-  return configured && configured.length > 0 ? configured : generateSparkWebToken();
+let sparkWebTokenVerifier: SparkWebTokenVerifier = verifySparkWebTokenWithDaemon;
+
+/** Test seam for the server hooks; production keeps the daemon verifier. */
+export function setSparkWebTokenVerifier(verifier?: SparkWebTokenVerifier): void {
+  sparkWebTokenVerifier = verifier ?? verifySparkWebTokenWithDaemon;
 }
 
-export function tokensMatch(expected: string, provided: string | null | undefined): boolean {
-  if (!provided) return false;
-  const left = Buffer.from(expected);
-  const right = Buffer.from(provided);
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
+export function verifySparkWebAccessToken(token: string): Promise<SparkWebTokenVerification> {
+  return sparkWebTokenVerifier(token);
 }
 
 export function tokenFromRequest(input: {
@@ -72,6 +85,11 @@ export function resolveSparkWebRequestTrust(
     .filter(Boolean)
     .map(normalizeSparkWebTrustedHost);
   return { bindHost, bindPort, trustedHosts };
+}
+
+/** Loopback listeners (IPv4 127/8, ::1, localhost) are tokenless. */
+export function isSparkWebTokenRequired(trust: SparkWebRequestTrust): boolean {
+  return !isSparkWebLoopbackHost(trust.bindHost);
 }
 
 export function sparkWebRequestTrustError(input: {

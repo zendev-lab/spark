@@ -21,7 +21,8 @@ type ControlCommand =
   | "channels"
   | "run"
   | "runs"
-  | "events";
+  | "events"
+  | "access";
 
 interface ParsedArgs {
   positionals: string[];
@@ -40,7 +41,8 @@ export function isSparkDaemonControlCommand(
     command === "channels" ||
     command === "run" ||
     command === "runs" ||
-    command === "events"
+    command === "events" ||
+    command === "access"
   );
 }
 
@@ -67,6 +69,8 @@ export async function runSparkDaemonControlCommand(
       return await runCommand(paths, parsed, io);
     case "events":
       return eventsCommand(parsed, io);
+    case "access":
+      return await accessCommand(paths, parsed, io);
   }
 }
 
@@ -384,6 +388,77 @@ function eventsCommand(parsed: ParsedArgs, io: CliIo): number {
     text: "Use spark daemon invocation stream <invocation-id> for durable event streams.\n",
   };
   return writeResult(io, result, flag(parsed, "json"));
+}
+
+/**
+ * Manage the daemon-owned `daemon-user` tokens that authenticate direct
+ * browser surfaces on non-loopback listeners. Plaintext appears once at
+ * creation; the daemon persists only hashes.
+ */
+async function accessCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo): Promise<number> {
+  const [action = "list", tokenId] = parsed.positionals;
+  if (action === "create") {
+    const label = option(parsed, "label");
+    const expiresAt = option(parsed, "expires-at");
+    const result = await localRpcRequest(paths, "daemon.access.create", {
+      ...(label ? { label } : {}),
+      ...(expiresAt ? { expiresAt: isoAccessDate(expiresAt) } : {}),
+    });
+    if (flag(parsed, "json")) return writeJson(io, result);
+    io.stdout.write(
+      `token:   ${result.token}\n` +
+        `id:      ${result.record.id}\n` +
+        `created: ${result.record.createdAt}\n` +
+        (result.record.expiresAt ? `expires: ${result.record.expiresAt}\n` : "") +
+        (result.record.label ? `label:   ${result.record.label}\n` : "") +
+        "Store the token now; Spark never prints it again.\n",
+    );
+    return 0;
+  }
+  if (action === "list") {
+    const result = await localRpcRequest(paths, "daemon.access.list", {});
+    if (flag(parsed, "json")) return writeJson(io, result);
+    if (result.tokens.length === 0) {
+      io.stdout.write("No daemon access tokens.\n");
+      return 0;
+    }
+    const lines = result.tokens.map((token) =>
+      [
+        padColumn(truncateColumn(token.id, 38), 40),
+        padColumn(token.revokedAt ? "revoked" : tokenState(token.expiresAt), 9),
+        padColumn(truncateColumn(token.label ?? "-", 24), 26),
+        shortTimestamp(token.createdAt),
+      ].join(""),
+    );
+    lines.push(`${result.tokens.length} token(s)`);
+    io.stdout.write(`${lines.join("\n")}\n`);
+    return 0;
+  }
+  if (action === "revoke") {
+    const id = option(parsed, "token") ?? tokenId;
+    if (!id) throw new Error("spark daemon access revoke requires <token-id>");
+    const result = await localRpcRequest(paths, "daemon.access.revoke", { id });
+    if (flag(parsed, "json")) return writeJson(io, result);
+    io.stdout.write(
+      result.revoked
+        ? `revoked daemon access token ${result.id}\n`
+        : `no daemon access token ${result.id}\n`,
+    );
+    return 0;
+  }
+  throw new Error(`unknown spark daemon access command: ${action}`);
+}
+
+function tokenState(expiresAt: string | undefined): string {
+  if (expiresAt && Date.parse(expiresAt) <= Date.now()) return "expired";
+  return "active";
+}
+
+function isoAccessDate(value: string): string {
+  if (!Number.isFinite(Date.parse(value))) {
+    throw new Error("spark daemon access create --expires-at must be an ISO date-time");
+  }
+  return new Date(value).toISOString();
 }
 
 function parseArgs(argv: string[]): ParsedArgs {

@@ -6,7 +6,6 @@ import {
   isSparkWebReadOnlyShareRequest,
   sparkWebRequestTrustError,
   sparkWebShareRequestTrustError,
-  tokensMatch,
   tokenFromRequest,
 } from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
@@ -136,12 +135,11 @@ test("cross-site document navigation is allowed only for read-only share URLs", 
   );
 });
 
-test("token comparison rejects missing and mismatched values", () => {
-  assert.equal(tokensMatch("abc", "abc"), true);
-  assert.equal(tokensMatch("abc", "abd"), false);
-  assert.equal(tokensMatch("abc", null), false);
+test("token carriers prefer query, then header, then cookie", () => {
   assert.equal(tokenFromRequest({ query: "q", cookie: "c" }), "q");
+  assert.equal(tokenFromRequest({ header: "h", cookie: "c" }), "h");
   assert.equal(tokenFromRequest({ cookie: "c" }), "c");
+  assert.equal(tokenFromRequest({}), null);
 });
 
 test("RPC allowlist forwards known methods and rejects unknown ones", async () => {

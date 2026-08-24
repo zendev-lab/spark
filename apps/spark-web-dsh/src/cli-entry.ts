@@ -19,9 +19,11 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
 Usage:
   spark-web-dsh [--host <host>] [--port <port>] [--trusted-host <host>] [args...]
 
-The DSH profile must already exist. Explicit non-loopback binds expose the
-Harness agent surface to that network and should be used only on trusted hosts.
-The server prints its URL without opening a browser.
+The DSH profile must already exist. Loopback binds are tokenless. An explicit
+non-loopback --host exposes only an authenticated proxy: every request needs a
+daemon access token (spark daemon access create) verified by the local daemon,
+and the DSH server itself stays on loopback. Use non-loopback binds only on
+trusted hosts. The server prints its URL without opening a browser.
 `);
     return 0;
   }

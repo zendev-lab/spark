@@ -66,11 +66,11 @@ spark hub --help
 ## Local web workbench
 
 `spark web` starts the local browser workbench for every workspace bound to the
-same daemon. It binds loopback by default, requires a one-shot token, and talks
-to the Spark daemon through `spark-daemon-client`. A non-loopback `--host`
-requires a repeatable `--trusted-host`; the server rejects untrusted Host,
-Origin, Fetch Metadata, token, and cross-site mutation provenance. Hub remains
-the multi-daemon proxy and management UI.
+same daemon. It binds loopback by default and talks to the Spark daemon through
+`spark-daemon-client`. Loopback listeners are tokenless; a non-loopback
+`--host` requires a repeatable `--trusted-host` and a daemon access token. The
+server rejects untrusted Host, Origin, Fetch Metadata, and cross-site mutation
+provenance on every bind. Hub remains the multi-daemon proxy and management UI.
 
 ```bash
 spark web
@@ -78,11 +78,27 @@ spark web --port 4310
 spark web --host 0.0.0.0 --trusted-host spark.lan
 ```
 
-The command prints the tokenized workbench URL without opening a browser.
+The command prints the workbench URL without opening a browser.
+
+Daemon access tokens are owned by the daemon, which stores only hashes. Create
+a token (the plaintext prints exactly once), list the metadata, or revoke:
+
+```text
+spark daemon access create [--label <note>] [--expires-at <iso>] [--json]
+spark daemon access list [--json]
+spark daemon access revoke <token-id> [--json]
+```
+
+Pass the token as `?token=…` on first navigation (it is promoted to an
+HttpOnly cookie), the `x-spark-web-token` header, or the cookie directly.
+Missing, wrong, expired, and revoked tokens are rejected identically, and a
+non-loopback listener fails closed while the daemon is unreachable.
 
 The additional `spark web-dsh` command starts the separately packaged
 DSH-hosted Spark product app without changing `spark web`. It remains available
-until the native Spark Web replacement gate has passed:
+until the native Spark Web replacement gate has passed. Loopback binds are
+tokenless; a non-loopback bind exposes only an authenticated proxy in front of
+the loopback-pinned DSH server and requires the same daemon access tokens:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888

@@ -10,12 +10,21 @@ spark web
 ```
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
-and prints a one-shot token URL such as `http://127.0.0.1:4310/?token=...`
-without opening a browser.
-An explicit non-loopback `--host` requires at least one `--trusted-host`. The
-server then validates Host, Origin/Fetch Metadata, mutation provenance, and the
-token; this remains a trusted single-user LAN surface rather than a public
-multi-user control plane.
+and prints the workbench URL such as `http://127.0.0.1:4310/` without opening
+a browser. Loopback listeners are tokenless.
+An explicit non-loopback `--host` requires at least one `--trusted-host` and a
+daemon access token. The server validates Host, Origin/Fetch Metadata, and
+mutation provenance on every bind; this remains a trusted single-user LAN
+surface rather than a public multi-user control plane.
+
+Daemon access tokens are owned by the daemon, which stores only hashes and
+verifies every presented token. Mint one with `spark daemon access create`
+(the plaintext prints exactly once), review them with
+`spark daemon access list`, and revoke with `spark daemon access revoke`.
+Open the printed URL with `?token=…` appended on a non-loopback listener; the
+token is promoted to an HttpOnly cookie on first navigation. Missing, wrong,
+expired, and revoked tokens are rejected identically, and a non-loopback
+listener fails closed while the daemon is unreachable.
 
 Use `--host`, repeatable `--trusted-host`, and `--port` when you need to change
 the bind:
@@ -64,6 +73,11 @@ the server URL without opening a browser:
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
+
+Loopback binds are tokenless. A non-loopback bind never exposes the DSH server
+directly: it stays pinned to loopback behind Spark's authenticated proxy, which
+requires the same daemon access tokens as `spark web` and fails closed while
+the daemon is unreachable.
 
 The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
 `cue` Skill in the DSH Skill catalog. It handles

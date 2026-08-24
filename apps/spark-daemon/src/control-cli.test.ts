@@ -316,3 +316,81 @@ it("configures daemon-global Channels from an explicit JSON file", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("creates daemon-user access tokens and prints the plaintext exactly once", async () => {
+  rpc.mockResolvedValue({
+    token: "sdu_abcdefghijklmnopqrstuvwxyz123456",
+    record: {
+      id: "dut_0123456789abcdef0123456789abcdef",
+      label: "laptop",
+      createdAt: "2026-08-24T00:00:00.000Z",
+    },
+  });
+  const capture = outputCapture();
+
+  await expect(
+    runSparkDaemonControlCommand(
+      paths,
+      "access",
+      ["create", "--label", "laptop", "--expires-at", "2030-01-01T00:00:00Z"],
+      capture.io,
+    ),
+  ).resolves.toBe(0);
+
+  expect(rpc).toHaveBeenCalledWith(paths, "daemon.access.create", {
+    label: "laptop",
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  });
+  expect(capture.stdout()).toContain("sdu_abcdefghijklmnopqrstuvwxyz123456");
+  expect(capture.stdout()).toContain("never prints it again");
+});
+
+it("lists and revokes daemon-user access tokens", async () => {
+  rpc.mockResolvedValueOnce({
+    tokens: [
+      {
+        id: "dut_0123456789abcdef0123456789abcdef",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        revokedAt: "2026-08-24T01:00:00.000Z",
+      },
+    ],
+  });
+  const listCapture = outputCapture();
+  await expect(
+    runSparkDaemonControlCommand(paths, "access", ["list"], listCapture.io),
+  ).resolves.toBe(0);
+  expect(rpc).toHaveBeenCalledWith(paths, "daemon.access.list", {});
+  expect(listCapture.stdout()).toContain("dut_0123456789abcdef0123456789abcdef");
+  expect(listCapture.stdout()).toContain("revoked");
+
+  rpc.mockResolvedValueOnce({ id: "dut_0123456789abcdef0123456789abcdef", revoked: true });
+  const revokeCapture = outputCapture();
+  await expect(
+    runSparkDaemonControlCommand(
+      paths,
+      "access",
+      ["revoke", "dut_0123456789abcdef0123456789abcdef", "--json"],
+      revokeCapture.io,
+    ),
+  ).resolves.toBe(0);
+  expect(rpc).toHaveBeenCalledWith(paths, "daemon.access.revoke", {
+    id: "dut_0123456789abcdef0123456789abcdef",
+  });
+  expect(JSON.parse(revokeCapture.stdout())).toEqual({
+    id: "dut_0123456789abcdef0123456789abcdef",
+    revoked: true,
+  });
+});
+
+it("rejects unknown access subcommands and malformed expiry", async () => {
+  const capture = outputCapture();
+  await expect(
+    runSparkDaemonControlCommand(paths, "access", ["rotate"], capture.io),
+  ).rejects.toThrow(/unknown spark daemon access command/u);
+  await expect(
+    runSparkDaemonControlCommand(paths, "access", ["create", "--expires-at", "soon"], capture.io),
+  ).rejects.toThrow(/ISO date-time/u);
+  await expect(
+    runSparkDaemonControlCommand(paths, "access", ["revoke"], capture.io),
+  ).rejects.toThrow(/requires <token-id>/u);
+});

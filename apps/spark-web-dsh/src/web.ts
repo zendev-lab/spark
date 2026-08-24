@@ -32,8 +32,10 @@
  *    `id: spark-web-dsh` skip a second insert.
  * 7. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
- *    the requested host instead. This is a deliberate bypass of that guard —
- *    a 0.0.0.0-bound harness exposes agent code execution to the network.
+ *    the requested host instead. A non-loopback bind never exposes that server
+ *    directly: DSH stays pinned to loopback and only Spark's daemon-user-token
+ *    authenticated proxy listens on the requested address (see
+ *    `auth-proxy.ts`). Loopback binds stay tokenless.
  * 8. **Host plugin HMR disabled by default**, because this compatibility server
  *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
@@ -71,6 +73,7 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cueSkillsRoot } from "@zendev-lab/cue";
+import { isSparkWebDshLoopbackHost, startSparkWebDshAuthProxy } from "./auth-proxy.ts";
 import { installManagedCuePresets, retireLegacyManagedCuePresets } from "./cue-presets.ts";
 
 /**
@@ -919,6 +922,12 @@ export interface SparkWebDispatch {
   patches: string[];
   /** Arguments passed to the web app after the patch overlays. */
   webArgs: string[];
+  /**
+   * Non-loopback binds never expose the DSH server directly: it stays pinned
+   * to loopback and only this daemon-user-token-authenticated proxy listens on
+   * the requested address.
+   */
+  proxy?: { host: string; port: number; targetPort: number };
 }
 
 export async function prepareSparkWebDispatch(
@@ -982,16 +991,42 @@ export async function prepareSparkWebDispatch(
     process.stderr.write(`[spark web] linked ${SPARK_WEB_DHS_PACKAGE} into the DSH profile\n`);
   }
 
-  const patch = composeSparkWebPatch(profileDir, args);
   const port = args.port ?? (await nextFreeWebPort(3080));
   if (port !== 3080 && args.port === undefined) {
     process.stderr.write(`[spark web] port 3080 is in use — serving on ${port}\n`);
   }
+  if (args.host !== undefined && !isSparkWebDshLoopbackHost(args.host)) {
+    const targetPort = await nextFreeWebPort(port + 1);
+    const childArgs: SparkWebArgs = { ...args, host: undefined };
+    const patch = composeSparkWebPatch(profileDir, childArgs);
+    return {
+      profileDir,
+      patches: [patch.path],
+      webArgs: composeWebArgs(childArgs, targetPort),
+      proxy: { host: args.host, port, targetPort },
+    };
+  }
+  const patch = composeSparkWebPatch(profileDir, args);
   return { profileDir, patches: [patch.path], webArgs: composeWebArgs(args, port) };
 }
 
 /** Boot the DSH web profile through the dispatcher launcher. */
 export async function runSparkWeb(args: SparkWebArgs): Promise<number> {
   const prepared = await prepareSparkWebDispatch(args);
+  if (prepared.proxy) {
+    const proxy = await startSparkWebDshAuthProxy({
+      host: prepared.proxy.host,
+      port: prepared.proxy.port,
+      targetPort: prepared.proxy.targetPort,
+    });
+    process.stdout.write(
+      `spark web-dsh: requiring a daemon access token on http://${prepared.proxy.host}:${prepared.proxy.port}/ (spark daemon access create)\n`,
+    );
+    try {
+      return await runSparkWebDirect(prepared.profileDir, prepared.patches, prepared.webArgs);
+    } finally {
+      await proxy.close();
+    }
+  }
   return runSparkWebDirect(prepared.profileDir, prepared.patches, prepared.webArgs);
 }

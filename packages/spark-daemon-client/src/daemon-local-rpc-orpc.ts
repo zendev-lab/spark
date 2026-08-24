@@ -264,6 +264,32 @@ const daemonChannelTurnInvokers = {
   | "turn.cancel"
 >;
 
+const daemonAccessInvokers = {
+  "daemon.access.create": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.create"].output,
+      client.daemon.access.create(input, options),
+    ),
+  "daemon.access.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.list"].output,
+      client.daemon.access.list(input, options),
+    ),
+  "daemon.access.revoke": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.revoke"].output,
+      client.daemon.access.revoke(input, options),
+    ),
+  "daemon.access.verify": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.verify"].output,
+      client.daemon.access.verify(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  "daemon.access.create" | "daemon.access.list" | "daemon.access.revoke" | "daemon.access.verify"
+>;
+
 const invocationLoopInvokers = {
   "invocation.list": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -788,6 +814,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
   ...agentCatalogInvokers,
   ...daemonChannelTurnInvokers,
+  ...daemonAccessInvokers,
   ...invocationLoopInvokers,
   ...workspaceInvokers,
   ...uplinkInvokers,
