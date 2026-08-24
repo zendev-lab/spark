@@ -21,7 +21,7 @@ updated: 2026-08-23
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - `/plan`、`/execute`、`/fleet` 是 daemon 在 turn 提交通道上解析的一次性命令：仅向当前 Invocation 注入工作意图指导，不改变工具集合、sandbox、审批、授权或 admission，不持久化，普通下一轮恢复中性。持久 Session mode 已整体废除；fleet 协调复用现有 TaskGraph、TaskRun、资源调度器与 Session Registry，worker 只消费 Task 已关联的 `git_change` worktree，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
-- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，并以 `spark-standard | spark-ptc` 替代四个 stock mode。
+- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，默认进入托管的 Cue-first `spark-standard` mode 并提供 Code Mode 的 `spark-ptc`；受支持 DSH release 在 boot 时把 preset 发现 root 固定为内置 root，因此 stock preset 仍由 DSH 自身挂载，独占发现有待 DSH 支持可配置 roots。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm-providers` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 daemon 内部产品模块静态组合 Spark 策略与受支持的 DSH/Cordis 插件；不新增 `spark-base`、Spark extension 发现路径或 Spark-owned `package.json#pi`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
@@ -119,8 +119,9 @@ updated: 2026-08-23
   `@zendev-lab/dsh-tool-cue` adapter 接入 SystemPrompt + Tools：`dsh-cue`
   仍唯一拥有 Cue 语义，DSH
   只适配受支持 DSH release 的 host ABI、权限和 presenter；当前
-  `spark-standard` / `spark-code` 用 Cue 取代 DSH Bash/Pwsh/Jobs，规范化切片再将
-  `spark-code` 硬切为 `spark-ptc`。两个托管 preset 的文本文件工具由
+  `spark-standard` / `spark-ptc` 用 Cue 取代 DSH Bash/Pwsh/Jobs，两个 preset 组合
+  作为静态文件随 `@zendev-lab/spark-web-dsh` 版本化，启动时幂等安装进 DSH 用户
+  preset root，并清理未被用户改过的 `spark-code` 遗留目录。两个托管 preset 的文本文件工具由
   `spark-files/dsh` 通过 DSH `ctx.fs` 提供显式版本 CAS 和逐调用沙箱策略；官方
   `read_image` 与 `dsh-tool-fs-search` 保留。
 - DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark

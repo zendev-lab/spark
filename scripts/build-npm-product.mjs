@@ -336,6 +336,13 @@ await Promise.all([
   cp(resolve(root, "apps/spark-web-dsh/lib"), resolve(webDsh.directory, "lib"), {
     recursive: true,
   }),
+  // The managed agent presets are static package assets the bundle reads at
+  // runtime relative to its own location.
+  cp(
+    resolve(root, "apps/spark-web-dsh/presets/agent-presets"),
+    resolve(webDsh.directory, "presets/agent-presets"),
+    { recursive: true },
+  ),
   ...npmDistributions.map(copyCommonFiles),
   ...(buildNativeProducts ? nativeNpmDistributions.map(copyCommonFiles) : []),
   ...npmDistributions

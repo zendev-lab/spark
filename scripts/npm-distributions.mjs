@@ -183,7 +183,7 @@ export const npmDistributions = [
     bundles: {
       "spark-web-dsh.js": "apps/spark-web-dsh/src/cli-entry.ts",
     },
-    files: ["bin", "dist", "lib", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    files: ["bin", "dist", "lib", "presets", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-web-dsh" },
   },
