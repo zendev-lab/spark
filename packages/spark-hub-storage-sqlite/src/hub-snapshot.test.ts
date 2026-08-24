@@ -94,12 +94,13 @@ describe("Hub instance snapshots", () => {
       "0024",
       "0025",
       "0026",
+      "0027",
     ]);
     expect(manifest.tableCounts).toMatchObject({
       workspaces: 1,
       projects: 1,
       runtime_connections: 1,
-      runtime_tokens: 2,
+      daemon_credentials: 2,
       runtime_workspace_bindings: 1,
       sessions: 1,
       commands: 1,
@@ -186,7 +187,7 @@ describe("Hub instance snapshots", () => {
              JOIN workspace_leases wob ON wob.workspace_id = w.id AND wob.ended_at IS NULL
              JOIN runtime_workspace_bindings rwb ON rwb.id = wob.runtime_workspace_binding_id
              JOIN runtime_connections rc ON rc.id = rwb.runtime_id
-             JOIN runtime_tokens rt ON rt.runtime_id = rc.id AND rt.label = 'runtime refresh token'
+             JOIN daemon_credentials rt ON rt.runtime_id = rc.id AND rt.kind = 'refresh'
              JOIN commands c ON c.workspace_id = w.id
              JOIN command_deliveries cd ON cd.command_id = c.id
              JOIN events e ON e.workspace_id = w.id`,
@@ -451,20 +452,22 @@ function seededSourceDatabase(path: string): ReturnType<typeof openDatabase> {
        last_heartbeat_at, created_at, updated_at)
      VALUES ('rt_source', 'install-source', 'Source daemon', 'online', '1', '{}', '{}', ?, ?, ?)`,
   ).run(now, now, now);
-  const insertRuntimeToken = db.prepare(
-    `INSERT INTO runtime_tokens
-      (id, runtime_id, token_hash, label, scopes_json, created_at)
-     VALUES (?, 'rt_source', ?, ?, ?, ?)`,
+  const insertDaemonCredential = db.prepare(
+    `INSERT INTO daemon_credentials
+      (id, family, kind, runtime_id, token_hash, label, scopes_json, created_at)
+     VALUES (?, 'hub-daemon', ?, 'rt_source', ?, ?, ?, ?)`,
   );
-  insertRuntimeToken.run(
+  insertDaemonCredential.run(
     "rttok_access",
+    "access",
     "sha256:access-source",
     "runtime access token",
     '["runtime:connect"]',
     now,
   );
-  insertRuntimeToken.run(
+  insertDaemonCredential.run(
     "rttok_refresh",
+    "refresh",
     "sha256:refresh-source",
     "runtime refresh token",
     '["runtime:refresh"]',

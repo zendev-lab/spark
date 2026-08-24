@@ -104,11 +104,11 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
       .run(runtimeId, installationId, runtimeProtocolVersion, now, now);
     hubDb
       .prepare(
-        `INSERT INTO runtime_tokens
-        (id, runtime_id, token_hash, label, scopes_json, created_at)
-       VALUES (?, ?, ?, 'runtime access token', '["runtime:connect"]', ?)`,
+        `INSERT INTO daemon_credentials
+        (id, family, kind, runtime_id, token_hash, label, scopes_json, created_at)
+       VALUES (?, 'hub-daemon', 'access', ?, ?, 'runtime access token', '["runtime:connect"]', ?)`,
       )
-      .run(createId("rttok"), runtimeId, hashSecret(runtimeToken), now);
+      .run(createId("rtdc"), runtimeId, hashSecret(runtimeToken), now);
     hubDb
       .prepare(
         `INSERT INTO runtime_workspace_bindings

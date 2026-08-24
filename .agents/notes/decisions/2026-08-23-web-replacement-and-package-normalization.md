@@ -160,6 +160,17 @@ token as a navigation-only `token` query parameter (promoted to an
 HttpOnly cookie), the `x-spark-web-token` header, or the
 `spark_web_token` cookie.
 
+Landed in this stack: the `hub-daemon` family has one canonical Hub record,
+`daemon_credentials`. One-shot enrollment tokens and device authorizations
+remain bootstrap exchanges in their own flow tables; the access/refresh pair
+they issue lives only in `daemon_credentials` with an explicit `kind`, the
+bootstrap exchange that authorized the daemon (`bootstrap_kind` /
+`bootstrap_id`), and the refresh credential each renewal consumed
+(`rotated_from_id`). Migration 0027 moves existing rows without rewriting
+history, re-points `runtime_sessions.token_id` at the family record, and
+retires `runtime_tokens`; uplink attach and workspace grants authenticate
+`kind = 'access'` only, so a refresh credential can renew but never control.
+
 ## Package normalization
 
 Names follow the official DSH family semantics already used by the repository:
@@ -269,7 +280,7 @@ are true:
   clean-install smoke gates;
 - the repository contains no retired package workspace, forwarding alias, or
   stale release-closure entry;
-- `architecture/packages.json` reports 39 classified workspaces, no new
+- `architecture/packages.json` reports 38 classified workspaces, no new
   dependency exception, one daemon composition root, and no boundary cycle;
 - public English and Chinese guidance names native Web as the default and Web
   DSH as the independent fallback; and

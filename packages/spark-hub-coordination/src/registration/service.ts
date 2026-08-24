@@ -331,6 +331,7 @@ export function exchangeRuntimeDeviceAuthorization(
       registration,
       grantScopes,
       grantScopes,
+      { kind: "device", id: authorization.id },
       workspaceGrant,
       preparedWorkspace,
       polledAt,
@@ -520,6 +521,7 @@ export function registerRuntime(
       request,
       [],
       enrollment.scopes,
+      { kind: "enrollment", id: enrollment.id },
       workspaceGrant,
       preparedWorkspace,
       now,
@@ -780,16 +782,20 @@ function rotateRuntimeTokenInTransaction(
     .prepare(
       `SELECT id,
               scopes_json AS scopesJson,
+              bootstrap_kind AS bootstrapKind,
+              bootstrap_id AS bootstrapId,
               expires_at AS expiresAt,
               revoked_at AS revokedAt
-       FROM runtime_tokens
-       WHERE runtime_id = ? AND token_hash = ?
+       FROM daemon_credentials
+       WHERE runtime_id = ? AND token_hash = ? AND kind = 'refresh'
        LIMIT 1`,
     )
     .get(runtimeId, hashSecret(refreshTokenValue)) as
     | {
         id: string;
         scopesJson: string;
+        bootstrapKind: "enrollment" | "device" | null;
+        bootstrapId: string | null;
         expiresAt: string | null;
         revokedAt: string | null;
       }
@@ -797,9 +803,13 @@ function rotateRuntimeTokenInTransaction(
 
   validateRuntimeRefreshToken(refreshToken, refreshedAt);
   const grantScopes = parseScopes(refreshToken.scopesJson);
+  const bootstrap: DaemonCredentialBootstrap =
+    refreshToken.bootstrapKind && refreshToken.bootstrapId
+      ? { kind: refreshToken.bootstrapKind, id: refreshToken.bootstrapId }
+      : null;
   const credentials = createRuntimeCredentials(refreshedAt);
   const consumed = db
-    .prepare("UPDATE runtime_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+    .prepare("UPDATE daemon_credentials SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
     .run(refreshedAt, refreshToken.id);
   if (consumed.changes !== 1) {
     throw new RuntimeTokenRefreshError(
@@ -808,19 +818,25 @@ function rotateRuntimeTokenInTransaction(
     );
   }
   revokeActiveRuntimeAccessTokens(db, runtimeId, refreshedAt);
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "access",
     token: credentials.runtimeToken,
     label: "runtime access token",
     scopes: runtimeAccessScopesFromGrant(grantScopes),
+    bootstrap,
+    rotatedFromId: refreshToken.id,
     createdAt: refreshedAt,
     expiresAt: credentials.runtimeTokenExpiresAt,
   });
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "refresh",
     token: credentials.refreshToken,
     label: "runtime refresh token",
     scopes: runtimeRefreshScopesFromGrant(grantScopes),
+    bootstrap,
+    rotatedFromId: refreshToken.id,
     createdAt: refreshedAt,
     expiresAt: credentials.refreshTokenExpiresAt,
   });
@@ -931,6 +947,8 @@ function registerRuntimeInTransaction(
   grantScopes: string[],
   /** Scopes of the enrollment credential that authorized this daemon binding. */
   enrollmentScopes: string[],
+  /** Bootstrap exchange (enrollment token or device authorization) that issued this credential family. */
+  bootstrap: DaemonCredentialBootstrap,
   workspaceGrant: RuntimeWorkspaceGrant,
   preparedWorkspace: PreparedWorkspaceRegistration | undefined,
   now: string,
@@ -974,19 +992,23 @@ function registerRuntimeInTransaction(
   }
 
   revokeActiveRuntimeTokens(db, runtimeId, now);
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "access",
     token: credentials.runtimeToken,
     label: "runtime access token",
     scopes: runtimeAccessScopesFromGrant(grantScopes),
+    bootstrap,
     createdAt: now,
     expiresAt: credentials.runtimeTokenExpiresAt,
   });
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "refresh",
     token: credentials.refreshToken,
     label: "runtime refresh token",
     scopes: runtimeRefreshScopesFromGrant(grantScopes),
+    bootstrap,
     createdAt: now,
     expiresAt: credentials.refreshTokenExpiresAt,
   });
@@ -1622,27 +1644,36 @@ function slugify(value: string): string {
   return asciiSlug(value, { fallback: "workspace" });
 }
 
-function insertRuntimeToken(
+type DaemonCredentialBootstrap = { kind: "enrollment" | "device"; id: string } | null;
+
+function insertDaemonCredential(
   db: DatabaseSync,
   input: {
     runtimeId: string;
+    kind: "access" | "refresh";
     token: string;
     label: string;
     scopes: string[];
+    bootstrap?: DaemonCredentialBootstrap;
+    rotatedFromId?: string | null;
     createdAt: string;
     expiresAt: string;
   },
 ): void {
   db.prepare(
-    `INSERT INTO runtime_tokens
-      (id, runtime_id, token_hash, label, scopes_json, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO daemon_credentials
+      (id, family, kind, runtime_id, token_hash, label, scopes_json, bootstrap_kind, bootstrap_id, rotated_from_id, created_at, expires_at)
+     VALUES (?, 'hub-daemon', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    createId("rttok"),
+    createId("rtdc"),
+    input.kind,
     input.runtimeId,
     hashSecret(input.token),
     input.label,
     JSON.stringify(input.scopes),
+    input.bootstrap?.kind ?? null,
+    input.bootstrap?.id ?? null,
+    input.rotatedFromId ?? null,
     input.createdAt,
     input.expiresAt,
   );
@@ -1650,7 +1681,7 @@ function insertRuntimeToken(
 
 function revokeActiveRuntimeTokens(db: DatabaseSync, runtimeId: string, revokedAt: string): void {
   db.prepare(
-    `UPDATE runtime_tokens
+    `UPDATE daemon_credentials
      SET revoked_at = ?
      WHERE runtime_id = ? AND revoked_at IS NULL`,
   ).run(revokedAt, runtimeId);
@@ -1662,11 +1693,11 @@ function revokeActiveRuntimeAccessTokens(
   revokedAt: string,
 ): void {
   db.prepare(
-    `UPDATE runtime_tokens
+    `UPDATE daemon_credentials
      SET revoked_at = ?
      WHERE runtime_id = ?
-       AND revoked_at IS NULL
-      AND scopes_json LIKE '%runtime:connect%'`,
+       AND kind = 'access'
+       AND revoked_at IS NULL`,
   ).run(revokedAt, runtimeId);
 }
 
@@ -1689,8 +1720,8 @@ function authenticateRuntimeAccessToken(
       `SELECT scopes_json AS scopesJson,
               expires_at AS expiresAt,
               revoked_at AS revokedAt
-       FROM runtime_tokens
-       WHERE runtime_id = ? AND token_hash = ?
+       FROM daemon_credentials
+       WHERE runtime_id = ? AND token_hash = ? AND kind = 'access'
        LIMIT 1`,
     )
     .get(runtimeId, hashSecret(runtimeToken)) as

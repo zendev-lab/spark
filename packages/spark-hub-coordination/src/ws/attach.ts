@@ -296,8 +296,8 @@ export function authenticateRuntimeToken(
       `SELECT id,
               scopes_json AS scopesJson,
               expires_at AS expiresAt
-       FROM runtime_tokens
-       WHERE runtime_id = ? AND token_hash = ? AND revoked_at IS NULL
+       FROM daemon_credentials
+       WHERE runtime_id = ? AND token_hash = ? AND kind = 'access' AND revoked_at IS NULL
        LIMIT 1`,
     )
     .get(runtimeId, hashSecret(token)) as

@@ -250,14 +250,18 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       .prepare(
         `SELECT token_hash AS tokenHash,
                 scopes_json AS scopesJson,
+                bootstrap_kind AS bootstrapKind,
+                bootstrap_id AS bootstrapId,
                 expires_at AS expiresAt,
                 revoked_at AS revokedAt
-         FROM runtime_tokens
+         FROM daemon_credentials
          ORDER BY label`,
       )
       .all() as Array<{
       tokenHash: string;
       scopesJson: string;
+      bootstrapKind: string | null;
+      bootstrapId: string | null;
       expiresAt: string | null;
       revokedAt: string | null;
     }>;
@@ -278,6 +282,8 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       registered.refreshTokenExpiresAt,
     ]);
     expect(runtimeTokens.map((row) => row.revokedAt)).toEqual([null, null]);
+    expect(runtimeTokens.map((row) => row.bootstrapKind)).toEqual(["enrollment", "enrollment"]);
+    expect(runtimeTokens.map((row) => row.bootstrapId)).toEqual([enrollment.id, enrollment.id]);
     expect(runtimeTokens.map((row) => row.tokenHash)).toContain(hash(registered.runtimeToken));
     expect(runtimeTokens.map((row) => row.tokenHash)).toContain(hash(registered.refreshToken));
     expect(JSON.stringify(runtimeTokens)).not.toContain(registered.runtimeToken);
@@ -1030,7 +1036,7 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       .prepare(
         `SELECT token_hash AS tokenHash,
                 revoked_at AS revokedAt
-         FROM runtime_tokens
+         FROM daemon_credentials
          WHERE runtime_id = ?`,
       )
       .all(registered.runtimeId) as Array<{
@@ -1110,14 +1116,24 @@ describe("runtime registration", { timeout: 20_000 }, () => {
 
     const rows = db
       .prepare(
-        `SELECT token_hash AS tokenHash,
+        `SELECT id,
+                token_hash AS tokenHash,
+                kind AS kind,
                 scopes_json AS scopesJson,
+                bootstrap_kind AS bootstrapKind,
+                bootstrap_id AS bootstrapId,
+                rotated_from_id AS rotatedFromId,
                 revoked_at AS revokedAt
-         FROM runtime_tokens`,
+         FROM daemon_credentials`,
       )
       .all() as Array<{
+      id: string;
       tokenHash: string;
+      kind: string;
       scopesJson: string;
+      bootstrapKind: string | null;
+      bootstrapId: string | null;
+      rotatedFromId: string | null;
       revokedAt: string | null;
     }>;
     const originalAccess = rows.find((row) => row.tokenHash === hash(registered.runtimeToken));
@@ -1127,6 +1143,8 @@ describe("runtime registration", { timeout: 20_000 }, () => {
 
     expect(originalAccess?.revokedAt).toBe("2026-05-25T00:30:00.000Z");
     expect(originalRefresh?.revokedAt).toBe("2026-05-25T00:30:00.000Z");
+    expect(originalAccess?.kind).toBe("access");
+    expect(originalRefresh?.kind).toBe("refresh");
     expect(parseJson(newAccess?.scopesJson ?? "[]", "new access token scopes")).toEqual([
       "runtime:connect",
     ]);
@@ -1135,6 +1153,15 @@ describe("runtime registration", { timeout: 20_000 }, () => {
     ]);
     expect(newAccess?.revokedAt).toBeNull();
     expect(newRefresh?.revokedAt).toBeNull();
+    // The rotated pair stays in the same hub-daemon family: it inherits the
+    // bootstrap exchange that authorized the daemon and points at the consumed
+    // refresh credential it was renewed from.
+    expect(newAccess?.bootstrapKind).toBe("enrollment");
+    expect(newAccess?.bootstrapId).toBe(enrollment.id);
+    expect(newRefresh?.bootstrapKind).toBe("enrollment");
+    expect(newRefresh?.bootstrapId).toBe(enrollment.id);
+    expect(newAccess?.rotatedFromId).toBe(originalRefresh?.id);
+    expect(newRefresh?.rotatedFromId).toBe(originalRefresh?.id);
     expectRuntimeRefreshError(
       db,
       registered.runtimeId,
@@ -1496,17 +1523,34 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       refreshToken: expect.stringMatching(/^spark_rt_refresh_/),
     });
     expect(registered.workspaceBinding).toBeUndefined();
-    const scopes = db
+    const credentials = db
       .prepare(
-        `SELECT scopes_json AS scopesJson
-         FROM runtime_tokens
+        `SELECT kind AS kind,
+                scopes_json AS scopesJson,
+                bootstrap_kind AS bootstrapKind,
+                bootstrap_id AS bootstrapId
+         FROM daemon_credentials
          WHERE runtime_id = ?
          ORDER BY label`,
       )
-      .all(registered.runtimeId) as Array<{ scopesJson: string }>;
-    expect(scopes.map((row) => parseJson(row.scopesJson, "runtime token scopes"))).toEqual([
+      .all(registered.runtimeId) as Array<{
+      kind: string;
+      scopesJson: string;
+      bootstrapKind: string | null;
+      bootstrapId: string | null;
+    }>;
+    expect(credentials.map((row) => parseJson(row.scopesJson, "runtime token scopes"))).toEqual([
       ["runtime:connect"],
       ["runtime:refresh"],
+    ]);
+    // The device authorization is recorded as the bootstrap exchange of this
+    // daemon's hub-daemon credential family.
+    const authorizationRow = db
+      .prepare(`SELECT id FROM runtime_device_authorizations WHERE created_runtime_id = ? LIMIT 1`)
+      .get(registered.runtimeId) as { id: string } | undefined;
+    expect(credentials.map((row) => [row.kind, row.bootstrapKind, row.bootstrapId])).toEqual([
+      ["access", "device", authorizationRow?.id],
+      ["refresh", "device", authorizationRow?.id],
     ]);
     expect(
       getRuntimeDeviceAuthorizationForApproval(db, {
@@ -1645,7 +1689,7 @@ describe("runtime registration", { timeout: 20_000 }, () => {
     const activeScopes = db
       .prepare(
         `SELECT scopes_json AS scopesJson
-         FROM runtime_tokens
+         FROM daemon_credentials
          WHERE runtime_id = ? AND revoked_at IS NULL
          ORDER BY label`,
       )
