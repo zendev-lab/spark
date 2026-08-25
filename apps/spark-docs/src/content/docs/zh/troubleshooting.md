@@ -69,7 +69,7 @@ npm --version
 ```
 
 第一版 curl 安装要求系统 Node.js 24 或更高版本和 npm。支持的 native target 是
-macOS/Linux 的 arm64 与 x86_64。checksum mismatch 表示下载的 release asset
+macOS arm64 与 Linux 的 arm64/x86_64。checksum mismatch 表示下载的 release asset
 没有通过验证：不要绕过校验，也不要运行临时 binary。重新执行官方 `latest`
 安装命令；如果仍然失败，报告 asset 名称与 checksum 错误。
 

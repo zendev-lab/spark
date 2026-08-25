@@ -11,27 +11,33 @@ spark web
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
 and prints the workbench URL such as `http://127.0.0.1:4310/` without opening
-a browser. Loopback listeners are tokenless.
-An explicit non-loopback `--host` requires at least one `--trusted-host` and a
-daemon access token. The server validates Host, Origin/Fetch Metadata, and
-mutation provenance on every bind; this remains a trusted single-user LAN
-surface rather than a public multi-user control plane.
+a browser. Requests that actually arrive from a loopback peer are tokenless.
 
-Daemon access tokens are owned by the daemon, which stores only hashes and
-verifies every presented token. Mint one with `spark daemon access create`
-(the plaintext prints exactly once), review them with
-`spark daemon access list`, and revoke with `spark daemon access revoke`.
-Open the printed URL with `?token=…` appended on a non-loopback listener; the
-token is promoted to an HttpOnly cookie on first navigation. Missing, wrong,
-expired, and revoked tokens are rejected identically, and a non-loopback
-listener fails closed while the daemon is unreachable.
-
-Use `--host`, repeatable `--trusted-host`, and `--port` when you need to change
-the bind:
+Bind `0.0.0.0` when the workbench should also be reachable through this host's
+local IPv4 interfaces. Spark discovers those interface addresses automatically;
+there is no separate trusted-host allowlist. Direct Web accepts loopback and
+local interface IP literals only. Host, Origin/Fetch Metadata, and mutation
+provenance are validated before authentication, so this remains a trusted
+single-user LAN surface rather than a public multi-user control plane.
 
 ```bash
-spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
+spark web --host 0.0.0.0 --port 4310
 ```
+
+A remote peer needs a daemon access token. The daemon owns the `daemon-user`
+token family, stores only hashes, and verifies every presented token. Mint one
+with `spark daemon access create` (the plaintext prints exactly once), review
+them with `spark daemon access list`, and revoke with
+`spark daemon access revoke`.
+
+Remote document navigation opens the Spark Access page. Enter the token there;
+Spark verifies it through the daemon and stores it in an HttpOnly,
+SameSite=Strict cookie before returning to the requested page. `?token=…` remains
+a navigation-only compatibility carrier for automation/deep links and is
+promoted to the same cookie. API and WebSocket requests do not receive HTML
+login pages: unauthenticated requests retain carrier-level 401/503 responses.
+Missing, wrong, expired, and revoked tokens do not expose token-state detail,
+and verification fails closed while the daemon is unreachable.
 
 Pass `--hmr` for local development when you need Vite to watch source changes;
 it is disabled by default for the long-lived server. The home page is a
@@ -40,7 +46,8 @@ recent Artifacts. It works when no Workspace is registered, including for
 daemon-scoped Channel Sessions. Workspace remains repository, cwd, and Artifact
 context; register a local directory from the collapsed context section. Hub
 origin and announce stay on `spark daemon login`, not this form. Hub remains the
-multi-daemon proxy and management UI.
+multi-daemon proxy and management UI and is the supported boundary for formal
+DNS-based or multi-daemon remote access.
 
 The workbench uses typed daemon projections for Session history and lifecycle,
 Invocation list/detail, Ask and approval recovery, Work and Artifact inspection, Role and Skill
@@ -74,10 +81,13 @@ the server URL without opening a browser:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-Loopback binds are tokenless. A non-loopback bind never exposes the DSH server
-directly: it stays pinned to loopback behind Spark's authenticated proxy, which
-requires the same daemon access tokens as `spark web` and fails closed while
-the daemon is unreachable.
+The DSH server itself stays pinned to loopback behind Spark's outer access
+proxy. That proxy uses the same peer-based rule and Spark Access page as native
+Web: actual loopback peers are tokenless, local interface IP literals are
+discovered automatically, and remote peers require the same daemon-owned access
+tokens. Host, Origin, and Fetch Metadata checks still run before token
+verification. API and WebSocket requests retain carrier-level authentication
+errors, and the proxy fails closed while the daemon is unreachable.
 
 The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
 `cue` Skill in the DSH Skill catalog. It handles

@@ -37,17 +37,30 @@ Native and Code Mode schemas. Upstream `read_image` remains available.
 
 ```sh
 spark web-dsh
-spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080
+spark web-dsh --host 0.0.0.0 --port 3080
 ```
 
-Loopback binds are tokenless. A non-loopback `--host` never exposes the DSH
-server directly: it stays pinned to loopback while Spark's authentication proxy
-listens on the requested address and requires a daemon access token
-(`spark daemon access create`) carried as `?token=…` (promoted to an HttpOnly
-cookie), the `x-spark-web-token` header, or the `spark_web_token` cookie. The
-daemon owns the `daemon-user` token family and verifies every presented token;
-missing, wrong, expired, and revoked tokens are rejected identically, and the
-proxy fails closed while the daemon is unreachable.
+The DSH compatibility server itself stays pinned to loopback whenever Spark
+exposes a non-loopback listener. Spark's outer access proxy owns the actual
+network boundary. Requests from an actual loopback peer remain tokenless even
+when the listener binds `0.0.0.0`; local non-loopback IPv4 authorities are
+discovered automatically, and remote peers require the daemon-owned
+`daemon-user` token family.
+
+Remote document navigation opens the same Spark Access page as native
+`spark web`. Generate a token with `spark daemon access create`, enter it on the
+page, and Spark verifies it through the daemon before storing an HttpOnly,
+SameSite=Strict cookie. `?token=…`, `x-spark-web-token`, and the
+`spark_web_token` cookie remain supported carrier forms for compatibility and
+automation. API and WebSocket requests do not receive an HTML login page: they
+retain carrier-level 401/503 responses.
+
+Host, Origin, and Fetch Metadata checks run before token verification. Direct
+access accepts loopback and local interface IP literals only; arbitrary DNS
+names are not a second trust configuration path. Use the Hub for formal
+multi-daemon or DNS-based remote access. Missing, wrong, expired, and revoked
+tokens are rejected without exposing token-state detail, and verification
+fails closed while the daemon is unreachable.
 
 Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the

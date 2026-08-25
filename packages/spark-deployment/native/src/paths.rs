@@ -56,7 +56,6 @@ pub fn resolve_paths(prefix: Option<&Path>) -> Result<UpdatePaths, String> {
 pub fn platform_target() -> Result<&'static str, String> {
     match (env::consts::OS, env::consts::ARCH) {
         ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
-        ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
         ("linux", "aarch64") => Ok("aarch64-unknown-linux-musl"),
         ("linux", "x86_64") => Ok("x86_64-unknown-linux-musl"),
         (os, arch) => Err(format!("unsupported platform {os}/{arch}")),
@@ -66,7 +65,6 @@ pub fn platform_target() -> Result<&'static str, String> {
 pub fn native_alias_name() -> Result<String, String> {
     let suffix = match platform_target()? {
         "aarch64-apple-darwin" => "darwin-arm64",
-        "x86_64-apple-darwin" => "darwin-x64",
         "aarch64-unknown-linux-musl" => "linux-arm64",
         "x86_64-unknown-linux-musl" => "linux-x64",
         _ => unreachable!(),

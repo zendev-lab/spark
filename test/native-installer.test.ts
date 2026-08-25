@@ -13,7 +13,6 @@ import { buildNativeReleaseAssets } from "../scripts/native-release-assets.mjs";
 const execFileAsync = promisify(execFile);
 const distributions = [
   { target: "aarch64-apple-darwin" },
-  { target: "x86_64-apple-darwin" },
   { target: "aarch64-unknown-linux-musl" },
   { target: "x86_64-unknown-linux-musl" },
 ];
@@ -82,7 +81,7 @@ chmod 755 "$prefix/bin/spark"
     });
 
     assert.equal(manifest.schemaVersion, 1);
-    assert.equal(manifest.targets.length, 4);
+    assert.equal(manifest.targets.length, 3);
     for (const entry of manifest.targets) {
       assert(entry.size > 0 && entry.size <= 2 * 1024 * 1024);
       assert.match(entry.sha256, /^[a-f0-9]{64}$/u);
@@ -168,7 +167,6 @@ chmod 755 "$prefix/bin/spark"
 
 function targetForCurrentPlatform(): string {
   if (process.platform === "darwin" && process.arch === "arm64") return "aarch64-apple-darwin";
-  if (process.platform === "darwin" && process.arch === "x64") return "x86_64-apple-darwin";
   if (process.platform === "linux" && process.arch === "arm64") {
     return "aarch64-unknown-linux-musl";
   }

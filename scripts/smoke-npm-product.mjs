@@ -45,7 +45,6 @@ function suppliedTarballs() {
     web: argumentValue("--web-tarball"),
     "web-dsh": argumentValue("--web-dsh-tarball"),
     "native-darwin-arm64": argumentValue("--native-darwin-arm64-tarball"),
-    "native-darwin-x64": argumentValue("--native-darwin-x64-tarball"),
     "native-linux-arm64": argumentValue("--native-linux-arm64-tarball"),
     "native-linux-x64": argumentValue("--native-linux-x64-tarball"),
   };
