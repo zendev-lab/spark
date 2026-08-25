@@ -18,11 +18,13 @@
 import {
   createServer,
   request as httpRequest,
+  type IncomingHttpHeaders,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
 import { connect as netConnect } from "node:net";
+import { networkInterfaces } from "node:os";
 
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 
@@ -42,6 +44,63 @@ export function isSparkWebDshLoopbackHost(host: string): boolean {
   return (
     normalized === "localhost" || normalized === "::1" || /^127(?:\.\d{1,3}){3}$/u.test(normalized)
   );
+}
+
+/**
+ * LAN IPv4 literals owned by this host. Upstream DSH trusts the same set when
+ * it binds 0.0.0.0; Spark samples it at the outer proxy instead because the
+ * protected DSH child is deliberately pinned to loopback.
+ */
+export function resolveSparkWebDshLanAddresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter(
+      (iface): iface is NonNullable<typeof iface> =>
+        iface !== undefined && iface.family === "IPv4" && !iface.internal,
+    )
+    .map((iface) => iface.address);
+}
+
+/**
+ * Preserve DSH's LAN-IP trust semantics across Spark's loopback proxy.
+ *
+ * The inner DSH server sees only loopback as its bind address, so it cannot
+ * auto-trust the outer listener's LAN addresses itself. For a request whose
+ * Host is one of this machine's sampled LAN IPv4 literals, normalize Host to
+ * the loopback target before forwarding. A same-origin browser Origin is
+ * normalized with it; a mismatched Origin and `Sec-Fetch-Site: cross-site`
+ * remain untouched so DSH's own confused-deputy fence still rejects them.
+ *
+ * DNS names are never rewritten. They continue to require an explicit
+ * `--trusted-host`, preserving DSH's DNS-rebinding boundary rather than
+ * turning the proxy into a wildcard trust grant.
+ */
+export function normalizeSparkWebDshLanHeaders(
+  headers: IncomingHttpHeaders,
+  targetHost: string,
+  targetPort: number,
+  lanAddresses: readonly string[],
+): IncomingHttpHeaders {
+  const host = firstHeaderValue(headers.host)?.trim();
+  if (!host) return headers;
+  const hostUrl = parseAuthority(host);
+  if (!hostUrl || !lanAddresses.includes(hostUrl.hostname)) return headers;
+
+  const target = authorityFor(targetHost, targetPort);
+  const forwarded: IncomingHttpHeaders = { ...headers, host: target };
+  const origin = firstHeaderValue(headers.origin)?.trim();
+  if (!origin) return forwarded;
+
+  try {
+    const originUrl = new URL(origin);
+    if (originUrl.host.toLowerCase() === hostUrl.host.toLowerCase()) {
+      originUrl.host = target;
+      forwarded.origin = originUrl.origin;
+    }
+  } catch {
+    // Leave malformed origins untouched; DSH's trust fence will reject them.
+  }
+  return forwarded;
 }
 
 export type SparkWebDshTokenVerification = "valid" | "invalid" | "unavailable";
@@ -81,6 +140,7 @@ export async function startSparkWebDshAuthProxy(
 ): Promise<SparkWebDshAuthProxy> {
   const targetHost = options.targetHost ?? "127.0.0.1";
   const verify = options.verify ?? verifySparkWebDshTokenWithDaemon;
+  const lanAddresses = resolveSparkWebDshLanAddresses();
 
   const authenticate = async (request: IncomingMessage): Promise<AuthenticatedRequest> => {
     const url = new URL(request.url ?? "/", "http://proxy.invalid");
@@ -133,7 +193,7 @@ export async function startSparkWebDshAuthProxy(
         response.end();
         return;
       }
-      proxyHttpRequest(request, response, targetHost, options.targetPort);
+      proxyHttpRequest(request, response, targetHost, options.targetPort, lanAddresses);
     })().catch(() => {
       if (!response.headersSent) writePlain(response, 502, "spark web-dsh proxy failure");
       else response.destroy();
@@ -152,9 +212,15 @@ export async function startSparkWebDshAuthProxy(
         socket.destroy();
         return;
       }
+      const upstreamHeaders = normalizeSparkWebDshLanHeaders(
+        request.headers,
+        targetHost,
+        options.targetPort,
+        lanAddresses,
+      );
       const upstream = netConnect(options.targetPort, targetHost, () => {
         upstream.write(`${request.method} ${request.url} HTTP/${request.httpVersion}\r\n`);
-        for (const [name, value] of Object.entries(request.headers)) {
+        for (const [name, value] of Object.entries(upstreamHeaders)) {
           if (value === undefined) continue;
           upstream.write(`${name}: ${Array.isArray(value) ? value.join(", ") : value}\r\n`);
         }
@@ -197,6 +263,7 @@ function proxyHttpRequest(
   response: ServerResponse,
   targetHost: string,
   targetPort: number,
+  lanAddresses: readonly string[],
 ): void {
   const upstream = httpRequest(
     {
@@ -204,7 +271,12 @@ function proxyHttpRequest(
       port: targetPort,
       method: request.method,
       path: request.url,
-      headers: request.headers,
+      headers: normalizeSparkWebDshLanHeaders(
+        request.headers,
+        targetHost,
+        targetPort,
+        lanAddresses,
+      ),
     },
     (upstreamResponse) => {
       response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
@@ -216,6 +288,19 @@ function proxyHttpRequest(
     else response.destroy();
   });
   request.pipe(upstream);
+}
+
+function authorityFor(host: string, port: number): string {
+  const normalized = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  return `${normalized}:${port}`;
+}
+
+function parseAuthority(authority: string): URL | undefined {
+  try {
+    return new URL(`http://${authority}`);
+  } catch {
+    return undefined;
+  }
 }
 
 function writePlain(response: ServerResponse, status: number, message: string): void {
