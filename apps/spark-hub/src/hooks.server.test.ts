@@ -9,17 +9,14 @@ const database = vi.hoisted(() => ({
 }));
 const auth = vi.hoisted(() => ({
   getCurrentHubSession: vi.fn((): unknown => null),
-  getCurrentWorkspaceSession: vi.fn((): unknown => null),
-  isRemoteWorkspaceDataPath: vi.fn((): boolean => false),
   refreshHubSession: vi.fn((): unknown => null),
-  refreshWorkspaceSession: vi.fn((): unknown => null),
-  workspaceSessionAllowsRequest: vi.fn((): boolean => false),
+  hubSessionAllowsRequest: vi.fn((): boolean => false),
 }));
 const remoteAccess = vi.hoisted(() => ({
   remoteAccessDecision: vi.fn((): { required: boolean } => ({ required: false })),
 }));
-const workspaceRouting = vi.hoisted(() => ({
-  loadWorkspaceByRouteId: vi.fn((): unknown => null),
+const hubAccess = vi.hoisted(() => ({
+  listUserDaemonGrantWorkspaceIds: vi.fn((): string[] => []),
 }));
 
 vi.mock("$lib/server/db", () => database);
@@ -28,7 +25,7 @@ vi.mock("$lib/server/auth", async (importOriginal) => ({
   ...auth,
 }));
 vi.mock("$lib/server/remote-access", () => remoteAccess);
-vi.mock("$lib/server/workspace-routing", () => workspaceRouting);
+vi.mock("@zendev-lab/spark-hub-coordination/hub-access", () => hubAccess);
 
 import { handle } from "./hooks.server";
 
@@ -40,78 +37,19 @@ beforeEach(() => {
   database.getDatabase.mockReturnValue({});
   auth.getCurrentHubSession.mockReset();
   auth.getCurrentHubSession.mockReturnValue(null);
-  auth.getCurrentWorkspaceSession.mockReset();
-  auth.getCurrentWorkspaceSession.mockReturnValue(null);
-  auth.isRemoteWorkspaceDataPath.mockReset();
-  auth.isRemoteWorkspaceDataPath.mockReturnValue(false);
   auth.refreshHubSession.mockReset();
   auth.refreshHubSession.mockReturnValue(null);
-  auth.refreshWorkspaceSession.mockReset();
-  auth.refreshWorkspaceSession.mockReturnValue(null);
-  auth.workspaceSessionAllowsRequest.mockReset();
-  auth.workspaceSessionAllowsRequest.mockReturnValue(false);
+  auth.hubSessionAllowsRequest.mockReset();
+  auth.hubSessionAllowsRequest.mockReturnValue(false);
   remoteAccess.remoteAccessDecision.mockReset();
   remoteAccess.remoteAccessDecision.mockReturnValue({ required: false });
-  workspaceRouting.loadWorkspaceByRouteId.mockReset();
-  workspaceRouting.loadWorkspaceByRouteId.mockReturnValue(null);
+  hubAccess.listUserDaemonGrantWorkspaceIds.mockReset();
+  hubAccess.listUserDaemonGrantWorkspaceIds.mockReturnValue([]);
 });
 
-describe("Hub workspace access boundary", () => {
-  it("redirects unauthenticated workspace navigation to the target workspace login", async () => {
-    configureTargetWorkspaceRoute();
-    const url = new URL("https://spark.example/spark-workspace/sessions");
-    const resolve = vi.fn();
-
-    const response = await handle({
-      event: requestEvent(url, { headers: { accept: "text/html" } }),
-      resolve,
-    } as Parameters<Handle>[0]);
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(
-      "/spark-workspace/login?next=%2Fspark-workspace%2Fsessions",
-    );
-    expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("redirects cross-workspace browser navigation to the target workspace login", async () => {
-    configureCrossWorkspaceSession();
-    const url = new URL("https://spark.example/spark-workspace/sessions?view=active");
-    const resolve = vi.fn();
-
-    const response = await handle({
-      event: requestEvent(url, { headers: { accept: "text/html" } }),
-      resolve,
-    } as Parameters<Handle>[0]);
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(
-      "/spark-workspace/login?next=%2Fspark-workspace%2Fsessions%3Fview%3Dactive",
-    );
-    expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("keeps cross-workspace non-browser requests as structured auth errors", async () => {
-    configureCrossWorkspaceSession();
-    const url = new URL("https://spark.example/spark-workspace/sessions");
-    const resolve = vi.fn();
-
-    const response = await handle({
-      event: requestEvent(url, { headers: { accept: "application/json" } }),
-      resolve,
-    } as Parameters<Handle>[0]);
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({
-      error: "workspace_access_auth_required",
-      message: "Spark Hub requires a workspace-scoped access session for this path.",
-    });
-    expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("does not mistake a control-plane path for a workspace login target", async () => {
-    configureCrossWorkspaceSession();
-    workspaceRouting.loadWorkspaceByRouteId.mockReturnValue(null);
+describe("Hub remote access boundary", () => {
+  it("redirects unauthenticated browser navigation to the hub login page", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
     const url = new URL("https://spark.example/settings/models");
     const resolve = vi.fn();
 
@@ -120,12 +58,134 @@ describe("Hub workspace access boundary", () => {
       resolve,
     } as Parameters<Handle>[0]);
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
-      error: "workspace_access_forbidden",
-      message: "This browser session grants only workspace zendev-lab.",
-    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/login?next=%2Fsettings%2Fmodels");
     expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("keeps unauthenticated non-browser requests as structured auth errors", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
+    const url = new URL("https://spark.example/api/v1/events");
+    const resolve = vi.fn();
+
+    const response = await handle({
+      event: requestEvent(url, { headers: { accept: "application/json" } }),
+      resolve,
+    } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("hub_access_auth_required");
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("rejects a hub session that fails the per-daemon grant policy with 403", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
+    const session = hubSession("member");
+    auth.getCurrentHubSession.mockReturnValue(session);
+    auth.hubSessionAllowsRequest.mockReturnValue(false);
+    const url = new URL("https://spark.example/settings");
+    const resolve = vi.fn();
+
+    const response = await handle({
+      event: requestEvent(url, { headers: { accept: "text/html" } }),
+      resolve,
+    } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("hub_access_forbidden");
+    expect(auth.hubSessionAllowsRequest).toHaveBeenCalledWith(
+      database.getDatabase.mock.results[0]?.value,
+      session,
+      "/settings",
+    );
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("scopes member locals to the workspaces behind their daemon grants", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
+    const session = hubSession("member");
+    auth.getCurrentHubSession.mockReturnValue(session);
+    auth.hubSessionAllowsRequest.mockReturnValue(true);
+    hubAccess.listUserDaemonGrantWorkspaceIds.mockReturnValue(["ws_granted"]);
+    const url = new URL("https://spark.example/granted-workspace/sessions");
+    const event = requestEvent(url, { headers: { accept: "text/html" } });
+    const resolve = vi.fn(async () => new Response("ok"));
+
+    const response = await handle({ event, resolve } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(200);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(hubAccess.listUserDaemonGrantWorkspaceIds).toHaveBeenCalledWith(
+      database.getDatabase.mock.results[0]?.value,
+      session.userId,
+    );
+    const locals = event.locals as App.Locals;
+    expect(locals.hasControlPlaneAccess).toBe(false);
+    expect(locals.authorizedWorkspaceIds).toEqual(["ws_granted"]);
+  });
+
+  it("leaves owner locals unrestricted on remote requests", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
+    const session = hubSession("owner");
+    auth.getCurrentHubSession.mockReturnValue(session);
+    auth.hubSessionAllowsRequest.mockReturnValue(true);
+    const url = new URL("https://spark.example/settings");
+    const event = requestEvent(url, { headers: { accept: "text/html" } });
+    const resolve = vi.fn(async () => new Response("ok"));
+
+    const response = await handle({ event, resolve } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(200);
+    const locals = event.locals as App.Locals;
+    expect(locals.hasControlPlaneAccess).toBe(true);
+    expect(locals.authorizedWorkspaceIds).toBeNull();
+    expect(hubAccess.listUserDaemonGrantWorkspaceIds).not.toHaveBeenCalled();
+  });
+
+  it("rotates an expired hub session through the refresh cookie before resolving", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
+    const refreshed = {
+      userId: "usr_owner",
+      sessionId: "sess_refreshed",
+      sessionToken: "spark_hub_access_refreshed",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      refreshToken: "spark_hub_refresh_rotated",
+      refreshExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const session = hubSession("owner", refreshed.sessionId);
+    auth.getCurrentHubSession.mockReturnValueOnce(null).mockReturnValueOnce(session);
+    auth.refreshHubSession.mockReturnValue(refreshed);
+    auth.hubSessionAllowsRequest.mockReturnValue(true);
+    const url = new URL("https://spark.example/settings");
+    const event = requestEvent(url, { headers: { accept: "text/html" } });
+    const resolve = vi.fn(async () => new Response("ok"));
+
+    const response = await handle({ event, resolve } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(200);
+    expect(auth.refreshHubSession).toHaveBeenCalledOnce();
+    const cookies = event.cookies as unknown as { set: ReturnType<typeof vi.fn> };
+    expect(cookies.set).toHaveBeenCalledTimes(2);
+    const locals = event.locals as App.Locals & { sessionToken: string | null };
+    expect(locals.sessionToken).toBe(refreshed.sessionToken);
+    expect(resolve).toHaveBeenCalledOnce();
+  });
+
+  it("lets local requests through without a hub session", async () => {
+    const url = new URL("http://127.0.0.1/settings");
+    const event = requestEvent(url, { headers: { accept: "text/html" } });
+    const resolve = vi.fn(async () => new Response("ok"));
+
+    const response = await handle({ event, resolve } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(200);
+    expect(resolve).toHaveBeenCalledOnce();
+    const locals = event.locals as App.Locals;
+    expect(locals.sessionToken).toBeNull();
+    expect(locals.hasControlPlaneAccess).toBe(true);
+    expect(locals.authorizedWorkspaceIds).toBeNull();
   });
 });
 
@@ -159,21 +219,13 @@ describe("Hub request dependency boundary", () => {
   });
 });
 
-function configureTargetWorkspaceRoute(): void {
-  remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
-  workspaceRouting.loadWorkspaceByRouteId.mockReturnValue({
-    id: "ws_spark_workspace",
-    slug: "spark-workspace",
-  });
-}
-
-function configureCrossWorkspaceSession(): void {
-  configureTargetWorkspaceRoute();
-  auth.getCurrentWorkspaceSession.mockReturnValue({
-    workspaceId: "ws_zendev_lab",
-    workspaceSlug: "zendev-lab",
-  });
-  auth.workspaceSessionAllowsRequest.mockReturnValue(false);
+function hubSession(role: "owner" | "member", sessionId = "sess_test"): Record<string, unknown> {
+  return {
+    sessionId,
+    userId: role === "owner" ? "usr_owner" : "usr_member",
+    role,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
 }
 
 function requestEvent(

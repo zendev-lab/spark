@@ -241,12 +241,7 @@ export async function handleWorkspaceRequest(
       if (options.sessionRegistry) {
         await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
       }
-      return parseLocalRpcServiceOutput(request.method, {
-        ...workspace,
-        ...(serviceRegistration.workspaceAuthorization
-          ? { workspaceAuthorization: serviceRegistration.workspaceAuthorization }
-          : {}),
-      });
+      return parseLocalRpcServiceOutput(request.method, workspace);
     }
     case "workspace.attach": {
       const workspace = attachWorkspace(db, { id: request.params.id });

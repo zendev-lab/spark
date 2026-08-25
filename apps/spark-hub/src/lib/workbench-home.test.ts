@@ -68,7 +68,7 @@ describe("workbench home workspace directory", () => {
     vi.doMock("$lib/server/db", () => ({ getDatabase: () => "db" }));
     const pageServer = await import("../routes/(workbench)/+page.server");
     const result = pageServer.load({
-      locals: { workspaceId: null },
+      locals: { authorizedWorkspaceIds: ["ws_alpha"] },
       url: new URL("http://localhost/"),
     } as never);
 
@@ -76,7 +76,7 @@ describe("workbench home workspace directory", () => {
     expect(loadWorkbenchHome).toHaveBeenCalledWith("db", {
       forceWorkspaceCreate: false,
       pendingWorkspaceSetup: null,
-      authorizedWorkspaceId: null,
+      authorizedWorkspaceIds: ["ws_alpha"],
     });
     vi.doUnmock("@zendev-lab/spark-hub-coordination/hub-queries");
     vi.doUnmock("$lib/server/db");

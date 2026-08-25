@@ -90,7 +90,6 @@ import {
   workspaceClientProjectionSchema,
   workspaceClientStatusSchema,
 } from "./runtime-v1/messages.ts";
-import { workspaceBrowserAuthorizationSchema } from "./runtime-v1/registration.ts";
 import {
   sparkAssignmentSchema,
   sparkSessionArchiveRequestSchema,
@@ -1175,7 +1174,6 @@ export const sparkLocalRpcWorkspaceSchema = z.object({
   serverWorkspaceId: z.string().min(1).optional(),
   serverBindingId: z.string().min(1).optional(),
   hubBindingState: z.enum(["bound", "unbound"]).optional(),
-  workspaceAuthorization: workspaceBrowserAuthorizationSchema.optional(),
   serverUrl: z.string(),
   localWorkspaceKey: z.string(),
   displayName: z.string(),

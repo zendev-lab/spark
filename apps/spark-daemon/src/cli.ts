@@ -1151,7 +1151,6 @@ async function registerWorkspaceCommand(
       `  server   ${added.serverUrl || "—"}\n` +
       profileTextLine(added.profile) +
       `  status   ${workspaceStatusLabel(added)}\n` +
-      (serverUrl ? workspaceAuthorizationText(added, serverUrl) : "") +
       (added.serverUrl
         ? `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`
         : `  note     Local daemon workspace. Hub projection is scheduled by daemon login/uplink.\n`),
@@ -1182,18 +1181,6 @@ function preflightWorkspaceRegistration(
   } finally {
     db.close();
   }
-}
-
-function workspaceAuthorizationText(workspace: SparkDaemonWorkspace, serverUrl: string): string {
-  const authorization = workspace.workspaceAuthorization;
-  if (!authorization) return "";
-  const loginUrl = new URL(`/${encodeURIComponent(authorization.workspaceSlug)}/login`, serverUrl);
-  return (
-    `  authorize ${loginUrl.toString()}\n` +
-    `  one-time ${authorization.oneTimeToken}\n` +
-    `  expires  ${authorization.expiresAt}\n` +
-    `  note     Additional browsers: spark hub workspace access create --workspace ${authorization.workspaceId}\n`
-  );
 }
 
 async function uplink(

@@ -22,6 +22,7 @@
     emptyTitle,
     emptyBody,
     hasTokens,
+    fields,
     created,
     tokens,
   }: {
@@ -41,6 +42,7 @@
     emptyTitle: string;
     emptyBody: string;
     hasTokens: boolean;
+    fields?: Snippet;
     created?: Snippet;
     tokens: Snippet;
     children?: Snippet;
@@ -75,6 +77,9 @@
     <Field id={fieldId} label={fieldLabel} reserveMeta={false}>
       <Input id={fieldId} name="label" placeholder={fieldPlaceholder} />
     </Field>
+    {#if fields}
+      {@render fields()}
+    {/if}
     <Button type="submit" loading={submitting}>
       <Icon name="plus" size={16} stroke={2.4} />
       <span>{submitLabel}</span>

@@ -9,6 +9,6 @@ export const GET: RequestHandler = ({ locals, request, url }) => {
     request,
     url,
     sweepLivenessIfDue,
-    workspaceId: locals.workspaceId,
+    workspaceIds: locals.authorizedWorkspaceIds ?? undefined,
   });
 };

@@ -95,6 +95,7 @@ describe("Hub instance snapshots", () => {
       "0025",
       "0026",
       "0027",
+      "0028",
     ]);
     expect(manifest.tableCounts).toMatchObject({
       workspaces: 1,
@@ -127,7 +128,6 @@ describe("Hub instance snapshots", () => {
       instanceId: sourceInstanceId,
       transientReset: {
         browserSessionsDeleted: 1,
-        workspaceAccessTokensDeleted: 0,
         hubAccessTokensDeleted: 0,
         runtimeSessionsClosed: 1,
         runtimesMarkedOffline: 1,

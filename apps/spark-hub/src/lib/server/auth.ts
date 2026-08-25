@@ -1,22 +1,20 @@
 import { createHash, randomBytes } from "node:crypto";
-import { consumeHubAccessToken } from "@zendev-lab/spark-hub-coordination/hub-access";
 import {
-  consumeWorkspaceAccessToken,
-  type ConsumedWorkspaceAccessToken,
-} from "@zendev-lab/spark-hub-coordination/workspace-access";
+  consumeHubAccessToken,
+  grantUserDaemons,
+  resolveSessionOwningRuntimeId,
+  userDaemonGrantAllowsWorkspace,
+  userHasDaemonGrant,
+} from "@zendev-lab/spark-hub-coordination/hub-access";
 import { createId } from "@zendev-lab/spark-protocol";
 import type { Cookies } from "@sveltejs/kit";
 import type { DatabaseSync } from "node:sqlite";
 
 export const sessionCookieName = "spark_hub_session";
 export const sessionRefreshCookieName = "spark_hub_refresh";
-export const workspaceSessionCookieName = "spark_workspace_session";
-export const workspaceSessionRefreshCookieName = "spark_workspace_refresh";
 
 const hubAccessTtlMs = 15 * 60 * 1_000;
 const hubRefreshTtlMs = 30 * 24 * 60 * 60 * 1_000;
-const workspaceAccessTtlMs = 15 * 60 * 1_000;
-const workspaceRefreshTtlMs = 30 * 24 * 60 * 60 * 1_000;
 
 export interface SetupStatus {
   hasOwner: boolean;
@@ -34,14 +32,12 @@ export interface HubSession extends CreatedOwnerSession {
   refreshExpiresAt: string;
 }
 
-export interface WorkspaceSession extends CreatedOwnerSession {
-  workspaceId: string;
-  workspaceSlug: string;
-  refreshToken: string;
-  refreshExpiresAt: string;
+export interface CurrentHubSession {
+  sessionId: string;
+  userId: string;
+  role: string;
+  expiresAt: string;
 }
-
-export class WorkspaceSessionError extends Error {}
 
 export function getSetupStatus(db: DatabaseSync): SetupStatus {
   const owner = db
@@ -71,6 +67,14 @@ export function createOwnerSession(
       `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
        VALUES (?, ?, ?, 'owner', 'active', ?, ?)`,
     ).run(userId, email, displayName, nowIso, nowIso);
+
+    // The first owner can reach every daemon that is already registered.
+    const runtimeIds = (
+      db.prepare("SELECT id FROM runtime_connections ORDER BY created_at").all() as Array<{
+        id: string;
+      }>
+    ).map((row) => row.id);
+    grantUserDaemons(db, { userId, runtimeIds, grantedByUserId: userId, createdAt: nowIso });
 
     session = insertLocalOwnerSession(db, userId, now);
 
@@ -130,69 +134,38 @@ export function getCurrentHubSession(
   db: DatabaseSync,
   sessionToken: string | null,
   now = new Date(),
-): Omit<HubSession, "sessionToken" | "refreshToken" | "refreshExpiresAt"> | null {
+): CurrentHubSession | null {
   if (!sessionToken) return null;
   const row = db
     .prepare(
       `SELECT s.id AS sessionId,
               s.user_id AS userId,
-              s.expires_at AS expiresAt
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ?
-         AND s.workspace_id IS NULL
-         AND s.revoked_at IS NULL
-         AND s.expires_at > ?
-         AND u.status = 'active'
-         AND u.role = 'owner'
-       LIMIT 1`,
-    )
-    .get(hashSecret(sessionToken), now.toISOString()) as
-    | {
-        sessionId: string;
-        userId: string;
-        expiresAt: string;
-      }
-    | undefined;
-  return row ?? null;
-}
-
-export function getCurrentWorkspaceSession(
-  db: DatabaseSync,
-  sessionToken: string | null,
-  now = new Date(),
-): Omit<WorkspaceSession, "sessionToken" | "refreshToken" | "refreshExpiresAt"> | null {
-  if (!sessionToken) return null;
-  const row = db
-    .prepare(
-      `SELECT s.id AS sessionId,
-              s.user_id AS userId,
-              s.workspace_id AS workspaceId,
               s.expires_at AS expiresAt,
-              w.slug AS workspaceSlug
+              u.role AS role
        FROM sessions s
        JOIN users u ON u.id = s.user_id
-       JOIN workspaces w ON w.id = s.workspace_id
        WHERE s.token_hash = ?
-         AND s.workspace_id IS NOT NULL
          AND s.revoked_at IS NULL
          AND s.expires_at > ?
          AND u.status = 'active'
-         AND w.status = 'active'
        LIMIT 1`,
     )
     .get(hashSecret(sessionToken), now.toISOString()) as
     | {
         sessionId: string;
         userId: string;
-        workspaceId: string;
-        workspaceSlug: string;
         expiresAt: string;
+        role: string;
       }
     | undefined;
   return row ?? null;
 }
 
+/**
+ * Exchange a one-time Hub access key for a member session. The member user is
+ * reused by display name when one is already active; the token's daemon grants
+ * are added to that user under the token creator's authority.
+ */
 export function exchangeHubAccessToken(
   db: DatabaseSync,
   token: string | null,
@@ -200,27 +173,15 @@ export function exchangeHubAccessToken(
 ): HubSession {
   db.exec("BEGIN IMMEDIATE");
   try {
-    consumeHubAccessToken(db, token, now.toISOString());
-    const ownerId = ensureLocalSystemUser(db);
-    const session = insertHubSession(db, ownerId, now);
-    db.exec("COMMIT");
-    return session;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
-
-export function exchangeWorkspaceAccessToken(
-  db: DatabaseSync,
-  token: string | null,
-  now = new Date(),
-): WorkspaceSession {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const grant = consumeWorkspaceAccessToken(db, token, now.toISOString());
-    const userId = createWorkspaceMember(db, grant, now.toISOString());
-    const session = insertWorkspaceSession(db, userId, grant, now);
+    const grant = consumeHubAccessToken(db, token, now.toISOString());
+    const userId = ensureHubMemberUser(db, grant.memberName, now.toISOString());
+    grantUserDaemons(db, {
+      userId,
+      runtimeIds: grant.daemonIds,
+      grantedByUserId: grant.createdByUserId ?? userId,
+      createdAt: now.toISOString(),
+    });
+    const session = insertHubSession(db, userId, now);
     db.exec("COMMIT");
     return session;
   } catch (error) {
@@ -245,11 +206,9 @@ export function refreshHubSession(
          FROM sessions s
          JOIN users u ON u.id = s.user_id
          WHERE s.refresh_token_hash = ?
-           AND s.workspace_id IS NULL
            AND s.revoked_at IS NULL
            AND s.refresh_expires_at > ?
            AND u.status = 'active'
-           AND u.role = 'owner'
          LIMIT 1`,
       )
       .get(hashSecret(refreshToken), nowIso) as
@@ -282,92 +241,11 @@ export function refreshHubSession(
   }
 }
 
-export function refreshWorkspaceSession(
-  db: DatabaseSync,
-  refreshToken: string | null,
-  now = new Date(),
-): WorkspaceSession | null {
-  if (!refreshToken) return null;
-  const nowIso = now.toISOString();
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const current = db
-      .prepare(
-        `SELECT s.id AS sessionId,
-                s.user_id AS userId,
-                s.workspace_id AS workspaceId,
-                w.slug AS workspaceSlug,
-                w.name AS workspaceName
-         FROM sessions s
-         JOIN users u ON u.id = s.user_id
-         JOIN workspaces w ON w.id = s.workspace_id
-         WHERE s.refresh_token_hash = ?
-           AND s.workspace_id IS NOT NULL
-           AND s.revoked_at IS NULL
-           AND s.refresh_expires_at > ?
-           AND u.status = 'active'
-           AND w.status = 'active'
-         LIMIT 1`,
-      )
-      .get(hashSecret(refreshToken), nowIso) as
-      | {
-          sessionId: string;
-          userId: string;
-          workspaceId: string;
-          workspaceSlug: string;
-          workspaceName: string;
-        }
-      | undefined;
-    if (!current) {
-      db.exec("ROLLBACK");
-      return null;
-    }
-    const rotated = db
-      .prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
-      .run(nowIso, current.sessionId);
-    if (rotated.changes !== 1) {
-      db.exec("ROLLBACK");
-      return null;
-    }
-    const session = insertWorkspaceSession(
-      db,
-      current.userId,
-      {
-        tokenId: "refresh",
-        workspaceId: current.workspaceId,
-        workspaceSlug: current.workspaceSlug,
-        workspaceName: current.workspaceName,
-      },
-      now,
-    );
-    db.exec("COMMIT");
-    return session;
-  } catch (error) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      // Preserve the refresh error.
-    }
-    throw error;
-  }
-}
-
 export function ensureCurrentOwnerSession(
   db: DatabaseSync,
   _cookies: Cookies,
   sessionToken: string | null,
-  workspaceId?: string,
-  workspaceSessionToken?: string | null,
 ): string {
-  if (workspaceId) {
-    const workspaceSession = getCurrentWorkspaceSession(db, workspaceSessionToken ?? null);
-    if (workspaceSession) {
-      if (workspaceSession.workspaceId !== workspaceId) {
-        throw new WorkspaceSessionError("This browser session does not grant this workspace.");
-      }
-      return workspaceSession.userId;
-    }
-  }
   const hubSession = getCurrentHubSession(db, sessionToken);
   if (hubSession) {
     return hubSession.userId;
@@ -440,89 +318,54 @@ export function setHubSessionCookies(
   });
 }
 
-export function setWorkspaceSessionCookies(
-  cookies: Cookies,
-  session: WorkspaceSession,
-  options: { secure?: boolean } = {},
-): void {
-  const common = {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: options.secure ?? false,
-  };
-  cookies.set(workspaceSessionCookieName, session.sessionToken, {
-    ...common,
-    expires: new Date(session.expiresAt),
-  });
-  cookies.set(workspaceSessionRefreshCookieName, session.refreshToken, {
-    ...common,
-    expires: new Date(session.refreshExpiresAt),
-  });
-}
-
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
 }
 
-/** Workbench data under /{slug}/… that requires a workspace browser session when remote. */
-export function isRemoteWorkspaceDataPath(pathname: string): boolean {
-  const segments = pathname.split("/").filter(Boolean).map(decodePathSegment);
-  if (segments.length === 0) return false;
-  if (segments[0] === "api" && segments[1] === "v1") {
-    return segments[2] === "sessions" || segments[2] === "artifacts" || segments[2] === "events";
-  }
-  const section = segments[1];
-  if (!section || section === "login" || section === "settings") return false;
-  return (
-    section === "sessions" ||
-    section === "artifacts" ||
-    section === "inbox" ||
-    section === "projects" ||
-    section === "repos" ||
-    section === "agents"
-  );
-}
-
-export function workspaceSessionAllowsRequest(
+/**
+ * Remote request gate for an authenticated Hub session. Owners keep the whole
+ * surface; members get `/`, `/login`, `/logout`, the workbench routes of
+ * workspaces leased to a granted daemon, and the matching per-resource
+ * sessions/artifacts/events API rows.
+ */
+export function hubSessionAllowsRequest(
   db: DatabaseSync,
-  workspaceId: string,
+  session: { userId: string; role: string },
   pathname: string,
 ): boolean {
   const segments = pathname.split("/").filter(Boolean).map(decodePathSegment);
-  if (segments.length === 0 || segments[0] === "logout") return true;
-  if (segments[0] === "sessions") {
-    // Remote browsers must use the canonical /{workspace}/sessions route.
-    // Otherwise POST actions on the legacy global route would lack a route
-    // workspace against which to validate their submitted session id.
-    return false;
-  }
+  if (segments.length === 0) return true;
+  if (segments[0] === "login" || segments[0] === "logout") return true;
+  if (session.role === "owner") return true;
+
   if (segments[0] === "api" && segments[1] === "v1") {
-    if (segments[2] === "events") return true;
+    if (segments[2] === "events" && !segments[3]) return true;
     if (segments[2] === "sessions" && segments[3]) {
-      const projected = db
-        .prepare(
-          `SELECT workspace_id AS workspaceId
-           FROM runtime_session_projections
-           WHERE session_id = ?
-           LIMIT 1`,
-        )
-        .get(segments[3]) as { workspaceId: string | null } | undefined;
-      return projected?.workspaceId === workspaceId;
+      return userDaemonGrantAllowsSession(db, session.userId, segments[3]);
     }
     if (segments[2] === "artifacts" && segments[3]) {
       const artifact = db
         .prepare("SELECT workspace_id AS workspaceId FROM artifacts WHERE id = ? LIMIT 1")
         .get(segments[3]) as { workspaceId: string } | undefined;
-      return artifact?.workspaceId === workspaceId;
+      return artifact
+        ? userDaemonGrantAllowsWorkspace(db, {
+            userId: session.userId,
+            workspaceId: artifact.workspaceId,
+          })
+        : false;
     }
     return false;
   }
+
   const routeWorkspace = db
     .prepare("SELECT id FROM workspaces WHERE (id = ? OR slug = ?) AND status = 'active' LIMIT 1")
     .get(segments[0], segments[0]) as { id: string } | undefined;
-  if (segments.length === 2 && segments[1] === "login") return Boolean(routeWorkspace);
-  if (routeWorkspace?.id !== workspaceId) return false;
+  if (!routeWorkspace) return false;
+  if (
+    !userDaemonGrantAllowsWorkspace(db, { userId: session.userId, workspaceId: routeWorkspace.id })
+  ) {
+    return false;
+  }
 
   const resourceId = segments[2];
   if (!resourceId) return true;
@@ -535,19 +378,28 @@ export function workspaceSessionAllowsRequest(
            WHERE session_id = ? AND workspace_id = ?
            LIMIT 1`,
         )
-        .get(resourceId, workspaceId),
+        .get(resourceId, routeWorkspace.id),
     );
   }
   if (segments[1] === "artifacts") {
-    return resourceBelongsToWorkspace(db, "artifacts", resourceId, workspaceId);
+    return resourceBelongsToWorkspace(db, "artifacts", resourceId, routeWorkspace.id);
   }
   if (segments[1] === "inbox") {
-    return resourceBelongsToWorkspace(db, "inbox_items", resourceId, workspaceId);
+    return resourceBelongsToWorkspace(db, "inbox_items", resourceId, routeWorkspace.id);
   }
   if (segments[1] === "projects") {
-    return resourceBelongsToWorkspace(db, "projects", resourceId, workspaceId);
+    return resourceBelongsToWorkspace(db, "projects", resourceId, routeWorkspace.id);
   }
   return true;
+}
+
+function userDaemonGrantAllowsSession(
+  db: DatabaseSync,
+  userId: string,
+  sessionId: string,
+): boolean {
+  const runtimeId = resolveSessionOwningRuntimeId(db, sessionId);
+  return runtimeId !== null && userHasDaemonGrant(db, { userId, runtimeId });
 }
 
 function resourceBelongsToWorkspace(
@@ -615,54 +467,25 @@ function insertHubSession(db: DatabaseSync, userId: string, now: Date): HubSessi
   };
 }
 
-function insertWorkspaceSession(
-  db: DatabaseSync,
-  userId: string,
-  grant: ConsumedWorkspaceAccessToken,
-  now: Date,
-): WorkspaceSession {
-  const nowIso = now.toISOString();
-  const expiresAt = new Date(now.getTime() + workspaceAccessTtlMs).toISOString();
-  const refreshExpiresAt = new Date(now.getTime() + workspaceRefreshTtlMs).toISOString();
-  const sessionId = createId("sess");
-  const sessionToken = `spark_workspace_access_${randomBytes(32).toString("base64url")}`;
-  const refreshToken = `spark_workspace_refresh_${randomBytes(32).toString("base64url")}`;
-  db.prepare(
-    `INSERT INTO sessions
-      (id, user_id, token_hash, workspace_id, refresh_token_hash, created_at, expires_at, refresh_expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    sessionId,
-    userId,
-    hashSecret(sessionToken),
-    grant.workspaceId,
-    hashSecret(refreshToken),
-    nowIso,
-    expiresAt,
-    refreshExpiresAt,
-  );
-  return {
-    userId,
-    sessionId,
-    sessionToken,
-    expiresAt,
-    workspaceId: grant.workspaceId,
-    workspaceSlug: grant.workspaceSlug,
-    refreshToken,
-    refreshExpiresAt,
-  };
-}
-
-function createWorkspaceMember(
-  db: DatabaseSync,
-  grant: ConsumedWorkspaceAccessToken,
-  now: string,
-): string {
+function ensureHubMemberUser(db: DatabaseSync, memberName: string | null, nowIso: string): string {
+  const displayName = memberName?.trim() || "Hub member";
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM users
+       WHERE role = 'member' AND status = 'active' AND display_name = ?
+       ORDER BY created_at ASC
+       LIMIT 1`,
+    )
+    .get(displayName) as { id: string } | undefined;
+  if (existing) {
+    return existing.id;
+  }
   const userId = createId("usr");
   db.prepare(
     `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
      VALUES (?, NULL, ?, 'member', 'active', ?, ?)`,
-  ).run(userId, `${grant.workspaceName} member`, now, now);
+  ).run(userId, displayName, nowIso, nowIso);
   return userId;
 }
 

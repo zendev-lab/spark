@@ -12,9 +12,9 @@ import {
   type RuntimeWorkspaceRegistrationRequest,
 } from "@zendev-lab/spark-protocol";
 import { asciiSlug } from "@zendev-lab/spark-platform-node";
+import { grantDaemonToActiveOwners } from "../hub-access.ts";
 import { appendEvent } from "../projection-services.ts";
 import { hashSecret } from "../security.ts";
-import { createWorkspaceAccessToken } from "../workspace-access.ts";
 import {
   resolveWorkspaceDirectoryDisplayName,
   syncWorkspaceIdentityFromLocalPath,
@@ -34,7 +34,6 @@ import type {
   RefreshedRuntimeToken,
   RegisteredWorkspaceBinding,
   RegisteredRuntimeWorkspace,
-  RegisteredWorkspaceAuthorization,
   UnboundRuntimeWorkspace,
   RuntimeEnrollmentToken,
   RuntimeEnrollmentTokenSummary,
@@ -602,12 +601,6 @@ export function registerRuntimeWorkspace(
       runtimeId,
       registeredAt: now,
       workspaceBinding,
-      workspaceAuthorization: createRegisteredWorkspaceAuthorization(
-        db,
-        workspaceBinding.workspaceId,
-        runtimeId,
-        now,
-      ),
     };
   });
 }
@@ -662,50 +655,6 @@ export function unbindRuntimeWorkspace(
       workspaceIds: leases.map(({ workspaceId }) => workspaceId),
       unboundAt,
     };
-  });
-}
-
-/** Mint a one-time workspace browser key for a binding leased by this runtime. */
-export function createRuntimeWorkspaceBrowserAccess(
-  db: DatabaseSync,
-  input: {
-    runtimeId: string;
-    bindingId: string;
-    runtimeToken: string | null;
-    label?: string | null;
-    createdAt?: string;
-  },
-): RegisteredWorkspaceAuthorization {
-  const createdAt = input.createdAt ?? new Date().toISOString();
-  return withRuntimeRegistrationTransaction(db, () => {
-    authenticateRuntimeAccessToken(db, input.runtimeId, input.runtimeToken, createdAt, [
-      "runtime:connect",
-    ]);
-    const lease = db
-      .prepare(
-        `SELECT wl.workspace_id AS workspaceId
-         FROM workspace_leases wl
-         JOIN runtime_workspace_bindings rwb
-           ON rwb.id = wl.runtime_workspace_binding_id
-         WHERE wl.runtime_workspace_binding_id = ?
-           AND rwb.runtime_id = ?
-           AND wl.ended_at IS NULL
-         LIMIT 1`,
-      )
-      .get(input.bindingId, input.runtimeId) as { workspaceId: string } | undefined;
-    if (!lease) {
-      throw new RuntimeEnrollmentError(
-        "Runtime workspace binding was not found or has no active workspace lease.",
-        "WORKSPACE_BINDING_NOT_FOUND",
-      );
-    }
-    return createRegisteredWorkspaceAuthorization(
-      db,
-      lease.workspaceId,
-      input.runtimeId,
-      createdAt,
-      input.label ?? "Daemon workspace browser access",
-    );
   });
 }
 
@@ -989,6 +938,9 @@ function registerRuntimeInTransaction(
       now,
       now,
     );
+    // A newly registered daemon becomes reachable to every active Hub owner
+    // through an explicit user-daemon grant.
+    grantDaemonToActiveOwners(db, { runtimeId, createdAt: now });
   }
 
   revokeActiveRuntimeTokens(db, runtimeId, now);
@@ -1020,36 +972,11 @@ function registerRuntimeInTransaction(
     preparedWorkspace,
     now,
   );
-  const workspaceAuthorization = workspaceBinding
-    ? createRegisteredWorkspaceAuthorization(db, workspaceBinding.workspaceId, runtimeId, now)
-    : undefined;
   return {
     runtimeId,
     ...credentials,
     registeredAt: now,
     ...(workspaceBinding ? { workspaceBinding } : {}),
-    ...(workspaceAuthorization ? { workspaceAuthorization } : {}),
-  };
-}
-
-function createRegisteredWorkspaceAuthorization(
-  db: DatabaseSync,
-  workspaceId: string,
-  runtimeId: string,
-  createdAt: string,
-  label = "Daemon workspace registration",
-): RegisteredWorkspaceAuthorization {
-  const authorization = createWorkspaceAccessToken(db, {
-    workspaceId,
-    createdByRuntimeId: runtimeId,
-    label,
-    createdAt,
-  });
-  return {
-    workspaceId: authorization.workspaceId,
-    workspaceSlug: authorization.workspaceSlug,
-    oneTimeToken: authorization.token,
-    expiresAt: authorization.expiresAt,
   };
 }
 

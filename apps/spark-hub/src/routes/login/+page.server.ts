@@ -46,19 +46,11 @@ export const actions: Actions = {
     }
 
     setHubSessionCookies(cookies, session, { secure: url.protocol === "https:" });
-    redirect(303, isPreWorkspacePath(next) ? next : "/");
+    redirect(303, next);
   },
 };
 
 function safeNextPath(value: string | null): string {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
   return value;
-}
-
-function isPreWorkspacePath(value: string): boolean {
-  if (value === "/" || value === "/workspaces/new" || value.startsWith("/workspaces/new/")) {
-    return true;
-  }
-  if (value.startsWith("/settings") || value.startsWith("/daemon/")) return true;
-  return false;
 }

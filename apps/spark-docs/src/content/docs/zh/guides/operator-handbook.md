@@ -228,12 +228,10 @@ Implement、inspect、Goal、Repro 和 Workflow 仍是 daemon 拥有的操作；
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark hub access create
-spark hub workspace access create --workspace <hub-workspace-id>
+spark hub access create --daemon <runtime-id>
 ```
 
-- Hub Key 在 `/login` 兑换。
-- Workspace Key 在 `/{slug}/login` 兑换。
+- Hub Key 在 `/login` 兑换；会话只能访问被授权 daemon 拥有的 workspace。
 - 每增加一个本地目录，都要生成新的 Workspace Registration Token。
 
 所有一次性 Key 都应视为 secret，不能复制进日志或 PR。
