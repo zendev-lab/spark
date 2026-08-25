@@ -6,6 +6,9 @@ created: 2026-08-23
 
 # Spark Web replacement and package normalization
 
+> The `spark-tool-web` disposition in this note is superseded by
+> [the 2026-08-25 DSH Web decision](./2026-08-25-dsh-tool-web.md).
+
 ## Context
 
 Spark currently exposes two local browser products. `spark-web` is connected to

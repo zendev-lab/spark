@@ -70,7 +70,7 @@ interface ToolOutputProfileRule {
 const TOOL_OUTPUT_PROFILE_RULES: readonly ToolOutputProfileRule[] = [
   {
     profile: "exact",
-    tools: ["read", "graft_read", "memory_read", "fetch_content", "get_search_content"],
+    tools: ["read", "graft_read", "memory_read", "web_fetch", "get_search_content"],
   },
   {
     profile: "log",

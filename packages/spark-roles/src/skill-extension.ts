@@ -69,8 +69,7 @@ export const SKILL_AGENT_ALLOWED_TOOLS = [
   "find",
   "context",
   "web_search",
-  "code_search",
-  "fetch_content",
+  "web_fetch",
   "get_search_content",
   "cue_exec",
   "cue_run",
@@ -548,8 +547,8 @@ function skillAgentCapabilities(allowedTools: readonly string[]): RoleCapability
   const tools = new Set(allowedTools);
   const capabilities: RoleCapability[] = [];
   if (
-    ["read", "grep", "find", "context", "code_search", "fetch_content", "get_search_content"].some(
-      (tool) => tools.has(tool),
+    ["read", "grep", "find", "context", "web_fetch", "get_search_content"].some((tool) =>
+      tools.has(tool),
     )
   ) {
     capabilities.push("read");
@@ -562,11 +561,7 @@ function skillAgentCapabilities(allowedTools: readonly string[]): RoleCapability
   ) {
     capabilities.push("exec");
   }
-  if (
-    ["web_search", "code_search", "fetch_content", "get_search_content"].some((tool) =>
-      tools.has(tool),
-    )
-  ) {
+  if (["web_search", "web_fetch", "get_search_content"].some((tool) => tools.has(tool))) {
     capabilities.push("net");
   }
   return capabilities;

@@ -475,7 +475,7 @@ describe("architecture inventory governance", () => {
     expect(report.workspaces["@zendev-lab/spark-daemon"].layer).toBe("composition");
     expect(report.workspaces["@zendev-lab/spark-web"].layer).toBe("application");
     expect(report.workspaces["@zendev-lab/spark-web-dsh"].layer).toBe("application");
-    expect(report.workspaces["@zendev-lab/spark-tool-web"].layer).toBe("capability");
+    expect(report.workspaces["@zendev-lab/dsh-tool-web"].layer).toBe("capability");
     expect(compactMarkdown).toContain(`exceptionBudget: ${exceptionCount}/${exceptionCount}`);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     // Stable digest for the projected health report body.

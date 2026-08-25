@@ -174,7 +174,4 @@
     allowParallelInProgress: true
 
 - id: tool-web
-  name: "@deepseek-ai/dsh-tool-web"
-  config:
-    fetch: false
-    searchTimeoutMs: 60000
+  name: "../../profiles/web/plugins/dsh-tool-web/index.mjs"

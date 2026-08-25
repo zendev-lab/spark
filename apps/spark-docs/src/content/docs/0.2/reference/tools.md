@@ -16,7 +16,7 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Ask for a decision | `ask` | Pauses for structured user input |
 | Read and change files | `read`, `write`, `edit`, `grep`, `find` | Read or workspace write |
 | Manage code delivery | `git` | Worktree, native PR-stack, commit, submit, sync, and cleanup lifecycle |
-| Search and fetch the Web | `web_search`, `code_search`, `fetch_content`, `get_search_content` | External read; fetched text is untrusted |
+| Search and fetch the Web | `web_search`, `web_fetch`, `get_search_content` | External read through `ctx.web`; fetched text is untrusted |
 | Inspect and change work | `task_read`, `task_write`, `assign`, `todo` | Task/session state; assignment may execute work |
 | Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
 | Coordinate agents | `role`, `session` | Definitions, calls, persistent sessions, and mail |

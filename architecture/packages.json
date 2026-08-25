@@ -324,13 +324,14 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-tool-web": {
-      "path": "packages/spark-tool-web",
+    "@zendev-lab/dsh-tool-web": {
+      "path": "packages/dsh-tool-web",
       "layer": "capability",
       "owner": "web",
       "stability": "supported",
-      "stateWriter": "user",
-      "namingRationale": "Spark Web tools retain product cache, code search, content retrieval, and response identity contracts."
+      "stateWriter": "none",
+      "allowedWorkspaceDependencies": [],
+      "namingRationale": "The standard DSH tool consumer uses ctx.web providers and an Agent-lifetime bounded memory cache; it owns no persistent state."
     },
     "@zendev-lab/spark-ui": {
       "path": "packages/spark-ui",

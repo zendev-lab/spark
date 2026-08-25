@@ -65,6 +65,7 @@ catalogs:
     "@deepseek-ai/dsh-tool-skill": *dsh-version
     "@deepseek-ai/dsh-tools": *dsh-version
     "@deepseek-ai/dsh-user-approval": *dsh-version
+    "@deepseek-ai/dsh-web": *dsh-version
 
 minimumReleaseAgeExclude:
   - "@types/node"

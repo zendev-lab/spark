@@ -31,7 +31,7 @@ second CLI catalog.
 | `spark` | n/a | native root CLI | root parsing, diagnostic rendering, companion routing, build-info, install/update policy, and deployment transitions | daemon execution, Hub coordination, Web, DSH, ACP/MCP semantics, or plugin composition |
 | `spark-daemon` | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous Loop timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
-| `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`fetch_content` |
+| `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`web_fetch` |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
 | slash `system` | n/a | interactive kernel command source | `/help`, `/exit`, `/quit`, `/clear` | project/task/goal/session/workflow commands |

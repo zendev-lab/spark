@@ -6,6 +6,9 @@ created: 2026-08-20
 
 # spark-tool-web capability and spark-web application
 
+> This package placement is superseded by
+> [the 2026-08-25 DSH Web decision](./2026-08-25-dsh-tool-web.md).
+
 ## Decision
 
 - Search/fetch stays `@zendev-lab/spark-tool-web`.
