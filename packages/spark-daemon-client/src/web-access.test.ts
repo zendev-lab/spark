@@ -10,13 +10,7 @@ import {
 } from "./web-access.ts";
 
 test("loopback client classification handles IPv4, IPv6, and mapped IPv4", () => {
-  for (const address of [
-    "127.0.0.1",
-    "127.42.0.9",
-    "::1",
-    "0:0:0:0:0:0:0:1",
-    "::ffff:127.0.0.1",
-  ]) {
+  for (const address of ["127.0.0.1", "127.42.0.9", "::1", "0:0:0:0:0:0:0:1", "::ffff:127.0.0.1"]) {
     assert.equal(isSparkWebLoopbackClientAddress(address), true, address);
   }
   for (const address of [undefined, null, "10.0.0.2", "::ffff:10.0.0.2"]) {

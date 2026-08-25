@@ -394,7 +394,8 @@ function writeAccessPage(
 function writeRedirect(response: ServerResponse, location: string, token?: string): void {
   const headers: Record<string, string> = { location };
   if (token) {
-    headers["set-cookie"] = `${SPARK_WEB_DSH_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`;
+    headers["set-cookie"] =
+      `${SPARK_WEB_DSH_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`;
   }
   response.writeHead(303, headers);
   response.end();

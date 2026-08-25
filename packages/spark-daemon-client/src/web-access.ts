@@ -43,11 +43,13 @@ export function sanitizeSparkWebReturnTo(value: string | null | undefined): stri
   }
 }
 
-export function renderSparkWebAccessPage(input: {
-  state?: SparkWebAccessPageState;
-  returnTo?: string;
-  product?: string;
-} = {}): string {
+export function renderSparkWebAccessPage(
+  input: {
+    state?: SparkWebAccessPageState;
+    returnTo?: string;
+    product?: string;
+  } = {},
+): string {
   const state = input.state ?? "prompt";
   const product = escapeHtml(input.product?.trim() || "Spark");
   const returnTo = escapeHtml(sanitizeSparkWebReturnTo(input.returnTo));

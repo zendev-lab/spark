@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo, type Socket } from "node:net";
 import { test } from "vitest";
 
 import {
@@ -228,10 +228,9 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
     assert.equal(navigation.status, 303);
     assert.equal(navigation.headers.get("location"), "/?lang=zh");
 
-    const queryMutation = await fetch(
-      `http://127.0.0.1:${proxy.port}/api/rpc?token=sdu_good`,
-      { method: "POST" },
-    );
+    const queryMutation = await fetch(`http://127.0.0.1:${proxy.port}/api/rpc?token=sdu_good`, {
+      method: "POST",
+    });
     assert.equal(queryMutation.status, 403);
 
     assert.deepEqual(upstream.seen, [
@@ -252,16 +251,16 @@ test("DNS and cross-site authorities are rejected before token verification", as
     return "valid";
   });
   try {
-    const dns = await fetch(`http://127.0.0.1:${proxy.port}/`, {
-      headers: { host: `spark.lan:${proxy.port}`, "x-spark-web-token": "sdu_good" },
-    });
+    const dns = await rawGet(
+      proxy.port,
+      { "x-spark-web-token": "sdu_good" },
+      `spark.lan:${proxy.port}`,
+    );
     assert.equal(dns.status, 403);
 
-    const crossSite = await fetch(`http://127.0.0.1:${proxy.port}/`, {
-      headers: {
-        "sec-fetch-site": "cross-site",
-        "x-spark-web-token": "sdu_good",
-      },
+    const crossSite = await rawGet(proxy.port, {
+      "sec-fetch-site": "cross-site",
+      "x-spark-web-token": "sdu_good",
     });
     assert.equal(crossSite.status, 403);
     assert.equal(verified, 0);
@@ -270,3 +269,53 @@ test("DNS and cross-site authorities are rejected before token verification", as
     upstream.server.close();
   }
 });
+
+/**
+ * Raw HTTP/1.1 GET that preserves every header verbatim. `fetch` treats Host
+ * and Sec-Fetch-* as forbidden request headers and silently drops them, so
+ * forged-authority requests must ride their own TCP socket to reach the
+ * proxy's pre-auth trust fence.
+ */
+function rawGet(
+  port: number,
+  headers: Record<string, string>,
+  host?: string,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolveRaw, rejectRaw) => {
+    const socket: Socket = connect({ host: "127.0.0.1", port });
+    let buffer = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      socket.destroy();
+      rejectRaw(new Error("raw request timed out"));
+    }, 5000);
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      const headerEnd = buffer.indexOf("\r\n\r\n");
+      if (headerEnd < 0 || settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const status = Number(buffer.slice(0, buffer.indexOf("\r\n")).split(" ")[1]);
+      socket.destroy();
+      resolveRaw({ status, body: buffer.slice(headerEnd + 4) });
+    });
+    socket.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      rejectRaw(error);
+    });
+    socket.write(
+      [
+        "GET / HTTP/1.1",
+        `Host: ${host ?? `127.0.0.1:${port}`}`,
+        "Connection: close",
+        ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
+        "",
+        "",
+      ].join("\r\n"),
+    );
+  });
+}
