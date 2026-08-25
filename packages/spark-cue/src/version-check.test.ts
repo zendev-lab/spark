@@ -36,14 +36,14 @@ test("compareSemver orders release tags numerically", () => {
   }
 });
 
-test("cued version cache follows SPARK_HOME", () => {
-  const previous = process.env.SPARK_HOME;
-  process.env.SPARK_HOME = "/tmp/spark-cue-home";
+test("cued version cache follows XDG_CACHE_HOME without a Spark path dependency", () => {
+  const previous = process.env.XDG_CACHE_HOME;
+  process.env.XDG_CACHE_HOME = "/tmp/cue-cache";
   try {
-    assert.equal(defaultCuedVersionCachePath(), "/tmp/spark-cue-home/cache/cued-version.json");
+    assert.equal(defaultCuedVersionCachePath(), "/tmp/cue-cache/cue/cued-version.json");
   } finally {
-    if (previous === undefined) delete process.env.SPARK_HOME;
-    else process.env.SPARK_HOME = previous;
+    if (previous === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previous;
   }
 });
 

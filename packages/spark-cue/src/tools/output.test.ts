@@ -4,13 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
+import { defaultSocketPath, type ScriptResult } from "../client/cue-client.ts";
 import {
   cueCommandIssue,
   cueCommandSyntaxIssue,
-  defaultSocketPath,
-  type ScriptResult,
-  type SparkCueHostApi,
-  type SparkCueToolContext,
   normalizeCueBoolean,
   normalizeCueStderrForDisplay,
   normalizeCueTerminalOutput,
@@ -18,12 +15,13 @@ import {
   normalizeCueResourceNeeds,
   normalizeCueTailBytes,
   normalizeCueTimeoutSeconds,
+  registerCueOperationDefinitions,
   renderCueScriptResult,
-  registerSparkCueTools,
   resolveCueWorkingDirectory,
-} from "../index.ts";
+} from "../operations/definitions.ts";
+import type { CueOperationContext, CueOperationHost } from "./host-types.ts";
 
-type RegisteredSparkCueTool = Parameters<SparkCueHostApi["registerTool"]>[0];
+type RegisteredCueOperation = Parameters<CueOperationHost["registerTool"]>[0];
 
 test("defaultSocketPath treats an empty XDG_RUNTIME_DIR as unset", () => {
   const previous = process.env.XDG_RUNTIME_DIR;
@@ -297,7 +295,7 @@ test("cue_resources explains empty provider state", async () => {
           return [];
         },
       },
-    } as unknown as SparkCueToolContext,
+    } as unknown as CueOperationContext,
   );
 
   assert.match(result.content[0].text, /Providers: 0/);
@@ -305,28 +303,6 @@ test("cue_resources explains empty provider state", async () => {
   assert.match(result.content[0].text, /remove needs=\{\.\.\.\}/);
   assert.match(result.content[0].text, /gpu\/gpu_mem/);
   assert.match(String((result.details as { hint?: unknown }).hint), /resource provider/);
-});
-
-test("script_eval renders a bounded inline code preview", () => {
-  const tools = registerCueToolsForTest();
-  const evalTool = tools.get("script_eval");
-  assert.ok(evalTool);
-  const rendered = evalTool
-    .renderCall?.(
-      {
-        language: "python",
-        script:
-          "\nprint('first')\nprint('second')\nprint('third')\nprint('fourth')\nprint('fifth')\nprint('sixth')\n",
-      },
-      { bold: (text: string) => text },
-      {},
-    )
-    .render(400)
-    .join("\n");
-  assert.match(rendered ?? "", /inline=6line\(s\)/);
-  assert.match(rendered ?? "", /preview=/);
-  assert.match(rendered ?? "", /print\('first'\).*print\('fifth'/);
-  assert.doesNotMatch(rendered ?? "", /print\('sixth'\)/);
 });
 
 test("script_run executes python through uv run and script_eval uses uv run --script", async () => {
@@ -360,7 +336,7 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
     cwd: "/work",
     cueClient: fakeClient,
     env: { PATH: "/usr/bin" },
-  } as unknown as SparkCueToolContext;
+  } as unknown as CueOperationContext;
 
   const defaultEval = await evalTool.execute(
     "call-default-python",
@@ -487,7 +463,7 @@ test("cue_schedule filters the cron statuses emitted by Cue", async () => {
         ];
       },
     },
-  } as unknown as SparkCueToolContext;
+  } as unknown as CueOperationContext;
 
   const failed = await scheduleTool.execute(
     "call-list-failed",
@@ -541,7 +517,7 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
       } satisfies ScriptResult;
     },
   };
-  const ctx = { cwd: dir, cueClient: fakeClient } as unknown as SparkCueToolContext;
+  const ctx = { cwd: dir, cueClient: fakeClient } as unknown as CueOperationContext;
 
   const fileResult = await runTool.execute(
     "call-scope-run",
@@ -567,13 +543,10 @@ test("script_run and script_eval do not pass removed scope to RunScript", async 
   assert.equal(calls[1]?.scope, undefined);
 });
 
-function registerCueToolsForTest(): Map<string, RegisteredSparkCueTool> {
-  const tools = new Map<string, RegisteredSparkCueTool>();
-  registerSparkCueTools({
+function registerCueToolsForTest(): Map<string, RegisteredCueOperation> {
+  const tools = new Map<string, RegisteredCueOperation>();
+  registerCueOperationDefinitions({
     registerTool: (config) => tools.set(config.name, config),
-    on: () => undefined,
-    getActiveTools: () => [...tools.keys()],
-    setActiveTools: () => undefined,
   });
   return tools;
 }

@@ -2,7 +2,6 @@
 
 import { createHash } from "node:crypto";
 import * as nodePath from "node:path";
-import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
 import { autoStartDaemon, DEFAULT_CUED_AUTOSTART_TIMEOUT_MS } from "./daemon-start.ts";
 import {
   CueClient,
@@ -15,7 +14,7 @@ import {
   resolveCueTransport,
 } from "../client/cue-client.ts";
 import { checkAndWarn as checkCuedVersionAndWarn } from "../version-check.ts";
-import type { SparkCueToolContext } from "./host-types.ts";
+import type { CueOperationContext } from "./host-types.ts";
 
 function resolveCueWorkingDirectory(
   requestedCwd: string | undefined,
@@ -67,7 +66,7 @@ function cueErrorDetail(error: unknown): string {
 }
 
 export function cueSessionOptionsFromContext(
-  ctx?: SparkCueToolContext,
+  ctx?: CueOperationContext,
 ): Required<CueSessionOptions> {
   const cwd = resolveCueWorkingDirectory(undefined, ctx?.cwd);
   const sessionId = cueSessionIdFromContext(ctx, cwd);
@@ -80,34 +79,21 @@ export function cueSessionOptionsFromContext(
   };
 }
 
-function cueSessionIdFromContext(ctx: SparkCueToolContext | undefined, cwd: string): string {
+function cueSessionIdFromContext(ctx: CueOperationContext | undefined, cwd: string): string {
   const direct = ctx?.sessionId?.trim();
   if (direct) return direct;
-  const sessionFile = ctx?.sessionManager?.getSessionFile?.()?.trim();
-  if (sessionFile) return `session:${stableStringHash(sessionFile)}`;
-  const leafId = ctx?.sessionManager?.getLeafId?.()?.trim();
-  if (leafId) return `leaf:${leafId}`;
-  const envSession = process.env.PI_SESSION_ID?.trim() || process.env.SPARK_SESSION_ID?.trim();
-  if (envSession) return envSession;
-  return `spark-cue:${process.pid}:${stableStringHash(cwd)}`;
+  return `cue:${process.pid}:${stableStringHash(cwd)}`;
 }
 
 function stableStringHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
-export function releaseClientOwner(owner: CueClientOwner, ctx?: SparkCueToolContext): void {
+export function releaseClientOwner(owner: CueClientOwner, ctx?: CueOperationContext): void {
   const ownedEntries = Array.from(clientRegistry.values()).filter((entry) =>
     entry.owners.has(owner),
   );
-  const hasSessionIdentity = Boolean(
-    ctx?.sessionId?.trim() ||
-    ctx?.cwd?.trim() ||
-    ctx?.sessionManager?.getSessionFile?.()?.trim() ||
-    ctx?.sessionManager?.getLeafId?.()?.trim() ||
-    process.env.PI_SESSION_ID?.trim() ||
-    process.env.SPARK_SESSION_ID?.trim(),
-  );
+  const hasSessionIdentity = Boolean(ctx?.sessionId?.trim() || ctx?.cwd?.trim());
   let sessionId = hasSessionIdentity
     ? cueSessionIdFromContext(ctx, resolveCueWorkingDirectory(undefined, ctx?.cwd))
     : undefined;
@@ -134,7 +120,7 @@ export function releaseAllClientOwner(owner: CueClientOwner): void {
 async function connectClient(
   transport: CueResolvedTransport,
   session: Required<CueSessionOptions>,
-  ctx?: SparkCueToolContext,
+  ctx?: CueOperationContext,
 ): Promise<CueClient> {
   try {
     return await CueClient.connectResolved(transport, session);
@@ -171,7 +157,7 @@ async function connectClient(
 }
 
 export async function getClient(
-  ctx: SparkCueToolContext | undefined,
+  ctx: CueOperationContext | undefined,
   owner: CueClientOwner,
 ): Promise<CueClient> {
   if (ctx?.cueClient) return ctx.cueClient;
@@ -240,7 +226,7 @@ export async function getClient(
 }
 
 export function cueToolOperation(
-  ctx: SparkCueToolContext | undefined,
+  ctx: CueOperationContext | undefined,
   toolCallId: string,
   kind: string,
 ): CueOperationKey {
@@ -287,15 +273,11 @@ const CUE_RETRY_BASE_DELAY_MS = 100;
 const CUE_RETRY_MAX_DELAY_MS = 5_000;
 
 function cueRetryDelayMs(replayIndex: number): number {
-  const cap = cappedExponentialCeiling(
-    replayIndex,
-    CUE_RETRY_BASE_DELAY_MS,
-    CUE_RETRY_MAX_DELAY_MS,
-    { exponentCap: 16 },
-  );
+  const exponent = Math.min(16, Math.max(0, Math.floor(replayIndex) - 1));
+  const cap = Math.min(CUE_RETRY_MAX_DELAY_MS, CUE_RETRY_BASE_DELAY_MS * 2 ** exponent);
   // Equal jitter avoids synchronized reconnect storms while retaining a useful
   // minimum pause when a local daemon or remote SSH gateway is unavailable.
-  return equalJitter(cap);
+  return Math.floor(cap * (0.5 + Math.random() * 0.5));
 }
 
 function cueRetryDeadlineError(operationId: string): CueError {
@@ -387,7 +369,7 @@ export function cueToolRetryOptions(
 }
 
 export async function withCueIdempotentRetry<T>(
-  ctx: SparkCueToolContext | undefined,
+  ctx: CueOperationContext | undefined,
   owner: CueClientOwner,
   operation: CueOperationKey,
   run: (client: CueClient, attempt: CueSideEffectAttempt) => Promise<T>,

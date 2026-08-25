@@ -82,7 +82,7 @@ async function startDaemonWithContract(
       }, timeoutMs);
       timeout.unref?.();
     }
-    // The selected daemon command backgrounds itself; do not hold Spark open.
+    // The selected daemon command backgrounds itself; do not hold the host open.
     child.unref();
   });
 }
@@ -141,7 +141,7 @@ function renderCuedStartFailure(input: {
   lines.push(stderr ? `stderr:\n${stderr}` : "stderr: <empty>");
   lines.push(stdout ? `stdout:\n${stdout}` : "stdout: <empty>");
   lines.push(
-    `Recovery: run ${JSON.stringify(`${invocation.replace(" start", " start --fg")}`)} in a terminal for daemon logs; check for a stale socket at ${input.socketPath}; after protocol upgrades, restart/reload the Spark host so its spark-cue client matches the daemon.`,
+    `Recovery: run ${JSON.stringify(`${invocation.replace(" start", " start --fg")}`)} in a terminal for daemon logs; check for a stale socket at ${input.socketPath}; after protocol upgrades, restart or reload the host so its Cue client matches the daemon.`,
   );
   return lines.join("\n");
 }
