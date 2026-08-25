@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, it } from "vitest";
 
-import { migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 
 import { handleHubAccessCliCommand } from "./hub-access-cli.ts";
 

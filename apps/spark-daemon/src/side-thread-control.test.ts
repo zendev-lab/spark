@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   runtimeCommandResultPayloadSchema,

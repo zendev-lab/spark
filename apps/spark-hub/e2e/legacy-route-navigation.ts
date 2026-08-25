@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { createHubAccessToken } from "@zendev-lab/spark-hub-coordination/hub-access";
 import { createWorkspaceAccessToken } from "@zendev-lab/spark-hub-coordination/workspace-access";
-import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import {
   chromium,
   request,

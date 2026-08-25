@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
-const hubDbEntry = realpathSync(fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-db")));
+const hubDbEntry = realpathSync(
+  fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-storage-sqlite")),
+);
 const migrationsSource = join(dirname(hubDbEntry), "migrations");
 const migrationsDestination = fileURLToPath(new URL("../dist/migrations/", import.meta.url));
 

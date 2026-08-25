@@ -46,7 +46,7 @@
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@types/ws": "catalog:",
-    "@zendev-lab/spark-hub-db": "workspace:*",
+    "@zendev-lab/spark-hub-storage-sqlite": "workspace:*",
     "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:"

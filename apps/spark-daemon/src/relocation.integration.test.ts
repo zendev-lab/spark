@@ -25,7 +25,7 @@ import {
   openDatabase,
   openMemoryDatabase,
   restoreHubSnapshot,
-} from "@zendev-lab/spark-hub-db";
+} from "@zendev-lab/spark-hub-storage-sqlite";
 import {
   createRuntimeEnrollmentToken,
   preflightRuntimeRelocation,

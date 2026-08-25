@@ -3,7 +3,7 @@ import {
   RuntimeRelocationPreflightError,
   RuntimeTokenRefreshError,
 } from "@zendev-lab/spark-hub-coordination/runtime-registration";
-import { readHubInstanceId } from "@zendev-lab/spark-hub-db";
+import { readHubInstanceId } from "@zendev-lab/spark-hub-storage-sqlite";
 
 import { getDatabase } from "./db";
 

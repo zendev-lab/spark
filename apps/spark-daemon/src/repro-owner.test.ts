@@ -8,7 +8,7 @@ import {
   defaultEvidenceStore,
   type EvidenceRef,
 } from "@zendev-lab/spark-artifacts";
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { currentSparkReproCheckpoint } from "@zendev-lab/spark-repro";
 import { registerSparkReproRoles } from "./product/policy/spark-repro-roles.ts";
 import { gitCommand } from "@zendev-lab/spark-system";

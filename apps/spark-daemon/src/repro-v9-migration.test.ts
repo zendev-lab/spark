@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import type { SparkDaemonModelControl } from "./model-control.ts";

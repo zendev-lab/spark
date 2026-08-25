@@ -155,7 +155,7 @@ export const npmDistributions = [
     files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-hub" },
-    migrationSource: resolve(root, "packages/spark-hub-db/src/migrations"),
+    migrationSource: resolve(root, "packages/spark-hub-storage-sqlite/src/migrations"),
   },
   {
     id: "web",

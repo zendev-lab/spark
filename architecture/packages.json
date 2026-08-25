@@ -222,8 +222,8 @@
       "stability": "private",
       "stateWriter": "hub"
     },
-    "@zendev-lab/spark-hub-db": {
-      "path": "packages/spark-hub-db",
+    "@zendev-lab/spark-hub-storage-sqlite": {
+      "path": "packages/spark-hub-storage-sqlite",
       "layer": "private-adapter",
       "owner": "hub",
       "stability": "private",
