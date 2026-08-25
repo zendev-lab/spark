@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
+import { sessionReproStorePathV2 } from "@zendev-lab/spark-driver";
 import type { DaemonSparkReproRuntimeDeps } from "./repro-owner-runtime.ts";
 import { createDaemonSparkReproOwner } from "./repro-owner-runtime.ts";
 import { getWorkspaceById } from "./store/workspaces.ts";

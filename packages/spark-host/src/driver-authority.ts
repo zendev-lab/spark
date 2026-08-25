@@ -3,7 +3,7 @@ import {
   loadSparkSessionWorkspaceState,
   setSparkSessionDriverAuthority,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import {
   SPARK_PROTOCOL_VERSION,
   parseSparkInteractionRequest,

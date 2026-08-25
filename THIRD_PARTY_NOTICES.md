@@ -34,7 +34,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 - Source: <https://github.com/fitchmultz/pi-codex-goal>
 - Revision: `cc2ac14d6a1e2bdf6baa1ee635bda0e08452bdd8`
-- Use: source-derived goal lifecycle primitives in `@zendev-lab/spark-loop`
+- Use: source-derived goal lifecycle primitives in `@zendev-lab/spark-driver`
 
 MIT License
 

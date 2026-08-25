@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSessionGoal, setSessionGoal } from "@zendev-lab/spark-loop";
+import { loadSessionGoal, setSessionGoal } from "@zendev-lab/spark-driver";
 import { afterEach, expect, it } from "vitest";
 import type { SparkDaemonLoopEvaluationTask, SparkDaemonLoopTickTask } from "../core/types.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";

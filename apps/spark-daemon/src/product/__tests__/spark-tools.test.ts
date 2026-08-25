@@ -162,7 +162,7 @@ import {
   setSessionGoal,
   setSessionLoop,
   updateSessionGoalStatus,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import type {
   ReviewInput,
   ReviewerRunResult,

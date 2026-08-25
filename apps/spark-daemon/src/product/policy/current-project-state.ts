@@ -19,7 +19,7 @@ import {
   sparkStateRootPath,
   updateSparkSessionWorkspaceState,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   normalizeCurrentProjectStoreSnapshot,

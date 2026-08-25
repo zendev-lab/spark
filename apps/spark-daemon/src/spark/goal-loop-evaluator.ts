@@ -7,7 +7,7 @@ import {
   type ProjectRef,
 } from "@zendev-lab/spark-core";
 import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
-import { loadSessionGoal } from "@zendev-lab/spark-loop";
+import { loadSessionGoal } from "@zendev-lab/spark-driver";
 import {
   createSparkRoleRegistry,
   SparkRolesReviewerRunner,

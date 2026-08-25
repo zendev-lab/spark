@@ -13,7 +13,7 @@ import {
 } from "../policy/spark-active-injection.ts";
 import { analyzeSparkEntryMode } from "../policy/spark-entry.ts";
 import { saveCurrentProjectRef } from "../policy/session-state.ts";
-import { loadSparkSessionWorkspaceState, setSessionGoal } from "@zendev-lab/spark-loop";
+import { loadSparkSessionWorkspaceState, setSessionGoal } from "@zendev-lab/spark-driver";
 import type { SparkToolContext } from "../policy/spark-tool-registration.ts";
 
 interface TestSparkInputContext extends SparkToolContext {

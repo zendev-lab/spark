@@ -1,6 +1,6 @@
-# spark-loop
+# spark-driver
 
-`@zendev-lab/spark-loop` provides generic foreground continuation primitives for Spark capability hosts.
+`@zendev-lab/spark-driver` is the driver authority for Spark loop and goal state and policy: lifecycle, tick, subgoal, and reviewer-gated completion primitives for capability hosts.
 
 It intentionally exposes two related capabilities from one package boundary:
 
@@ -21,6 +21,6 @@ Non-responsibilities:
 
 ## Package boundary (vs spark-host)
 
-Keep `spark-loop` as a separate leaf. Its continuation state and goal policy are
+Keep `spark-driver` as a separate leaf. Its continuation state and goal policy are
 reusable capability contracts; `spark-host` composes them with execution and
 session adapters but must not become their owner.

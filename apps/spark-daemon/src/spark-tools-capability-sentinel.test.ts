@@ -10,7 +10,7 @@ import {
   loadSessionGoal,
   loadSessionLoop,
   setSessionGoal,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import {
   sparkLoopConditionReceiptSchema,
   type SparkLoopConditionReceipt,

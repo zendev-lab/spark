@@ -250,8 +250,8 @@
       "stability": "supported",
       "stateWriter": "user"
     },
-    "@zendev-lab/spark-loop": {
-      "path": "packages/spark-loop",
+    "@zendev-lab/spark-driver": {
+      "path": "packages/spark-driver",
       "layer": "capability",
       "owner": "goals",
       "stability": "supported",

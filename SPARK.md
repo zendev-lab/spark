@@ -102,7 +102,7 @@ updated: 2026-08-23
   attempt owner；`ctx.sparkInvocation` 以不可变 Cordis service 暴露
   `Invocation → Attempt → Turn` 关联，同一 attempt 只能保留一个 Turn，关联以
   可忽略的 `spark/invocation` 事件写入 DSH log。`spark-turn` 暂只保留 host facade 和
-  投影兼容职责，顶层清理时删除。`spark-loop` 仍拥有 goal/tick；不接入
+  投影兼容职责，顶层清理时删除。`spark-driver` 仍拥有 goal/tick；不接入
   `dsh-llm-pi-ai` 或 `dsh-goal`。Invocation / channel / fleet / retry 数据权威仍是
   Spark SQLite。
 - 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。

@@ -4,7 +4,7 @@ import {
   rebuildSessionIndex,
   sessionHiddenRoleRunInboxStorePath,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
 export interface HiddenRoleRunInboxState {

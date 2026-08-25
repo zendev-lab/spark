@@ -20,7 +20,7 @@ import {
   updateLoopStatus,
 } from "./index.ts";
 
-test("spark-loop creates, reconstructs, and clears loop state", () => {
+test("spark-driver creates, reconstructs, and clears loop state", () => {
   const loop = createLoop("Keep making progress", 100);
   assert.equal(loop.objective, "Keep making progress");
   assert.equal(loop.status, "active");
@@ -39,7 +39,7 @@ test("spark-loop creates, reconstructs, and clears loop state", () => {
   assert.equal(reconstructLoop(entries).hasLoop, false);
 });
 
-test("spark-loop lifecycle uses active and paused only and has no complete status", () => {
+test("spark-driver lifecycle uses active and paused only and has no complete status", () => {
   const loop = createLoop("Continue safely", 100);
   const paused = updateLoopStatus(loop, "paused");
   assert.equal(paused.ok, true);
@@ -54,7 +54,7 @@ test("spark-loop lifecycle uses active and paused only and has no complete statu
   assert.ok(["active", "paused"].includes(resumed.loop?.status ?? ""));
 });
 
-test("spark-loop tick continues, waits, blocks, and never emits goal completion instructions", () => {
+test("spark-driver tick continues, waits, blocks, and never emits goal completion instructions", () => {
   const loop = createLoop("Run the next step", 100);
   const first = evaluateLoopTick({ loop, now: 101, reason: "start" });
   assert.equal(first.decision, "continue");
@@ -71,7 +71,7 @@ test("spark-loop tick continues, waits, blocks, and never emits goal completion 
   assert.match(blocked.message, /needs user decision/);
 });
 
-test("spark-loop goal tool text is a compact summary, not pretty JSON", () => {
+test("spark-driver goal tool text is a compact summary, not pretty JSON", () => {
   const text = toToolText(createGoal("Reduce tool output noise", 100));
   assert.match(text, /Status: active/);
   assert.match(text, /Objective: Reduce tool output noise/);
@@ -79,7 +79,7 @@ test("spark-loop goal tool text is a compact summary, not pretty JSON", () => {
   assert.equal(toToolText(null), "No Spark goal is currently set.");
 });
 
-test("spark-loop prompts remain parseable by loop id", () => {
+test("spark-driver prompts remain parseable by loop id", () => {
   const loop = createLoop("Ship a layered primitive", 100);
   const compact = compactLoopPrompt(loop);
   const full = loopContinuationPrompt(loop);
@@ -88,7 +88,7 @@ test("spark-loop prompts remain parseable by loop id", () => {
   assert.equal(continuationLoopIdFromPrompt(full), loop.loopId);
 });
 
-test("spark-loop result helpers reject empty objectives and concurrent loops", () => {
+test("spark-driver result helpers reject empty objectives and concurrent loops", () => {
   assert.equal(createLoopResult(null, "   ").ok, false);
   const current = createLoop("current", 100);
   const rejected = createLoopResult(current, "next");

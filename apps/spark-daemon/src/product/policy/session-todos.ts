@@ -9,7 +9,7 @@ import {
   sparkSessionKey,
   sparkStateRootPath,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import {
   defaultTaskTodoStore,
   isDeletedSessionTodo,

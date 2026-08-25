@@ -1,4 +1,4 @@
-/** Compatibility shim: session loop state is owned by @zendev-lab/spark-loop. */
+/** Compatibility shim: session loop state is owned by @zendev-lab/spark-driver. */
 export {
   clearSessionLoop,
   importLegacySessionLoop,
@@ -8,9 +8,9 @@ export {
   sessionLoopStorePath,
   setSessionLoop,
   updateSessionLoopStatus,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 export type {
   SparkSessionLoop,
   SparkSessionLoopSource,
   SparkSessionLoopStatus,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";

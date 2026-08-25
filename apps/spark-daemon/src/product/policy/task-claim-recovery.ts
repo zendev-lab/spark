@@ -15,7 +15,7 @@ import {
 } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
 import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
-import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";
+import { sessionDirectoryNameForKey } from "@zendev-lab/spark-driver";
 
 export type SparkTaskClaimRecoveryReason =
   | "claim_expired"

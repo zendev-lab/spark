@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { nowIso, type EvidenceRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
-import { sparkStateCwd } from "@zendev-lab/spark-loop";
+import { sparkStateCwd } from "@zendev-lab/spark-driver";
 import { currentSparkProject, loadSparkGraph, sparkSessionKey } from "./session-state.ts";
 import {
   requestGoalCompletionReview,
