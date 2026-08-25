@@ -19,13 +19,6 @@ export const nativeNpmDistributions = [
     cpu: "arm64",
   },
   {
-    id: "native-darwin-x64",
-    target: "x86_64-apple-darwin",
-    suffix: "darwin-x64",
-    os: "darwin",
-    cpu: "x64",
-  },
-  {
     id: "native-linux-arm64",
     target: "aarch64-unknown-linux-musl",
     suffix: "linux-arm64",

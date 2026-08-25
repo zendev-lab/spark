@@ -96,8 +96,6 @@ jobs:
             target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
           - runner: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
@@ -179,7 +177,6 @@ jobs:
         run: |
           for target in \
             aarch64-apple-darwin \
-            x86_64-apple-darwin \
             aarch64-unknown-linux-musl \
             x86_64-unknown-linux-musl; do
             native_source="dist/native/spark-cli-native-${target}/spark"
@@ -230,7 +227,6 @@ jobs:
           --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
           --web-dsh-tarball "dist/release/spark-web-dsh-${RELEASE_TAG}.tgz"
           --native-darwin-arm64-tarball "dist/release/spark-cli-aarch64-apple-darwin-npm-${RELEASE_TAG}.tgz"
-          --native-darwin-x64-tarball "dist/release/spark-cli-x86_64-apple-darwin-npm-${RELEASE_TAG}.tgz"
           --native-linux-arm64-tarball "dist/release/spark-cli-aarch64-unknown-linux-musl-npm-${RELEASE_TAG}.tgz"
           --native-linux-x64-tarball "dist/release/spark-cli-x86_64-unknown-linux-musl-npm-${RELEASE_TAG}.tgz"
 
@@ -312,15 +308,6 @@ jobs:
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
           package: dist/release/spark-cli-aarch64-apple-darwin-npm-${{ github.ref_name }}.tgz
-          access: public
-          tag: native-staging-${{ github.run_id }}
-          provenance: true
-
-      - name: Publish native macOS x64 package
-        if: steps.release.outputs['npm_native-darwin-x64_published'] != 'true'
-        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
-        with:
-          package: dist/release/spark-cli-x86_64-apple-darwin-npm-${{ github.ref_name }}.tgz
           access: public
           tag: native-staging-${{ github.run_id }}
           provenance: true
