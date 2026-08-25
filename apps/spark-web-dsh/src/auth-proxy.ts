@@ -193,13 +193,7 @@ export async function startSparkWebDshAuthProxy(
         response.end();
         return;
       }
-      proxyHttpRequest(
-        request,
-        response,
-        targetHost,
-        options.targetPort,
-        lanAddresses,
-      );
+      proxyHttpRequest(request, response, targetHost, options.targetPort, lanAddresses);
     })().catch(() => {
       if (!response.headersSent) writePlain(response, 502, "spark web-dsh proxy failure");
       else response.destroy();
