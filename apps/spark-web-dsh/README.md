@@ -4,7 +4,11 @@ Spark-owned **DSH-hosted web application**. `spark web-dsh` /
 `spark-web-dsh` boot the installed
 DeepSeek Harness web profile with Cue, LLM, Role-bound subagent providers, and
 provider-onboarding plugins.
-Search/fetch tools live in `@zendev-lab/spark-tool-web`.
+Search/fetch tools live in `@zendev-lab/dsh-tool-web`: the per-agent plugin
+uses the official `ctx.web` seam, while its host-level provider entry registers
+Brave search and safe local HTTP fetch without requiring a DeepSeek search
+service. `get_search_content` recovers complete Agent-lifetime cached results by
+response ID without writing Spark runtime state.
 This application owns the managed `spark-standard` / `spark-ptc` presets —
 static compositions versioned under `presets/agent-presets/` and installed
 into the DSH user preset root at boot — and mounts the canonical
@@ -47,7 +51,7 @@ proxy fails closed while the daemon is unreachable.
 
 Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the
-host, client, Cue, LLM, and spark-session-subagent bundles under ignored `lib/`;
+host, client, Cue, Web, LLM, and spark-session-subagent bundles under ignored `lib/`;
 release build and smoke generate them instead of relying on tracked output. The
 same Spark-owned spawn/fork providers are registered on the daemon Cordis root.
 The overlay disables stock `llm-pi-ai` and the in-process spawn/fork backends;

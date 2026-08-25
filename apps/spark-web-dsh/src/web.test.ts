@@ -24,6 +24,8 @@ import {
   ensureDshCueBundle,
   ensureDshToolCueBundle,
   ensureDshToolFusionBundle,
+  ensureDshToolWebBundle,
+  ensureDshWebProviderBundle,
   ensureSparkFilesBundle,
   ensureSparkLlmBundle,
   ensureSparkSessionSubagentBundle,
@@ -32,6 +34,7 @@ import {
   prepareSparkWebDispatch,
   resolveDshProfileDir,
   resolveDshCuePackageDir,
+  resolveDshToolWebPackageDir,
   resolveFromDirectory,
   resolveCueSkillsDir,
   resolveSparkFilesPackageDir,
@@ -92,6 +95,8 @@ test("composeSparkWebPatch replaces stock providers, mounts Spark DSH plugins, a
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-cue\/index\.mjs/);
     assert.match(defaultText, /- id: dsh-tool-fusion/);
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-fusion\/index\.mjs/);
+    assert.match(defaultText, /- id: dsh-web-provider/);
+    assert.match(defaultText, /name: \.\/plugins\/dsh-web-provider\/index\.mjs/);
     assert.match(defaultText, /- id: spark-session-subagent/);
     assert.match(defaultText, /name: \.\/plugins\/spark-session-subagent\/index\.mjs/);
     assert.match(defaultText, /- id: spark-base-tool-fs/);
@@ -211,6 +216,44 @@ test("ensureDshToolFusionBundle installs the Fusion plugin idempotently", async 
   }
 });
 
+test("ensureDshToolWebBundle installs the per-agent Web tools idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-tool-web-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshToolWebBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-tool-web", ".source-sha256")));
+
+    const second = await ensureDshToolWebBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDshWebProviderBundle installs the host ctx.web providers idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-web-provider-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshWebProviderBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-web-provider", ".source-sha256")));
+
+    const second = await ensureDshWebProviderBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ensureSparkFilesBundle installs the owner adapter idempotently", async () => {
   const dir = mkdtempSync(join(tmpdir(), "spark-files-bundle-"));
   const profile = join(dir, "profiles", "web");
@@ -230,7 +273,7 @@ test("ensureSparkFilesBundle installs the owner adapter idempotently", async () 
   }
 });
 
-test("managed presets reference the Spark file bundle where the profile provides it", async () => {
+test("managed presets reference the profile-owned file and Web bundles", async () => {
   const home = mkdtempSync(join(tmpdir(), "spark-web-preset-files-"));
   const profile = join(home, "profiles", "web");
   mkdirSync(join(profile, "plugins"), { recursive: true });
@@ -242,6 +285,7 @@ test("managed presets reference the Spark file bundle where the profile provides
   );
   try {
     const files = await ensureSparkFilesBundle(profile);
+    const web = await ensureDshToolWebBundle(profile);
     for (const preset of installManagedCuePresets(home, dshPackageDir, cueSkillsRoot)) {
       const composition = readFileSync(join(preset.path, "agent.cordis.yml"), "utf8");
       const specifier = /^- id: tool-fs\n  name: "([^"]+)"$/m.exec(composition)?.[1];
@@ -249,6 +293,9 @@ test("managed presets reference the Spark file bundle where the profile provides
       // The installed preset directory travels with DSH_HOME, so the
       // preset-relative specifier must land on the profile plugin bundle.
       assert.equal(resolve(preset.path, specifier), files.bundle);
+      const webSpecifier = /^- id: tool-web\n  name: "([^"]+)"$/m.exec(composition)?.[1];
+      assert.ok(webSpecifier !== undefined, "preset names the local Web tool plugin");
+      assert.equal(resolve(preset.path, webSpecifier), web.bundle);
     }
   } finally {
     rmSync(home, { recursive: true, force: true });
@@ -268,6 +315,12 @@ test("spark-session package resolves from the workspace and exposes the subagent
 test("spark-files package resolves from the workspace and exposes the DSH adapter", () => {
   const filesDir = resolveSparkFilesPackageDir();
   assert.ok(existsSync(join(filesDir, "src", "dsh-plugin.ts")), "DSH adapter exists");
+});
+
+test("dsh-tool-web resolves from the workspace and exposes tool and provider plugins", () => {
+  const webDir = resolveDshToolWebPackageDir();
+  assert.ok(existsSync(join(webDir, "src", "index.ts")), "tool plugin entry exists");
+  assert.ok(existsSync(join(webDir, "src", "provider.ts")), "provider plugin entry exists");
 });
 
 test("dsh-cue resolves its package root and exposes the Cordis plugin", () => {

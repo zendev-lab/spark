@@ -78,6 +78,7 @@
     "@zendev-lab/dsh-channel-transports": "workspace:^",
     "@zendev-lab/dsh-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
+    "@zendev-lab/dsh-tool-web": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-deployment": "workspace:^",
@@ -96,12 +97,12 @@
     "@zendev-lab/spark-task-runtime": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
-    "@zendev-lab/spark-tool-web": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {
     "@codspeed/vitest-plugin": "5.7.1",
+    "@deepseek-ai/dsh-web": "catalog:dsh",
     "@j178/prek": "0.4.13",
     "@types/node": "^24.13.3",
     "@types/react": "^19.0.0",

@@ -6,6 +6,9 @@ created: 2026-08-20
 
 # DSH package reuse and naming
 
+> The `spark-tool-web` disposition in this note is superseded by
+> [the 2026-08-25 DSH Web decision](./2026-08-25-dsh-tool-web.md).
+
 Current product-composition placement and the cross-surface DSH plugin matrix
 are defined by
 [`2026-08-21-daemon-product-composition.md`](./2026-08-21-daemon-product-composition.md).

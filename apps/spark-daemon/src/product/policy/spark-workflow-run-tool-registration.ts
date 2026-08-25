@@ -710,7 +710,7 @@ function extractWorkflowAllowedTools(script: string): string[] {
     for (const tool of body.matchAll(/["']([^"']+)["']/gu)) tools.push(tool[1] ?? "");
   }
   if (/\bwebSearch\s*\(/u.test(script)) tools.push("web_search");
-  if (/\bfetchContent\s*\(/u.test(script)) tools.push("fetch_content");
+  if (/\bfetchContent\s*\(/u.test(script)) tools.push("web_fetch");
   if (/\bevidenceRecord\s*\(/u.test(script)) tools.push("evidenceRecord");
   return uniqueStrings(tools.filter((tool) => tool.trim().length > 0));
 }
@@ -972,7 +972,7 @@ async function createSparkWorkflowFetchContentAdapter(input: {
         signal: input.signal,
         runName: "workflow-fetch-content",
         sessionModel: sessionModelName(input.ctx.model),
-        allowedTools: ["fetch_content"],
+        allowedTools: ["web_fetch"],
         usageExecutionKind: "workflow_agent",
         roleExecutor: input.ctx.runRole,
       },
@@ -997,7 +997,7 @@ function workflowWebSearchInstruction(request: WorkflowWebSearchInput): string {
 
 function workflowFetchContentInstruction(request: WorkflowFetchContentInput): string {
   return [
-    "Use the fetch_content tool for this Spark workflow source-fetch step.",
+    "Use the web_fetch tool for this Spark workflow source-fetch step.",
     "Return compact extracted facts relevant to the prompt and include the source URL.",
     "Request JSON:",
     JSON.stringify(request, null, 2),

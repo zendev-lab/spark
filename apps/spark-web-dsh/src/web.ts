@@ -21,22 +21,25 @@
  *    shadow the upstream file mutations inside the managed presets.
  * 4. **dsh-tool-fusion plugin**, so the DSH-hosted web surface exposes the
  *    same bounded multi-model deliberation tool as daemon-hosted Spark.
- * 5. **spark-session-subagent plugin**, Role-bound spawn/fork providers
+ * 5. **dsh-tool-web and dsh-web-provider plugins**, so model-facing Web tools
+ *    use the official `ctx.web` seam with Brave search, safe local fetch, and
+ *    recoverable cached content instead of requiring a DeepSeek search service.
+ * 6. **spark-session-subagent plugin**, Role-bound spawn/fork providers
  *    registered onto the official DSH HOST `ctx.subagents`. One-shot
  *    `start()` maps onto create then send. The overlay disables stock
  *    in-process spawn/fork backends so they do not steal those names.
  *    Daemon mounts the same providers.
- * 6. **spark-web-dsh client plugin**, linked from this application into the
+ * 7. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare
  *    `id: spark-web-dsh` skip a second insert.
- * 7. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
+ * 8. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. A non-loopback bind never exposes that server
  *    directly: DSH stays pinned to loopback and only Spark's daemon-user-token
  *    authenticated proxy listens on the requested address (see
  *    `auth-proxy.ts`). Loopback binds stay tokenless.
- * 8. **Host plugin HMR disabled by default**, because this compatibility server
+ * 9. **Host plugin HMR disabled by default**, because this compatibility server
  *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
  * Boot independence notes:
@@ -193,6 +196,11 @@ export function resolveDshCuePackageDir(): string {
 /** Locate the installed `@zendev-lab/dsh-tool-fusion` package root. */
 export function resolveDshToolFusionPackageDir(): string {
   return resolvePackageDir("@zendev-lab/dsh-tool-fusion");
+}
+
+/** Locate the installed `@zendev-lab/dsh-tool-web` package root. */
+export function resolveDshToolWebPackageDir(): string {
+  return resolvePackageDir("@zendev-lab/dsh-tool-web");
 }
 
 /** Locate the Spark file owner whose DSH adapter is bundled into the profile. */
@@ -364,6 +372,40 @@ export async function ensureDshToolFusionBundle(
   const sourceEntry = packageDir ? join(packageDir, "src", "extension.ts") : packagedEntry;
   return ensureDshToolBundle(profileDir, {
     pluginName: "dsh-tool-fusion",
+    packagedEntry,
+    sourceEntry,
+    sourcePaths: packageDir
+      ? [sourceEntry, join(packageDir, "package.json"), join(packageDir, "src")]
+      : [packagedEntry],
+    external: ["@deepseek-ai/*"],
+  });
+}
+
+/** Bundle the per-agent Web tools into the DSH web profile. */
+export async function ensureDshToolWebBundle(profileDir: string): Promise<DshPluginBundleResult> {
+  const packagedEntry = join(resolveSparkWebDshPackageDir(), "lib", "dsh-tool-web.mjs");
+  const packageDir = existsSync(packagedEntry) ? undefined : resolveDshToolWebPackageDir();
+  const sourceEntry = packageDir ? join(packageDir, "src", "index.ts") : packagedEntry;
+  return ensureDshToolBundle(profileDir, {
+    pluginName: "dsh-tool-web",
+    packagedEntry,
+    sourceEntry,
+    sourcePaths: packageDir
+      ? [sourceEntry, join(packageDir, "package.json"), join(packageDir, "src")]
+      : [packagedEntry],
+    external: ["@deepseek-ai/*"],
+  });
+}
+
+/** Bundle the host-level Brave/local HTTP providers for the official ctx.web seam. */
+export async function ensureDshWebProviderBundle(
+  profileDir: string,
+): Promise<DshPluginBundleResult> {
+  const packagedEntry = join(resolveSparkWebDshPackageDir(), "lib", "dsh-web-provider.mjs");
+  const packageDir = existsSync(packagedEntry) ? undefined : resolveDshToolWebPackageDir();
+  const sourceEntry = packageDir ? join(packageDir, "src", "provider.ts") : packagedEntry;
+  return ensureDshToolBundle(profileDir, {
+    pluginName: "dsh-web-provider",
     packagedEntry,
     sourceEntry,
     sourcePaths: packageDir
@@ -770,8 +812,8 @@ export async function runSparkWebDirect(
  * Compose the patch overlay for one `spark web` run and write it to a
  * temporary file. Rows:
  *
- * - `spark-llm`, `dsh-cue`, `dsh-tool-cue`, `dsh-tool-fusion`, and
- *   `spark-session-subagent` host plugins
+ * - `spark-llm`, `dsh-cue`, `dsh-tool-cue`, `dsh-tool-fusion`,
+ *   `dsh-web-provider`, and `spark-session-subagent` host plugins
  *   (paths relative to the profile root, so the DSH loader resolves them
  *   without an install);
  * - stock `llm-pi-ai` disabled so `spark-llm-providers` owns provider configuration and
@@ -822,6 +864,13 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
       "    # Bounded multi-model deliberation, managed by `spark web`.",
       "    - id: dsh-tool-fusion",
       "      name: ./plugins/dsh-tool-fusion/index.mjs",
+    );
+  }
+  if (!userPatch.includes("id: dsh-web-provider")) {
+    rows.push(
+      "    # Provider-neutral Brave search and safe local fetch on ctx.web.",
+      "    - id: dsh-web-provider",
+      "      name: ./plugins/dsh-web-provider/index.mjs",
     );
   }
   if (!userPatch.includes("id: spark-session-subagent")) {
@@ -970,6 +1019,16 @@ export async function prepareSparkWebDispatch(
   const fusion = await ensureDshToolFusionBundle(profileDir);
   if (fusion.rebuilt) {
     process.stderr.write(`[spark web] built dsh-tool-fusion plugin bundle -> ${fusion.bundle}\n`);
+  }
+  const webProvider = await ensureDshWebProviderBundle(profileDir);
+  if (webProvider.rebuilt) {
+    process.stderr.write(
+      `[spark web] built dsh-web-provider plugin bundle -> ${webProvider.bundle}\n`,
+    );
+  }
+  const webTools = await ensureDshToolWebBundle(profileDir);
+  if (webTools.rebuilt) {
+    process.stderr.write(`[spark web] built dsh-tool-web plugin bundle -> ${webTools.bundle}\n`);
   }
   const bundle = await ensureSparkLlmBundle(profileDir);
   if (bundle.rebuilt) {

@@ -280,12 +280,7 @@ export interface DefaultRoleRegistryOptions {
 }
 
 const ROLE_READ_TOOLS = ["read", "grep", "find", "context"] as const;
-const ROLE_NET_TOOLS = [
-  "web_search",
-  "code_search",
-  "fetch_content",
-  "get_search_content",
-] as const;
+const ROLE_NET_TOOLS = ["web_search", "web_fetch", "get_search_content"] as const;
 const ROLE_EXECUTION_TOOLS = [
   "cue_exec",
   "cue_run",

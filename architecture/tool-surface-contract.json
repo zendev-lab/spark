@@ -17,11 +17,6 @@
       "kind": "capability",
       "effect": "external_write"
     },
-    "code_search": {
-      "owner": "@zendev-lab/spark-tool-web",
-      "kind": "compatibility",
-      "effect": "network_read"
-    },
     "context": {
       "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
@@ -82,11 +77,6 @@
       "kind": "action",
       "effect": "local_write"
     },
-    "fetch_content": {
-      "owner": "@zendev-lab/spark-tool-web",
-      "kind": "capability",
-      "effect": "network_read"
-    },
     "find": {
       "owner": "@zendev-lab/spark-files",
       "kind": "capability",
@@ -98,7 +88,7 @@
       "effect": "read"
     },
     "get_search_content": {
-      "owner": "@zendev-lab/spark-tool-web",
+      "owner": "@zendev-lab/dsh-tool-web",
       "kind": "capability",
       "effect": "read"
     },
@@ -182,8 +172,13 @@
       "kind": "action",
       "effect": "unclassified"
     },
+    "web_fetch": {
+      "owner": "@zendev-lab/dsh-tool-web",
+      "kind": "capability",
+      "effect": "network_read"
+    },
     "web_search": {
-      "owner": "@zendev-lab/spark-tool-web",
+      "owner": "@zendev-lab/dsh-tool-web",
       "kind": "capability",
       "effect": "network_read"
     },

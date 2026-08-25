@@ -1,5 +1,8 @@
 # 2026-08-19: Local spark-web surface and package budget
 
+> The `spark-tool-web` package name in this note is superseded by
+> [the 2026-08-25 DSH Web decision](./2026-08-25-dsh-tool-web.md).
+
 ## Decision
 
 Add `apps/spark-web` as the local daemon browser workbench. It talks

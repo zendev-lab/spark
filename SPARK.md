@@ -126,12 +126,13 @@ updated: 2026-08-23
   `read_image` 与 `dsh-tool-fs-search` 保留。
 - DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark
   运行且通过 real-host smoke，通用模型工具通常命名为 `dsh-tool-*`；`spark-*`
-  承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`、
-  `spark-acp` 与 `spark-tool-web` 保持产品 owner；特殊命名理由只登记在
-  `architecture/packages.json`。`spark-fusion` 已按此规则改名为 Cordis-native
-  `dsh-tool-fusion`，旧 SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon
-  durable admission seam，因此 `spark-acp` 暂不替换。完整处置见
-  [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md)。
+  承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`
+  与 `spark-acp` 保持产品 owner；Web 工具已迁入 Cordis-native `dsh-tool-web`，
+  使用官方 `ctx.web` provider seam，只保留 Agent 生命周期内的有界内存恢复缓存，并删除 `code_search` 与旧
+  `fetch_content` 名称。`spark-fusion` 同样已改名为 `dsh-tool-fusion`，旧
+  SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon durable admission seam，
+  因此 `spark-acp` 暂不替换。完整处置见
+  [DSH Web 决策](.agents/notes/decisions/2026-08-25-dsh-tool-web.md)。
 - 产品 subagent 是 Role-bound 子 Session：官方 `@deepseek-ai/dsh-subagent`
   作为 HOST（`ctx.subagents`），`spark-session` 注册 spawn/fork provider。
   daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）；
