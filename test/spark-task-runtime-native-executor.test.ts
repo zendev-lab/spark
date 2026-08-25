@@ -14,7 +14,7 @@ import {
   runRoleInstructionOnly,
   runSparkTask,
   type SparkRoleInstructionExecutor,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 
 let configuredCwd = "";
 
@@ -125,7 +125,7 @@ test("runSparkTask preserves a structured blocked outcome and its exact reason",
         "Vitest assertions observe blocked task/run statuses and the exact structured reason.",
       ],
       evidenceRequired: [
-        "test/spark-runtime-native-executor.test.ts output records passing blocked status, failure kind, and reason assertions.",
+        "test/spark-task-runtime-native-executor.test.ts output records passing blocked status, failure kind, and reason assertions.",
       ],
       steps: ["Report the missing_authorization blocker through the injected executor."],
       riskLevel: "normal",
@@ -182,7 +182,7 @@ test("runSparkTask maps structured cancelled outcomes to cancelled task/run stat
         "Vitest assertions observe cancelled task/run statuses and runtime_cancelled failure kind.",
       ],
       evidenceRequired: [
-        "test/spark-runtime-native-executor.test.ts output records passing cancelled status and outcome assertions.",
+        "test/spark-task-runtime-native-executor.test.ts output records passing cancelled status and outcome assertions.",
       ],
       steps: ["Report parent_cancelled through the injected executor."],
       riskLevel: "normal",
@@ -235,7 +235,7 @@ test("runSparkTask fails closed when a custom executor ignores the required outc
         "Vitest assertions observe failed status and unchanged pending plan item after a missing outcome.",
       ],
       evidenceRequired: [
-        "test/spark-runtime-native-executor.test.ts output records passing missing-outcome and pending-item assertions.",
+        "test/spark-task-runtime-native-executor.test.ts output records passing missing-outcome and pending-item assertions.",
       ],
       steps: [
         "Return succeeded from the injected executor without an outcome and inspect the task.",

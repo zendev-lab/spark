@@ -14,7 +14,7 @@ import {
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
-import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
+import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
 import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";
 
 export type SparkTaskClaimRecoveryReason =

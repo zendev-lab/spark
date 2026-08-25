@@ -43,7 +43,7 @@ import {
   sweepExpiredTaskClaims,
   type SparkRoleInstructionExecutorInput,
   type SparkRoleRunResult,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   TaskGraph,
   TaskGraphStore,

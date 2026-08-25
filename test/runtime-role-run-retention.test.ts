@@ -11,7 +11,7 @@ import {
   collectRoleRunEvidenceRetentionPlan,
   isRoleRunEvidenceBody,
   readRoleRunEvidencePreview,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 
 test("runtime role-run Evidence body guard owns compact Evidence shape", () => {
   const valid = {

@@ -23,7 +23,7 @@ import {
 } from "@zendev-lab/spark-loop";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
-import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
+import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   fleetLaneKey,

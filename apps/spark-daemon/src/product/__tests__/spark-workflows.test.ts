@@ -22,7 +22,7 @@ import {
 import {
   createSparkWorkflowRoleRunAdapter,
   type SparkRoleRunResult,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { defaultProjectRoleModelSettingsStore } from "@zendev-lab/spark-roles";
 import {
   registerSparkWorkflowRunTool,

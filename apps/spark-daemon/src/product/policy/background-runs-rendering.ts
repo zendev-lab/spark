@@ -1,4 +1,4 @@
-import type { RoleRunJsonEventsTail, RoleRunTextTail } from "@zendev-lab/spark-runtime";
+import type { RoleRunJsonEventsTail, RoleRunTextTail } from "@zendev-lab/spark-task-runtime";
 import type {
   SparkBackgroundChildRunView,
   SparkBackgroundChildStatus,

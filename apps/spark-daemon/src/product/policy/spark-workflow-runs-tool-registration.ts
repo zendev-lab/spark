@@ -5,7 +5,7 @@ import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import {
   killActiveSparkRoleRunProcesses,
   sendInputToActiveSparkRoleRunProcesses,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   acknowledgeBackgroundWorkflowRuns,
   buildSparkBackgroundDetails,

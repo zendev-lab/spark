@@ -1,8 +1,8 @@
-# spark-runtime
+# @zendev-lab/spark-task-runtime
 
 Spark runtime adapter for executing one Spark task with a registered role.
 
-Runtime resolves reusable `RoleSpec`s from `@zendev-lab/spark-roles` and adapts concrete role execution back into Spark task/run/Evidence state. Hosts inject a `SparkRoleInstructionExecutor` for daemon-native execution. Graph-level ready-task scheduling and durable workflow-run state live in `@zendev-lab/spark-workflows`; `@zendev-lab/spark-runtime` stays focused on one task execution at a time.
+Runtime resolves reusable `RoleSpec`s from `@zendev-lab/spark-roles` and adapts concrete role execution back into Spark task/run/Evidence state. Hosts inject a `SparkRoleInstructionExecutor` for daemon-native execution. Graph-level ready-task scheduling and durable workflow-run state live in `@zendev-lab/spark-workflows`; `@zendev-lab/spark-task-runtime` stays focused on one task execution at a time.
 
 Responsibilities:
 
@@ -33,7 +33,7 @@ arguments must not be persisted into RoleRun or Evidence projections.
 Timeout semantics:
 
 - Generic `@zendev-lab/spark-roles` timeouts abort the active run and reject with `RoleRunTimeoutError`.
-- `@zendev-lab/spark-runtime` maps that generic error to Spark `RoleRunTimeoutError`, records the `TaskRun` as `running` with `failureKind: "runtime_timeout"`, and leaves the active role-run registry visible so the parent session can inspect or kill the run while cleanup completes.
+- `@zendev-lab/spark-task-runtime` maps that generic error to Spark `RoleRunTimeoutError`, records the `TaskRun` as `running` with `failureKind: "runtime_timeout"`, and leaves the active role-run registry visible so the parent session can inspect or kill the run while cleanup completes.
 - Other launch failures become failed Spark runs and clear the Spark active role-run tracker.
 - Stale claim timeout means no heartbeat refreshed the lease; sweepers release the claim, mark the run `cancelled` with `failureKind: "claim_stale"`, and return the task to `pending` for retry.
 

@@ -11,7 +11,7 @@ import type {
   TaskRun,
 } from "@zendev-lab/spark-core";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
+import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
 import {
   buildSparkRoleRunRegistry,
   findSparkRoleRunRegistryEntry,

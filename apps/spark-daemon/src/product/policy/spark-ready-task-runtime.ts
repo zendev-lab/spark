@@ -6,7 +6,7 @@ import {
   runSparkTask,
   type RoleLaunchMode,
   type SparkRoleInstructionExecutor,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { ReadyTaskRun, ReadyTaskRunKiller } from "@zendev-lab/spark-workflows";
 

@@ -6,7 +6,7 @@ import type {
 import {
   listActiveSparkRoleRunProcesses,
   type KillSparkRoleRunProcessResult,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   collectBackgroundChildRuns,

@@ -5,7 +5,7 @@ import {
   findResumableBackgroundRoleRunTasks,
   killActiveSparkRoleRunProcesses,
   runSparkTask,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   loadSparkGraph,

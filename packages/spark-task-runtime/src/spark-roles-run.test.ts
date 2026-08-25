@@ -36,7 +36,7 @@ import {
   listActiveSparkRoleRunProcesses,
   runRoleInstructionOnly,
   runSparkTask,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 
 test("spark-roles builds fresh JSON Pi role args without accidental fork session reuse", () => {
   const args = buildRoleRunArgs({
