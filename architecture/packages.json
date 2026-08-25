@@ -80,10 +80,10 @@
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 41,
-      "ceiling": 41,
+      "current": 40,
+      "ceiling": 40,
       "nonGrowth": true,
-      "reason": "The 41-workspace transition graph still contains spark-host, spark-modes, and spark-turn; ten in-place renames and deletion of those three workspaces converge to 38 while native spark-web and spark-web-dsh remain explicit applications."
+      "reason": "The 40-workspace transition graph still contains spark-host and spark-turn; ten in-place renames and deletion of spark-host, spark-turn, and spark-modes converge to 38 while native spark-web and spark-web-dsh remain explicit applications. spark-modes was removed here: durable session modes are retired in favor of one-shot /plan, /execute, and /fleet commands."
     },
     "packageNaming": {
       "temporaryDshDependencyExceptionsNonGrowth": true
@@ -270,13 +270,6 @@
       "owner": "memory",
       "stability": "supported",
       "stateWriter": "workspace"
-    },
-    "@zendev-lab/spark-modes": {
-      "path": "packages/spark-modes",
-      "layer": "capability",
-      "owner": "modes",
-      "stability": "supported",
-      "stateWriter": "host"
     },
     "@zendev-lab/spark-protocol": {
       "path": "packages/spark-protocol",

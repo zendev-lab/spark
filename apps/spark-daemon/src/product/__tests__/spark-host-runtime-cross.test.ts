@@ -30,7 +30,6 @@ test("SparkHostRuntime accepts piGraftExtension(pi) and records its tools", () =
     effect: "local_write",
     executionMode: "sequential",
     domains: ["graft"],
-    modes: [],
     approval: "none",
   });
 });

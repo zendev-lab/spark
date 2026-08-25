@@ -105,7 +105,6 @@ export function registerSparkContextTool(
       effect: "read",
       executionMode: "parallel",
       domains: ["context"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     parameters: Type.Object({

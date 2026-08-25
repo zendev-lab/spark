@@ -369,7 +369,6 @@ function getSearchContentTool(options: SparkWebExtensionOptions): ToolConfig {
       effect: "read",
       executionMode: "parallel",
       domains: ["web", "search-cache"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     parameters: Type.Object({
@@ -426,7 +425,6 @@ function networkReadPolicy() {
     effect: "network_read" as const,
     executionMode: "sequential" as const,
     domains: ["web", "external-read"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none" as const,
   };
 }

@@ -99,7 +99,6 @@ const SPARK_SKILL_TOOL_POLICY = Object.freeze({
   effect: "read",
   executionMode: "sequential",
   domains: ["skills"],
-  modes: ["plan", "execute"],
   approval: "none",
   reconcile: "none",
 } as const satisfies SparkDshToolPolicyMetadata);

@@ -81,13 +81,8 @@ export interface SparkProjectKindWidgetEntry {
   panels: SparkProjectKindWidgetPanel[];
 }
 
-export interface SparkWidgetActiveLens {
-  mode: "plan" | "execute" | "fleet";
-}
-
 export interface SparkWidgetState {
   projectTitle?: string;
-  activeLens?: SparkWidgetActiveLens;
   workflowRun?: SparkWorkflowRunWidgetEntry;
   dynamicWorkflowRun?: SparkDynamicWorkflowRunWidgetEntry;
   goal?: SparkGoalWidgetEntry;
@@ -403,9 +398,8 @@ function formatProjectHeaderLine(
   state: SparkWidgetState,
   theme: SparkWidgetTheme,
 ): string | undefined {
-  const modeSummary = formatModeSummary(state.activeLens);
   const kindSummary = state.projectKind?.badge ? `Kind: ${state.projectKind.badge}` : undefined;
-  const summaries = [modeSummary, kindSummary].filter((part): part is string => Boolean(part));
+  const summaries = [kindSummary].filter((part): part is string => Boolean(part));
   const suffix = summaries
     .map((summary) => `${theme.fg("dim", "·")} ${theme.fg("dim", summary)}`)
     .join(" ");
@@ -415,20 +409,6 @@ function formatProjectHeaderLine(
       : undefined;
   }
   return `${theme.fg("accent", "◆")} ${theme.bold(state.projectTitle)}${suffix ? ` ${suffix}` : ""}`;
-}
-
-function sparkWidgetActiveLensMode(
-  lens: SparkWidgetActiveLens | undefined,
-): "plan" | "execute" | "fleet" {
-  if (lens?.mode === "plan" || lens?.mode === "execute" || lens?.mode === "fleet") {
-    return lens.mode;
-  }
-  return "plan";
-}
-
-function formatModeSummary(lens: SparkWidgetActiveLens | undefined): string {
-  const mode = sparkWidgetActiveLensMode(lens);
-  return `Mode: ${mode}`;
 }
 
 function formatProjectKindLines(

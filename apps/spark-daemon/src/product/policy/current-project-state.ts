@@ -17,7 +17,6 @@ import {
   sparkSessionFileKey,
   sparkSessionKey,
   sparkStateRootPath,
-  setSparkSessionMode,
   updateSparkSessionWorkspaceState,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
@@ -25,14 +24,12 @@ import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   normalizeCurrentProjectStoreSnapshot,
   type CurrentProjectStoreSnapshot,
-  type SparkAgentMode,
   type SparkRunStrategy,
 } from "./current-project-state-schema.ts";
 import { readJsonFileOptional } from "./json-store.ts";
 
 export type {
   CurrentProjectStoreSnapshot,
-  SparkAgentMode,
   SparkPlanningModeSource,
   SparkRunStrategy,
 } from "./current-project-state-schema.ts";
@@ -77,7 +74,6 @@ export async function saveCurrentProjectRef(
     return sparkSessionWorkspaceState({
       projectRef,
       ...(currentTaskRef ? { currentTaskRef } : {}),
-      ...(latest?.mode ? { mode: latest.mode } : {}),
       ...(latest?.driverAuthority ? { driverAuthority: latest.driverAuthority } : {}),
     });
   });
@@ -98,20 +94,11 @@ export async function clearCurrentProjectRef(
   const existing = await loadCurrentProjectState(cwd, ctx);
   await updateSparkSessionWorkspaceState(cwd, ctx, (current) => {
     const latest = current ?? existing;
-    if (!latest?.mode && !latest?.driverAuthority) return undefined;
+    if (!latest?.driverAuthority) return undefined;
     return sparkSessionWorkspaceState({
-      ...(latest.mode ? { mode: latest.mode } : {}),
       ...(latest.driverAuthority ? { driverAuthority: latest.driverAuthority } : {}),
     });
   });
-}
-
-export async function saveSessionMode(
-  cwd: string,
-  ctx: SparkSessionContext | undefined,
-  mode: SparkAgentMode,
-): Promise<void> {
-  await setSparkSessionMode(cwd, ctx ?? {}, mode);
 }
 
 export async function currentSparkProject(
@@ -161,12 +148,10 @@ async function saveCurrentProjectState(
   await updateSparkSessionWorkspaceState(cwd, ctx, (current) => {
     const projectRef = current?.projectRef ?? snapshot.projectRef;
     const currentTaskRef = current?.currentTaskRef ?? snapshot.currentTaskRef;
-    const mode = current?.mode ?? snapshot.mode;
     const driverAuthority = current?.driverAuthority ?? snapshot.driverAuthority;
     return sparkSessionWorkspaceState({
       ...(projectRef ? { projectRef } : {}),
       ...(currentTaskRef ? { currentTaskRef } : {}),
-      ...(mode ? { mode } : {}),
       ...(driverAuthority ? { driverAuthority } : {}),
     });
   });

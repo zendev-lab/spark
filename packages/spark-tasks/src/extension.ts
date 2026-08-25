@@ -212,7 +212,6 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       effect: "read",
       executionMode: "parallel",
       domains: ["tasks"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     promptGuidelines: [
@@ -260,12 +259,12 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     label: "Task Write",
     description:
       "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/replace dependencies/finish/release tasks, update task plan items, or clean task-owned caches.",
-    policy: taskWritePolicy(["plan", "execute", "fleet"]),
+    policy: taskWritePolicy(),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
-      if (action === "project_use") return taskWritePolicy(["plan", "execute", "fleet"]);
+      if (action === "project_use") return taskWritePolicy();
       if (action === "recover" || action === "release" || action === "finish") {
-        return taskWritePolicy(["execute", "fleet"]);
+        return taskWritePolicy();
       }
       if (
         action === "claim" ||
@@ -273,9 +272,9 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
         action === "artifact_unlink" ||
         action === "plan_update"
       ) {
-        return taskWritePolicy(["execute"]);
+        return taskWritePolicy();
       }
-      return taskWritePolicy(["plan"]);
+      return taskWritePolicy();
     },
     promptGuidelines: [
       "Use task_write for project/task graph mutations.",
@@ -432,7 +431,6 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       effect: "external_write",
       executionMode: "sequential",
       domains: ["tasks", "sessions"],
-      modes: ["execute", "fleet"],
       approval: "none",
     },
     promptGuidelines: [
@@ -471,12 +469,11 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
   });
 }
 
-function taskWritePolicy(modes: string[]) {
+function taskWritePolicy() {
   return {
     effect: "local_write" as const,
     executionMode: "sequential" as const,
     domains: ["tasks"],
-    modes,
     approval: "none" as const,
   };
 }

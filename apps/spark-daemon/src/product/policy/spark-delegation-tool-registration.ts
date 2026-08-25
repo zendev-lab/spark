@@ -23,7 +23,6 @@ export function registerSparkDelegationTool(registerSparkTool: SparkToolRegistra
       effect: "external_write",
       executionMode: "sequential",
       domains: ["delegation"],
-      modes: ["plan", "execute"],
       approval: "none",
     },
     parameters: Type.Object({

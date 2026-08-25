@@ -70,7 +70,6 @@
     "@zendev-lab/spark-llm": "workspace:^",
     "@zendev-lab/spark-loop": "workspace:^",
     "@zendev-lab/spark-memory": "workspace:^",
-    "@zendev-lab/spark-modes": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",

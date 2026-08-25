@@ -636,7 +636,6 @@ export class SparkReproOwner {
           sparkSessionWorkspaceState({
             projectRef: repro.projectRef,
             currentTaskRef: lane.taskRef,
-            mode: "execute",
             ...(current?.driverAuthority ? { driverAuthority: current.driverAuthority } : {}),
           }),
       );

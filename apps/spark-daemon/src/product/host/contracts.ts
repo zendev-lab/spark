@@ -105,7 +105,6 @@ export interface SparkCliHostServicesOptions {
   modelPicker?: SparkModelPicker;
   systemPrompt?: string;
   noPromptTemplates?: boolean;
-  sessionMode?: "plan" | "execute" | "fleet";
   streamTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
   toolTimeoutMs?: number;

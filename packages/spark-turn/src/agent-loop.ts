@@ -219,7 +219,6 @@ export {
 } from "./turn-llm.ts";
 
 export type SparkAgentLoopState = "idle" | "streaming" | "tooling" | "aborting";
-export type SparkAgentMode = "plan" | "execute" | "fleet";
 export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartResume";
 
 export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
@@ -725,7 +724,6 @@ export class SparkAgentLoop {
   private readonly consumedOutboxDeliveryIdsBySession = new Map<string, Set<string>>();
   private readonly deferredTriggerOutbox: SparkTurnOutboxEnvelope[] = [];
   private state: SparkAgentLoopState = "idle";
-  private currentMode: SparkAgentMode | undefined;
   private currentAbort: AbortController | undefined;
   private currentAbortReason: string | undefined;
   private lastOutcome: SparkRunOutcome | undefined;
@@ -791,18 +789,6 @@ export class SparkAgentLoop {
 
   setDshSessionMetadata(metadata: SparkDshSessionMetadata): void {
     this.dshSessionMetadata = structuredClone(metadata);
-  }
-
-  /**
-   * Select the transient tool profile for subsequent model/tool turns.
-   * Undefined preserves compatibility by allowing every host-active tool.
-   */
-  setCurrentMode(mode: SparkAgentMode | undefined): void {
-    this.currentMode = mode;
-  }
-
-  getCurrentMode(): SparkAgentMode | undefined {
-    return this.currentMode;
   }
 
   /** Reserve idle prompt state while a native host prepares a real user submit. */
@@ -1287,7 +1273,6 @@ export class SparkAgentLoop {
             invocationId,
             attempt: invocationAttempt,
             ...(executionContext.invocationRole ? { role: executionContext.invocationRole } : {}),
-            ...(this.currentMode ? { mode: this.currentMode } : {}),
             ...(executionContext.driverAuthority
               ? { driverAuthority: executionContext.driverAuthority }
               : {}),
@@ -1498,7 +1483,6 @@ export class SparkAgentLoop {
             executionMode: policy.executionMode,
             approval: policy.approval,
             domains: policy.domains,
-            modes: policy.modes,
             promptGuidelines: tool.config.promptGuidelines,
           };
         }),
@@ -1509,7 +1493,6 @@ export class SparkAgentLoop {
           executionMode: policy?.executionMode,
           approval: policy?.approval,
           domains: policy?.domains,
-          modes: policy?.modes,
         })),
       ],
       selectedSkills: safeSelectedSkills(this.promptManifestOptions.getSelectedSkills),
@@ -1571,11 +1554,8 @@ export class SparkAgentLoop {
       // bounded batch are still running. Re-check immediately before launch
       // so a queued call cannot inherit stale read-only eligibility.
       const tool = this.host.getTool(toolCall.name);
-      if (tool && !this.isToolAvailable(tool, toolCall.arguments)) {
-        return errorToolResult(
-          toolCall,
-          this.toolUnavailableMessage(toolCall.name, tool, toolCall.arguments),
-        );
+      if (tool && !this.isToolAvailable(tool)) {
+        return errorToolResult(toolCall, this.toolUnavailableMessage(toolCall.name, tool));
       }
       if (!this.isParallelReadToolCall(toolCall)) {
         return errorToolResult(
@@ -1589,7 +1569,7 @@ export class SparkAgentLoop {
 
   private isParallelReadToolCall(toolCall: ToolCall): boolean {
     const tool = this.host.getTool(toolCall.name);
-    if (!tool || !this.isToolAvailable(tool, toolCall.arguments)) return false;
+    if (!tool || !this.isToolAvailable(tool)) return false;
     const policy = resolvedRegisteredToolPolicy(tool, toolCall.arguments);
     return (
       policy.effect === "read" &&
@@ -1607,11 +1587,8 @@ export class SparkAgentLoop {
       if (!tool) {
         return errorToolResult(toolCall, `unknown tool: ${toolCall.name}`);
       }
-      if (!this.isToolAvailable(tool, toolCall.arguments)) {
-        return errorToolResult(
-          toolCall,
-          this.toolUnavailableMessage(toolCall.name, tool, toolCall.arguments),
-        );
+      if (!this.isToolAvailable(tool)) {
+        return errorToolResult(toolCall, this.toolUnavailableMessage(toolCall.name, tool));
       }
       if (!this.isToolDispatchAllowed(toolCall.name, tool)) {
         return errorToolResult(toolCall, `tool execution denied by host policy: ${toolCall.name}`);
@@ -1641,11 +1618,8 @@ export class SparkAgentLoop {
           `tool execution policy changed before dispatch: ${toolCall.name}`,
         );
       }
-      if (!this.isToolAvailable(tool, normalizedToolCall.arguments)) {
-        return errorToolResult(
-          toolCall,
-          this.toolUnavailableMessage(toolCall.name, tool, normalizedToolCall.arguments),
-        );
+      if (!this.isToolAvailable(tool)) {
+        return errorToolResult(toolCall, this.toolUnavailableMessage(toolCall.name, tool));
       }
       if (!this.isToolDispatchAllowed(toolCall.name, tool)) {
         return errorToolResult(toolCall, `tool execution denied by host policy: ${toolCall.name}`);
@@ -1989,10 +1963,6 @@ export class SparkAgentLoop {
     policy: SparkDshToolPolicyMetadata | undefined,
   ): boolean {
     if (!policy) return false;
-    const modes = policy.modes ?? [];
-    if (this.currentMode !== undefined && modes.length > 0 && !modes.includes(this.currentMode)) {
-      return false;
-    }
     return this.host.isDshToolDispatchAllowed?.(name, policy) ?? true;
   }
 
@@ -2154,27 +2124,17 @@ export class SparkAgentLoop {
   }
 
   /** The single availability boundary shared by schemas, manifests, and dispatch. */
-  private isToolAvailable(
-    tool: SparkTurnRegisteredTool,
-    args?: Readonly<Record<string, unknown>>,
-  ): boolean {
-    if (!tool.active) return false;
-    const modes = resolvedRegisteredToolPolicy(tool, args).modes;
-    return this.currentMode === undefined || modes.length === 0 || modes.includes(this.currentMode);
+  private isToolAvailable(tool: SparkTurnRegisteredTool): boolean {
+    return tool.active;
   }
 
   private isToolDispatchAllowed(toolName: string, tool: SparkTurnRegisteredTool): boolean {
     return this.host.isToolDispatchAllowed?.(toolName, tool) ?? true;
   }
 
-  private toolUnavailableMessage(
-    toolName: string,
-    tool: SparkTurnRegisteredTool,
-    args?: Readonly<Record<string, unknown>>,
-  ): string {
+  private toolUnavailableMessage(toolName: string, tool: SparkTurnRegisteredTool): string {
     if (!tool.active) return `inactive tool: ${toolName}`;
-    const modes = resolvedRegisteredToolPolicy(tool, args).modes;
-    return `mode-inactive tool: ${toolName} (current mode=${this.currentMode ?? "none"}; allowed modes=${modes.join(",") || "all"})`;
+    return `unavailable tool: ${toolName}`;
   }
 
   private async injectBeforeAgentStartMessages(source: SparkAgentLifecycleSource): Promise<number> {

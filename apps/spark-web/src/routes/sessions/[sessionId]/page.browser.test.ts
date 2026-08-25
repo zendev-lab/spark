@@ -345,79 +345,81 @@ describe("Session page owner state", () => {
     await screen.unmount();
   });
 
-  it("applies the enabled Plan action to its owning Session", async () => {
+  it("runs the enabled Plan action as a one-shot directive turn", async () => {
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
-      if (method === "session.mode.set") {
-        return Promise.resolve({ sessionId: "a", mode: "plan" });
+      if (method === "turn.submit") {
+        return Promise.resolve({ invocationId: "inv-plan" });
       }
       throw new Error(`Unexpected RPC method: ${method}`);
     });
     const screen = await render(SessionPage, { data: sessionData("a") });
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
-    const enterPlan = screen.getByRole("button", { name: "Enter Plan" });
-    await expect.element(enterPlan).toBeEnabled();
-    await enterPlan.click();
+    const runPlan = screen.getByRole("button", { name: "Run /plan" });
+    await expect.element(runPlan).toBeEnabled();
+    await runPlan.click();
 
     await expect
       .poll(() =>
         mocks.webRpc.mock.calls.some(
           ([method, input]) =>
-            method === "session.mode.set" && input.sessionId === "a" && input.mode === "plan",
+            method === "turn.submit" && input.sessionId === "a" && input.prompt === "/plan",
         ),
       )
       .toBe(true);
-    await expect.element(screen.getByRole("status")).toHaveTextContent("Session mode set to plan.");
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("One-shot directive issued for this turn: /plan.");
     await screen.unmount();
   });
 
-  it("does not let an old mode response overwrite a newer A to B to A request", async () => {
-    const previousResponse = deferred<{ sessionId: string; mode: "plan" }>();
-    const currentResponse = deferred<{ sessionId: string; mode: "fleet" }>();
-    let modeSubmits = 0;
+  it("does not let an old directive response overwrite a newer A to B to A request", async () => {
+    const previousResponse = deferred<{ invocationId: string }>();
+    const currentResponse = deferred<{ invocationId: string }>();
+    let directiveSubmits = 0;
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
-      if (method === "session.mode.set") {
-        modeSubmits += 1;
-        return modeSubmits === 1 ? previousResponse.promise : currentResponse.promise;
+      if (method === "turn.submit") {
+        directiveSubmits += 1;
+        return directiveSubmits === 1 ? previousResponse.promise : currentResponse.promise;
       }
       throw new Error(`Unexpected RPC method: ${method}`);
     });
     const screen = await render(SessionPage, { data: sessionData("a") });
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
-    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Run /plan" }).click();
     await screen.rerender({ data: sessionData("b") });
     await screen.rerender({ data: sessionData("a") });
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/fleet");
-    await screen.getByRole("button", { name: "Enter Fleet" }).click();
-    await expect.poll(() => modeSubmits).toBe(2);
+    await screen.getByRole("button", { name: "Run /fleet" }).click();
+    await expect.poll(() => directiveSubmits).toBe(2);
 
-    currentResponse.resolve({ sessionId: "a", mode: "fleet" });
+    currentResponse.resolve({ invocationId: "inv-fleet" });
     await expect
       .element(screen.getByRole("status"))
-      .toHaveTextContent("Session mode set to fleet.");
+      .toHaveTextContent("One-shot directive issued for this turn: /fleet.");
     previousResponse.reject(new Error("stale Plan failure"));
 
     await expect
       .element(screen.getByRole("status"))
-      .toHaveTextContent("Session mode set to fleet.");
+      .toHaveTextContent("One-shot directive issued for this turn: /fleet.");
     expect(screen.container.textContent).not.toContain("stale Plan failure");
     await screen.unmount();
   });
 
-  it("does not let an old mode response overwrite a newer status action", async () => {
-    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+  it("does not let an old directive response overwrite a newer status action", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
-      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "turn.submit") return modeResponse.promise;
       throw new Error(`Unexpected RPC method: ${method}`);
     });
     const screen = await render(SessionPage, { data: sessionData("a") });
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
-    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Run /plan" }).click();
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/status");
     await screen.getByRole("button", { name: "Refresh status" }).click();
     await expect.element(screen.getByRole("status")).toHaveTextContent("Session status: idle.");
@@ -429,11 +431,11 @@ describe("Session page owner state", () => {
     await screen.unmount();
   });
 
-  it("does not let an old mode response overwrite a newer compaction", async () => {
-    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+  it("does not let an old directive response overwrite a newer compaction", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
-      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "turn.submit") return modeResponse.promise;
       if (method === "session.compact") {
         return Promise.resolve({ invocationId: "compact-current" });
       }
@@ -442,7 +444,7 @@ describe("Session page owner state", () => {
     const screen = await render(SessionPage, { data: sessionData("a") });
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
-    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Run /plan" }).click();
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/compact");
     await screen.getByRole("button", { name: "Send" }).click();
     await expect
@@ -458,11 +460,11 @@ describe("Session page owner state", () => {
     await screen.unmount();
   });
 
-  it("does not let an old mode response overwrite a newer control failure", async () => {
-    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+  it("does not let an old directive response overwrite a newer control failure", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
-      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "turn.submit") return modeResponse.promise;
       if (method === "session.retry-target") {
         return Promise.reject(new Error("current retry failure"));
       }
@@ -471,30 +473,30 @@ describe("Session page owner state", () => {
     const screen = await render(SessionPage, { data: sessionData("a") });
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
-    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Run /plan" }).click();
     await screen.getByRole("button", { name: "Retry" }).click();
     await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
 
-    modeResponse.resolve({ sessionId: "a", mode: "plan" });
+    modeResponse.resolve({ invocationId: "inv-plan" });
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
-    expect(screen.container.textContent).not.toContain("Session mode set to plan.");
+    expect(screen.container.textContent).not.toContain("One-shot directive issued");
     await screen.unmount();
   });
 
   it("keeps a newer model failure and restores the owner selection", async () => {
-    const modeResponse = deferred<{ sessionId: string; mode: "plan" }>();
+    const modeResponse = deferred<{ invocationId: string }>();
     const modelResponse = deferred<unknown>();
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
-      if (method === "session.mode.set") return modeResponse.promise;
+      if (method === "turn.submit") return modeResponse.promise;
       if (method === "session.model.set") return modelResponse.promise;
       throw new Error(`Unexpected RPC method: ${method}`);
     });
     const screen = await render(SessionPage, { data: sessionDataWithModels("a") });
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
-    await screen.getByRole("button", { name: "Enter Plan" }).click();
+    await screen.getByRole("button", { name: "Run /plan" }).click();
     await screen.getByRole("button", { name: "Model", exact: true }).click();
     await screen.getByText("Candidate", { exact: true }).click();
     modelResponse.reject(new Error("current model failure"));
@@ -503,10 +505,10 @@ describe("Session page owner state", () => {
       .element(screen.getByRole("button", { name: "Model", exact: true }))
       .toHaveAttribute("title", "Owner");
 
-    modeResponse.resolve({ sessionId: "a", mode: "plan" });
+    modeResponse.resolve({ invocationId: "inv-plan" });
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("current model failure");
-    expect(screen.container.textContent).not.toContain("Session mode set to plan.");
+    expect(screen.container.textContent).not.toContain("One-shot directive issued");
     await screen.unmount();
   });
 });

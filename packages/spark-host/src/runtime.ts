@@ -456,7 +456,6 @@ export class SparkHostRuntime implements SparkHostAPI {
       effect: policy.effect ?? "unknown",
       executionMode: policy.executionMode ?? "sequential",
       domains: policy.domains ?? [],
-      modes: policy.modes ?? [],
       approval: policy.approval ?? "required",
     });
   }

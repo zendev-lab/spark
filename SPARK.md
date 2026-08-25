@@ -18,8 +18,8 @@ updated: 2026-08-23
 - Session Owner 只表达生命周期与资源归属，不表达 Role 能力或子 Session 创建授权；Registry 只持久化严格 state，`lifetime` 与 `activity` 分别由 Owner 和 Invocation 真相投影。
 - 以 Spark Hub 作为同一 Hub 内跨 workspace 的逻辑协调真源；Hub 持有 registry、委托状态、投递幂等、审计和有限回执，目标 daemon/workspace 始终持有执行、工具副作用与本地成果真相，Hub 只负责呈现和收集决策。
 - 本地 daemon 控制面以 `spark-protocol` 类型化契约和 oRPC 为唯一主路径；兼容传输只翻译旧 wire，不拥有业务语义或状态。
-- 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。`execute` mode 与 session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
-- 在现有 TaskGraph、TaskRun、资源调度器与 Session Registry 上提供 `fleet` Session mode：父会话只调度、核对、恢复与 Ask，worker 只消费 Task 已关联的 `git_change` worktree；重叠目标串行、独立 lane 并行，不新增 Fleet store 或调度器。
+- 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
+- `/plan`、`/execute`、`/fleet` 是 daemon 在 turn 提交通道上解析的一次性命令：仅向当前 Invocation 注入工作意图指导，不改变工具集合、sandbox、审批、授权或 admission，不持久化，普通下一轮恢复中性。持久 Session mode 已整体废除；fleet 协调复用现有 TaskGraph、TaskRun、资源调度器与 Session Registry，worker 只消费 Task 已关联的 `git_change` worktree，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
 - 让 `spark web` 成为以 Session / Invocation 为中心的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，在独占 Spark preset root 下只暴露 `standard` / `ptc` 两个 agent preset（Spark Standard / Spark PTC）。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。

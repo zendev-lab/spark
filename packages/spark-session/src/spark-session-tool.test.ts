@@ -89,28 +89,24 @@ test("session tool exposes explicit spawn/fork lifecycle and mail", () => {
     effect: "read",
     executionMode: "parallel",
     domains: ["sessions"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
   assert.deepEqual(tool.resolvePolicy?.({ action: "lookup" }), {
     effect: "read",
     executionMode: "parallel",
     domains: ["sessions"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
   assert.deepEqual(tool.resolvePolicy?.({ action: "wait" }), {
     effect: "read",
     executionMode: "parallel",
     domains: ["sessions"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
   assert.deepEqual(tool.resolvePolicy?.({ action: "spawn" }), {
     effect: "external_write",
     executionMode: "sequential",
     domains: ["sessions"],
-    modes: ["plan", "execute"],
     approval: "none",
   });
   assert.match(tool.description, /Canonical scoped Session capability/u);

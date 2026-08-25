@@ -47,8 +47,9 @@ import {
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
   renderSparkChannelSurfacePrompt,
+  composeSparkSystemPrompt,
 } from "../product/system-prompt.ts";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+
 import {
   refreshSparkSessionSnapshotIndex,
   SparkSessionRegistryError,
@@ -1414,7 +1415,6 @@ function sessionExecutionPolicy(
       ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(sessionContext.taskSession ? { mode: "execute" as const } : {}),
     ...(taskExecutionScope?.isolation === "readonly"
       ? { allowedToolEffects: ["read"] as const }
       : {}),
@@ -2081,7 +2081,7 @@ async function systemPromptForChannelSession(
   if (sessionSurface !== "channel") return undefined;
   const reply = task.channelReply;
   if (!reply) {
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
     ]);
@@ -2101,7 +2101,7 @@ async function systemPromptForChannelSession(
 
   if (reply.adapter === "infoflow") {
     const infoflow = await loadInfoflowAdapterConfig(options, reply.adapterAccountIdentity);
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderInfoflowInternalSystemPrompt({
         ...(infoflow ? { config: infoflow } : {}),
@@ -2117,7 +2117,7 @@ async function systemPromptForChannelSession(
   if (reply.adapter === "qqbot") {
     const qqbot = await loadQqbotAdapterConfig(options, reply.adapterAccountIdentity);
     const custom = qqbot?.system_prompt?.trim();
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderSparkChannelSurfacePrompt({
         adapter: "qqbot",
@@ -2129,7 +2129,7 @@ async function systemPromptForChannelSession(
     ]);
   }
 
-  return composeAgentSystemPrompt([
+  return composeSparkSystemPrompt([
     DEFAULT_SPARK_IDENTITY_PROMPT,
     renderSparkChannelSurfacePrompt({
       adapter: reply.adapter ?? failIncompleteChannelBinding(),
@@ -2153,9 +2153,9 @@ async function systemPromptForSession(
   const channelPrompt = await systemPromptForChannelSession(task, options, sessionSurface);
   const rolePrompt = role?.systemPrompt;
   const sideThreadPrompt = sideThread ? SPARK_SIDE_THREAD_EXECUTION_PROMPT : undefined;
-  if (channelPrompt) return composeAgentSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
+  if (channelPrompt) return composeSparkSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
   if (rolePrompt || sideThreadPrompt) {
-    return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
+    return composeSparkSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
   }
   return undefined;
 }

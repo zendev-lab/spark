@@ -5,15 +5,13 @@ import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
-  loadSparkMode,
   saveSparkGraphAndTodos,
   sparkStateCwd,
   type SparkSessionContext,
-  type SparkSessionMode,
 } from "./session-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
-import { renderSparkModeSystemPrompt } from "./mode/index.ts";
+import { sparkSystemPromptLanguageDirective } from "./spark-model-prompts.ts";
 import { renderBaseSystemPromptsCatalogPrompt } from "@zendev-lab/spark-roles/builtin-skills";
 import type { SparkModeEntryDeps, SparkModeMessageApi } from "./spark-mode-entry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
@@ -42,17 +40,12 @@ export async function handleSparkInput(
 }
 
 export async function injectSparkHints(event: unknown, ctx: SparkToolContext): Promise<unknown> {
-  // Spark is always available: inject the standing mode marker even when no
+  // Spark is always available: inject the standing neutral prompt even when no
   // local .spark/ state exists yet. The richer active-context block is only
   // appended once a task graph is present.
-  const mode = (await loadSparkMode(ctx.cwd, ctx)).mode;
   const graph = await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
   const summary = graph ? await renderActiveSparkContextWithLanguage(ctx.cwd, ctx) : undefined;
-  const sparkPrompt = renderSparkActiveSystemPrompt(
-    eventSystemPrompt(event),
-    mode,
-    summary?.language,
-  );
+  const sparkPrompt = renderSparkActiveSystemPrompt(eventSystemPrompt(event), summary?.language);
   const builtinSkillsPrompt = await renderBaseSystemPromptsCatalogPrompt();
   const sections = [sparkPrompt, builtinSkillsPrompt, summary?.content].filter(
     (section): section is string => Boolean(section),
@@ -111,10 +104,13 @@ export async function ensureSparkStateForActiveWorkspace(
 
 export function renderSparkActiveSystemPrompt(
   basePrompt: string,
-  mode: SparkSessionMode = "plan",
   language?: SparkLanguage,
 ): string {
-  return renderSparkModeSystemPrompt({ basePrompt, mode, language });
+  const languageDirective = language ? sparkSystemPromptLanguageDirective(language) : undefined;
+  return [basePrompt, languageDirective]
+    .map((section) => section?.trim())
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }
 
 function isSparkInputEvent(event: unknown): event is SparkInputEvent {

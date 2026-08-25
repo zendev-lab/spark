@@ -1,7 +1,7 @@
 # Spark agent operating model
 
-This specification defines the model-facing instruction architecture, session
-operating modes, continuation ownership, agent forms, Skill composition, and
+This specification defines the model-facing instruction architecture, one-shot
+session directives, continuation ownership, agent forms, Skill composition, and
 pull-request delivery lifecycle.
 
 It is an ownership contract. Prompt wording may evolve, but each rule must have
@@ -29,7 +29,7 @@ lower layer.
 
 | Term | Meaning | Examples |
 | --- | --- | --- |
-| **Mode** | How the current Session is allowed to work | `plan`, `execute`, `fleet` |
+| **Directive** | One-shot working intent injected into the current Invocation only | `/plan`, `/execute`, `/fleet` |
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
@@ -40,20 +40,22 @@ lower layer.
 | **WorkflowRun** | A bounded orchestration program execution | saved or generated Workflow |
 
 `phase` is not the canonical term for `plan | execute`. Those values are
-reversible Session operating choices rather than monotonic lifecycle phases.
+one-shot directive choices rather than monotonic lifecycle phases.
 
-`implement` is not the canonical execution mode. Spark execution includes
+`implement` is not the canonical execution directive. Spark execution includes
 research, implementation, review, validation, documentation, and delivery, so
 `execute` is the accurate name.
 
 ## Orthogonal Session state
 
-A Session has an operating mode and may have a continuation driver. The two
-axes are independent:
+A Session has no persisted operating mode. `/plan`, `/execute`, and `/fleet`
+are one-shot commands parsed by the daemon on the ordinary turn-submission
+channel: each injects its working-intent guidance into the current Invocation
+only. A directive never changes the tool set, sandbox, approval, authorization,
+or admission boundaries, never persists, and never shapes the next plain turn.
+A Session may separately have a continuation driver:
 
 ```ts
-export type SparkSessionMode = "plan" | "execute" | "fleet";
-
 export type SparkContinuationDriver =
   | { kind: "manual" }
   | { kind: "goal"; goalId: string }
@@ -61,18 +63,16 @@ export type SparkContinuationDriver =
   | { kind: "repro"; reproId: string };
 ```
 
-The mode answers **how this turn may work**:
+The directive answers **how this Invocation should work**:
 
-### Plan mode
+### `/plan` directive
 
 - inspect repositories, durable state, Artifacts, Evidence, documentation, and
   external references;
 - clarify material user intent;
-- explain, review, diagnose, and create or revise durable plans;
-- do not perform substantive execution work or use write-capable delegated
-  Agents to bypass the mode boundary.
+- explain, review, diagnose, and create or revise durable plans.
 
-### Execute mode
+### `/execute` directive
 
 - perform confirmed work through direct tools or an appropriate Agent form;
 - research, implement, validate, review, document, and deliver as required;
@@ -80,31 +80,21 @@ The mode answers **how this turn may work**:
   required, or a real blocker prevents progress;
 - keep durable Task, Artifact, Evidence, and PR state synchronized.
 
-### Fleet mode
+### `/fleet` directive
 
 - the owner Session coordinates existing Project Tasks but does not modify
   source, Git, or Cue targets itself;
 - `assign` is the only Task dispatch primitive. With no `taskRefs`, it selects
   the maximum currently safe ready frontier; explicit refs are an allowlist,
   not a dependency or resource override;
-- the owner may inspect authoritative state, reconcile TaskRuns, recover an
-  explicit failed/blocked Task, continue unrelated work, control the mode, or
-  ask the user. Direct Role, Skill Agent, Workflow, Goal, Loop, Repro, and
-  workspace-delegation dispatch is unavailable;
 - workers run in daemon-owned scoped Sessions keyed by owner Session,
   Project, Role, primary GitChange, and the exact sorted writable GitChange
   set. One lane runs one Task at a time and reuses its Session after a terminal
-  TaskRun. `continuity: "fresh"` creates a new worker Session;
-- leaving Fleet stops new admission but does not cancel admitted work. Later
-  completion notifications reconcile idempotently without dispatching more
-  work; re-entering Fleet recovers from TaskGraph, TaskRun, resource, and
-  Session Registry state.
+  TaskRun. `continuity: "fresh"` creates a new worker Session.
 
-Fleet status is a derived projection only:
-`recommended | running | ready | attention | done | workers`. There is no Fleet
-store or scheduler. Plan context recommends Fleet only when preflight can pack
-at least two ready, target-disjoint lanes, and the user still chooses Fleet or
-ordinary Execute. Explicit `/fleet` and `/execute` are already decisions.
+There is no Fleet store or scheduler. Fleet status is a derived projection
+computed from authoritative TaskGraph, TaskRun, resource, and Session Registry
+state. Explicit `/fleet` and `/execute` are already decisions.
 
 The continuation driver answers **who owns another turn**:
 
@@ -193,8 +183,9 @@ Prompt layers have these owners:
    - coordination and delegation policy;
    - engineering policy;
    - Artifact, Evidence, and PR delivery policy.
-2. **Session mode**
-   - only `plan`-, `execute`-, or `fleet`-specific behavior.
+2. **One-shot directive**
+   - only `/plan`-, `/execute`-, or `/fleet`-specific guidance for the current
+     Invocation.
 3. **Continuation driver**
    - only Goal, Loop, or Repro continuation and completion semantics.
 4. **Agent identity**
@@ -209,7 +200,7 @@ Prompt layers have these owners:
 A lower layer must not redefine a higher-layer rule. In particular:
 
 - i18n files must not own model behavior;
-- Mode prompts must not redefine global delegation or authority policy;
+- Directive prompts must not redefine global delegation or authority policy;
 - Tool guidance must not redefine general intent or risk policy;
 - dynamic context must describe current facts, not issue standing commands.
 
@@ -432,8 +423,8 @@ approval.
 The completed refactor must prove:
 
 - model-facing operating policy has one English source;
-- switching `plan` and `execute` changes behavior without implying lifecycle
-  progression;
+- a `/plan`, `/execute`, or `/fleet` command guides its own Invocation without
+  persisting state or implying lifecycle progression;
 - Goal, Loop, and Repro continuation ownership is explicit;
 - WorkflowRun remains callable from any continuation driver without becoming
   the Session driver;

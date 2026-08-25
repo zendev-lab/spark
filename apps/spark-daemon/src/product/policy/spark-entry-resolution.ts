@@ -100,7 +100,7 @@ function directModeBootstrapIdea(intent: SparkEntryIntent, idea: string): string
   return [
     idea,
     "",
-    `Requested Spark mode: ${intent.mode}.`,
+    `Requested Spark directive: ${intent.mode}.`,
     "No current Spark project state was available, so first create/select the project and plan concrete tasks. If the project identity, scope, or acceptance criteria are ambiguous, ask for human review before narrowing the plan.",
   ].join("\n");
 }
@@ -284,7 +284,7 @@ async function promptSparkNewProjectIdea(
   const trimmed = idea?.trim();
   if (trimmed) return trimmed;
   ctx.ui?.notify?.(
-    "Spark new-project mode needs an idea; provide a concrete project title or description before initializing.",
+    "Spark new-project setup needs an idea; provide a concrete project title or description before initializing.",
     "warning",
   );
   return undefined;

@@ -38,7 +38,6 @@ import {
   type SparkWorkflowNavigatorAction,
 } from "./spark-workflow-loop-entry.ts";
 import { defaultSparkDynamicWorkflowEventStore } from "./spark-dynamic-workflow-event-store.ts";
-import { sparkActiveMode } from "./spark-mode-state.ts";
 import {
   buildSparkDynamicWorkflowDashboardView,
   renderSparkDynamicWorkflowDashboardText,
@@ -405,7 +404,6 @@ export function registerSparkCommands(
     if (parsed.action === "stop") {
       await stopLoopForDomain(ctx, "goal", "goal stopped by user");
       await clearSessionGoal(ctx.cwd, ctx);
-      ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(
         existingGoal

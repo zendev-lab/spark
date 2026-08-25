@@ -5,12 +5,7 @@ import type {
   WorkflowRunStoreSnapshot,
 } from "@zendev-lab/spark-workflows";
 import type { SessionTodoEntry, TaskGraph, TaskGraphStore } from "@zendev-lab/spark-tasks";
-import {
-  SparkWidget,
-  type SparkWidgetActiveLens,
-  type SparkWidgetState,
-  type TaskEntry,
-} from "./spark-widget.ts";
+import { SparkWidget, type SparkWidgetState, type TaskEntry } from "./spark-widget.ts";
 
 export interface SparkWidgetControllerContext {
   cwd?: string;
@@ -21,7 +16,6 @@ export interface SparkWidgetControllerContext {
     getSessionFile?: () => string | undefined;
     getLeafId?: () => string | undefined;
   };
-  sparkActiveMode?: SparkWidgetActiveLens;
   ui?: unknown;
 }
 
@@ -94,11 +88,6 @@ export interface SparkWidgetControllerDeps {
     ctx?: SparkWidgetControllerContext,
   ) => Promise<SparkSessionLoopProjection | undefined>;
   clearSessionLoop: (cwd: string, ctx?: SparkWidgetControllerContext) => Promise<void>;
-  loadSparkMode: (
-    cwd: string,
-    ctx?: SparkWidgetControllerContext,
-  ) => Promise<{ mode: "plan" | "execute" | "fleet" }>;
-  sparkActiveMode: (mode: "plan" | "execute" | "fleet") => SparkWidgetActiveLens;
   renderSparkProjectKindDisplay: (project: Project) => SparkWidgetState["projectKind"];
   isPlaceholderProjectTitle: (title: string) => boolean;
   latestRunsByTaskRef: (runs: TaskRun[]) => Map<string, TaskRun>;
@@ -182,8 +171,6 @@ export class SparkWidgetController {
       sessionLoop = undefined;
     }
     const foregroundLoop = sparkForegroundLoopWidgetEntries(sessionGoal, sessionLoop);
-    const mode = (await this.deps.loadSparkMode(cwd, ctx)).mode;
-    const activeLens = this.deps.sparkActiveMode(mode);
     const independentTodoEntries = independentTodos.map((todo) => ({
       ...todo,
       displayNumber: this.deps.assignTodoDisplayNumber(
@@ -197,7 +184,6 @@ export class SparkWidgetController {
         dynamicWorkflowRun,
         ...foregroundLoop,
         projects: projectOverview,
-        activeLens,
         tasks: [],
         independentTodos: independentTodoEntries,
         taskCountTotal: 0,
@@ -226,7 +212,6 @@ export class SparkWidgetController {
       dynamicWorkflowRun,
       ...foregroundLoop,
       projectKind: this.deps.renderSparkProjectKindDisplay(project),
-      activeLens,
       tasks: allTasks.map((task: Task) => {
         const backgroundOwner =
           task.claim?.kind === "role-run" &&

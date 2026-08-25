@@ -67,7 +67,6 @@ describe("side-thread local RPC parsing", () => {
       "session.media.read",
       "session.prompt-history",
       "session.retry-target",
-      "session.mode.set",
     ]);
     for (const method of sparkLocalRpcOrpcOnlyMethods) {
       expect(() =>

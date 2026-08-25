@@ -81,7 +81,6 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
     const auditPath = await writeSkill(skillsDir, "release-audit", auditBody);
     const publishPath = await writeSkill(skillsDir, "github-publish", publishBody);
     const tool = testTool({ builtinDirs: [skillsDir] });
-    assert.deepEqual(tool.policy?.modes, ["execute"]);
     let captured: ExtensionRoleRunRequest | undefined;
 
     const result = await tool.execute(

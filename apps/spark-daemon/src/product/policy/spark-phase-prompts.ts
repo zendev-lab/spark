@@ -5,7 +5,7 @@ import {
   MAIN_SESSION_SCHEDULING_FIRST,
   MUST_ASK_ON_PROBLEMS,
   renderModePrompt,
-} from "./mode/index.ts";
+} from "./spark-directive-prompts.ts";
 import {
   renderSparkUltracodeWorkflowGuidance,
   renderSparkWorkflowGuidance,

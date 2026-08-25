@@ -52,15 +52,11 @@ type EvidenceListView = "ref-only" | "summary";
 
 const DEFAULT_EVIDENCE_READ_PREVIEW_CHARS = 800;
 
-function evidenceToolPolicy(
-  effect: "read" | "local_write",
-  modes: readonly string[],
-): NonNullable<ToolConfig["policy"]> {
+function evidenceToolPolicy(effect: "read" | "local_write"): NonNullable<ToolConfig["policy"]> {
   return {
     effect,
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["evidence"],
-    modes,
     approval: "none",
   };
 }
@@ -85,12 +81,12 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       EVIDENCE_KIND_DESCRIPTION,
       EVIDENCE_PRODUCER_DESCRIPTION,
     ],
-    policy: evidenceToolPolicy("local_write", ["plan", "execute", "fleet"]),
+    policy: evidenceToolPolicy("local_write"),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
       return action === "list" || action === "read"
-        ? evidenceToolPolicy("read", ["plan", "execute", "fleet"])
-        : evidenceToolPolicy("local_write", ["plan", "execute"]);
+        ? evidenceToolPolicy("read")
+        : evidenceToolPolicy("local_write");
     },
     parameters: Type.Object({
       action: Type.String({

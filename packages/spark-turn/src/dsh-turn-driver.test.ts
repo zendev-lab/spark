@@ -424,7 +424,6 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
     effect: "read",
     executionMode: "sequential",
     domains: ["test"],
-    modes: ["execute"],
     approval: "required",
     reconcile: "none",
   } as const satisfies SparkDshToolPolicyMetadata);
@@ -585,7 +584,6 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
     effect: "read",
     executionMode: "sequential",
     domains: ["test"],
-    modes: ["execute"],
     approval: "none",
     reconcile: "none",
   } as const satisfies SparkDshToolPolicyMetadata);

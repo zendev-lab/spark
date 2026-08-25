@@ -79,7 +79,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
       effect: "read",
       executionMode: "parallel",
       domains: [" files ", "files"],
-      modes: ["plan", "execute"],
       approval: "none",
     },
     async execute() {
@@ -92,7 +91,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "read",
     executionMode: "parallel",
     domains: ["files"],
-    modes: ["plan", "execute"],
     approval: "none",
   });
   assert.equal(Object.isFrozen(safePolicy), true);
@@ -119,7 +117,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "external_write",
     executionMode: "sequential",
     domains: [],
-    modes: [],
     approval: "manual_only",
   });
 
@@ -145,7 +142,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "unknown",
     executionMode: "sequential",
     domains: [],
-    modes: [],
     approval: "required",
   });
 
@@ -164,7 +160,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "unknown",
     executionMode: "sequential",
     domains: [],
-    modes: [],
     approval: "required",
   });
 });

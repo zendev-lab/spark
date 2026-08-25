@@ -31,23 +31,12 @@ export {
   loadCurrentProjectRef,
   loadCurrentProjectState,
   saveCurrentProjectRef,
-  saveSessionMode,
   sparkRunStrategyForMaxConcurrency,
   sparkRunStrategyMaxConcurrency,
   type CurrentProjectStoreSnapshot,
-  type SparkAgentMode,
   type SparkPlanningModeSource,
   type SparkRunStrategy,
 } from "./current-project-state.ts";
-export {
-  loadSparkMode,
-  nextSparkSessionMode,
-  saveSparkMode,
-  SPARK_SESSION_MODES,
-  type SparkSessionMode,
-  type SparkSessionModeInput,
-  type SparkSessionModeState,
-} from "./session-mode.ts";
 export {
   importLegacyHiddenRoleRunInboxState,
   loadHiddenRoleRunInboxState,

@@ -26,7 +26,6 @@ import {
   type SparkDynamicWorkflowRunControlResult,
   type SparkDynamicWorkflowRunProjection,
 } from "./spark-dynamic-workflow-run-rendering.ts";
-import { sparkActiveMode } from "./spark-mode-state.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 export type SparkWorkflowNavigatorAction =
@@ -87,7 +86,6 @@ export async function enterSparkWorkflow(
   const workflowSelector = workflow.selector;
   await deps.refreshSparkWidget(ctx.cwd, ctx);
   if (workflow.descriptor?.phase === "plan") {
-    ctx.sparkActiveMode = sparkActiveMode("plan");
     ctx.ui?.notify?.("Builtin workflow selected.", "info");
     await dispatchSparkAgentInstruction(
       piApi,

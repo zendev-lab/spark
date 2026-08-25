@@ -60,7 +60,6 @@ test("Spark product policy canonical facade tools render parameter-aware tool ca
       },
       { name: "assign", args: { dryRun: true, maxConcurrency: 2 } },
       { name: "goal", args: { action: "status" } },
-      { name: "mode", args: { action: "plan", focus: "tighten tasks" } },
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-spark.txt"));
   assert.equal(tools.has("patch"), false, "patch workflows are owned by spark-graft");

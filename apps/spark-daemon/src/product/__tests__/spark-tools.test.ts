@@ -77,7 +77,6 @@ import type { SparkTaskClaimDaemonClient } from "../policy/spark-task-claim-daem
 import {
   loadCurrentProjectState,
   loadHiddenRoleRunInboxState,
-  loadSparkMode,
   saveCurrentProjectRef,
   sparkSessionKey,
 } from "../policy/session-state.ts";
@@ -768,9 +767,6 @@ type TestSparkContext = {
   askAutoAnswerResolver?: (request: unknown, ctx: SparkToolContext) => Promise<unknown>;
   askWaitTimeoutMs?: number;
   askReviewerFallbackAfterMs?: number;
-  sparkActiveMode?: {
-    mode: "plan" | "execute" | "fleet";
-  };
   sparkAutonomousAsk?: SparkToolContext["sparkAutonomousAsk"];
   ui: {
     notify: (message: string, level?: "info" | "warning" | "error" | "success") => void;
@@ -847,7 +843,7 @@ test("/ultracode enters opt-in high-effort workflow generation mode", async () =
     await ultracode.handler("design and validate a workflow parity suite", ctx);
 
     const message = run.customMessages.at(-1);
-    assert.equal(message?.customType, "spark-mode-request");
+    assert.equal(message?.customType, "spark-directive-request");
     assert.equal(message?.display, false);
     assert.equal(run.messages.length, 0);
   } finally {
@@ -871,8 +867,7 @@ test("/plan, /execute, /fleet, /goal, and /workflow selector commands enter Spar
     assert.equal(existsSync(join(existingDir, "SPARK.md")), false);
     assert.equal(existingRun.messages.length, 0);
     assert.equal(existingRun.customMessages.length, 1);
-    assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.equal(existingCtx.sparkActiveMode?.mode, "plan");
+    assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     await writeEmptySparkProject(initializedDir);
     const initializedCtx = testSparkContext(initializedDir, "main");
@@ -899,21 +894,14 @@ test("/plan, /execute, /fleet, /goal, and /workflow selector commands enter Spar
     await executeCommand.handler("Finish the direct execution task", initializedCtx);
     assert.equal(initializedRun.messages.length, 0);
     assert.equal(initializedRun.loopControl.loops.size, 0);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.match(
-      initializedRun.customMessages.at(-1)?.content ?? "",
-      /Execution mode requirements/u,
-    );
-    assert.deepEqual(initializedCtx.sparkActiveMode, {
-      mode: "execute",
-    });
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
+    assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Execution requirements/u);
 
     const fleetCommand = initializedRun.commands.get("fleet");
     assert.ok(fleetCommand, "missing /fleet command");
     await fleetCommand.handler("Coordinate the safe ready frontier", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Fleet mode requirements/u);
-    assert.deepEqual(initializedCtx.sparkActiveMode, { mode: "fleet" });
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
+    assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Fleet requirements/u);
 
     initializedCtx.ui.select = async () =>
       assert.fail("/implement should not open a canned implement-strategy ask");
@@ -921,7 +909,7 @@ test("/plan, /execute, /fleet, /goal, and /workflow selector commands enter Spar
     await executeCommand.handler("keep going until done", initializedCtx);
     assert.equal(initializedRun.loopControl.loops.size, 0);
     assert.equal(initializedRun.customMessages.length, implementMessageCount + 1);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
     const askedGoalState = JSON.parse(
       await readFile(currentProjectStatePath(initializedDir, initializedCtx), "utf8"),
     ) as { projectRef?: string; executionMode?: unknown };
@@ -1008,31 +996,22 @@ Collect incident facts and decide the bounded response.
     assert.ok(researchWorkflowCommand, "missing /workflow:research command");
     assert.equal(initializedRun.commands.get("workflow:triage"), undefined);
     await workflowCommand.handler("workspace:triage Review with a workflow", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     await workflowCommand.handler("builtin:research Compare design options", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(initializedCtx.sparkActiveMode, {
-      mode: "plan",
-    });
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     await workflowCommand.handler(
       "run research Compare canonical workflow actions",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(initializedCtx.sparkActiveMode, {
-      mode: "plan",
-    });
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     await researchWorkflowCommand.handler(
       "Compare default panel and judge behavior",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(initializedCtx.sparkActiveMode, {
-      mode: "plan",
-    });
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     let workflowNavigatorOptions: string[] = [];
     initializedCtx.ui.select = async (_title, options) => {
@@ -1042,15 +1021,15 @@ Collect incident facts and decide the bounded response.
     initializedCtx.selected = "builtin:review";
     initializedCtx.inputValue = "Review the workflow UI direction";
     await workflowCommand.handler("", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     initializedCtx.selected = "builtin:research";
     await workflowCommand.handler("list Canonical navigator focus", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     initializedCtx.selected = "workspace:triage";
     await workflowsCommand.handler("Navigator supplied focus", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     const navigatorStore = defaultSparkDynamicWorkflowEventStore(initializedDir);
     const navigatorRun = await navigatorStore.start({
@@ -1102,7 +1081,7 @@ Collect incident facts and decide the bounded response.
         "```",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-directive-request");
 
     assert.equal(initializedRun.commands.get("run"), undefined);
     assert.equal(initializedRun.commands.get("run-sequential"), undefined);
@@ -1124,7 +1103,7 @@ Collect incident facts and decide the bounded response.
     assert.ok(emptyWorkflowCommand, "missing /workflow:research command");
     await emptyWorkflowCommand.handler("Investigate standalone workflow usage", emptyCtx);
     assert.equal(emptyRun.customMessages.length, 1);
-    assert.equal(emptyRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(emptyRun.customMessages.at(-1)?.customType, "spark-directive-request");
   } finally {
     await rm(existingDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     await rm(initializedDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -1152,7 +1131,6 @@ test("/plan dispatches through an externally owned command turn bridge", async (
     assert.equal(forwarded.length, 1);
     assert.match(forwarded[0] ?? "", /## Planning focus\nTrace the visible turn path/u);
     assert.equal(run.customMessages.length, 0);
-    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1206,8 +1184,7 @@ test("latest direct Spark mode replaces older pending hidden mode context", asyn
     await planCommand.handler("revise the failed task plan", ctx);
 
     const hiddenMessage = run.customMessages.at(-1);
-    assert.equal(hiddenMessage?.customType, "spark-mode-request");
-    assert.equal(ctx.sparkActiveMode?.mode, "plan");
+    assert.equal(hiddenMessage?.customType, "spark-directive-request");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1252,8 +1229,7 @@ test("/plan includes active roadmap item context and matches focus to an existin
     await planCommand.handler("Roadmap assisted planning", ctx);
 
     assert.equal(run.messages.length, 0);
-    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-directive-request");
     const graph = await defaultTaskGraphStore(dir).load();
     const project = graph?.projects()[0];
     assert.ok(project?.roadmap);
@@ -1722,10 +1698,7 @@ test("/implement continues through the agent-end hook without auto-answering or 
     assert.ok(executeCommand, "missing /execute command");
     await executeCommand.handler("work through the ready queue", ctx);
     assert.equal(run.loopControl.loops.size, 0);
-    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(ctx.sparkActiveMode, {
-      mode: "execute",
-    });
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-directive-request");
 
     await executeSparkTool(run.tools, "impl_claim_task", ctx, {
       name: "first-ready",
@@ -1773,12 +1746,10 @@ test("/implement continues through the agent-end hook without auto-answering or 
     const continuation = run.customMessages
       .slice(messageCountBeforeAgentEnd)
       .find((message) => message.customType === "spark-agent-end-reconciliation");
-    assert.ok(continuation, "ready implementation work should queue one hook continuation");
-    assert.match(continuation.content, /@second-ready/u);
+    // One-shot /execute injects guidance for its own invocation only; without a
+    // persisted mode the agent-end hook must not schedule another continuation.
+    assert.equal(continuation, undefined);
     assert.equal(run.loopControl.loops.size, 0);
-    assert.deepEqual(ctx.sparkActiveMode, {
-      mode: "execute",
-    });
 
     const graph = await defaultTaskGraphStore(dir).load();
     const next = graph?.tasks().find((task) => task.name === "second-ready");
@@ -6972,9 +6943,6 @@ test("/implement canonical ask uses UI instead of reviewer auto-answer", async (
     const implementCommand = run.commands.get("execute");
     assert.ok(implementCommand, "missing /execute command");
     await implementCommand.handler("work until a human decision is needed", ctx);
-    assert.deepEqual(ctx.sparkActiveMode, {
-      mode: "execute",
-    });
 
     const asked = await executeSparkTool(run.tools, "ask", ctx, {
       title: "Choose path",
@@ -7402,7 +7370,7 @@ test("Spark product policy exposes canonical tools instead of removed spark_* to
   assert.equal(run.tools.has("workflow_run"), false);
   assert.equal(run.tools.has("drive"), false);
   assert.equal(run.tools.has("driver"), false);
-  assert.ok(run.tools.has("mode"));
+  assert.equal(run.tools.has("mode"), false);
   assert.equal(run.tools.has("phase"), false);
   assert.deepEqual(
     run
@@ -7411,35 +7379,6 @@ test("Spark product policy exposes canonical tools instead of removed spark_* to
       .sort(),
     [],
   );
-});
-
-test("mode tool returns requirements and persists session mode", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-mode-tool-"));
-  try {
-    await writeEmptySparkProject(dir);
-    const ctx = testSparkContext(dir, "main");
-    const { tools } = registerSparkToolsForTest();
-    await executeSparkTool(tools, "impl_use_project", ctx, { project: "Tool persistence" });
-
-    const switched = await executeSparkTool(tools, "mode", ctx, {
-      action: "plan",
-      focus: "tighten task graph",
-    });
-    assert.deepEqual(switched.details, { mode: "plan", statusOnly: false });
-    assert.match(toolText(switched), /Mode set to: plan/);
-    assert.deepEqual(await loadSparkMode(dir, ctx), { mode: "plan" });
-
-    const status = await executeSparkTool(tools, "mode", ctx, { action: "status" });
-    assert.deepEqual(status.details, { mode: "plan", statusOnly: true });
-    assert.match(toolText(status), /Current mode: plan/);
-
-    await assert.rejects(
-      () => executeSparkTool(tools, "mode", ctx, { action: "research" }),
-      /mode action must be one of: plan, execute, fleet, status/u,
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
-  }
 });
 
 test("slash commands share status, stop, and restart grammar", async () => {
@@ -7461,7 +7400,6 @@ test("slash commands share status, stop, and restart grammar", async () => {
     assert.equal((await loadSessionGoal(dir, ctx))?.objective, "Replace foreground goal grammar");
     await goalCommand.handler("stop", ctx);
     assert.equal(await loadSessionGoal(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
 
     await loopCommand.handler("Unify foreground loop grammar", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Unify foreground loop grammar");
@@ -7586,11 +7524,6 @@ test("structured status and list facades default to compact text summaries", asy
     assertToolTextIsCompactSummary(loopStatus);
     assert.match(toolText(loopStatus), /No active Spark loop|Spark loop/);
     assert.ok(loopStatus.details);
-
-    const modeStatus = await executeSparkTool(tools, "mode", ctx, { action: "status" });
-    assertToolTextIsCompactSummary(modeStatus);
-    assert.match(toolText(modeStatus), /Current mode:/);
-    assert.ok(modeStatus.details);
 
     const runStatusList = await executeSparkTool(tools, "task_read", ctx, {
       action: "run_status",
@@ -7826,7 +7759,7 @@ test("current project store ignores legacy mode and run control blocks", async (
 
     await writeFile(stateFile, `${JSON.stringify({ projectRef: "proj:legacy" })}\n`, "utf8");
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 4,
+      version: 5,
       projectRef: "proj:legacy",
     });
 
@@ -7835,15 +7768,15 @@ test("current project store ignores legacy mode and run control blocks", async (
       `${JSON.stringify({ version: 2, projectRef: "proj:demo", mode: "plan" })}\n`,
       "utf8",
     );
+    // The retired mode field is historical data: dropped unread on migration.
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 4,
+      version: 5,
       projectRef: "proj:demo",
-      mode: "plan",
     });
 
     await writeFile(
       stateFile,
-      `${JSON.stringify({ version: 5, projectRef: "proj:demo" })}\n`,
+      `${JSON.stringify({ version: 6, projectRef: "proj:demo" })}\n`,
       "utf8",
     );
     await assert.rejects(
@@ -7851,7 +7784,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       (error) =>
         error instanceof JsonStoreFormatError &&
         error.filePath === stateFile &&
-        /version must be 1, 2, 3, or 4/.test(error.message),
+        /version must be 1, 2, 3, 4, or 5/.test(error.message),
     );
 
     await writeFile(stateFile, `${JSON.stringify({ version: 1, projectRef: 42 })}\n`, "utf8");
@@ -7879,7 +7812,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 4,
+      version: 5,
       projectRef: "proj:demo",
     });
 
@@ -7899,7 +7832,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     const runControlState = await loadCurrentProjectState(dir, ctx);
-    assert.deepEqual(runControlState, { version: 4, projectRef: "proj:demo" });
+    assert.deepEqual(runControlState, { version: 5, projectRef: "proj:demo" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

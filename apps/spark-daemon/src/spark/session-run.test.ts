@@ -534,7 +534,6 @@ describe("daemon native session execution", () => {
         expect.objectContaining({
           cwd: firstRoot,
           sparkStateRoot: join(workspaceRoot, ".spark"),
-          mode: "execute",
           taskExecutionScope: {
             isolation: "isolated_worktree",
             binding: {
@@ -671,7 +670,6 @@ describe("daemon native session execution", () => {
         expect.objectContaining({
           cwd: workspaceRoot,
           sparkStateRoot: join(workspaceRoot, ".spark"),
-          mode: "execute",
           taskExecutionScope: {
             isolation: "workspace",
             binding: {
