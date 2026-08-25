@@ -5,6 +5,7 @@ import { test } from "vitest";
 
 import {
   isSparkWebDshLoopbackHost,
+  normalizeSparkWebDshLanHeaders,
   startSparkWebDshAuthProxy,
   type SparkWebDshTokenVerifier,
 } from "./auth-proxy.ts";
@@ -52,6 +53,46 @@ test("loopback predicate matches native Spark Web", () => {
   for (const host of ["0.0.0.0", "spark.lan", "10.0.0.2", "::ffff:127.0.0.1"]) {
     assert.equal(isSparkWebDshLoopbackHost(host), false, host);
   }
+});
+
+test("proxy preserves DSH LAN trust through its loopback target", () => {
+  const sameOrigin = normalizeSparkWebDshLanHeaders(
+    {
+      host: "10.0.0.2:3080",
+      origin: "http://10.0.0.2:3080",
+      "sec-fetch-site": "same-origin",
+    },
+    "127.0.0.1",
+    3081,
+    ["10.0.0.2"],
+  );
+  assert.equal(sameOrigin.host, "127.0.0.1:3081");
+  assert.equal(sameOrigin.origin, "http://127.0.0.1:3081");
+  assert.equal(sameOrigin["sec-fetch-site"], "same-origin");
+
+  const crossOrigin = normalizeSparkWebDshLanHeaders(
+    {
+      host: "10.0.0.2:3080",
+      origin: "http://evil.example",
+      "sec-fetch-site": "cross-site",
+    },
+    "127.0.0.1",
+    3081,
+    ["10.0.0.2"],
+  );
+  assert.equal(crossOrigin.host, "127.0.0.1:3081");
+  assert.equal(crossOrigin.origin, "http://evil.example");
+  assert.equal(crossOrigin["sec-fetch-site"], "cross-site");
+
+  const dnsHost = {
+    host: "spark.lan:3080",
+    origin: "http://spark.lan:3080",
+  };
+  assert.deepEqual(
+    normalizeSparkWebDshLanHeaders(dnsHost, "127.0.0.1", 3081, ["10.0.0.2"]),
+    dnsHost,
+    "DNS authorities remain on the explicit --trusted-host path",
+  );
 });
 
 test("proxy rejects missing and daemon-rejected tokens with one undifferentiated 401", async () => {
