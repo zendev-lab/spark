@@ -52,7 +52,15 @@ export interface LocalRpcServiceOptions {
  * occur in one group; the service test also rejects duplicates.
  */
 export const localRpcServiceHandlerMethodGroups = {
-  daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
+  daemon: [
+    "daemon.status",
+    "daemon.stop",
+    "daemon.restart",
+    "daemon.access.create",
+    "daemon.access.list",
+    "daemon.access.revoke",
+    "daemon.access.verify",
+  ],
   workbench: ["search.global", "session.search", "session.export"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],
   artifact: ["artifact.list", "artifact.read"],

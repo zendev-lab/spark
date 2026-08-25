@@ -36,6 +36,15 @@ spark web-dsh
 spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080
 ```
 
+Loopback binds are tokenless. A non-loopback `--host` never exposes the DSH
+server directly: it stays pinned to loopback while Spark's authentication proxy
+listens on the requested address and requires a daemon access token
+(`spark daemon access create`) carried as `?token=…` (promoted to an HttpOnly
+cookie), the `x-spark-web-token` header, or the `spark_web_token` cookie. The
+daemon owns the `daemon-user` token family and verifies every presented token;
+missing, wrong, expired, and revoked tokens are rejected identically, and the
+proxy fails closed while the daemon is unreachable.
+
 Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the
 host, client, Cue, LLM, and spark-session-subagent bundles under ignored `lib/`;

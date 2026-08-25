@@ -721,6 +721,9 @@ importers:
       '@zendev-lab/dsh-tool-fusion':
         specifier: workspace:^
         version: link:../../packages/dsh-tool-fusion
+      '@zendev-lab/spark-daemon-client':
+        specifier: workspace:^
+        version: link:../../packages/spark-daemon-client
       '@zendev-lab/spark-files':
         specifier: workspace:^
         version: link:../../packages/spark-files

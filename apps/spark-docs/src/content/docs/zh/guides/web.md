@@ -9,10 +9,18 @@ description: 启动绑定本地 Spark daemon 的浏览器工作台。
 spark web
 ```
 
-`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出一次性 token
-URL，例如 `http://127.0.0.1:4310/?token=...`，但不会自动打开浏览器。显式传入非回环 `--host` 时必须
-同时给出至少一个 `--trusted-host`。服务器会校验 Host、Origin/Fetch Metadata、
-mutation 来源与 token；这仍是受信任的单用户 LAN 界面，不是公网多用户控制面。
+`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出工作台 URL（例如
+`http://127.0.0.1:4310/`），但不会自动打开浏览器。回环监听免 token。显式传入非回环
+`--host` 时必须同时给出至少一个 `--trusted-host`，并持有 daemon 访问 token。
+无论绑定何种地址，服务器都会校验 Host、Origin/Fetch Metadata 与 mutation 来源；
+这仍是受信任的单用户 LAN 界面，不是公网多用户控制面。
+
+daemon 访问 token 由 daemon 持有：只存哈希，并负责校验每个携带的 token。用
+`spark daemon access create` 创建（明文只打印一次），用
+`spark daemon access list` 查看元数据，用 `spark daemon access revoke` 吊销。
+非回环监听上，在打印的 URL 后追加 `?token=…` 打开；首次导航会把 token 提升为
+HttpOnly cookie。缺失、错误、过期、已吊销的 token 会被一致拒绝；daemon
+不可达时非回环监听一律拒绝（fail closed）。
 
 需要改变绑定或端口时，使用 `--host`、可重复的 `--trusted-host` 和 `--port`：
 
@@ -52,6 +60,10 @@ Session Action Bar 中的 `/plan`、`/execute` 和 `/fleet` 是经由普通 turn
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
+
+回环绑定免 token。非回环绑定不会直接暴露 DSH 服务器：它始终锁定在回环
+地址，由 Spark 的认证代理对外提供服务，要求与 `spark web` 相同的 daemon
+访问 token；daemon 不可达时一律拒绝（fail closed）。
 
 DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 `cue` Skill 快照挂入
 DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding，

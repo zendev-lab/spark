@@ -34,6 +34,7 @@
     "@zendev-lab/dsh-cue": "workspace:^",
     "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
+    "@zendev-lab/spark-daemon-client": "workspace:^",
     "@zendev-lab/spark-files": "workspace:^",
     "@zendev-lab/spark-llm-providers": "workspace:^",
     "@zendev-lab/spark-session": "workspace:^",

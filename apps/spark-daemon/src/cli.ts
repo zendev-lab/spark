@@ -157,6 +157,7 @@ const sparkDaemonCommandParser = or(
   ),
   or(
     command("model", object({ kind: constant("model" as const), argv: remainingArgv() })),
+    command("access", object({ kind: constant("access" as const), argv: remainingArgv() })),
     command("invocation", object({ kind: constant("invocation" as const), argv: remainingArgv() })),
     command("session", object({ kind: constant("session" as const), argv: remainingArgv() })),
     command("sessions", object({ kind: constant("sessions" as const), argv: remainingArgv() })),
@@ -256,6 +257,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       case "ask":
         return await daemonAsk(paths, classified.argv, io);
       case "model":
+      case "access":
       case "invocation":
       case "session":
       case "sessions":

@@ -89,6 +89,20 @@ monkey patch and no compatibility layer for legacy presets.
 - Native Web derives status only from daemon projections. It must not infer
   completion from transcript text, elapsed time, browser timers, or optimistic
   UI queues.
+- Access tokens converge on explicit owners per family. The daemon owns the
+  `daemon-user` family that authenticates direct browser surfaces: it persists
+  only token hashes, issues plaintext exactly once at creation, supports
+  optional expiry, and revokes immediately. Native Web and Web DSH are
+  authentication adapters, not token owners — neither generates nor persists a
+  token. Loopback listeners are tokenless; every non-loopback listener
+  requires a daemon-verified token and fails closed while the daemon is
+  unreachable. Host, Origin/Fetch Metadata, and mutation provenance checks
+  still apply on every bind. Process-local read-only Share keeps its existing
+  unguessable URL capability and trust checks. A reverse proxy does not turn a
+  tokenless loopback listener into a supported remote surface. The
+  `hub-daemon` family (Hub↔Daemon registration/runtime credentials) and the
+  `hub-user` family keep their own owners and are not reused for direct Web
+  access.
 - Workspace remains a real daemon-local execution context: cwd, repository,
   project state, and Workspace Administrator lifecycle still bind where needed.
   Native Web may group or filter Sessions by Workspace, but opening the product,
@@ -131,6 +145,20 @@ fourth authorization subject.
 Workspace access tokens and workspace-scoped browser sessions/cookies are
 deleted. Existing workspace-only sessions and tokens are revoked outright, and
 Hub owners explicitly backfill daemon grants.
+
+Landed in this stack: the `daemon-user` family is exposed through the
+daemon-local RPC procedures `daemon.access.create`, `daemon.access.list`,
+`daemon.access.revoke`, and `daemon.access.verify`, and through
+`spark daemon access create|list|revoke`. Create returns the plaintext
+exactly once; list returns metadata only; revoke is immediate and
+idempotent; verify collapses missing, malformed, expired, and revoked
+tokens into one boolean so adapters cannot probe failure causes. Native
+Web verifies every non-loopback request through the daemon; Web DSH pins
+its DSH compatibility server to loopback and exposes only an
+authenticated proxy on a non-loopback bind. Both adapters accept the
+token as a navigation-only `token` query parameter (promoted to an
+HttpOnly cookie), the `x-spark-web-token` header, or the
+`spark_web_token` cookie.
 
 ## Package normalization
 

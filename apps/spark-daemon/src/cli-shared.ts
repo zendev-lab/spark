@@ -272,6 +272,7 @@ Commands:
   sync [--no-wait]
   logs
   auth <status|login|logout|import> [args...]
+  access <create|list|revoke> [--label <note>] [--expires-at <iso>] [--json]
   model <list|status|set> [args...]
   session <list|show|create|bind|unbind|archive|inbox> [args...]
   spark daemon session show <session-id>
