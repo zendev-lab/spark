@@ -6,7 +6,7 @@ import type {
   ExtensionEvidenceRequestBinding,
   SparkHostContext,
 } from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   SPARK_PROTOCOL_VERSION,
   createId,

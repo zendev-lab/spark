@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { truncateToWidth } from "@zendev-lab/spark-text-rendering";
 import {
   executeSparkSessionAction,
   type SparkSessionAction,

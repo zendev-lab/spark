@@ -52,7 +52,7 @@
       "@zendev-lab/spark-roles/extension": ["./packages/spark-roles/src/extension-entry.ts"],
       "@zendev-lab/spark-tasks": ["./packages/spark-tasks/src/index.ts"],
       "@zendev-lab/spark-tasks/extension": ["./packages/spark-tasks/src/extension.ts"],
-      "@zendev-lab/spark-text": ["./packages/spark-text/src/index.ts"],
+      "@zendev-lab/spark-text-rendering": ["./packages/spark-text-rendering/src/index.ts"],
       "@zendev-lab/spark-workflows": ["./packages/spark-workflows/src/index.ts"],
       "@zendev-lab/spark-workflows/extension": ["./packages/spark-workflows/src/extension.ts"],
       "@zendev-lab/spark-llm": ["./packages/spark-llm/src/index.ts"],

@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@zendev-lab/spark-text";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@zendev-lab/spark-text-rendering";
 
 import type { AskState, ExtendedOption } from "../state/state.ts";
 import { isSubmitTab } from "../state/state.ts";

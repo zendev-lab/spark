@@ -30,7 +30,7 @@ Hub 与本地 Web 也可作为独立 app package 安装。其他源码 workspace
 | `apps/spark-cli`、`spark-daemon`、`apps/spark-web`、`apps/spark-hub` | 可执行分发器与交互/运行时 host |
 | `apps/spark-daemon/src/product`、`spark-daemon-client` | daemon 内部产品组合根与共享 daemon client 边界 |
 | 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
-| `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-text` | 跨表面契约与低依赖基础层 |
+| `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-text-rendering` | 跨表面契约与低依赖基础层 |
 | `packages/spark-hub-*` | Hub 私有数据库、协调与本地化实现 |
 
 贡献者可查看 `.agents/notes/contracts/package-architecture.md` 的依赖规则，以及

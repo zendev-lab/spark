@@ -44,12 +44,12 @@ describe("architecture inventory governance", () => {
 
   test("keeps the Node engine in the root manifest only", () => {
     const candidateManifests = structuredClone(manifests);
-    candidateManifests["@zendev-lab/spark-text"].engines = { node: ">=26.0.0 <27" };
+    candidateManifests["@zendev-lab/spark-text-rendering"].engines = { node: ">=26.0.0 <27" };
 
     expect(
       governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
     ).toContain(
-      "@zendev-lab/spark-text duplicates the root Node engine; private workspaces must inherit it",
+      "@zendev-lab/spark-text-rendering duplicates the root Node engine; private workspaces must inherit it",
     );
   });
 
@@ -67,8 +67,9 @@ describe("architecture inventory governance", () => {
 
   test("requires dsh packages to stay independent and prove a real host", () => {
     const candidateManifests = structuredClone(manifests);
-    candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-text"] =
-      "workspace:^";
+    candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies[
+      "@zendev-lab/spark-text-rendering"
+    ] = "workspace:^";
     delete candidateManifests["@zendev-lab/dsh-tool-cue"].scripts["test:real-host"];
 
     const failures = governance.validateArchitectureGovernance(
@@ -77,7 +78,7 @@ describe("architecture inventory governance", () => {
       rootManifest,
     );
     expect(failures).toContain(
-      "@zendev-lab/dsh-tool-cue must not depend on Spark workspace @zendev-lab/spark-text",
+      "@zendev-lab/dsh-tool-cue must not depend on Spark workspace @zendev-lab/spark-text-rendering",
     );
     expect(failures).toContain("@zendev-lab/dsh-tool-cue must expose test:real-host");
   });

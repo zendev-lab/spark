@@ -1,4 +1,4 @@
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import type { ToolPolicy } from "@zendev-lab/spark-core";
 import { Type } from "typebox";
 import {

@@ -5,7 +5,7 @@ import {
   type ToolConfig,
   type ToolRenderComponent,
 } from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   defaultArtifactStore,
   type Artifact,
