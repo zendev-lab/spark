@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import {
   parseSparkModelValue,
   sparkModelValue,

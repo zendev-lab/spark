@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { IncomingMessage } from "@zendev-lab/dsh-channels";
+import type { IncomingMessage } from "@zendev-lab/dsh-channel-transports";
 import type { SparkDaemonSessionRunTask } from "../core/types.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "../store/invocations.ts";
 import type { ChannelIngressAssignment } from "./ingress.ts";

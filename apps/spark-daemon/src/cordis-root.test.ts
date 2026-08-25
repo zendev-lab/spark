@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
 import { CallId } from "@deepseek-ai/dsh-llm";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
-import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
@@ -179,7 +179,7 @@ describe("spark daemon Cordis root", () => {
     ).rejects.toThrow(/could not find the package-owned cue Skill/);
   });
 
-  it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
+  it("owns the dsh-channel-transports transport fiber mounted on the shared root", async () => {
     const ctx = openSparkDaemonCordisContext();
     const root = await createSparkDaemonCordisRoot(fakeStores(), {
       sessionsRoot: await sessionsRoot(),

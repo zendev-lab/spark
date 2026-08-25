@@ -149,7 +149,7 @@ export class InfoflowAdapter implements ChannelAdapter {
       })
     ) {
       console.log(
-        `[dsh-channels] infoflow dropped ${payload.chat_type} from=${payload.user_id}` +
+        `[dsh-channel-transports] infoflow dropped ${payload.chat_type} from=${payload.user_id}` +
           (payload.chat_id ? ` group=${payload.chat_id}` : "") +
           ` policy=${this.config.group_policy ?? "disabled"}`,
       );
@@ -163,7 +163,7 @@ export class InfoflowAdapter implements ChannelAdapter {
     if (dedupeKey && seenAt !== undefined && now - seenAt < INFOFLOW_DEDUPE_TTL_MS) {
       this.seenMessages.delete(dedupeKey);
       this.seenMessages.set(dedupeKey, now);
-      console.log(`[dsh-channels] infoflow dropped duplicate message=${messageId}`);
+      console.log(`[dsh-channel-transports] infoflow dropped duplicate message=${messageId}`);
       return;
     }
     this.onMessage?.(message);

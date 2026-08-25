@@ -5,14 +5,14 @@ import type {
   ChannelInteractionAckStatus,
   ChannelReplyTarget,
   IncomingMessage,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryFailureOutcome,
   channelDeliveryNotSent,
   channelDeliveryOutcomeUnknown,
   normalizeChannelMessageReference,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import {
   CHANNEL_REPLY_TERMINAL_PRESENTED_ERROR_CODE,
   channelReplyDeliveryForCompletion,

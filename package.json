@@ -75,7 +75,7 @@
     "prepare": "prek install --hook-type commit-msg --hook-type pre-commit"
   },
   "dependencies": {
-    "@zendev-lab/dsh-channels": "workspace:^",
+    "@zendev-lab/dsh-channel-transports": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",

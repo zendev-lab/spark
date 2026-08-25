@@ -5,7 +5,7 @@ import { createChannelsPlugin } from "./plugin.ts";
 import { FakeChannelTransport } from "./transport.ts";
 import type { ChannelTransport } from "./types.ts";
 
-describe("dsh-channels Cordis plugin", () => {
+describe("dsh-channel-transports Cordis plugin", () => {
   it("runs each account in a child fiber and disposes every transport", async () => {
     const ctx = new Context();
     const transports = new Map([

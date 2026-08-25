@@ -188,7 +188,10 @@ export class ChannelRegistry {
       try {
         await stream.fail("无法开始处理，请重新发送");
       } catch (closeError) {
-        console.error("[dsh-channels] failed to close undurable reply stream", closeError);
+        console.error(
+          "[dsh-channel-transports] failed to close undurable reply stream",
+          closeError,
+        );
       }
       throw error;
     }

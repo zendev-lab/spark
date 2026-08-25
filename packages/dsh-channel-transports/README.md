@@ -1,4 +1,4 @@
-# @zendev-lab/dsh-channels
+# @zendev-lab/dsh-channel-transports
 
 Platform channel adapters for Cordis/DSH IM ingress and outbound notify
 (Feishu, Infoflow, QQ Bot).
