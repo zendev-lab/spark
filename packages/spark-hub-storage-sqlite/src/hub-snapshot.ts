@@ -71,7 +71,6 @@ export interface HubRestoreResult {
   rollbackSnapshotPath: string | null;
   transientReset: {
     browserSessionsDeleted: number;
-    workspaceAccessTokensDeleted: number;
     hubAccessTokensDeleted: number;
     runtimeSessionsClosed: number;
     runtimesMarkedOffline: number;
@@ -241,7 +240,6 @@ export async function createHubSnapshot(input: {
       ],
       resetOnRestoreScopes: [
         "browser_sessions",
-        "workspace_access_tokens",
         "hub_access_tokens",
         "runtime_websocket_sessions",
         "pending_device_authorizations",
@@ -402,9 +400,6 @@ function prepareRestoredDatabase(
   try {
     db.exec("BEGIN IMMEDIATE");
     const browserSessionsDeleted = changes(db.prepare("DELETE FROM sessions").run());
-    const workspaceAccessTokensDeleted = changes(
-      db.prepare("DELETE FROM workspace_access_tokens WHERE used_at IS NULL").run(),
-    );
     const hubAccessTokensDeleted = db
       .prepare("DELETE FROM hub_access_tokens WHERE used_at IS NULL RETURNING id")
       .all().length;
@@ -437,7 +432,6 @@ function prepareRestoredDatabase(
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     return {
       browserSessionsDeleted,
-      workspaceAccessTokensDeleted,
       hubAccessTokensDeleted,
       runtimeSessionsClosed,
       runtimesMarkedOffline,

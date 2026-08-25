@@ -1971,7 +1971,7 @@ describe("Spark daemon CLI", () => {
     });
   });
 
-  it("reuses machine connectivity only after receiving a new workspace token", async () => {
+  it("passes the workspace enrollment token through to service registration", async () => {
     const registerWorkspaceInService = vi.fn(
       async (
         _paths: ReturnType<typeof resolveSparkPaths>,
@@ -1985,12 +1985,6 @@ describe("Spark daemon CLI", () => {
         status: "available" as const,
         capabilities: {},
         diagnostics: {},
-        workspaceAuthorization: {
-          workspaceId: "ws_11111111111141111111111111111111",
-          workspaceSlug: "profile-workspace",
-          oneTimeToken: "spark_workspace_auth_11111111111111111111111111111111",
-          expiresAt: "2026-07-13T00:10:00.000Z",
-        },
         updatedAt: "2026-07-13T00:00:00.000Z",
       }),
     );
@@ -2030,8 +2024,6 @@ describe("Spark daemon CLI", () => {
           registrationToken: "spark_wsreg_profile_workspace",
         }),
       );
-      expect(capture.stdout()).toContain("http://127.0.0.1:5173/profile-workspace/login");
-      expect(capture.stdout()).toContain("spark_workspace_auth_11111111111111111111111111111111");
     });
   });
 

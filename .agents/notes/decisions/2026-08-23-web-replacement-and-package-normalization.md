@@ -171,6 +171,21 @@ history, re-points `runtime_sessions.token_id` at the family record, and
 retires `runtime_tokens`; uplink attach and workspace grants authenticate
 `kind = 'access'` only, so a refresh credential can renew but never control.
 
+Landed in this stack: the `hub-user` family converged on one Hub session. The
+`sessions` table no longer carries a workspace scope; workspace-scoped browser
+sessions, `spark_workspace_*` cookies, workspace access tokens, the
+`spark hub workspace access` CLI, and the `/{slug}/login` exchange route are
+removed, and migration 0028 revokes every surviving workspace-only session and
+token in place. `user_daemon_grants` is the single record of which hub user may
+reach each daemon's workspaces and sessions; owners received explicit grants
+for every daemon known at migration time, and daemon registration grants every
+active owner. `spark hub access create` requires at least one `--daemon` grant
+and mints a member session holding exactly those grants; route authorization
+resolves the owning daemon through the active workspace lease, so a workspace
+moved to another daemon is re-authorized against the new owner immediately.
+Registration no longer returns a one-time workspace browser credential, and
+nothing in the Hub issues or forwards `daemon-user` tokens.
+
 ## Package normalization
 
 Names follow the official DSH family semantics already used by the repository:

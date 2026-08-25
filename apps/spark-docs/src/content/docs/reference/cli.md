@@ -248,8 +248,7 @@ spark daemon workspace ls --json
 spark daemon workspace move <id> <new-path> --dry-run
 spark daemon workspace unregister <id> --dry-run
 spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
-spark hub access create
-spark hub workspace access create --workspace <id>
+spark hub access create --daemon <runtime-id> [--daemon <runtime-id> ...] [--user <name>]
 ```
 
 Use `--allow-insecure-http` only for an explicitly trusted private network.

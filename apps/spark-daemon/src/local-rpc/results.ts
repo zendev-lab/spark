@@ -521,20 +521,6 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
       : {}),
     ...(typeof value.sessionCount === "number" ? { sessionCount: value.sessionCount } : {}),
     ...(typeof value.lastSessionAt === "string" ? { lastSessionAt: value.lastSessionAt } : {}),
-    ...(isRecord(value.workspaceAuthorization) &&
-    typeof value.workspaceAuthorization.workspaceId === "string" &&
-    typeof value.workspaceAuthorization.workspaceSlug === "string" &&
-    typeof value.workspaceAuthorization.oneTimeToken === "string" &&
-    typeof value.workspaceAuthorization.expiresAt === "string"
-      ? {
-          workspaceAuthorization: {
-            workspaceId: value.workspaceAuthorization.workspaceId,
-            workspaceSlug: value.workspaceAuthorization.workspaceSlug,
-            oneTimeToken: value.workspaceAuthorization.oneTimeToken,
-            expiresAt: value.workspaceAuthorization.expiresAt,
-          },
-        }
-      : {}),
     ...(Array.isArray(value.recentSessions)
       ? { recentSessions: value.recentSessions.map(sparkDaemonWorkspaceRecentSession) }
       : {}),

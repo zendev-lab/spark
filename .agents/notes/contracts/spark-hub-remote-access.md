@@ -9,18 +9,28 @@ reverse-proxy setup belong in the public
 
 Hub browser authority is progressive and must remain separated:
 
-1. **Hub access** authorizes the control plane.
-2. **Workspace access** authorizes exactly one workspace projection.
-3. **Runtime enrollment/WebSocket credentials** authorize daemon connectivity
-   and are not browser credentials.
+1. **Hub access** authorizes the control plane. One `hub-user` session family
+   covers owners and members; a member's workspace visibility is derived from
+   explicit `user ↔ daemon` grants, and each workspace or session resolves to
+   the daemon that owns it through the active lease.
+2. **Hub↔daemon credentials** (`hub-daemon` family) authorize daemon
+   connectivity. Enrollment tokens and device codes are one-shot bootstrap
+   exchanges; the access/refresh pair they issue is the daemon's renewable
+   credential, canonically recorded in `daemon_credentials`. They are never
+   browser credentials.
+3. **Daemon-user credentials** (`daemon-user` family) authorize direct Native
+   Web / Web DSH access and are owned and verified by the daemon. The Hub must
+   not issue, return, or forward them, and a `hub-user` session cannot log in
+   to those surfaces.
 
-Minting stays in `@zendev-lab/spark-hub-coordination` on the Hub host. Daemon
-registration may return a one-time workspace browser credential as a bounded
-registration result, but it does not create another minting authority.
+Minting stays in `@zendev-lab/spark-hub-coordination` on the Hub host. No other
+layer creates a minting authority.
 
-A Hub session alone must not open another workspace's sessions, artifacts, or
-SSE. A workspace session must not open global Hub settings or another workspace.
-Runtime credentials must never be accepted by either browser session boundary.
+A Hub member session must not open workspaces, sessions, artifacts, or SSE
+owned by a daemon the member holds no grant for; revoking or moving a
+workspace's lease re-derives authorization from the new owning daemon
+immediately. Runtime credentials must never be accepted by any browser session
+boundary, and browser credentials must never authenticate a daemon uplink.
 
 ## Network boundary
 
@@ -54,28 +64,33 @@ or authorization scope through forwarded headers.
 
 ## Browser credential contract
 
-Hub and workspace browser keys are one-time credentials with bounded expiry.
-They are exchanged for scope-specific browser sessions; replay after successful
-exchange or explicit revocation fails.
+Hub browser keys are one-time credentials with bounded expiry. Every key is
+minted with an explicit daemon grant list; exchanging it creates (or reuses) a
+member hub-user and grants exactly those daemons before the session is issued.
+Replay after successful exchange or explicit revocation fails. There are no
+workspace-scoped browser keys or sessions: retired workspace-only sessions and
+tokens were revoked by migration and stay invalid.
 
-Workspace credentials are scoped to a stable workspace identity. Name and slug
-are display/routing helpers and must not become authority identifiers.
+Grant authority follows the daemon, not a display name. Workspace names and
+slugs are display/routing helpers and must not become authority identifiers.
 
 Session refresh rotates credentials. Replaying the previous refresh credential
 must fail. Static PWA assets and the minimum login/logout routes may remain
-available before authorization, but protected data and event routes require the
-matching scope.
+available before authorization, but protected data and event routes require a
+session whose grants cover the owning daemon.
 
 ## Workspace registration boundary
 
 Machine connectivity credentials and one-time workspace registration tokens are
 different authorities and cannot substitute for one another. Each registration
 consumes its own token and binds one daemon-owned directory to the existing Hub
-workspace identity.
+workspace identity. Registering a daemon grants it to every active Hub owner
+explicitly; further member reach is minted only through daemon-bound Hub access
+keys.
 
-Successful registration may project a workspace browser credential, but target
-execution remains daemon-owned. Browser authorization never grants direct
-repository, daemon-store, or execution-state access outside the owner APIs.
+Target execution remains daemon-owned. Browser authorization never grants
+direct repository, daemon-store, or execution-state access outside the owner
+APIs.
 
 ## Failure policy
 

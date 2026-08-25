@@ -67,7 +67,6 @@ export interface SparkDaemonRegistrationInput {
 export interface SparkDaemonRegistrationResult {
   config: SparkDaemonConfig;
   workspaceBinding?: RuntimeRegistrationResponse["workspaceBinding"];
-  workspaceAuthorization?: RuntimeRegistrationResponse["workspaceAuthorization"];
 }
 
 export interface SparkDaemonWorkspaceUnbindResult {
@@ -250,7 +249,6 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
     return {
       config: current,
       workspaceBinding: registered.workspaceBinding,
-      workspaceAuthorization: registered.workspaceAuthorization,
     };
   }
 
@@ -269,9 +267,6 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   return {
     config: configForRegisteredServer(paths, serverUrl),
     ...(registered.workspaceBinding ? { workspaceBinding: registered.workspaceBinding } : {}),
-    ...(registered.workspaceAuthorization
-      ? { workspaceAuthorization: registered.workspaceAuthorization }
-      : {}),
   };
 }
 

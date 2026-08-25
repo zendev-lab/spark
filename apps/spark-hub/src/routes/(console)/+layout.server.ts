@@ -10,7 +10,7 @@ export const load: LayoutServerLoad = ({ cookies, locals, url }) => {
     pathname: url.pathname,
     protocol: url.protocol,
     preferredWorkspaceSlug: url.searchParams.get("workspace"),
-    authorizedWorkspaceId: locals?.workspaceId ?? null,
+    authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
   });
   return {
     ...layout,

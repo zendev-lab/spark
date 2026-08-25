@@ -37,7 +37,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
       cookies,
       workspaceIdParam,
       url,
-      authorizedWorkspaceId: locals?.workspaceId ?? null,
+      authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
     });
   }
 
@@ -56,7 +56,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
         ? workspaceIdForWorkbenchSession(projectedSelectedSession)
         : null,
     preferredWorkspaceSlug: url.searchParams.get("workspace") ?? null,
-    authorizedWorkspaceId: locals?.workspaceId ?? null,
+    authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions =
@@ -97,7 +97,7 @@ async function loadWorkspaceRailShell(input: {
   cookies: Parameters<LayoutServerLoad>[0]["cookies"];
   workspaceIdParam: string;
   url: URL;
-  authorizedWorkspaceId: string | null;
+  authorizedWorkspaceIds: readonly string[] | null;
 }) {
   const layout = loadShellWorkspaceLayout({
     cookies: input.cookies,
@@ -105,7 +105,7 @@ async function loadWorkspaceRailShell(input: {
     protocol: input.url.protocol,
     preferredWorkspaceId: null,
     preferredWorkspaceSlug: input.workspaceIdParam,
-    authorizedWorkspaceId: input.authorizedWorkspaceId,
+    authorizedWorkspaceIds: input.authorizedWorkspaceIds,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions = activeWorkspaceId

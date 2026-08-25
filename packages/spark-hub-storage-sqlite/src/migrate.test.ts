@@ -62,7 +62,7 @@ describe("migrations", () => {
       "runtime_channel_control_projections",
       "runtime_ephemeral_secret_audit",
       "event_ingest_sequence",
-      "workspace_access_tokens",
+      "user_daemon_grants",
       "workspace_leases",
       "workspace_delegations",
       "workspace_delegation_messages",
@@ -70,6 +70,7 @@ describe("migrations", () => {
       expect(tableExists(db, table)?.name).toBe(table);
     }
 
+    expect(tableExists(db, "workspace_access_tokens")).toBeUndefined();
     expect(relationType(db, "hub_access_tokens")).toEqual({ type: "view" });
 
     for (const index of [
@@ -101,7 +102,8 @@ describe("migrations", () => {
       "mirrored_invocations_command_updated_idx",
       "commands_assignment_session_updated_idx",
       "sessions_refresh_token_unique",
-      "workspace_access_tokens_workspace_state_idx",
+      "user_daemon_grants_active_unique",
+      "user_daemon_grants_runtime_idx",
       "hub_access_tokens_state_idx",
     ]) {
       expect(indexExists(db, index)?.name).toBe(index);
@@ -170,7 +172,19 @@ describe("migrations", () => {
       "0025",
       "0026",
       "0027",
+      "0028",
     ]);
+
+    const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+      name: string;
+    }>;
+    expect(sessionColumns.map((column) => column.name)).not.toContain("workspace_id");
+
+    const hubAccessColumns = db.prepare("PRAGMA table_info(hub_access_tokens)").all() as Array<{
+      name: string;
+    }>;
+    expect(hubAccessColumns.map((column) => column.name)).toContain("daemon_ids_json");
+    expect(hubAccessColumns.map((column) => column.name)).toContain("member_name");
 
     const bindingColumns = db
       .prepare("PRAGMA table_info(runtime_workspace_bindings)")
@@ -193,7 +207,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(27);
+    expect(migrationCount.count).toBe(28);
     db.close();
   });
 
@@ -580,6 +594,129 @@ describe("migrations", () => {
         .all(),
     ).toEqual([]);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    db.close();
+  });
+
+  it("backfills owner daemon grants and retires workspace browser credentials", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0027"),
+    );
+    const now = "2026-08-23T00:00:00.000Z";
+    const insertUser = db.prepare(
+      `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, 'active', ?, ?)`,
+    );
+    insertUser.run("usr_owner", "Owner", "owner", now, now);
+    insertUser.run("usr_member", "Member", "member", now, now);
+    const insertRuntime = db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'offline', '{}', '{}', ?, ?)`,
+    );
+    insertRuntime.run("rt_a", "install-a", "Daemon A", now, now);
+    insertRuntime.run("rt_b", "install-b", "Daemon B", now, now);
+    db.prepare(
+      `INSERT INTO workspaces (id, slug, name, status, settings_json, created_at, updated_at)
+       VALUES ('ws_one', 'one', 'One', 'active', '{}', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+       VALUES ('sess_hub', 'usr_owner', 'hash-hub', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO sessions
+        (id, user_id, token_hash, workspace_id, created_at, expires_at)
+       VALUES ('sess_workspace', 'usr_member', 'hash-workspace', 'ws_one', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO workspace_access_tokens
+        (id, workspace_id, token_hash, label, created_at, expires_at)
+       VALUES ('watok_one', 'ws_one', 'hash-workspace-token', 'Workspace browser access', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO cockpit_access_tokens
+        (id, token_hash, label, created_by_user_id, created_at, expires_at)
+       VALUES ('catok_legacy', 'hash-hub-token', 'Hub browser access', 'usr_owner', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+
+    migrate(db, migrations);
+    migrate(db, migrations);
+
+    const grants = db
+      .prepare(
+        `SELECT user_id AS userId, runtime_id AS runtimeId, granted_by_user_id AS grantedBy
+         FROM user_daemon_grants
+         WHERE revoked_at IS NULL
+         ORDER BY runtime_id`,
+      )
+      .all() as Array<{ userId: string; runtimeId: string; grantedBy: string }>;
+    expect(grants).toEqual([
+      { userId: "usr_owner", runtimeId: "rt_a", grantedBy: "usr_owner" },
+      { userId: "usr_owner", runtimeId: "rt_b", grantedBy: "usr_owner" },
+    ]);
+
+    const sessionRows = db
+      .prepare(`SELECT id, revoked_at AS revokedAt FROM sessions ORDER BY id`)
+      .all() as Array<{ id: string; revokedAt: string | null }>;
+    expect(sessionRows).toEqual([
+      { id: "sess_hub", revokedAt: null },
+      { id: "sess_workspace", revokedAt: expect.any(String) },
+    ]);
+    expect(
+      db
+        .prepare("PRAGMA table_info(sessions)")
+        .all()
+        .map((column) => (column as { name: string }).name),
+    ).not.toContain("workspace_id");
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_access_tokens'",
+        )
+        .all(),
+    ).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+
+    // The active-grant partial unique index permits re-granting after revoke.
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO user_daemon_grants
+            (id, user_id, runtime_id, granted_by_user_id, created_at)
+           VALUES ('udg_dup', 'usr_owner', 'rt_a', 'usr_owner', ?)`,
+        )
+        .run(now),
+    ).toThrow(/UNIQUE constraint failed/u);
+    db.prepare(
+      "UPDATE user_daemon_grants SET revoked_at = ? WHERE user_id = ? AND runtime_id = ?",
+    ).run(now, "usr_owner", "rt_a");
+    db.prepare(
+      `INSERT INTO user_daemon_grants
+        (id, user_id, runtime_id, granted_by_user_id, created_at)
+       VALUES ('udg_regrant', 'usr_owner', 'rt_a', 'usr_owner', ?)`,
+    ).run(now);
+
+    // The hub access token view carries the new grant payload columns.
+    expect(
+      db
+        .prepare("SELECT daemon_ids_json AS daemonIdsJson FROM hub_access_tokens WHERE id = ?")
+        .get("catok_legacy"),
+    ).toEqual({ daemonIdsJson: "[]" });
+    db.prepare(
+      `INSERT INTO hub_access_tokens
+        (id, token_hash, label, created_by_user_id, daemon_ids_json, member_name, created_at, expires_at)
+       VALUES ('catok_member', 'hash-member-token', 'Member access', 'usr_owner', '["rt_a"]', 'teammate', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    expect(
+      db
+        .prepare(
+          "SELECT daemon_ids_json AS daemonIdsJson, member_name AS memberName FROM hub_access_tokens WHERE id = ?",
+        )
+        .get("catok_member"),
+    ).toEqual({ daemonIdsJson: '["rt_a"]', memberName: "teammate" });
     db.close();
   });
 

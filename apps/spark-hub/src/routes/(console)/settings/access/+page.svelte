@@ -2,7 +2,7 @@
   import { enhance } from "$app/forms";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
-  import { ConfirmDialog, PageHeader } from "@zendev-lab/spark-ui";
+  import { ConfirmDialog, Field, Input, PageHeader } from "@zendev-lab/spark-ui";
   import { DialogTrigger } from "@zendev-lab/spark-ui/headless";
 
   let { data, form } = $props();
@@ -56,6 +56,21 @@
       emptyBody={t.access.emptyBody}
       hasTokens={data.accessTokens.length > 0}
     >
+      {#snippet fields()}
+        <Field id="access-user" label={t.access.userLabel} reserveMeta={false}>
+          <Input id="access-user" name="user" placeholder={t.access.userPlaceholder} />
+        </Field>
+        <fieldset class="daemon-grants">
+          <legend>{t.access.daemonsLabel}</legend>
+          {#each data.daemons as daemon}
+            <label class="daemon-grant">
+              <input type="checkbox" name="daemonIds" value={daemon.id} />
+              <span>{daemon.name}</span>
+              <small>{daemon.id}</small>
+            </label>
+          {/each}
+        </fieldset>
+      {/snippet}
       {#snippet created()}
         {#if form?.intent === "hubAccess" && form?.accessToken}
           <div class="token-created">
@@ -71,6 +86,12 @@
               <span>{t.access.oneTimeToken}</span>
               <pre>{form.accessToken}</pre>
             </div>
+            {#if form.accessMemberName}
+              <small>{t.access.memberLabel}: {form.accessMemberName}</small>
+            {/if}
+            {#if form.accessDaemonIds?.length}
+              <small>{t.access.grantedDaemons}: {form.accessDaemonIds.join(", ")}</small>
+            {/if}
             <small>{t.access.expiresPrefix} {formatRelative(form.accessExpiresAt ?? null)}</small>
           </div>
         {/if}
@@ -81,6 +102,12 @@
           <div class="token-row">
             <div>
               <strong>{token.label ?? t.access.defaultTokenLabel}</strong>
+              {#if token.memberName}
+                <small>{t.access.memberLabel}: {token.memberName}</small>
+              {/if}
+              {#if token.daemonIds.length > 0}
+                <small>{t.access.grantedDaemons}: {token.daemonIds.join(", ")}</small>
+              {/if}
             </div>
             <span class="status-pill {status}">{statusLabel(status)}</span>
             <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
@@ -220,6 +247,33 @@
     font-size: 12px;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+
+  .daemon-grants {
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+  }
+
+  .daemon-grants legend {
+    color: var(--color-ink-muted);
+    font-size: 12px;
+    font-weight: 650;
+    padding: 0 4px;
+  }
+
+  .daemon-grant {
+    align-items: baseline;
+    display: flex;
+    gap: 8px;
+  }
+
+  .daemon-grant small {
+    color: var(--color-ink-subtle);
+    font-size: 12px;
   }
 
   .token-row {

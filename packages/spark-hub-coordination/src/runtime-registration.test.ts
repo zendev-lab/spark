@@ -14,7 +14,6 @@ import {
   approveRuntimeDeviceAuthorization,
   createRuntimeDeviceAuthorization,
   createRuntimeEnrollmentToken,
-  createRuntimeWorkspaceBrowserAccess,
   denyRuntimeDeviceAuthorization,
   exchangeRuntimeDeviceAuthorization,
   getRuntimeDeviceAuthorizationForApproval,
@@ -50,101 +49,6 @@ function parseJson(value: string, label: string): unknown {
 }
 
 describe("runtime registration", { timeout: 20_000 }, () => {
-  it("mints browser access only for this runtime's actively leased binding", () => {
-    const db = openMemoryDatabase();
-    migrate(db);
-    const enrollment = createRuntimeEnrollmentToken(db, {
-      workspaceName: "Browser access",
-      workspaceSlug: "browser-access",
-      ttlMs: durableEnrollmentTtlMs,
-    });
-    const registered = registerRuntime(
-      db,
-      {
-        ...registrationRequest,
-        workspaceRegistration: {
-          localWorkspaceKey: "browser-access",
-          localPath: "/Users/test/workspaces/browser-access",
-          displayName: "Browser access",
-        },
-      },
-      enrollment.refreshToken,
-    );
-    const bindingId = registered.workspaceBinding?.bindingId;
-    expect(bindingId).toMatch(/^rtwb_/);
-    const activeBindingId = bindingId!;
-
-    const authorization = createRuntimeWorkspaceBrowserAccess(db, {
-      runtimeId: registered.runtimeId,
-      bindingId: activeBindingId,
-      runtimeToken: registered.runtimeToken,
-      createdAt: "2026-07-20T00:00:00.000Z",
-    });
-    expect(authorization).toMatchObject({
-      workspaceId: registered.workspaceBinding?.workspaceId,
-      oneTimeToken: expect.stringMatching(/^spark_workspace_auth_/),
-    });
-
-    db.prepare(
-      "UPDATE workspace_leases SET ended_at = ? WHERE runtime_workspace_binding_id = ? AND ended_at IS NULL",
-    ).run("2026-07-20T00:00:01.000Z", activeBindingId);
-    expect(() =>
-      createRuntimeWorkspaceBrowserAccess(db, {
-        runtimeId: registered.runtimeId,
-        bindingId: activeBindingId,
-        runtimeToken: registered.runtimeToken,
-        createdAt: "2026-07-20T00:00:02.000Z",
-      }),
-    ).toThrowError(
-      expect.objectContaining<Partial<RuntimeEnrollmentError>>({
-        reasonCode: "WORKSPACE_BINDING_NOT_FOUND",
-      }),
-    );
-    db.close();
-  });
-
-  it("rejects browser access when the binding does not belong to the authenticated runtime", () => {
-    const db = openMemoryDatabase();
-    migrate(db);
-    const firstEnrollment = createRuntimeEnrollmentToken(db, {
-      workspaceName: "Browser owner",
-      workspaceSlug: "browser-owner",
-      ttlMs: durableEnrollmentTtlMs,
-    });
-    const owner = registerRuntime(
-      db,
-      {
-        ...registrationRequest,
-        installationId: "install-browser-owner",
-        workspaceRegistration: {
-          localWorkspaceKey: "browser-owner",
-          localPath: "/Users/test/workspaces/browser-owner",
-          displayName: "Browser owner",
-        },
-      },
-      firstEnrollment.refreshToken,
-    );
-    const otherEnrollment = createRuntimeEnrollmentToken(db, { ttlMs: durableEnrollmentTtlMs });
-    const other = registerRuntime(
-      db,
-      { ...registrationRequest, installationId: "install-browser-other" },
-      otherEnrollment.refreshToken,
-    );
-
-    expect(() =>
-      createRuntimeWorkspaceBrowserAccess(db, {
-        runtimeId: other.runtimeId,
-        bindingId: owner.workspaceBinding!.bindingId,
-        runtimeToken: other.runtimeToken,
-      }),
-    ).toThrowError(
-      expect.objectContaining<Partial<RuntimeEnrollmentError>>({
-        reasonCode: "WORKSPACE_BINDING_NOT_FOUND",
-      }),
-    );
-    db.close();
-  });
-
   it("stores workspace registration token hashes only", () => {
     const db = openMemoryDatabase();
     migrate(db);
@@ -324,12 +228,6 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       displayName: "local-default",
       status: "available",
     });
-    expect(registered.workspaceAuthorization).toMatchObject({
-      workspaceId: workspaceBinding?.workspaceId,
-      workspaceSlug: "local-default",
-      oneTimeToken: expect.stringMatching(/^spark_workspace_auth_/),
-      expiresAt: expect.any(String),
-    });
     if (!workspaceBinding) {
       throw new Error("Expected workspace binding registration result.");
     }
@@ -419,7 +317,6 @@ describe("runtime registration", { timeout: 20_000 }, () => {
     );
 
     expect(registered.workspaceBinding?.displayName).toBe("spark");
-    expect(registered.workspaceAuthorization?.workspaceSlug).toBe("spark");
     const workspace = db
       .prepare("SELECT slug, name FROM workspaces WHERE id = ?")
       .get(registered.workspaceBinding!.workspaceId) as { slug: string; name: string };
@@ -1642,7 +1539,6 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       registered.runtimeToken,
     );
     expect(workspace.workspaceBinding.localWorkspaceKey).toBe("spore");
-    expect(workspace.workspaceAuthorization.oneTimeToken).toMatch(/^spark_workspace_auth_/);
     db.close();
   });
 
@@ -1727,7 +1623,6 @@ describe("runtime registration", { timeout: 20_000 }, () => {
       localWorkspaceKey: "daemon-attach",
       status: "available",
     });
-    expect(workspace.workspaceAuthorization.oneTimeToken).toMatch(/^spark_workspace_auth_/);
     const binding = db
       .prepare(
         `SELECT rwb.runtime_id AS runtimeId,
@@ -1803,7 +1698,6 @@ describe("runtime registration", { timeout: 20_000 }, () => {
     const registered = registerRuntime(db, registrationRequest, enrollment.refreshToken);
 
     expect(registered.workspaceBinding).toBeUndefined();
-    expect(registered.workspaceAuthorization).toBeUndefined();
     const scopes = db
       .prepare(
         `SELECT enrollment_scopes_json AS scopesJson

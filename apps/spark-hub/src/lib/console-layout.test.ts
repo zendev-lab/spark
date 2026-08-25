@@ -26,7 +26,7 @@ describe("console layout load", () => {
     const url = new URL(`http://localhost${pathname}?workspace=workspace-a`);
     const result = load({
       cookies: { get: vi.fn() },
-      locals: { workspaceId: "workspace:authorized", hasControlPlaneAccess: true },
+      locals: { authorizedWorkspaceIds: ["workspace:authorized"], hasControlPlaneAccess: true },
       url,
     } as never) as Record<string, unknown>;
 
@@ -36,7 +36,7 @@ describe("console layout load", () => {
       pathname,
       protocol: "http:",
       preferredWorkspaceSlug: "workspace-a",
-      authorizedWorkspaceId: "workspace:authorized",
+      authorizedWorkspaceIds: ["workspace:authorized"],
     });
     expect(result.sessions).toEqual([]);
     expect(result.sessionsAvailable).toBe(true);

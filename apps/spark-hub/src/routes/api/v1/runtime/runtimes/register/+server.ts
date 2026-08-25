@@ -65,9 +65,6 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
     staleAfterMs: 45_000,
     registeredAt: registered.registeredAt,
     ...(registered.workspaceBinding ? { workspaceBinding: registered.workspaceBinding } : {}),
-    ...(registered.workspaceAuthorization
-      ? { workspaceAuthorization: registered.workspaceAuthorization }
-      : {}),
   });
 
   return json(response, { status: 201 });

@@ -13,10 +13,11 @@ export const load: PageServerLoad = ({ locals, params }) => {
   const db = getDatabase();
   const workspace = loadWorkspaceByRouteId(db, params.workspaceId);
   if (!workspace) throw error(404, "Workspace not found");
-  if (locals.workspaceId && locals.workspaceId !== workspace.id) {
+  const memberWorkspaceIds = locals.authorizedWorkspaceIds;
+  if (memberWorkspaceIds && !memberWorkspaceIds.includes(workspace.id)) {
     throw error(404, "Workspace not found");
   }
-  const delegations = locals.workspaceId
+  const delegations = memberWorkspaceIds
     ? listHubWorkspaceDelegationsForWorkspaceMember(db, workspace.id)
     : listHubWorkspaceDelegations(db, { workspaceId: workspace.id });
   const visibleWorkspaceIds = new Set(
@@ -26,12 +27,12 @@ export const load: PageServerLoad = ({ locals, params }) => {
     ]),
   );
   return {
-    authorizedWorkspaceId: locals.workspaceId ?? null,
-    workspaces: listHubWorkspaces(db).filter(
-      (entry) => !locals.workspaceId || visibleWorkspaceIds.has(entry.id),
-    ),
+    authorizedWorkspaceId: memberWorkspaceIds ? workspace.id : null,
+    workspaces: memberWorkspaceIds
+      ? listHubWorkspaces(db).filter((entry) => visibleWorkspaceIds.has(entry.id))
+      : listHubWorkspaces(db),
     delegations,
-    audits: locals.workspaceId
+    audits: memberWorkspaceIds
       ? {}
       : Object.fromEntries(
           delegations.map((delegation) => [

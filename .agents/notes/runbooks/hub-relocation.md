@@ -91,7 +91,7 @@ export SPARK_HUB_TRUST_PROXY=loopback
 spark hub
 ```
 
-Remote browser authority is progressive. After restore, mint a fresh Hub key with `spark hub access create`, then workspace keys with `spark hub workspace access create --workspace <id>` (or use the one-time key printed by registration). Hub and workspace rotating refresh sessions stay separate. The reverse proxy must replace forwarding headers, preserve the public host, forward WebSocket upgrades, and leave streaming responses unbuffered. Verify:
+Remote browser authority is grant-based. After restore, owner sessions keep their backfilled per-daemon grants; mint member keys with `spark hub access create --daemon <runtime-id>` (repeat `--daemon` for several daemons). One-time workspace browser keys no longer exist. The reverse proxy must replace forwarding headers, preserve the public host, forward WebSocket upgrades, and leave streaming responses unbuffered. Verify:
 
 ```sh
 curl --fail --silent --show-error "$TARGET_URL/api/v1/runtime/relocation/metadata"
