@@ -16,7 +16,7 @@ import type {
   SparkLocalRpcMethod,
   SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   readSparkDaemonConfig,

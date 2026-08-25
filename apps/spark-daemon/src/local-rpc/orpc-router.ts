@@ -6,7 +6,7 @@ import {
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { localRpcError } from "./helpers.ts";
 import { invokeLocalRpcService } from "./service.ts";
 import type { LocalRpcHandlerOptions } from "./types.ts";

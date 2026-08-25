@@ -263,9 +263,9 @@ importers:
       '@zendev-lab/spark-lens':
         specifier: workspace:^
         version: link:packages/spark-lens
-      '@zendev-lab/spark-system':
+      '@zendev-lab/spark-platform-node':
         specifier: workspace:*
-        version: link:packages/spark-system
+        version: link:packages/spark-platform-node
       ajv:
         specifier: 8.20.0
         version: 8.20.0
@@ -314,9 +314,9 @@ importers:
       '@zendev-lab/spark-i18n':
         specifier: workspace:^
         version: link:../../packages/spark-i18n
-      '@zendev-lab/spark-system':
+      '@zendev-lab/spark-platform-node':
         specifier: workspace:^
-        version: link:../../packages/spark-system
+        version: link:../../packages/spark-platform-node
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -456,6 +456,9 @@ importers:
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../../packages/spark-memory
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../../packages/spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../../packages/spark-protocol
@@ -471,9 +474,6 @@ importers:
       '@zendev-lab/spark-session':
         specifier: workspace:^
         version: link:../../packages/spark-session
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../../packages/spark-system
       '@zendev-lab/spark-task-runtime':
         specifier: workspace:^
         version: link:../../packages/spark-task-runtime
@@ -596,12 +596,12 @@ importers:
       '@zendev-lab/spark-memory':
         specifier: workspace:*
         version: link:../../packages/spark-memory
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:*
+        version: link:../../packages/spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
         version: link:../../packages/spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:*
-        version: link:../../packages/spark-system
       '@zendev-lab/spark-tasks':
         specifier: workspace:*
         version: link:../../packages/spark-tasks
@@ -675,12 +675,12 @@ importers:
       '@zendev-lab/spark-i18n':
         specifier: workspace:*
         version: link:../../packages/spark-i18n
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:*
+        version: link:../../packages/spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
         version: link:../../packages/spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:*
-        version: link:../../packages/spark-system
       '@zendev-lab/spark-ui':
         specifier: workspace:*
         version: link:../../packages/spark-ui
@@ -949,12 +949,12 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
         version: link:../spark-text-rendering
@@ -969,12 +969,12 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-retry':
         specifier: workspace:^
         version: link:../spark-retry
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
         version: link:../spark-text-rendering
@@ -994,12 +994,12 @@ importers:
       '@orpc/client':
         specifier: 'catalog:'
         version: 1.15.0(@opentelemetry/api@1.9.0)
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -1010,12 +1010,12 @@ importers:
 
   packages/spark-deployment:
     dependencies:
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -1122,6 +1122,9 @@ importers:
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../spark-memory
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
@@ -1134,9 +1137,6 @@ importers:
       '@zendev-lab/spark-session':
         specifier: workspace:^
         version: link:../spark-session
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
@@ -1162,12 +1162,12 @@ importers:
 
   packages/spark-hub-coordination:
     dependencies:
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:*
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:*
-        version: link:../spark-system
       '@zendev-lab/spark-tasks':
         specifier: workspace:*
         version: link:../spark-tasks
@@ -1199,9 +1199,9 @@ importers:
 
   packages/spark-hub-storage-sqlite:
     dependencies:
-      '@zendev-lab/spark-system':
+      '@zendev-lab/spark-platform-node':
         specifier: workspace:*
-        version: link:../spark-system
+        version: link:../spark-platform-node
       kysely:
         specifier: ^0.29.0
         version: 0.29.5
@@ -1287,15 +1287,15 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
       '@zendev-lab/spark-retry':
         specifier: workspace:^
         version: link:../spark-retry
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
         version: link:../spark-text-rendering
@@ -1352,12 +1352,12 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
         version: link:../spark-text-rendering
@@ -1371,6 +1371,33 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
+
+  packages/spark-platform-node:
+    devDependencies:
+      '@orpc/client':
+        specifier: 'catalog:'
+        version: 1.15.0(@opentelemetry/api@1.9.0)
+      '@orpc/contract':
+        specifier: 'catalog:'
+        version: 1.15.0(@opentelemetry/api@1.9.0)
+      '@orpc/server':
+        specifier: 'catalog:'
+        version: 1.15.0(@opentelemetry/api@1.9.0)(crossws@0.3.5)(ws@8.21.3)
+      '@stryker-mutator/core':
+        specifier: 'catalog:'
+        version: 10.0.0(@types/node@24.13.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: 'catalog:'
+        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.10)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
 
   packages/spark-protocol:
     dependencies:
@@ -1442,12 +1469,12 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
         version: link:../spark-text-rendering
@@ -1488,12 +1515,12 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../spark-daemon-client
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-text-rendering':
         specifier: workspace:^
         version: link:../spark-text-rendering
@@ -1513,33 +1540,6 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
-
-  packages/spark-system:
-    devDependencies:
-      '@orpc/client':
-        specifier: 'catalog:'
-        version: 1.15.0(@opentelemetry/api@1.9.0)
-      '@orpc/contract':
-        specifier: 'catalog:'
-        version: 1.15.0(@opentelemetry/api@1.9.0)
-      '@orpc/server':
-        specifier: 'catalog:'
-        version: 1.15.0(@opentelemetry/api@1.9.0)(crossws@0.3.5)(ws@8.21.3)
-      '@stryker-mutator/core':
-        specifier: 'catalog:'
-        version: 10.0.0(@types/node@24.13.3)
-      '@stryker-mutator/vitest-runner':
-        specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@4.1.10)
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
-      zod:
-        specifier: ^4.1.5
-        version: 4.4.3
 
   packages/spark-task-runtime:
     dependencies:
@@ -1728,12 +1728,12 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-platform-node':
+        specifier: workspace:^
+        version: link:../spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
-      '@zendev-lab/spark-system':
-        specifier: workspace:^
-        version: link:../spark-system
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
@@ -4832,6 +4832,7 @@ packages:
   '@stryker-mutator/core@10.0.0':
     resolution: {integrity: sha512-ZvMsRyaXQQ5e6Thcid9pkuODv6Fn9E3nrBQJUap+hcJuGJ4unm26afo3m6YKSjn8kinyxJ/3TXf0cTWRDaTxVw==}
     engines: {node: '>=22.0.0'}
+    hasBin: true
 
   '@stryker-mutator/instrumenter@10.0.0':
     resolution: {integrity: sha512-B7Wmn1KlEWyFeOz6D6oGvQGRfi5Xw3VemG6dEKvFQp4qLvxD9Mf4kcZghfxffgnYwXd3bFgqXsJ+ZGlhdfIOrQ==}

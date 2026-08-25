@@ -38,7 +38,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import process from "node:process";
 
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import type { CueClient } from "./client/cue-client.ts";
 

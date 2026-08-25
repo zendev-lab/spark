@@ -23,7 +23,11 @@ import {
   type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
-import { channelConfigPath, resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import {
+  channelConfigPath,
+  resolveSparkPaths,
+  writePrivateFile,
+} from "@zendev-lab/spark-platform-node";
 
 import {
   handleServerMessage,

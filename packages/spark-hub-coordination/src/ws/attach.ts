@@ -4,7 +4,7 @@ import {
   runtimeHeartbeatEnvelopeSchema,
   runtimeHelloEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
-import { bearerTokenFromAuthorization } from "@zendev-lab/spark-system";
+import { bearerTokenFromAuthorization } from "@zendev-lab/spark-platform-node";
 import {
   registerRuntimeControlDispatcher,
   RuntimeControlCommandError,

@@ -47,7 +47,7 @@ describe("Spark SQLite mechanism", () => {
   });
 
   it("creates the parent directory for a file-backed database", () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-system-sqlite-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-platform-node-sqlite-"));
     const db = openSqliteDatabase(join(root, "nested", "spark.sqlite"), {
       autoVacuum: "incremental",
     });

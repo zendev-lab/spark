@@ -7,7 +7,7 @@ import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { executeSparkDaemonSessionControl } from "../session-control.ts";
 import { registerWorkspace } from "../store/workspaces.ts";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

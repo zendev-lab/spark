@@ -9,7 +9,7 @@ import type {
   SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/version";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   requestSparkDaemonLocalRpc,
   SparkDaemonLocalRpcError,

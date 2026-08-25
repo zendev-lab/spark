@@ -26,7 +26,7 @@ import {
   mergeSparkProviderSpecs,
   normalizeSparkEnabledModelPatterns,
 } from "@zendev-lab/spark-llm-providers/control";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   DEFAULT_SPARK_THINKING_LEVEL,
   sparkEnabledModelsWriteIntentSchema,

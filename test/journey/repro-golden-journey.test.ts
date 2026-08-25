@@ -22,7 +22,7 @@ import {
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";

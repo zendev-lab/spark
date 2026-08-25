@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { resolveSparkHome } from "@zendev-lab/spark-system";
+import { resolveSparkHome } from "@zendev-lab/spark-platform-node";
 
 import type { SparkTheme } from "./theme.ts";
 import type {

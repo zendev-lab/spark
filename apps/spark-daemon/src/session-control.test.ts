@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   sparkSessionSnapshotPageSchema,
   type SparkSessionSnapshotPage,

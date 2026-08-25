@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { SparkDaemonHumanInteractionBroker } from "../core/human-interactions.ts";
 import { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";

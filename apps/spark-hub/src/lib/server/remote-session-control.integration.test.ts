@@ -14,7 +14,7 @@ import {
   type ServerCommandEnvelope,
   type SparkAssignment,
 } from "@zendev-lab/spark-protocol";
-import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   handleCommand,

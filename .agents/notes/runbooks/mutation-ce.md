@@ -11,7 +11,7 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 | `@zendev-lab/spark-retry` | `src/**/*.ts` except tests |
 | `@zendev-lab/spark-protocol` | colocated / architecture-covered modules |
 | `@zendev-lab/spark-hub-storage-sqlite` | `client.ts`, `dialect.ts`, `migrate.ts` |
-| `@zendev-lab/spark-system` | `paths.ts`, `daemon-local-rpc.ts` |
+| `@zendev-lab/spark-platform-node` | `paths.ts`, `daemon-local-rpc.ts` |
 
 ### L1 (Vitest packages with colocated tests)
 

@@ -314,8 +314,8 @@
       "stability": "supported",
       "stateWriter": "daemon"
     },
-    "@zendev-lab/spark-system": {
-      "path": "packages/spark-system",
+    "@zendev-lab/spark-platform-node": {
+      "path": "packages/spark-platform-node",
       "layer": "foundation",
       "owner": "system-primitives",
       "stability": "supported",
@@ -367,7 +367,7 @@
       "allowedWorkspaceDependencies": [
         "@zendev-lab/spark-i18n",
         "@zendev-lab/spark-protocol",
-        "@zendev-lab/spark-system"
+        "@zendev-lab/spark-platform-node"
       ]
     },
     "@zendev-lab/spark-web": {

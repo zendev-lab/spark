@@ -9,7 +9,7 @@ import type {
   SparkLocalRpcMethod,
   SparkLocalRpcOrpcClient,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSparkDaemonOrpcClient,
   invokeSparkDaemonOrpcLiveMethod,

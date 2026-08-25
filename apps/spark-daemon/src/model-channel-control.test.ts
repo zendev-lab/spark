@@ -10,7 +10,7 @@ import type {
   SparkModelRef,
   SparkProtocolJsonValue,
 } from "@zendev-lab/spark-protocol";
-import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   channelConfigurationProjection,
   executeSparkDaemonEphemeralSecretControl,

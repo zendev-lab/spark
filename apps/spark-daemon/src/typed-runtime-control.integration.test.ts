@@ -10,7 +10,7 @@ import {
   serverCommandEnvelopeSchema,
   type ServerCommandEnvelope,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   attachRuntimeWebSocket,
   createWorkspaceWithLease,

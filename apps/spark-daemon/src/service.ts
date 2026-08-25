@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawn, spawnSync } from "node:child_process";
-import { launchctlCommand, type SparkPaths } from "@zendev-lab/spark-system";
+import { launchctlCommand, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 import { cappedExponentialCeiling } from "@zendev-lab/spark-retry";

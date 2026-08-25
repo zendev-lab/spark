@@ -2,7 +2,7 @@ import {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
   resolveSparkHeadlessExecutorSpecifier,
-} from "@zendev-lab/spark-system/headless-module";
+} from "@zendev-lab/spark-platform-node/headless-module";
 import type {
   ExtensionInteractionCapabilities,
   ExtensionInteractionRequest,
@@ -215,8 +215,8 @@ export {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
   resolveSparkHeadlessExecutorSpecifier,
-} from "@zendev-lab/spark-system/headless-module";
-export type { SparkHeadlessExecutorModuleSpecifier } from "@zendev-lab/spark-system/headless-module";
+} from "@zendev-lab/spark-platform-node/headless-module";
+export type { SparkHeadlessExecutorModuleSpecifier } from "@zendev-lab/spark-platform-node/headless-module";
 
 export async function loadSparkHeadlessSessionModule(
   options: {

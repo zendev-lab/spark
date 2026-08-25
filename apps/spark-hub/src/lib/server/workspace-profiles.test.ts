@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
-import { gitCommand } from "@zendev-lab/spark-system";
+import { gitCommand } from "@zendev-lab/spark-platform-node";
 import { createWorkspaceWithLease } from "@zendev-lab/spark-hub-coordination/projection-services";
 import {
   builtinFreshWorkspaceProfile,

@@ -2,7 +2,7 @@ import {
   runtimeWorkspaceRegistrationRequestSchema,
   runtimeWorkspaceRegistrationResponseSchema,
 } from "@zendev-lab/spark-protocol";
-import { bearerTokenFromAuthorization } from "@zendev-lab/spark-system";
+import { bearerTokenFromAuthorization } from "@zendev-lab/spark-platform-node";
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { getDatabase } from "$lib/server/db";
 import { errorJson } from "$lib/server/json";

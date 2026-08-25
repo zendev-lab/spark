@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { ensureSparkPathDirs, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { ensureSparkPathDirs, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   formatSparkCliError,
   sparkDaemonCliStrings,

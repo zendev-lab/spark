@@ -3,7 +3,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import { parseSkillFrontmatter } from "@zendev-lab/spark-roles/skill-resolver";
 

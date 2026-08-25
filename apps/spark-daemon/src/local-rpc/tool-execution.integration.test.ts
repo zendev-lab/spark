@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { registerWorkspace } from "../store/workspaces.ts";
 import { invokeLocalRpcService } from "./service.ts";

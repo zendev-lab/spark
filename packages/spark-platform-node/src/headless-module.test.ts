@@ -14,7 +14,7 @@ describe("headless executor module resolution", () => {
 
   test("dereferences an installed workspace package to a file URL", () => {
     expect(
-      resolveSparkHeadlessExecutorSpecifier("@zendev-lab/spark-system/headless-module"),
+      resolveSparkHeadlessExecutorSpecifier("@zendev-lab/spark-platform-node/headless-module"),
     ).toMatch(/^file:/);
   });
 

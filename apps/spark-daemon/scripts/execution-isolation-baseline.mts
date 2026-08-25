@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
 
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   SparkAgentLoop,
   asSparkTurnLlm,

@@ -5,7 +5,7 @@ import {
   openMemorySqliteDatabase,
   openSqliteDatabase,
   resolveSparkPaths,
-} from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node";
 
 export interface OpenDatabaseOptions {
   path?: string;

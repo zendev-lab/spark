@@ -1,4 +1,4 @@
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   assistantTextFromHeadlessResult,
   createSparkHeadlessRoleExecutor as createExtensionRoleExecutor,

@@ -6,7 +6,7 @@ import {
   type SparkLocalRpcOutput,
   type SparkLocalRpcParsedInput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   ensureSparkDaemonRegistrationForWorkspace,
   unbindSparkDaemonWorkspaceFromHub,

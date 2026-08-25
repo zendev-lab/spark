@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PassThrough, Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
-import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { main, sparkDaemonServiceExitCode, type CliIo } from "./cli.js";
 import { sparkDaemonEntrypointFingerprint } from "./build-reload.ts";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.js";

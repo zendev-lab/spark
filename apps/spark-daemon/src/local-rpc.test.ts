@@ -12,7 +12,7 @@ import {
   SparkSessionMailStore,
   type SparkSessionMailDeliveryReceipt,
 } from "@zendev-lab/spark-session";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   requestSparkDaemonLocalRpcWire,
   SparkDaemonLocalRpcUnavailableError,

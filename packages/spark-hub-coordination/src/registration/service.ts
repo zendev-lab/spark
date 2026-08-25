@@ -11,7 +11,7 @@ import {
   type RuntimeRegistrationRequest,
   type RuntimeWorkspaceRegistrationRequest,
 } from "@zendev-lab/spark-protocol";
-import { asciiSlug } from "@zendev-lab/spark-system";
+import { asciiSlug } from "@zendev-lab/spark-platform-node";
 import { appendEvent } from "../projection-services.ts";
 import { hashSecret } from "../security.ts";
 import { createWorkspaceAccessToken } from "../workspace-access.ts";
