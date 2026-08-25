@@ -8,7 +8,6 @@ import {
   setSparkWebTokenVerifier,
   SPARK_WEB_BIND_HOST_ENV,
   SPARK_WEB_BIND_PORT_ENV,
-  SPARK_WEB_TRUSTED_HOSTS_ENV,
 } from "./lib/server/auth.ts";
 
 afterEach(() => {
@@ -16,122 +15,110 @@ afterEach(() => {
   setSparkWebTokenVerifier();
 });
 
-test("loopback IPv4 and IPv6 listeners do not require a token", async () => {
-  for (const bindHost of ["127.0.0.1", "::1", "localhost"]) {
-    stubTrust({ bindHost });
-    const { response } = await runHandle({ url: "http://127.0.0.1:4310/" });
+test("loopback peers stay tokenless even when the listener binds all interfaces", async () => {
+  for (const bindHost of ["127.0.0.1", "0.0.0.0"]) {
+    stubTrust(bindHost);
+    const { response } = await runHandle({
+      url: "http://127.0.0.1:4310/",
+      clientAddress: "::ffff:127.0.0.1",
+    });
     assert.equal(response.status, 200, bindHost);
   }
 });
 
-test("tokenless loopback mutations still require same-origin provenance", async () => {
-  stubTrust({ bindHost: "127.0.0.1" });
-
-  const accepted = await runHandle({
-    url: "http://127.0.0.1:4310/api/v1/rpc",
-    method: "POST",
-    headers: { origin: "http://127.0.0.1:4310" },
+test("remote document navigation receives the shared access page instead of a raw 401", async () => {
+  stubTrust("10.0.0.2");
+  const { response } = await runHandle({
+    url: "http://10.0.0.2:4310/",
+    clientAddress: "10.0.0.9",
+    headers: { accept: "text/html" },
   });
-  assert.equal(accepted.response.status, 200);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Connect to this daemon/u);
+  assert.match(html, /spark daemon access create/u);
+  assert.match(html, /name="token"/u);
+});
 
+test("remote API requests without a token keep the carrier-level 401", async () => {
+  stubTrust("10.0.0.2");
   await assert.rejects(
     () =>
       runHandle({
-        url: "http://127.0.0.1:4310/api/v1/rpc",
-        method: "POST",
+        url: "http://10.0.0.2:4310/api/v1/rpc",
+        clientAddress: "10.0.0.9",
       }),
-    (error: unknown) => isHttpError(error, 403),
-  );
-
-  await assert.rejects(
-    () =>
-      runHandle({
-        url: "http://127.0.0.1:4310/api/v1/rpc",
-        method: "POST",
-        headers: { "x-spark-web-token": "stale" },
-      }),
-    (error: unknown) => isHttpError(error, 403),
+    (error: unknown) => isHttpError(error, 401),
   );
 });
 
-test("loopback query tokens remain navigation-only", async () => {
-  stubTrust({ bindHost: "127.0.0.1" });
-
-  await assert.rejects(
-    () =>
-      runHandle({
-        url: "http://127.0.0.1:4310/api/v1/rpc?token=stale",
-        method: "POST",
-        headers: { origin: "http://127.0.0.1:4310" },
-      }),
-    (error: unknown) => isHttpError(error, 403),
-  );
-});
-
-test("loopback navigation removes stale query tokens without setting a cookie", async () => {
-  stubTrust({ bindHost: "127.0.0.1" });
+test("access form verifies with the daemon, sets the HttpOnly carrier cookie, and returns", async () => {
+  stubTrust("10.0.0.2");
+  setSparkWebTokenVerifier(async (token) => (token === "sdu_good" ? "valid" : "invalid"));
   const cookieSet = vi.fn();
 
   await assert.rejects(
     () =>
       runHandle({
-        url: "http://127.0.0.1:4310/?token=stale&lang=zh",
+        url: "http://10.0.0.2:4310/__spark/access",
+        method: "POST",
+        body: "token=sdu_good&returnTo=%2Fsessions%2Fsess_1",
+        clientAddress: "10.0.0.9",
         cookieSet,
+        headers: {
+          origin: "http://10.0.0.2:4310",
+          "content-type": "application/x-www-form-urlencoded",
+          "sec-fetch-site": "same-origin",
+        },
       }),
     (error: unknown) => {
-      assert.equal(isRedirect(error), true);
       if (!isRedirect(error)) return false;
       assert.equal(error.status, 303);
-      assert.equal(error.location, "/?lang=zh");
+      assert.equal(error.location, "/sessions/sess_1");
       return true;
     },
   );
-  assert.equal(cookieSet.mock.calls.length, 0);
+  assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
+  assert.equal(cookieSet.mock.calls[0]?.[2]?.httpOnly, true);
 });
 
-test("non-loopback listeners reject missing and daemon-rejected tokens", async () => {
-  stubTrust({ bindHost: "0.0.0.0", trustedHosts: "spark.lan" });
+test("invalid and unavailable access tokens stay on the shared access page", async () => {
+  stubTrust("10.0.0.2");
   setSparkWebTokenVerifier(async () => "invalid");
+  const invalid = await runHandle({
+    url: "http://10.0.0.2:4310/__spark/access",
+    method: "POST",
+    body: "token=sdu_bad&returnTo=%2F",
+    clientAddress: "10.0.0.9",
+    headers: {
+      origin: "http://10.0.0.2:4310",
+      "content-type": "application/x-www-form-urlencoded",
+      "sec-fetch-site": "same-origin",
+    },
+  });
+  assert.equal(invalid.response.status, 401);
+  assert.match(await invalid.response.text(), /Invalid access token/u);
 
-  await assert.rejects(
-    () => runHandle({ url: "http://spark.lan:4310/" }),
-    (error: unknown) => isHttpError(error, 401),
-  );
-  // Wrong, expired, and revoked tokens all surface as the daemon's denial.
-  await assert.rejects(
-    () =>
-      runHandle({
-        url: "http://spark.lan:4310/",
-        headers: { "x-spark-web-token": "sdu_expired" },
-      }),
-    (error: unknown) => isHttpError(error, 401),
-  );
-  await assert.rejects(
-    () => runHandle({ url: "http://spark.lan:4310/", cookie: "sdu_revoked" }),
-    (error: unknown) => isHttpError(error, 401),
-  );
+  setSparkWebTokenVerifier(async () => "unavailable");
+  const unavailable = await runHandle({
+    url: "http://10.0.0.2:4310/",
+    clientAddress: "10.0.0.9",
+    cookie: "sdu_good",
+    headers: { accept: "text/html" },
+  });
+  assert.equal(unavailable.response.status, 503);
+  assert.match(await unavailable.response.text(), /daemon is unavailable/u);
 });
 
-test("non-loopback listeners accept a daemon-verified token and persist it as a cookie", async () => {
-  stubTrust({ bindHost: "0.0.0.0", trustedHosts: "spark.lan" });
-  const verified: string[] = [];
-  setSparkWebTokenVerifier(async (token) => {
-    verified.push(token);
-    return token === "sdu_good" ? "valid" : "invalid";
-  });
-
-  const { response } = await runHandle({
-    url: "http://spark.lan:4310/",
-    headers: { "x-spark-web-token": "sdu_good" },
-  });
-  assert.equal(response.status, 200);
-  assert.deepEqual(verified, ["sdu_good"]);
-
+test("verified query tokens remain a navigation-only compatibility carrier", async () => {
+  stubTrust("10.0.0.2");
+  setSparkWebTokenVerifier(async (token) => (token === "sdu_good" ? "valid" : "invalid"));
   const cookieSet = vi.fn();
   await assert.rejects(
     () =>
       runHandle({
-        url: "http://spark.lan:4310/?token=sdu_good&lang=en",
+        url: "http://10.0.0.2:4310/?token=sdu_good&lang=en",
+        clientAddress: "10.0.0.9",
         cookieSet,
       }),
     (error: unknown) => {
@@ -142,77 +129,81 @@ test("non-loopback listeners accept a daemon-verified token and persist it as a 
     },
   );
   assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
-});
-
-test("non-loopback listeners fail closed when the daemon is unavailable", async () => {
-  stubTrust({ bindHost: "0.0.0.0", trustedHosts: "spark.lan" });
-  setSparkWebTokenVerifier(async () => "unavailable");
 
   await assert.rejects(
     () =>
       runHandle({
-        url: "http://spark.lan:4310/",
-        headers: { "x-spark-web-token": "sdu_good" },
+        url: "http://10.0.0.2:4310/api/v1/rpc?token=sdu_good",
+        method: "POST",
+        clientAddress: "10.0.0.9",
+        headers: { origin: "http://10.0.0.2:4310" },
       }),
-    (error: unknown) => isHttpError(error, 503),
+    (error: unknown) => isHttpError(error, 403),
   );
 });
 
-test("a loopback-looking Host cannot bypass a non-loopback listener boundary", async () => {
-  stubTrust({ bindHost: "0.0.0.0", trustedHosts: "spark.lan" });
+test("a remote peer cannot spoof a loopback Host to bypass authentication", async () => {
+  stubTrust("0.0.0.0");
   setSparkWebTokenVerifier(async () => "valid");
-
   await assert.rejects(
     () =>
       runHandle({
         url: "http://127.0.0.1:4310/",
+        clientAddress: "10.0.0.9",
         headers: { "x-spark-web-token": "sdu_good" },
       }),
     (error: unknown) => isHttpError(error, 403),
   );
 });
 
-test("forged Origin and cross-site requests stay rejected on every listener", async () => {
-  stubTrust({ bindHost: "127.0.0.1" });
-
-  await assert.rejects(
-    () =>
-      runHandle({
-        url: "http://127.0.0.1:4310/",
-        headers: { origin: "http://evil.test" },
-      }),
-    (error: unknown) => isHttpError(error, 403),
-  );
-
-  stubTrust({ bindHost: "0.0.0.0", trustedHosts: "spark.lan" });
+test("forged Origin and cross-site requests remain rejected before authentication", async () => {
+  stubTrust("10.0.0.2");
   setSparkWebTokenVerifier(async () => "valid");
   await assert.rejects(
     () =>
       runHandle({
-        url: "http://spark.lan:4310/",
-        headers: { origin: "http://evil.test", "x-spark-web-token": "sdu_good" },
+        url: "http://10.0.0.2:4310/",
+        clientAddress: "10.0.0.9",
+        headers: {
+          origin: "http://evil.test",
+          "x-spark-web-token": "sdu_good",
+        },
+      }),
+    (error: unknown) => isHttpError(error, 403),
+  );
+  await assert.rejects(
+    () =>
+      runHandle({
+        url: "http://10.0.0.2:4310/",
+        clientAddress: "10.0.0.9",
+        headers: {
+          "sec-fetch-site": "cross-site",
+          "x-spark-web-token": "sdu_good",
+        },
       }),
     (error: unknown) => isHttpError(error, 403),
   );
 });
 
-function stubTrust(input: { bindHost: string; trustedHosts?: string }): void {
-  vi.stubEnv(SPARK_WEB_BIND_HOST_ENV, input.bindHost);
+function stubTrust(bindHost: string): void {
+  vi.stubEnv(SPARK_WEB_BIND_HOST_ENV, bindHost);
   vi.stubEnv(SPARK_WEB_BIND_PORT_ENV, "4310");
-  vi.stubEnv(SPARK_WEB_TRUSTED_HOSTS_ENV, input.trustedHosts ?? "");
 }
 
 async function runHandle(input: {
   url: string;
   method?: string;
   headers?: Record<string, string>;
+  body?: BodyInit;
   cookie?: string;
   cookieSet?: ReturnType<typeof vi.fn>;
+  clientAddress?: string;
 }): Promise<{ response: Response }> {
   const url = new URL(input.url);
   const request = new Request(url, {
     method: input.method,
     headers: { host: url.host, ...input.headers },
+    body: input.body,
   });
   const response = await handle({
     event: {
@@ -220,6 +211,7 @@ async function runHandle(input: {
         get: (name: string) => (name === "spark_web_token" ? input.cookie : undefined),
         set: input.cookieSet ?? vi.fn(),
       },
+      getClientAddress: () => input.clientAddress ?? "127.0.0.1",
       locals: {},
       request,
       url,

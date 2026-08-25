@@ -6,9 +6,21 @@ import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
 import { runSparkWebCli, sparkWebHelpText } from "./cli.ts";
 
-test("spark web help documents opt-in HMR", () => {
-  assert.match(sparkWebHelpText(), /\[--hmr\]/);
-  assert.match(sparkWebHelpText(), /Vite development server/);
+test("spark web help documents direct LAN access without trusted-host", () => {
+  assert.match(sparkWebHelpText(), /\[--hmr\]/u);
+  assert.match(sparkWebHelpText(), /local IPv4 interfaces automatically/u);
+  assert.doesNotMatch(sparkWebHelpText(), /--trusted-host/u);
+  assert.match(sparkWebHelpText(), /Vite development server/u);
+});
+
+test("spark web rejects removed trusted-host configuration", async () => {
+  await assert.rejects(
+    () => runSparkWebCli(["--host", "0.0.0.0", "--trusted-host", "spark.lan"]),
+    (error: unknown) =>
+      error instanceof SparkCliError &&
+      error.code === "INVALID_ARGUMENT" &&
+      formatSparkCliError(error).includes("no longer supports --trusted-host"),
+  );
 });
 
 test("spark web reports invalid options with the shared usage-error surface", async () => {

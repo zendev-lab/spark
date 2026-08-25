@@ -63,18 +63,19 @@ spark hub --help
 ## 本地 Web 工作台
 
 `spark web` 启动本地浏览器工作台，列出绑定到同一 daemon 的全部 workspace。
-它默认绑定回环地址，并通过 `spark-daemon-client` 连接 Spark daemon。回环监听
-免 token；非回环 `--host` 必须配合可重复的 `--trusted-host` 并持有 daemon
-访问 token。无论绑定何种地址，服务器都会拒绝不可信的 Host、Origin、
-Fetch Metadata 与跨站 mutation 来源。Hub 仍是多 daemon 代理与管理界面。
+它默认绑定回环地址，并通过 `spark-daemon-client` 连接 Spark daemon。真正从回环
+peer 到达的请求免 token。绑定 `0.0.0.0` 时，Spark 自动暴露本机局域网 IPv4 接口，
+不再维护单独的 trusted-host 配置。Direct Web 只接受回环地址与本机接口 IP literal；
+Host、Origin、Fetch Metadata 与跨站 mutation 来源在认证前校验。Hub 仍是多 daemon
+代理与正式 DNS 远程访问的支持边界。
 
 ```bash
 spark web
 spark web --port 4310
-spark web --host 0.0.0.0 --trusted-host spark.lan
+spark web --host 0.0.0.0 --port 4310
 ```
 
-命令只输出工作台的 URL，不会自动打开浏览器。
+命令只输出可访问的工作台 URL，不会自动打开浏览器。
 
 daemon 访问 token 由 daemon 持有，只存储哈希。创建（明文只打印一次）、
 列出元数据或吊销：
@@ -85,14 +86,16 @@ spark daemon access list [--json]
 spark daemon access revoke <token-id> [--json]
 ```
 
-首次访问用 `?token=…` 携带（随后提升为 HttpOnly cookie），也可以用
-`x-spark-web-token` 请求头或直接写 cookie。缺失、错误、过期、已吊销的
-token 会被一致拒绝；daemon 不可达时非回环监听一律拒绝（fail closed）。
+远端页面导航会进入统一的 Spark Access 页面。输入 token 后由 daemon 校验，并写入
+HttpOnly、SameSite=Strict cookie。`?token=…` navigation carrier 与
+`x-spark-web-token` 请求头继续用于自动化/兼容路径。API 与 WebSocket 不返回 HTML
+登录页，未认证时仍保持 transport-level 401/503。缺失、错误、过期、已吊销 token
+不会暴露具体状态；daemon 不可达时 fail closed。
 
 额外的 `spark web-dsh` 命令会启动独立打包、基于 DSH 宿主的 Spark 产品应用，不会修改
-`spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留。回环绑定免
-token；非回环绑定只在回环锁定的 DSH 服务器前暴露一个认证代理，同样要求
-上述 daemon 访问 token：
+`spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留。DSH server 锁定在回环
+地址，由 Spark access proxy 对外暴露；该 proxy 与 native Web 复用相同的 peer-based
+token 规则、本机 IP trust 语义和 Spark Access 页面：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888

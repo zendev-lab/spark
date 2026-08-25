@@ -33,12 +33,21 @@ async function startUpstream(): Promise<{ server: Server; port: number; seen: st
 async function startProxy(
   targetPort: number,
   verify: SparkWebDshTokenVerifier,
+  remote = true,
 ): Promise<{ port: number; close: () => Promise<void> }> {
   const proxy = await startSparkWebDshAuthProxy({
     host: "0.0.0.0",
     port: 0,
     targetPort,
     verify,
+    ...(remote
+      ? {
+          requiresToken: () => true,
+          // Production excludes loopback; tests inject it so a loopback TCP
+          // connection can represent a remote LAN request deterministically.
+          lanAddresses: ["127.0.0.1"],
+        }
+      : { lanAddresses: [] }),
   });
   return {
     port: (proxy.server.address() as AddressInfo).port,
@@ -46,11 +55,19 @@ async function startProxy(
   };
 }
 
-test("loopback predicate matches native Spark Web", () => {
-  for (const host of ["127.0.0.1", "127.10.20.30", "::1", "[::1]", "localhost", "LOCALHOST"]) {
+test("loopback predicate accepts IPv4-mapped loopback peers", () => {
+  for (const host of [
+    "127.0.0.1",
+    "127.10.20.30",
+    "::1",
+    "[::1]",
+    "localhost",
+    "LOCALHOST",
+    "::ffff:127.0.0.1",
+  ]) {
     assert.equal(isSparkWebDshLoopbackHost(host), true, host);
   }
-  for (const host of ["0.0.0.0", "spark.lan", "10.0.0.2", "::ffff:127.0.0.1"]) {
+  for (const host of ["0.0.0.0", "spark.lan", "10.0.0.2"]) {
     assert.equal(isSparkWebDshLoopbackHost(host), false, host);
   }
 });
@@ -91,28 +108,35 @@ test("proxy preserves DSH LAN trust through its loopback target", () => {
   assert.deepEqual(
     normalizeSparkWebDshLanHeaders(dnsHost, "127.0.0.1", 3081, ["10.0.0.2"]),
     dnsHost,
-    "DNS authorities remain on the explicit --trusted-host path",
+    "DNS authorities are left for the outer local-IP trust fence to reject",
   );
 });
 
-test("proxy rejects missing and daemon-rejected tokens with one undifferentiated 401", async () => {
+test("loopback peers stay tokenless through an all-interface proxy", async () => {
   const upstream = await startUpstream();
-  const verified: string[] = [];
-  const proxy = await startProxy(upstream.port, async (token) => {
-    verified.push(token);
-    return token === "sdu_good" ? "valid" : "invalid";
-  });
+  const proxy = await startProxy(upstream.port, async () => "invalid", false);
   try {
-    const missing = await fetch(`http://127.0.0.1:${proxy.port}/`);
-    assert.equal(missing.status, 401);
-    assert.deepEqual(verified, []);
+    const response = await fetch(`http://127.0.0.1:${proxy.port}/`);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "upstream-ok");
+  } finally {
+    await proxy.close();
+    upstream.server.close();
+  }
+});
 
-    for (const rejected of ["sdu_wrong", "sdu_expired", "sdu_revoked"]) {
-      const response = await fetch(`http://127.0.0.1:${proxy.port}/`, {
-        headers: { "x-spark-web-token": rejected },
-      });
-      assert.equal(response.status, 401, rejected);
-    }
+test("remote document navigation gets the shared access page while APIs keep 401", async () => {
+  const upstream = await startUpstream();
+  const proxy = await startProxy(upstream.port, async () => "invalid");
+  try {
+    const page = await fetch(`http://127.0.0.1:${proxy.port}/`, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Connect to this daemon/u);
+
+    const api = await fetch(`http://127.0.0.1:${proxy.port}/api/session.list`);
+    assert.equal(api.status, 401);
     assert.equal(upstream.seen.length, 0);
   } finally {
     await proxy.close();
@@ -120,14 +144,60 @@ test("proxy rejects missing and daemon-rejected tokens with one undifferentiated
   }
 });
 
-test("proxy fails closed with 503 when the daemon is unavailable", async () => {
+test("shared access form verifies with the daemon and promotes the token to a cookie", async () => {
+  const upstream = await startUpstream();
+  const proxy = await startProxy(upstream.port, async (token) =>
+    token === "sdu_good" ? "valid" : "invalid",
+  );
+  try {
+    const response = await fetch(`http://127.0.0.1:${proxy.port}/__spark/access`, {
+      method: "POST",
+      body: "token=sdu_good&returnTo=%2Fsessions%2Fsess_1",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: `http://127.0.0.1:${proxy.port}`,
+        "sec-fetch-site": "same-origin",
+      },
+    });
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), "/sessions/sess_1");
+    const cookie = response.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /^spark_web_token=sdu_good/u);
+    assert.match(cookie, /HttpOnly/u);
+    assert.match(cookie, /SameSite=Strict/u);
+
+    const invalid = await fetch(`http://127.0.0.1:${proxy.port}/__spark/access`, {
+      method: "POST",
+      body: "token=sdu_bad&returnTo=%2F",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: `http://127.0.0.1:${proxy.port}`,
+        "sec-fetch-site": "same-origin",
+      },
+    });
+    assert.equal(invalid.status, 401);
+    assert.match(await invalid.text(), /Invalid access token/u);
+  } finally {
+    await proxy.close();
+    upstream.server.close();
+  }
+});
+
+test("proxy fails closed with the shared unavailable page or API 503", async () => {
   const upstream = await startUpstream();
   const proxy = await startProxy(upstream.port, async () => "unavailable");
   try {
-    const response = await fetch(`http://127.0.0.1:${proxy.port}/`, {
+    const page = await fetch(`http://127.0.0.1:${proxy.port}/`, {
+      headers: { accept: "text/html", "x-spark-web-token": "sdu_good" },
+    });
+    assert.equal(page.status, 503);
+    assert.match(await page.text(), /daemon is unavailable/u);
+
+    const api = await fetch(`http://127.0.0.1:${proxy.port}/api/session.list`, {
       headers: { "x-spark-web-token": "sdu_good" },
     });
-    assert.equal(response.status, 503);
+    assert.equal(api.status, 503);
     assert.equal(upstream.seen.length, 0);
   } finally {
     await proxy.close();
@@ -135,7 +205,7 @@ test("proxy fails closed with 503 when the daemon is unavailable", async () => {
   }
 });
 
-test("proxy forwards authenticated requests and promotes query tokens to cookies", async () => {
+test("proxy forwards header/cookie auth and keeps query tokens navigation-only", async () => {
   const upstream = await startUpstream();
   const proxy = await startProxy(upstream.port, async (token) =>
     token === "sdu_good" ? "valid" : "invalid",
@@ -157,14 +227,16 @@ test("proxy forwards authenticated requests and promotes query tokens to cookies
     });
     assert.equal(navigation.status, 303);
     assert.equal(navigation.headers.get("location"), "/?lang=zh");
-    const cookie = navigation.headers.get("set-cookie") ?? "";
-    assert.match(cookie, /^spark_web_token=sdu_good/u);
-    assert.match(cookie, /HttpOnly/u);
-    assert.match(cookie, /SameSite=Strict/u);
+
+    const queryMutation = await fetch(
+      `http://127.0.0.1:${proxy.port}/api/rpc?token=sdu_good`,
+      { method: "POST" },
+    );
+    assert.equal(queryMutation.status, 403);
 
     assert.deepEqual(upstream.seen, [
-      `GET /api/sessions host=127.0.0.1:${proxy.port}`,
-      `GET / host=127.0.0.1:${proxy.port}`,
+      `GET /api/sessions host=127.0.0.1:${upstream.port}`,
+      `GET / host=127.0.0.1:${upstream.port}`,
     ]);
   } finally {
     await proxy.close();
@@ -172,15 +244,27 @@ test("proxy forwards authenticated requests and promotes query tokens to cookies
   }
 });
 
-test("query tokens are navigation-only on the proxy", async () => {
+test("DNS and cross-site authorities are rejected before token verification", async () => {
   const upstream = await startUpstream();
-  const proxy = await startProxy(upstream.port, async () => "valid");
+  let verified = 0;
+  const proxy = await startProxy(upstream.port, async () => {
+    verified += 1;
+    return "valid";
+  });
   try {
-    const response = await fetch(`http://127.0.0.1:${proxy.port}/api/rpc?token=sdu_good`, {
-      method: "POST",
+    const dns = await fetch(`http://127.0.0.1:${proxy.port}/`, {
+      headers: { host: `spark.lan:${proxy.port}`, "x-spark-web-token": "sdu_good" },
     });
-    assert.equal(response.status, 403);
-    assert.equal(upstream.seen.length, 0);
+    assert.equal(dns.status, 403);
+
+    const crossSite = await fetch(`http://127.0.0.1:${proxy.port}/`, {
+      headers: {
+        "sec-fetch-site": "cross-site",
+        "x-spark-web-token": "sdu_good",
+      },
+    });
+    assert.equal(crossSite.status, 403);
+    assert.equal(verified, 0);
   } finally {
     await proxy.close();
     upstream.server.close();

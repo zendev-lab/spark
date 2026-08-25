@@ -1,5 +1,8 @@
+import { networkInterfaces } from "node:os";
+
 export const SPARK_WEB_DEFAULT_HOST = "127.0.0.1";
 export const SPARK_WEB_DEFAULT_PORT = 4310;
+export const SPARK_WEB_ALL_INTERFACES_HOST = "0.0.0.0";
 
 export function isSparkWebLoopbackHost(host: string): boolean {
   const normalized = host
@@ -11,23 +14,15 @@ export function isSparkWebLoopbackHost(host: string): boolean {
   );
 }
 
-export function normalizeSparkWebTrustedHost(value: string): string {
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed || /[/?#@]/u.test(trimmed) || trimmed.includes("*")) {
-    throw new Error(
-      `spark web --trusted-host requires a hostname or host:port, got ${JSON.stringify(value)}`,
-    );
-  }
-  let url: URL;
-  try {
-    url = new URL(`http://${trimmed}`);
-  } catch {
-    throw new Error(`spark web --trusted-host is invalid: ${JSON.stringify(value)}`);
-  }
-  if (!url.hostname || url.username || url.password || url.pathname !== "/") {
-    throw new Error(`spark web --trusted-host is invalid: ${JSON.stringify(value)}`);
-  }
-  return url.host;
+/** Match upstream DSH's all-interface trust model: local non-loopback IPv4 literals only. */
+export function resolveSparkWebLanAddresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter(
+      (iface): iface is NonNullable<typeof iface> =>
+        iface !== undefined && iface.family === "IPv4" && !iface.internal,
+    )
+    .map((iface) => iface.address);
 }
 
 export function sparkWebBrowserAuthority(host: string, port: number): string {
@@ -45,16 +40,22 @@ export function sparkWebBrowserAuthority(host: string, port: number): string {
   return parsed.port ? parsed.host : `${hostname}:${port}`;
 }
 
+export function sparkWebReachableHosts(host: string): string[] {
+  if (isSparkWebLoopbackHost(host)) return [host];
+  if (host.trim() === SPARK_WEB_ALL_INTERFACES_HOST) {
+    return ["127.0.0.1", ...resolveSparkWebLanAddresses()];
+  }
+  return [host];
+}
+
 export function parseSparkWebBindArgs(argv: readonly string[]): {
   host: string;
   port: number;
-  trustedHosts: string[];
   hmr: boolean;
   argv: string[];
 } {
   let host = SPARK_WEB_DEFAULT_HOST;
   let port = SPARK_WEB_DEFAULT_PORT;
-  const trustedHosts: string[] = [];
   let hmr = false;
   const rest: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -93,15 +94,10 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
       // Keep accepting the former opt-out after browser launch became disabled globally.
       continue;
     }
-    if (arg === "--trusted-host") {
-      const value = argv[++index];
-      if (value === undefined) throw new Error("spark web --trusted-host requires a value");
-      trustedHosts.push(normalizeSparkWebTrustedHost(value));
-      continue;
-    }
-    if (arg.startsWith("--trusted-host=")) {
-      trustedHosts.push(normalizeSparkWebTrustedHost(arg.slice("--trusted-host=".length)));
-      continue;
+    if (arg === "--trusted-host" || arg.startsWith("--trusted-host=")) {
+      throw new Error(
+        "spark web no longer supports --trusted-host; local interface addresses are trusted automatically",
+      );
     }
     rest.push(arg);
   }
@@ -109,9 +105,5 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`spark web --port must be between 1 and 65535, got ${port}`);
   }
-  const uniqueTrustedHosts = [...new Set(trustedHosts)];
-  if (!isSparkWebLoopbackHost(host) && uniqueTrustedHosts.length === 0) {
-    throw new Error("spark web requires --trusted-host when --host is not loopback");
-  }
-  return { host, port, trustedHosts: uniqueTrustedHosts, hmr, argv: rest };
+  return { host, port, hmr, argv: rest };
 }
