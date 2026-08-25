@@ -18,7 +18,7 @@ function configureStableLauncher(
   const program = `
     import { configureStableLauncher } from ${JSON.stringify(resolverUrl)};
     const env = ${JSON.stringify(env)};
-    configureStableLauncher(env, ${JSON.stringify(cliCommandPath)}, "${process.platform}");
+    configureStableLauncher(env, ${JSON.stringify(cliCommandPath)});
     process.stdout.write(JSON.stringify({
       cliCommandPath: env.SPARK_CLI_COMMAND_PATH,
       stableLauncher: env.SPARK_STABLE_LAUNCHER,

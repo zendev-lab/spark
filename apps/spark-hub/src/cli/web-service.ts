@@ -353,7 +353,7 @@ function killServiceProcess(
   signal: NodeJS.Signals,
   deps: HubWebServiceDependencies,
 ): void {
-  deps.killProcess(process.platform === "win32" ? pid : -pid, signal);
+  deps.killProcess(-pid, signal);
 }
 
 export async function runHubWebService(

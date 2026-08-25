@@ -290,12 +290,10 @@ async function freePort(): Promise<number> {
 
 async function stopProcess(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null) return;
-  if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGTERM");
-  else child.kill("SIGTERM");
+  if (child.pid) process.kill(-child.pid, "SIGTERM");
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
-      if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
-      else child.kill("SIGKILL");
+      if (child.pid) process.kill(-child.pid, "SIGKILL");
       resolve();
     }, 5_000);
     child.once("exit", () => {

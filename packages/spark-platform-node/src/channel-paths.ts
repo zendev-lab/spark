@@ -104,9 +104,5 @@ function assertWithin(candidate: string, root: string, sessionId: string): void 
 }
 
 async function chmodPrivate(path: string): Promise<void> {
-  try {
-    await chmod(path, 0o700);
-  } catch (error) {
-    if (process.platform !== "win32") throw error;
-  }
+  await chmod(path, 0o700);
 }

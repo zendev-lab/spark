@@ -1,10 +1,10 @@
-import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, chmodSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { SparkPaths } from "./paths.js";
 
 export function ensurePrivateDir(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
-  chmodIfPossible(path, 0o700);
+  chmodSync(path, 0o700);
 }
 
 export function ensurePublicDir(path: string): void {
@@ -23,7 +23,7 @@ export function ensureSparkPathDirs(paths: SparkPaths): void {
 export function writePrivateFile(path: string, contents: string): void {
   ensurePrivateDir(dirname(path));
   writeFileSync(path, contents, { encoding: "utf8", mode: 0o600 });
-  chmodIfPossible(path, 0o600);
+  chmodSync(path, 0o600);
 }
 
 export function touchPrivateFile(path: string): void {
@@ -31,15 +31,5 @@ export function touchPrivateFile(path: string): void {
   if (!existsSync(path)) {
     closeSync(openSync(path, "w", 0o600));
   }
-  chmodIfPossible(path, 0o600);
-}
-
-function chmodIfPossible(path: string, mode: number): void {
-  try {
-    chmodSync(path, mode);
-  } catch (error) {
-    if (process.platform !== "win32") {
-      throw error;
-    }
-  }
+  chmodSync(path, 0o600);
 }

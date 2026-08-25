@@ -27,9 +27,7 @@ describe("daemon Channel paths", () => {
     expect(channelConfigPath(paths)).toBe(join(root, "config", "channels.json"));
     expect(channelRuntimeDir(paths)).toBe(join(root, "run", "channels"));
     expect(cwd).toBe(channelSessionWorkspacePath(paths, "sess_safe_1"));
-    if (process.platform !== "win32") {
-      expect((await lstat(cwd)).mode & 0o777).toBe(0o700);
-    }
+    expect((await lstat(cwd)).mode & 0o777).toBe(0o700);
     await expect(validateChannelSessionWorkspace(paths, "sess_safe_1", cwd)).resolves.toBe(cwd);
   });
 
