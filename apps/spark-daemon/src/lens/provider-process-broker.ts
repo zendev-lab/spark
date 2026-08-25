@@ -222,7 +222,7 @@ export class DaemonLensProcessBroker {
       if (this.#entries.get(processKey)) this.#entries.delete(processKey);
       if (!entry.stopping) this.#cooldowns.set(processKey, Date.now() + this.#cooldownMs);
       const exitedAt = new Date().toISOString();
-      this.#stateStore.updateProviderProcess(processKey, {
+      this.#stateStore.updateProviderProcess(entry.processKey, {
         status: entry.stopping ? "stopped" : "crashed",
         lastHeartbeatAt: exitedAt,
         exitedAt,
@@ -254,7 +254,7 @@ async function launchProviderProcess(
     ["-e", PROVIDER_WRAPPER_SOURCE, marker, launch.executable, JSON.stringify(launch.args)],
     {
       cwd: launch.cwd,
-      detached: process.platform !== "win32",
+      detached: true,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -284,8 +284,7 @@ async function launchProviderProcess(
 
 async function terminateChild(pid: number, exited: Promise<unknown>): Promise<void> {
   try {
-    if (process.platform === "win32") process.kill(pid, "SIGTERM");
-    else process.kill(-pid, "SIGTERM");
+    process.kill(-pid, "SIGTERM");
   } catch {
     return;
   }
@@ -295,15 +294,13 @@ async function terminateChild(pid: number, exited: Promise<unknown>): Promise<vo
   ]);
   if (stopped) return;
   try {
-    if (process.platform === "win32") process.kill(pid, "SIGKILL");
-    else process.kill(-pid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
   } catch {
     // The process exited between the timeout and the signal.
   }
 }
 
 async function inspectOwnedProviderProcess(pid: number, marker: string): Promise<boolean> {
-  if (process.platform === "win32") return false;
   try {
     const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "command="]);
     return stdout.includes(PROVIDER_WRAPPER_MARKER) && stdout.includes(marker);
@@ -314,8 +311,7 @@ async function inspectOwnedProviderProcess(pid: number, marker: string): Promise
 
 async function terminateProcessGroup(pid: number): Promise<void> {
   try {
-    if (process.platform === "win32") process.kill(pid, "SIGKILL");
-    else process.kill(-pid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }

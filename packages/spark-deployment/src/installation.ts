@@ -24,11 +24,9 @@ export function detectSparkInstallation(options: {
   productRoot?: string;
   packageName?: SparkDistributionPackageName;
   commandPath?: string;
-  platform?: NodeJS.Platform;
 }): SparkInstallation {
   const env = options.env ?? process.env;
-  const platform = options.platform ?? process.platform;
-  const commandPath = options.commandPath ?? resolveSparkCommandPath(env, platform);
+  const commandPath = options.commandPath ?? resolveSparkCommandPath(env);
   if (options.managed) {
     return {
       method: "managed",
@@ -106,21 +104,15 @@ export function packageManagerUpdateCommand(
   return { command, args, display: formatCommand(method, args) };
 }
 
-export function resolveSparkCommandPath(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string | undefined {
-  const names = platform === "win32" ? ["spark.cmd", "spark.exe", "spark"] : ["spark"];
+export function resolveSparkCommandPath(env: NodeJS.ProcessEnv = process.env): string | undefined {
   for (const directory of (env.PATH ?? "").split(delimiter)) {
     if (!directory) continue;
-    for (const name of names) {
-      const candidate = resolve(directory, name);
-      try {
-        accessSync(candidate, constants.X_OK);
-        return candidate;
-      } catch {
-        // Keep looking for the stable command exposed by the install owner.
-      }
+    const candidate = resolve(directory, "spark");
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Keep looking for the stable command exposed by the install owner.
     }
   }
   return undefined;
@@ -131,7 +123,7 @@ function detectPackageManager(
   env: NodeJS.ProcessEnv,
 ): SparkInstallMethod {
   if (!productRoot) return "source";
-  const normalized = resolve(productRoot).replaceAll("\\", "/").toLowerCase();
+  const normalized = resolve(productRoot).toLowerCase();
   const vpHome = resolve(env.VP_HOME?.trim() || join(env.HOME ?? "", ".vite-plus"));
   if (isInside(resolve(vpHome, "packages"), productRoot)) return "vp";
   if (normalized.includes("/.pnpm/") || normalized.includes("/pnpm/global/")) return "pnpm";
@@ -143,8 +135,7 @@ function detectPackageManager(
 
 function siblingCommand(method: string, sparkCommandPath: string | undefined): string {
   if (!sparkCommandPath) return method;
-  const extension = sparkCommandPath.toLowerCase().endsWith(".cmd") ? ".cmd" : "";
-  const candidate = join(dirname(sparkCommandPath), `${method}${extension}`);
+  const candidate = join(dirname(sparkCommandPath), method);
   return existsSync(candidate) ? candidate : method;
 }
 

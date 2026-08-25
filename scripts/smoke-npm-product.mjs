@@ -58,10 +58,9 @@ function suppliedTarballs() {
 }
 
 function cleanPath(extra = []) {
-  const repoPrefix = `${root.replaceAll("\\", "/")}/`;
+  const repoPrefix = `${root}/`;
   const pathEntries = (process.env.PATH ?? "").split(delimiter).filter((entry) => {
-    const portable = entry.replaceAll("\\", "/");
-    const normalized = portable.endsWith("/") ? portable : `${portable}/`;
+    const normalized = entry.endsWith("/") ? entry : `${entry}/`;
     return !normalized.startsWith(repoPrefix) && !normalized.includes("/node_modules/.bin/");
   });
   return [
@@ -183,7 +182,7 @@ async function probeHubRoute(url, child, output) {
 
 function terminateProcessTree(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (child.pid !== undefined) {
     try {
       process.kill(-child.pid, "SIGTERM");
       return;
@@ -565,7 +564,7 @@ try {
       PORT: String(port),
       ORIGIN: `http://127.0.0.1:${port}`,
     },
-    detached: process.platform !== "win32",
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const hubOutput = { stderr: "" };

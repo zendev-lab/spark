@@ -969,7 +969,7 @@ async function restartDaemon(target: SparkProcessTarget): Promise<number> {
   const status = jsonObject((await runSparkProcess(target, ["daemon", "status", "--json"])).stdout);
   const previousPid = numberField(objectField(status, "daemon"), "pid");
   try {
-    process.kill(process.platform === "win32" ? previousPid : -previousPid, "SIGKILL");
+    process.kill(-previousPid, "SIGKILL");
   } catch {
     process.kill(previousPid, "SIGKILL");
   }

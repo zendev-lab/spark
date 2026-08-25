@@ -316,7 +316,7 @@ async function writeJournal(path: string, journal: MigrationJournal): Promise<vo
 }
 
 async function chmodPrivate(path: string): Promise<void> {
-  if (process.platform !== "win32") await chmod(path, 0o600);
+  await chmod(path, 0o600);
 }
 
 async function fileExists(path: string): Promise<boolean> {

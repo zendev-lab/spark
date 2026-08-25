@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,10 +54,32 @@ export function runNativeSpark(argv = process.argv.slice(2)) {
   return 1;
 }
 
+export function resolveStableSparkCommand(env = process.env) {
+  for (const directory of (env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    const candidate = resolve(directory, "spark");
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Keep looking for the install owner's executable shim.
+    }
+  }
+  return undefined;
+}
+
+export function configureStableLauncher(env = process.env, cliCommandPath = process.argv[1]) {
+  // `process.argv[1]` is the versioned npm-resolver path after an npm/pnpm shim
+  // enters Node. Resolve the public `spark` command from PATH first so restart
+  // successors re-enter through the install owner after a package update.
+  env.SPARK_CLI_COMMAND_PATH ??= resolveStableSparkCommand(env) ?? cliCommandPath;
+  env.SPARK_STABLE_LAUNCHER ??= env.SPARK_CLI_COMMAND_PATH;
+}
+
 function configureCompanions() {
   process.env.SPARK_PRODUCT_DIST ??= productDist;
   process.env.SPARK_BUILD_INFO_PATH ??= resolve(productDist, "build-info.json");
-  process.env.SPARK_CLI_COMMAND_PATH ??= process.argv[1];
+  configureStableLauncher();
   process.env.SPARK_DEPLOYMENT_ROOT ??= packageDirectory;
   process.env.SPARK_DAEMON_COMMAND ??= executable("@zendev-lab/spark-daemon/executable");
   process.env.SPARK_HUB_COMMAND ??= executable("@zendev-lab/spark-hub/executable");

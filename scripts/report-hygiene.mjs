@@ -66,7 +66,6 @@ function runReport(command, args) {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
-    shell: process.platform === "win32",
     stdio: "pipe",
   });
   if (result.error) {
