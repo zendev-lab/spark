@@ -200,7 +200,7 @@ mod tests {
 
     fn temporary_paths() -> UpdatePaths {
         let root = std::env::temp_dir().join(format!(
-            "spark-update-state-{}-{}",
+            "spark-deployment-state-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

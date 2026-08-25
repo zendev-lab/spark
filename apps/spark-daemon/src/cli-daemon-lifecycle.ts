@@ -16,7 +16,7 @@ import {
   readSparkBuildInfo,
   readSparkUpdateState,
   resolveSparkUpdatePaths,
-} from "@zendev-lab/spark-update";
+} from "@zendev-lab/spark-deployment";
 import {
   defaultSparkDaemonConfig,
   parseSparkDaemonInvocationConcurrency,

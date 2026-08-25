@@ -81,6 +81,7 @@
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-cue": "workspace:^",
+    "@zendev-lab/spark-deployment": "workspace:^",
     "@zendev-lab/spark-files": "workspace:^",
     "@zendev-lab/spark-graft": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
@@ -98,7 +99,6 @@
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "@zendev-lab/spark-tool-web": "workspace:^",
     "@zendev-lab/spark-turn": "workspace:^",
-    "@zendev-lab/spark-update": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
     "typebox": "catalog:"
   },

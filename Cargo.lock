@@ -549,11 +549,11 @@ dependencies = [
  "bpaf",
  "serde",
  "serde_json",
- "spark-update",
+ "spark-deployment",
 ]
 
 [[package]]
-name = "spark-update"
+name = "spark-deployment"
 version = "0.5.0"
 dependencies = [
  "semver",

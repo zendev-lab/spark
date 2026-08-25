@@ -11,7 +11,7 @@ FINGERPRINT=$(
   cd "$REPOSITORY_ROOT"
   {
     git hash-object Cargo.toml Cargo.lock rust-toolchain.toml
-    find apps/spark-cli/native packages/spark-update/native -type f \
+    find apps/spark-cli/native packages/spark-deployment/native -type f \
       \( -name '*.rs' -o -name 'Cargo.toml' \) -print | LC_ALL=C sort | while IFS= read -r file; do
       git hash-object "$file"
     done

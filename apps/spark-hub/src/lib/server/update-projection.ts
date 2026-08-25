@@ -1,4 +1,4 @@
-import { readSparkUpdateStatus } from "@zendev-lab/spark-update";
+import { readSparkUpdateStatus } from "@zendev-lab/spark-deployment";
 
 export interface HubUpdateProjection {
   managed: boolean;

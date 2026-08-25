@@ -358,8 +358,8 @@
       "stability": "private",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-update": {
-      "path": "packages/spark-update",
+    "@zendev-lab/spark-deployment": {
+      "path": "packages/spark-deployment",
       "layer": "foundation",
       "owner": "deployment",
       "stability": "supported",

@@ -108,7 +108,7 @@
       ],
       "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
       "@zendev-lab/spark-session/subagent": ["./packages/spark-session/src/subagent.ts"],
-      "@zendev-lab/spark-update": ["./packages/spark-update/src/index.ts"],
+      "@zendev-lab/spark-deployment": ["./packages/spark-deployment/src/index.ts"],
       "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"]
     },
     "lib": ["ES2024", "DOM", "DOM.Iterable"]
