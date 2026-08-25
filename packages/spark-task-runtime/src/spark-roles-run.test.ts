@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunner } from "@zendev-lab/spark-invocation";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 
 import {

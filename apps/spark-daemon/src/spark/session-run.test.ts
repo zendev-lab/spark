@@ -12,13 +12,13 @@ import type {
   RoleRef,
   RunRef,
   SparkHostLoopContext,
-} from "@zendev-lab/spark-core";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+} from "@zendev-lab/spark-invocation";
+import { SparkHostRuntime } from "../product/host/runtime.ts";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionRunInput,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
@@ -28,7 +28,10 @@ import {
 import { builtinRoleAllowedToolEffects, builtinRoleAllowedTools } from "@zendev-lab/spark-roles";
 import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
-import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import {
+  SparkTurnRestartYieldError,
+  type SparkTurnResumeCheckpoint,
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkDaemonLoopTickTask,
   SparkDaemonSessionCompactTask,

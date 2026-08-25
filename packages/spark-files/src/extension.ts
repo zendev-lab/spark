@@ -16,7 +16,7 @@ import {
 import { createFindToolConfig, createGrepToolConfig } from "./search-tools.ts";
 
 export interface SparkFilesHostApi {
-  registerTool(config: import("@zendev-lab/spark-core").ToolConfig): void;
+  registerTool(config: import("@zendev-lab/spark-invocation").ToolConfig): void;
 }
 
 export interface SparkFilesOptions {

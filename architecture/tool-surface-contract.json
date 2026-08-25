@@ -23,7 +23,7 @@
       "effect": "network_read"
     },
     "context": {
-      "owner": "@zendev-lab/spark-host",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "read"
     },

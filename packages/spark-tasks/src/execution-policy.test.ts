@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef } from "@zendev-lab/spark-invocation";
 import { TaskGraph } from "./graph.ts";
 import { normalizeTaskExecutionPolicy } from "./internal.ts";
 

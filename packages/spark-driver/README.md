@@ -19,8 +19,8 @@ Non-responsibilities:
 - does not register tools or slash commands (daemon product composition owns registration)
 - does not make plain loop a completion authority; reviewer-gated completion is a goal-layer policy
 
-## Package boundary (vs spark-host)
+## Package boundary
 
 Keep `spark-driver` as a separate leaf. Its continuation state and goal policy are
-reusable capability contracts; `spark-host` composes them with execution and
-session adapters but must not become their owner.
+reusable capability contracts; daemon product composition combines them with
+execution and Session adapters but must not become their owner.

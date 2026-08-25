@@ -17,7 +17,7 @@ import {
 import sparkWebExtension, {
   SPARK_WEB_TOOL_OUTPUT_MAX_CHARS,
 } from "@zendev-lab/spark-tool-web/extension";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 
 const mockFetcher: typeof fetch = async (_url) =>
   new Response(

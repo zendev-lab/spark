@@ -141,25 +141,24 @@ a Spark product owner, protocol, provider family, or runtime. The word
 `plugin` is not used as an owner name merely because Cordis is the composition
 mechanism.
 
-The selected migration is an in-place normalization. Ten renames preserve
-workspace count; three obsolete packages are deleted without replacement
-packages. The closed graph therefore moves from 41 to 38 workspaces.
+The landed normalization keeps 38 workspaces. Ten owner-descriptive hard
+renames preserved behavior and three obsolete transition packages
+(`spark-host`, `spark-turn`, `spark-modes`) were deleted without replacement
+or forwarding aliases; durable session modes are retired in favor of one-shot
+directives.
 
-| Current workspace | Final workspace | Boundary represented by the final name |
-| --- | --- | --- |
-| `@zendev-lab/dsh-channels` | `@zendev-lab/dsh-channel-transports` | Spark-independent DSH channel transport adapters |
-| `@zendev-lab/spark-core` | `@zendev-lab/spark-invocation` | Immutable Invocation admission and Cordis service contract |
-| `@zendev-lab/spark-cue` | `@zendev-lab/dsh-cue` | Spark-independent Cue execution service consumed through Cordis |
-| `@zendev-lab/spark-hub-db` | `@zendev-lab/spark-hub-storage-sqlite` | Hub-private SQLite storage implementation |
-| `@zendev-lab/spark-llm` | `@zendev-lab/spark-llm-providers` | Spark provider implementations over the DSH LLM abstraction |
-| `@zendev-lab/spark-loop` | `@zendev-lab/spark-driver` | Loop, Goal, tick, subgoal, reviewer-gated completion, and driver authority; no Session mode storage |
-| `@zendev-lab/spark-runtime` | `@zendev-lab/spark-task-runtime` | Host-neutral Task and Role execution runtime |
-| `@zendev-lab/spark-system` | `@zendev-lab/spark-platform-node` | Node-local paths, process, permissions, and SQLite primitives |
-| `@zendev-lab/spark-text` | `@zendev-lab/spark-text-rendering` | Shared terminal and textual presentation primitives |
-| `@zendev-lab/spark-update` | `@zendev-lab/spark-deployment` | Installation, update, rollback, and deployment state |
-| `@zendev-lab/spark-host` | delete | Transitional host facade; surviving behavior moves to existing owners |
-| `@zendev-lab/spark-modes` | delete | Persistent Session mode concept retired; one-shot working intent is parsed by the daemon per Invocation |
-| `@zendev-lab/spark-turn` | delete | Transitional turn driver; surviving behavior moves to daemon product composition, Invocation, Session, and LLM owners |
+| Final workspace | Boundary represented by the final name |
+| --- | --- |
+| `@zendev-lab/dsh-channel-transports` | Spark-independent DSH channel transport adapters |
+| `@zendev-lab/spark-invocation` | Immutable Invocation admission and Cordis service contract |
+| `@zendev-lab/dsh-cue` | Spark-independent Cue execution service consumed through Cordis |
+| `@zendev-lab/spark-hub-storage-sqlite` | Hub-private SQLite storage implementation |
+| `@zendev-lab/spark-llm-providers` | Spark provider implementations over the DSH LLM abstraction |
+| `@zendev-lab/spark-driver` | Driver authority for goal/loop state and policy: tick, subgoals, reviewer-gated completion |
+| `@zendev-lab/spark-task-runtime` | Host-neutral Task and Role execution runtime |
+| `@zendev-lab/spark-platform-node` | Node-local paths, process, permissions, and SQLite primitives |
+| `@zendev-lab/spark-text-rendering` | Shared terminal and textual presentation primitives |
+| `@zendev-lab/spark-deployment` | Installation, update, rollback, and deployment state |
 
 The daemon-internal single-turn low-level execution implementation keeps the
 name `dsh-turn-driver`; it is distinct from the autonomous lifecycle API owned
@@ -176,7 +175,13 @@ private source workspaces assembled into product distributions, every rename is
 a repository-wide hard cut covering manifests, imports, inventory, build and
 release closure, tests, and active documentation in one change.
 
-## Required migration order
+`spark-invocation` does not absorb Project or Task ownership merely because a
+TaskRun can bind an Invocation. Project, roadmap, Task, TaskRun, review, and
+resource models are exported directly by `spark-tasks`; the Invocation boundary
+keeps only admission identity, attempt correlation, execution-scope authority,
+and the structural capability ABI needed to assemble one admitted execution.
+
+## Landed migration order
 
 The order is constrained by ownership, not by directory convenience:
 
@@ -185,11 +190,11 @@ The order is constrained by ownership, not by directory convenience:
    about the current graph.
 2. Make DSH-facing seams independent first: channel transports and the Cue
    execution service must no longer depend on Spark-private implementations.
-3. Finish Invocation admission and move generic host contracts out of
-   `spark-core`; only then rename it to `spark-invocation`.
-4. Move surviving `spark-host`, `spark-modes`, and `spark-turn` behavior into
-   the existing daemon product, Session, Invocation, LLM, and presentation
-   owners; delete all three workspaces in the same bounded migrations.
+3. Finish Invocation admission and establish `spark-invocation` as the immutable
+   admission/service contract.
+4. Move surviving host and agent-loop behavior into the existing daemon
+   product, Session, Invocation, LLM, mode, and presentation owners; delete the
+   two facade workspaces in the same bounded migration.
 5. Make native Web Session/Invocation-first, then converge shared interactions,
    Artifacts, provider auth, one-shot command handling, and operator
    diagnostics.
@@ -234,10 +239,9 @@ are true:
   without damaging stored data;
 - both applications pass independent source, browser, packed-product, and
   clean-install smoke gates;
-- the repository contains neither the old ten renamed package names nor the
-  `spark-host` / `spark-modes` / `spark-turn` workspaces, forwarding aliases,
-  or stale release closure entries;
-- `architecture/packages.json` reports 38 classified workspaces, no new
+- the repository contains no retired package workspace, forwarding alias, or
+  stale release-closure entry;
+- `architecture/packages.json` reports 39 classified workspaces, no new
   dependency exception, one daemon composition root, and no boundary cycle;
 - public English and Chinese guidance names native Web as the default and Web
   DSH as the independent fallback; and

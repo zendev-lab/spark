@@ -1,12 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 
+import { nowIso, type ProjectRef } from "@zendev-lab/spark-invocation";
 import {
-  nowIso,
   sparkWorkspaceStatePath,
-  type ProjectRef,
   type SparkStateRootContext,
-  type Task,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
+import { type Task } from "@zendev-lab/spark-tasks";
 import {
   defaultEvidenceStore,
   type EvidenceRecord,

@@ -1,5 +1,5 @@
-import type { CopyLanguage } from "@zendev-lab/spark-core";
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef } from "@zendev-lab/spark-invocation";
+import type { CopyLanguage } from "@zendev-lab/spark-text-rendering";
 
 export interface SparkInitResult {
   cwd: string;

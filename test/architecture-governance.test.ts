@@ -34,7 +34,9 @@ describe("architecture inventory governance", () => {
     expect(governance.validateArchitectureGovernance(inventory, manifests, rootManifest)).toEqual(
       [],
     );
-    expect(Object.keys(inventory.packages)).toHaveLength(40);
+    expect(Object.keys(inventory.packages)).toHaveLength(
+      inventory.governance.packageBudget.current,
+    );
     for (const packageInfo of Object.values(inventory.packages)) {
       expect(packageInfo).toHaveProperty("stateWriter");
       expect(packageInfo).not.toHaveProperty("stateAuthority");
@@ -55,13 +57,13 @@ describe("architecture inventory governance", () => {
 
   test("keeps DSH dependency versions in the named catalog", () => {
     const candidateManifests = structuredClone(manifests);
-    candidateManifests["@zendev-lab/spark-turn"].dependencies["@deepseek-ai/dsh-agent"] =
+    candidateManifests["@zendev-lab/spark-daemon"].dependencies["@deepseek-ai/dsh-agent"] =
       "0.0.0-copied-version";
 
     expect(
       governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
     ).toContain(
-      "@zendev-lab/spark-turn must resolve @deepseek-ai/dsh-agent through the named DSH catalog",
+      "@zendev-lab/spark-daemon must resolve @deepseek-ai/dsh-agent through the named DSH catalog",
     );
   });
 
@@ -87,7 +89,7 @@ describe("architecture inventory governance", () => {
     const candidateInventory = structuredClone(inventory);
     const candidateManifests = structuredClone(manifests);
     candidateInventory.packages["@zendev-lab/dsh-tool-cue"].dshIndependenceException = {
-      dependencies: ["@zendev-lab/spark-core"],
+      dependencies: ["@zendev-lab/spark-invocation"],
       reason: "Synthetic stale exception fixture.",
       exitCondition: "Remove immediately.",
     };
@@ -99,7 +101,7 @@ describe("architecture inventory governance", () => {
         rootManifest,
       ),
     ).toContain(
-      "@zendev-lab/dsh-tool-cue has stale DSH independence exception for @zendev-lab/spark-core",
+      "@zendev-lab/dsh-tool-cue has stale DSH independence exception for @zendev-lab/spark-invocation",
     );
   });
 
@@ -211,7 +213,7 @@ describe("architecture inventory governance", () => {
       dependencyCruiserConfig.forbidden.map(({ name }: NamedRule) => name),
     );
 
-    expect(generatedRules).toHaveLength(40);
+    expect(generatedRules).toHaveLength(inventory.governance.packageBudget.current);
     for (const rule of generatedRules) expect(configuredRuleNames.has(rule.name)).toBe(true);
     expect(
       governance.classifyWorkspaceDependency(
@@ -236,17 +238,16 @@ describe("architecture inventory governance", () => {
     );
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("apps/spark-daemon/");
-    expect(rule.from.pathNot).toContain("packages/spark-turn/");
     expect(rule.from.pathNot).toContain("packages/spark-llm-providers/");
   });
 
-  test("allows spark-turn to import dsh-llm as the agent-loop driver", () => {
+  test("allows the daemon and provider owner to import dsh-llm", () => {
     const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
     const rule = dependencyCruiserConfig.forbidden.find(
       ({ name }: NamedRule) => name === "no-direct-dsh-llm",
     );
     expect(rule).toBeDefined();
-    expect(rule.from.pathNot).toContain("packages/spark-turn/");
+    expect(rule.from.pathNot).toContain("apps/spark-daemon/");
     expect(rule.from.pathNot).toContain("packages/spark-llm-providers/");
   });
 
@@ -257,7 +258,7 @@ describe("architecture inventory governance", () => {
     );
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("apps/spark-daemon/");
-    expect(rule.from.pathNot).toContain("packages/spark-turn/");
+    expect(rule.from.pathNot).toContain("packages/spark-session/");
   });
 
   test("keeps Hub and native Web behind daemon client APIs", () => {
@@ -408,7 +409,7 @@ describe("architecture inventory governance", () => {
     expect(actual.registeredExceptions).toEqual([]);
 
     const candidateManifests = structuredClone(manifests);
-    const candidate = candidateManifests["@zendev-lab/spark-core"];
+    const candidate = candidateManifests["@zendev-lab/spark-invocation"];
     candidate.pi = { extensions: ["./src/extension.ts"] };
     candidate.dependencies = {
       ...(candidate.dependencies ?? {}),
@@ -457,7 +458,7 @@ describe("architecture inventory governance", () => {
     const compactMarkdown = governance.formatArchitectureHealthMarkdown(report);
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
-    expect(report.inventory.workspaceCount).toBe(40);
+    expect(report.inventory.workspaceCount).toBe(inventory.governance.packageBudget.current);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
@@ -469,7 +470,7 @@ describe("architecture inventory governance", () => {
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
-    expect(Object.keys(report.workspaces)).toHaveLength(40);
+    expect(Object.keys(report.workspaces)).toHaveLength(inventory.governance.packageBudget.current);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
     expect(report.workspaces["@zendev-lab/spark-daemon"].layer).toBe("composition");
     expect(report.workspaces["@zendev-lab/spark-web"].layer).toBe("application");
@@ -491,8 +492,8 @@ describe("architecture inventory governance", () => {
     );
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
     const candidate = structuredClone(inventory);
-    candidate.packages["@zendev-lab/spark-core"].stateAuthority = "none";
-    candidate.packages["@zendev-lab/spark-core"].stateRole = "stateless";
+    candidate.packages["@zendev-lab/spark-invocation"].stateAuthority = "none";
+    candidate.packages["@zendev-lab/spark-invocation"].stateRole = "stateless";
     expect(validate(candidate)).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import {
   isRoleNativeExecutorCompatibilityError,
   type ExtensionRoleRunResult,
   type ExtensionRoleRunner,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   loadSparkHeadlessRoleModule,
   type SparkHeadlessRoleExecutorModule,

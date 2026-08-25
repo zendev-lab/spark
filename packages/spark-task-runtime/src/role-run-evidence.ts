@@ -7,17 +7,21 @@ import type { EvidenceTranscriptRetention, EvidenceRecord } from "@zendev-lab/sp
 import {
   contentHash,
   type EvidenceRef,
-  isFileNotFoundError,
   nowIso,
-  readJsonFileOptional,
   refId,
   type RoleRef,
   type RunRef,
+  type TaskRef,
+} from "@zendev-lab/spark-invocation";
+import {
+  isFileNotFoundError,
+  readJsonFileOptional,
+  writeJsonFileAtomic,
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
   sparkWorkspaceStatePath,
   type SparkStateRootContext,
-  type TaskRef,
-  writeJsonFileAtomic,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 
 export const SPARK_ROLE_RUN_EVIDENCE_PREVIEW_METADATA_MAX_BYTES = 256 * 1024;
 

@@ -1,0 +1,22 @@
+{
+  "name": "@zendev-lab/spark-invocation",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Immutable Spark Invocation admission, attempt identity, and Cordis service contract.",
+  "license": "MIT",
+  "author": "zrr1999",
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin": "./src/plugin.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-session": "catalog:dsh"
+  }
+}

@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { nowIso, type ProjectRef, type TaskRef } from "@zendev-lab/spark-core";
+import { nowIso, type ProjectRef, type TaskRef } from "@zendev-lab/spark-invocation";
 import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 import { withPathMutation } from "./path-mutation.ts";
 import {

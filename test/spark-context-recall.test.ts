@@ -7,7 +7,7 @@ import { test } from "vitest";
 import {
   createSparkContextRegistry,
   registerSparkContextTool,
-} from "@zendev-lab/spark-host/context";
+} from "../apps/spark-daemon/src/product/host/context-tool.ts";
 import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
 
 type ToolResult = {

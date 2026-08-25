@@ -5,7 +5,7 @@ import {
   type SparkDaemonSessionHeartbeatEvent,
   type SparkDaemonSessionHeartbeatHandle,
 } from "@zendev-lab/spark-daemon-client";
-import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
+import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-invocation";
 import { sparkSessionKey } from "@zendev-lab/spark-driver";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 

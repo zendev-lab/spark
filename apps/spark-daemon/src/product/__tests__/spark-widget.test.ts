@@ -13,7 +13,7 @@ import {
   type SparkWidgetState,
   type SparkWidgetTheme,
   type SparkWidgetTui,
-} from "@zendev-lab/spark-host/spark-widget";
+} from "../host/spark-widget.ts";
 import { SparkWidgetController } from "../policy/spark-widget-controller.ts";
 import { defaultSparkDynamicWorkflowEventStore } from "@zendev-lab/spark-workflows";
 import { loadSessionLoop, setSessionGoal, setSessionLoop } from "@zendev-lab/spark-driver";

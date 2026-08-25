@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { newRef, type TaskRef } from "@zendev-lab/spark-core";
+import { newRef, type TaskRef } from "@zendev-lab/spark-invocation";
 import { TaskGraphStore, defaultTaskGraphStore } from "./graph-store.ts";
 import { TaskDependencyReplacementError, TaskGraph } from "./graph.ts";
 

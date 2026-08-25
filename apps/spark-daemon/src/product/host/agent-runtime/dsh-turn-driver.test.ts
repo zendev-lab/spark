@@ -17,7 +17,7 @@ import ToolRuntime, { defineTool } from "@deepseek-ai/dsh-tools";
 import {
   createSparkInvocationService,
   type SparkDshToolPolicyMetadata,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type {
   AssistantMessage,
   Message,

@@ -7,7 +7,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   summarizeSparkBehaviorCe,
   type SparkBehaviorCeSample,
-} from "../packages/spark-turn/src/behavior-ce.ts";
+} from "../apps/spark-daemon/src/product/host/agent-runtime/behavior-ce.ts";
 import { assertSafeCapabilityCeOutputDirectory as assertSafeBehaviorCeOutputDirectory } from "./capability-ce-output-directory.mts";
 
 interface ScriptedProviderCeConfiguration {
@@ -41,7 +41,7 @@ interface RunRecord {
 }
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const testFile = "src/spark-scripted-provider.test.ts";
+const testFile = "src/product/host/agent-runtime/spark-scripted-provider.test.ts";
 const configuration = parseConfiguration(process.argv.slice(2), process.env);
 await assertSafeBehaviorCeOutputDirectory({
   repositoryRoot,
@@ -66,7 +66,7 @@ for (const runId of expectedRunIds) {
     "pnpm",
     [
       "--filter",
-      "@zendev-lab/spark-turn",
+      "@zendev-lab/spark-daemon",
       "exec",
       "vp",
       "test",
@@ -180,7 +180,7 @@ const report = {
   configuration: {
     ...configuration,
     outputDir: relative(repositoryRoot, configuration.outputDir),
-    testFile: `packages/spark-turn/${testFile}`,
+    testFile: `apps/spark-daemon/${testFile}`,
     providerTokenPolicy: "zero",
     transportPolicy: "in-process-scripted-stream",
   },

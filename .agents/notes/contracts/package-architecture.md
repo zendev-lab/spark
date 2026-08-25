@@ -263,11 +263,12 @@ not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.
 
-The current package budget is closed at 41 while the transition graph still
-contains `spark-host`, `spark-modes`, and `spark-turn`. The selected
-normalization performs ten in-place renames and deletes those three workspaces
-without replacements, so the final budget is 38. The machine-readable inventory remains authoritative
-for the landed count and changes only with each real workspace migration.
+The package budget is closed at 38 after the owner-name normalization and the
+removal of the two transitional execution facades plus `spark-modes`. Host and
+agent-loop behavior now lives under the daemon product composition root, and
+durable session modes are retired in favor of one-shot directives; no
+replacement or alias workspace was introduced. The machine-readable inventory
+remains authoritative for the landed count.
 Raising or replacing its ceiling requires an explicit architecture decision in
 the inventory rather than a new constant in a checker.
 
@@ -305,9 +306,9 @@ the inventory rather than a new constant in a checker.
 - `spark-mcp` is the supported stateless, read-only MCP adapter. It projects the
   canonical `spark-memory` workspace store through MCP resources and tools; it
   owns no writes, daemon execution, or second memory store.
-- `spark-context` was removed after all callers converged on
-  `spark-host/context`; compatibility-only re-export packages are not permanent
-  architecture.
+- The standalone context facade was removed after all callers converged on the
+  daemon product host's context registry; compatibility-only re-export packages
+  are not permanent architecture.
 
 The legacy `daemon.sock` path is removed only in a 0.2 release after a migrated
 0.1.x has shipped and the old-client/new-daemon, new-client/old-daemon,

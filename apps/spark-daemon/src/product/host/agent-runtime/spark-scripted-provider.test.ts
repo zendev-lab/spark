@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "../runtime.ts";
 import { describe, test } from "vitest";
 
 import {

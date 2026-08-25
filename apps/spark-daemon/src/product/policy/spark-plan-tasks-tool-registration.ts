@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
-import { DependencyError, type ArtifactRef } from "@zendev-lab/spark-core";
+import { DependencyError, type ArtifactRef } from "@zendev-lab/spark-invocation";
 import {
   collectNonConcreteTaskIssues,
   decideTaskPlanBeforeCreate,

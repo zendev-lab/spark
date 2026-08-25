@@ -6,11 +6,11 @@ import { Type } from "typebox";
 import {
   callLeafOrDegrade,
   type SparkHostContext,
-  type SparkStateRootContext,
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type SparkStateRootContext } from "@zendev-lab/spark-platform-node/paths";
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {

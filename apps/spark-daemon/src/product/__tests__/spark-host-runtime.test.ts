@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-core";
+import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-invocation";
 
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "../host/runtime.ts";
 
 test("SparkHostRuntime registers tools and reflects them in getAllTools", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-test" });

@@ -44,7 +44,10 @@ import {
   projectSparkDshMessageEntry,
   type SparkDshProjectionMessageMetaData,
 } from "@zendev-lab/spark-session/dsh-message-projection";
-import { SPARK_INVOCATION_EVENT_TYPE, type SparkInvocationEventData } from "@zendev-lab/spark-core";
+import {
+  SPARK_INVOCATION_EVENT_TYPE,
+  type SparkInvocationEventData,
+} from "@zendev-lab/spark-invocation";
 
 import {
   CURRENT_SPARK_SESSION_VERSION,

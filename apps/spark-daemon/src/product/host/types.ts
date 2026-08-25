@@ -1,7 +1,7 @@
 /**
  * Internal types backing the native SparkHostAPI host.
  *
- * Public-facing extension contracts come from `spark-core`. The shapes
+ * Public-facing execution contracts come from `spark-invocation`. The shapes
  * declared here are private to the host runtime: they describe how registered
  * tools, commands, event listeners, and host-side message envelopes are kept
  * inside SparkHostRuntime. Extension authors should not import from this file.
@@ -17,7 +17,7 @@ import type {
   ResolvedToolPolicy,
   ToolConfig,
   ToolInfo,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type {
   SparkDaemonEvent,
   SparkHostBuiltinEventName,

@@ -8,7 +8,7 @@ import {
   type ResolvedToolPolicy,
   type SparkHostContext,
   type ToolConfig,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type {
   AssistantMessage,
   Tool,

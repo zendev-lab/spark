@@ -1,4 +1,4 @@
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunner } from "@zendev-lab/spark-invocation";
 import {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,

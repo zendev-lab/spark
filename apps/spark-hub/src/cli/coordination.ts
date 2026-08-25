@@ -5,7 +5,9 @@ import { parse } from "@optique/core/parser";
 import { argument, command, constant, flag, option, passThrough } from "@optique/core/primitives";
 import { string, type ValueParser } from "@optique/core/valueparser";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
-import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
+import type { ProjectRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type Project } from "@zendev-lab/spark-tasks";
+import { type Task } from "@zendev-lab/spark-tasks";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
 
 import {

@@ -22,10 +22,12 @@ import {
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { idleWatchdog } from "@deepseek-ai/dsh-timeout";
 import { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
-import type { SparkDshToolPolicyMetadata, SparkInvocationService } from "@zendev-lab/spark-core";
+import type {
+  SparkDshToolPolicyMetadata,
+  SparkInvocationService,
+} from "@zendev-lab/spark-invocation";
 import type {
   AssistantMessage,
-  AssistantMessageEvent,
   Context as PiContext,
   Model,
   Tool,
@@ -39,7 +41,10 @@ import {
 } from "@zendev-lab/spark-llm-providers/pi-ai-stream";
 
 import type { SparkPromptItem } from "./prompt-items.ts";
-import { createSparkInvocationPlugin, reserveSparkInvocationTurn } from "./invocation-plugin.ts";
+import {
+  createSparkInvocationPlugin,
+  reserveSparkInvocationTurn,
+} from "@zendev-lab/spark-invocation/plugin";
 import { isPlainRecord } from "./tool-dispatch.ts";
 import type { SparkTurnLlm } from "./turn-llm.ts";
 
@@ -132,7 +137,7 @@ export interface RunSparkDshTurnInput {
 }
 
 type SparkTurnToolRegistration =
-  | { readonly owner: "spark-host" }
+  | { readonly owner: "daemon-product" }
   | {
       readonly owner: "dsh";
       readonly callId: string;
@@ -308,7 +313,7 @@ export function installSparkConsentPlugin(
     if (!hooks.preExecute) return next();
     const args = isPlainRecord(exec.arguments) ? exec.arguments : {};
     const registration: SparkTurnToolRegistration = sparkHostTools.has(exec.name)
-      ? { owner: "spark-host" }
+      ? { owner: "daemon-product" }
       : {
           owner: "dsh",
           callId: String(exec.callId),

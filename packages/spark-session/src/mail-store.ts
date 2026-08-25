@@ -1,12 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import type {
   SparkSessionMailChannelTarget,
   SparkSessionMailDelivery,
   SparkSessionMailDeliveryReceipt,
-  SparkSessionMailDeliveryStatus,
   SparkSessionMailKind,
   SparkSessionMailMessage,
   SparkSessionMailOriginBinding,

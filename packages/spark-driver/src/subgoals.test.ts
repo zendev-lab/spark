@@ -12,7 +12,7 @@ import type {
   SparkSubgoalDefinition,
   SubgoalRef,
   TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 
 const proofRef = "evidence:experiment-result" as EvidenceRef;
 const askRef = "evidence:canonical-ask" as EvidenceRef;

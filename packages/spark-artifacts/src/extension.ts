@@ -5,7 +5,7 @@ import {
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   EVIDENCE_CURATION_STATUSES,

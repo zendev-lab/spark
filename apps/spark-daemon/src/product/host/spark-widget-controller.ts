@@ -1,4 +1,5 @@
-import type { Project, ProjectRef, RunRef, Task, TaskRun } from "@zendev-lab/spark-core";
+import type { ProjectRef, RunRef } from "@zendev-lab/spark-invocation";
+import type { Project, Task, TaskRun } from "@zendev-lab/spark-tasks";
 import type {
   WorkflowRunReconcileInput,
   WorkflowRunStatusSummary,

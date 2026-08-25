@@ -24,7 +24,7 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
     "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",

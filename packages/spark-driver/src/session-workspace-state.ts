@@ -1,4 +1,4 @@
-import type { ProjectRef, SparkDriverAuthority, TaskRef } from "@zendev-lab/spark-core";
+import type { ProjectRef, SparkDriverAuthority, TaskRef } from "@zendev-lab/spark-invocation";
 import { rm } from "node:fs/promises";
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 import { withPathMutation } from "./path-mutation.ts";

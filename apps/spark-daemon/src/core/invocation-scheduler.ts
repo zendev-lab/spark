@@ -11,7 +11,7 @@ import {
   isSparkTurnRestartYieldError,
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type { SparkReproUsageScope } from "@zendev-lab/spark-protocol/token-usage";
 import {
   SparkInvocationStore,

@@ -23,7 +23,8 @@
       ],
       "@zendev-lab/spark-ask": ["./packages/spark-ask/src/index.ts"],
       "@zendev-lab/spark-ask/extension": ["./packages/spark-ask/src/extension.ts"],
-      "@zendev-lab/spark-core": ["./packages/spark-core/src/index.ts"],
+      "@zendev-lab/spark-invocation": ["./packages/spark-invocation/src/index.ts"],
+      "@zendev-lab/spark-invocation/plugin": ["./packages/spark-invocation/src/plugin.ts"],
       "@zendev-lab/dsh-cue": ["./packages/dsh-cue/src/index.ts"],
       "@zendev-lab/spark-files": ["./packages/spark-files/src/index.ts"],
       "@zendev-lab/spark-files/extension": ["./packages/spark-files/src/extension.ts"],
@@ -60,10 +61,6 @@
       "@zendev-lab/spark-llm-providers/models-extension": [
         "./packages/spark-llm-providers/src/models-extension.ts"
       ],
-      "@zendev-lab/spark-host": ["./packages/spark-host/src/runtime.ts"],
-      "@zendev-lab/spark-host/context": ["./packages/spark-host/src/context-tool.ts"],
-      "@zendev-lab/spark-host/keybindings": ["./packages/spark-host/src/keybindings.ts"],
-      "@zendev-lab/spark-host/types": ["./packages/spark-host/src/types.ts"],
       "@zendev-lab/spark-ui": ["./packages/spark-ui/src/index.ts"],
       "@zendev-lab/spark-ui/headless": ["./packages/spark-ui/src/ui/headless.ts"],
       "@zendev-lab/spark-ui/markdown": ["./packages/spark-ui/src/markdown/index.ts"],
@@ -107,7 +104,6 @@
       "@zendev-lab/spark-hub-coordination/routing": [
         "./packages/spark-hub-coordination/src/routing.ts"
       ],
-      "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
       "@zendev-lab/spark-session/subagent": ["./packages/spark-session/src/subagent.ts"],
       "@zendev-lab/spark-deployment": ["./packages/spark-deployment/src/index.ts"],
       "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"]

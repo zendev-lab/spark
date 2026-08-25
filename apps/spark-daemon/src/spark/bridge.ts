@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
+import { loadSparkHeadlessSessionModule } from "../product/host/headless-loader.ts";
 import {
   builtinRoleRef,
   createDefaultRoleRegistry,
@@ -8,7 +8,7 @@ import {
 } from "@zendev-lab/spark-roles";
 import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+import type { SparkDshTurnRuntime } from "../product/host/agent-runtime/agent-loop.ts";
 
 import { errorMessage } from "../text.ts";
 

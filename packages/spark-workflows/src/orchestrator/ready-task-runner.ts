@@ -2,13 +2,15 @@ import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
   DEFAULT_READY_TASK_TIMEOUT_MS,
   type RunRef,
+  type TaskRef,
+  type ProjectRef,
+} from "@zendev-lab/spark-invocation";
+import {
   type Task,
   type TaskResourceAllocation,
   type TaskResourceInventory,
-  type TaskRef,
   type TaskRun,
-  type ProjectRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { delay } from "es-toolkit";
 import { packTaskResourceFrontier, type DeferredTaskResource } from "./task-resource-scheduler.ts";

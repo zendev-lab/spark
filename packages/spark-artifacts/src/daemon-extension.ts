@@ -3,7 +3,7 @@ import {
   requestSparkDaemonToolWithAutoStart,
   type SparkDaemonToolMethod,
 } from "@zendev-lab/spark-daemon-client";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 import { registerArtifactTool } from "./artifact/extension.ts";
 import { registerEvidenceTool, type SparkArtifactsHostApi } from "./extension.ts";
 import { registerGitLifecycleTool } from "./git/extension.ts";

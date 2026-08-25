@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import {
   sparkWorkspaceStatePath,
-  writeJsonFileAtomic,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 import { normalizeSparkAskAnswerSource } from "./answer-source.ts";
 import {
   validateSparkAskFlowRequest,

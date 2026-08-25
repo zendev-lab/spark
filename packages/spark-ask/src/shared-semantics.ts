@@ -1,7 +1,7 @@
 import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   defaultSparkAskChoice,
   formatSparkAskAnswerForDisplay,

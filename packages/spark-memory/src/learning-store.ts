@@ -16,10 +16,12 @@ import {
   isRef,
   newRef,
   nowIso,
-  sparkWorkspaceStatePath,
   stableId,
+} from "@zendev-lab/spark-invocation";
+import {
+  sparkWorkspaceStatePath,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {

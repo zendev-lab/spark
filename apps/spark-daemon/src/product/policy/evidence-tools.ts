@@ -1,5 +1,5 @@
 import { type EvidenceRecord } from "@zendev-lab/spark-artifacts";
-import { isRef, type EvidenceRef } from "@zendev-lab/spark-core";
+import { isRef, type EvidenceRef } from "@zendev-lab/spark-invocation";
 
 export function normalizeEvidenceLimit(value: unknown, fallback: number, field = "limit"): number {
   if (value === undefined || value === null) return fallback;

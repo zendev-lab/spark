@@ -1,6 +1,13 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveSparkHome, resolveSparkPaths, resolveSparkUserPaths } from "./paths.js";
+import {
+  resolveSparkHome,
+  resolveSparkPaths,
+  resolveSparkUserPaths,
+  sparkStateCwd,
+  sparkStateRootPath,
+  sparkWorkspaceStatePath,
+} from "./paths.js";
 
 const home = "/Users/example";
 
@@ -153,5 +160,15 @@ describe("Spark path resolution", () => {
     expect(paths.cacheDir).toBe("/repo/tmp/cache");
     expect(paths.stateDir).toBe("/repo/tmp/state");
     expect(paths.runtimeDir).toBe("/repo/tmp/run");
+  });
+
+  it("resolves workspace state from the explicit owner root", () => {
+    expect(sparkStateRootPath("/repo")).toBe("/repo/.spark");
+    expect(sparkWorkspaceStatePath("/repo", ["tasks", "state.json"])).toBe(
+      "/repo/.spark/tasks/state.json",
+    );
+    expect(sparkStateRootPath("/repo", { sparkStateRoot: "/owner/state" })).toBe("/owner/state");
+    expect(sparkStateCwd("/fallback", { sparkStateRoot: "/owner/.spark" })).toBe("/owner");
+    expect(sparkStateCwd("/fallback", { sparkStateRoot: "/daemon/state" })).toBe("/fallback");
   });
 });

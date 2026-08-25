@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { createSparkContextRegistry } from "@zendev-lab/spark-host/context";
+import { createSparkContextRegistry } from "../host/context-tool.ts";
 import { registerSparkProductEvents } from "../policy/spark-product-events.ts";
 import { createSparkTurnContextController } from "../policy/spark-turn-context-controller.ts";
 import type { SparkToolContext } from "../policy/spark-tool-registration.ts";

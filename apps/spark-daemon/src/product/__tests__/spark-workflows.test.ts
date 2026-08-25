@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunner } from "@zendev-lab/spark-invocation";
 import {
   defaultSparkDynamicWorkflowEventStore,
   defaultSparkDynamicWorkflowManager,

@@ -1,5 +1,5 @@
 import type { Context } from "@earendil-works/pi-ai";
-import type { LeafDegradeReason } from "@zendev-lab/spark-core";
+import type { LeafDegradeReason } from "@zendev-lab/spark-invocation";
 
 import {
   SparkRouteExecutionError,
@@ -75,7 +75,7 @@ export interface SparkLeafRunnerDeps {
 
 /**
  * Stable, credential-free reason codes for a degraded leaf. Single-sourced from
- * `@zendev-lab/spark-core` `LeafDegradeReason` (includes `host-unsupported`).
+ * `@zendev-lab/spark-invocation` `LeafDegradeReason` (includes `host-unsupported`).
  * Never derived from provider error text, so leaf output can never echo credentials.
  */
 export type SparkLeafDegradeReason = LeafDegradeReason;

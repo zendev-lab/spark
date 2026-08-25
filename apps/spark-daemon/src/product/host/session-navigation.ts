@@ -8,7 +8,7 @@
  * a child of that selected entry.
  */
 
-import type { CommandConfig, SparkHostCommandContext } from "@zendev-lab/spark-core";
+import type { CommandConfig, SparkHostCommandContext } from "@zendev-lab/spark-invocation";
 
 import type {
   SparkLabelEntry,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { Project } from "@zendev-lab/spark-core";
+import { type Project } from "@zendev-lab/spark-tasks";
 import {
   evaluateSparkProjectKindCompletionGate,
   renderSparkProjectKindDisplay,

@@ -1,11 +1,11 @@
 import { Type } from "typebox";
 import {
-  sparkStateCwd,
   type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import { listSavedWorkflows, readSavedWorkflow, type WorkflowDescriptor } from "./index.ts";
 

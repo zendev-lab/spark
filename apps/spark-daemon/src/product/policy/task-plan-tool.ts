@@ -1,14 +1,14 @@
 import { Type } from "typebox";
 
-import type {
-  ArtifactRef,
-  Task,
-  TaskExecutionPolicy,
-  TaskKind,
-  TaskPlan,
-  TaskPlanItem,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
+import type { ArtifactRef } from "@zendev-lab/spark-invocation";
+import {
+  type Task,
+  type TaskExecutionPolicy,
+  type TaskKind,
+  type TaskPlan,
+  type TaskPlanItem,
+  type TaskStatus,
+} from "@zendev-lab/spark-tasks";
 import { normalizeTaskExecutionPolicy, type TaskPlanResult } from "@zendev-lab/spark-tasks";
 
 export function taskExecutionPolicySchema() {

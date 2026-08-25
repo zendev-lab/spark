@@ -27,11 +27,11 @@ import {
   type ChannelMessageReference,
   type InfoflowAttachment,
 } from "@zendev-lab/dsh-channel-transports";
-import type { SparkInvocationAttempt } from "@zendev-lab/spark-core";
+import type { SparkInvocationAttempt } from "@zendev-lab/spark-invocation";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkReproUsageScope,
   SparkUsageExecutionKind,

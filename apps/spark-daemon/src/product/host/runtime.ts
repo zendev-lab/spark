@@ -1,6 +1,6 @@
 /**
  * SparkHostRuntime — the native Spark implementation of the
- * `spark-core` SparkHostAPI surface.
+ * `spark-invocation` SparkHostAPI surface.
  *
  * This file owns the *contract surface* exposed to extensions plus the minimum
  * internal plumbing needed to make the existing 5 retained extensions
@@ -48,8 +48,8 @@ import type {
   ToolInfo,
   ResolvedToolPolicy,
   ToolEffect,
-} from "@zendev-lab/spark-core";
-import { resolveToolPolicy } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { resolveToolPolicy } from "@zendev-lab/spark-invocation";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,

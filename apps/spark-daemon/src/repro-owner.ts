@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { EvidenceRef, RoleRef, RunRef, TaskRun } from "@zendev-lab/spark-core";
+import type { EvidenceRef, RoleRef, RunRef } from "@zendev-lab/spark-invocation";
+import { type TaskRun } from "@zendev-lab/spark-tasks";
 import {
   acceptSparkReproLaneResult,
   activateSparkReproV10,

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "vitest";
-import type { ExtensionRoleRunRequest } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunRequest } from "@zendev-lab/spark-invocation";
 
 import {
   ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE,

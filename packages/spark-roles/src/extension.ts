@@ -1,5 +1,5 @@
 import { ToolCallText } from "@zendev-lab/spark-text-rendering";
-import type { ToolPolicy } from "@zendev-lab/spark-core";
+import type { ToolPolicy } from "@zendev-lab/spark-invocation";
 import { Type } from "typebox";
 import {
   createDefaultRoleRegistry,

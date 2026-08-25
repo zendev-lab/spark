@@ -2,16 +2,18 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   contentHash,
-  sparkWorkspaceStatePath,
   stableId,
-  writeTextFileAtomic,
   type EvidenceRef,
   type ExtensionRoleRunInputController,
   type ExtensionRoleRunner,
   type RoleRunCompletionOutcome,
-  type SparkStateRootContext,
   type ToolEffect,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { writeTextFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
@@ -28,7 +30,6 @@ import { resolveRoleNativeExecutor } from "./native-executor.ts";
 import {
   sparkRoleModelTypeSchema,
   sparkRoleOriginSchema,
-  type SparkRoleCapability,
   type SparkRoleModelType,
   type SparkRoleSource,
 } from "@zendev-lab/spark-protocol/role-session";

@@ -3,18 +3,19 @@ import { join } from "node:path";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
-  detectCopyLanguage,
   newRef,
   nowIso,
-  sparkStateRootPath,
   type AskRef,
-  type CopyLanguage,
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
-  type SparkRunTrace,
+} from "@zendev-lab/spark-invocation";
+import {
+  sparkStateRootPath,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
+import { detectCopyLanguage, type CopyLanguage } from "@zendev-lab/spark-text-rendering";
+import { type SparkRunTrace } from "@zendev-lab/spark-tasks";
 import { builtinRoleRef } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, TaskGraph, type TaskTodoSummary } from "@zendev-lab/spark-tasks";
 import { pathExists, readActiveSparkMd, shouldMaterializeSparkMd } from "./spark-activation.ts";

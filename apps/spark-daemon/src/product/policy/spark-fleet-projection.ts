@@ -1,9 +1,9 @@
 import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
   type ProjectRef,
-  type Task,
   type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type Task } from "@zendev-lab/spark-tasks";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   discoverTaskResourceInventory,

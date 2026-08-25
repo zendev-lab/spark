@@ -1,4 +1,4 @@
-import type { RoleRef } from "@zendev-lab/spark-core";
+import type { RoleRef } from "@zendev-lab/spark-invocation";
 import type {
   WorkflowAgentOptions,
   WorkflowAgentReportedTelemetry,

@@ -1,7 +1,7 @@
 import { cp, mkdir, readdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import { nowIso } from "@zendev-lab/spark-core";
+import { nowIso } from "@zendev-lab/spark-invocation";
 import { rebuildSessionIndex } from "@zendev-lab/spark-driver";
 import {
   TaskGraph,

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-core";
+import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-invocation";
 
 import { registerSparkAskActionTool } from "./action-tool.ts";
 

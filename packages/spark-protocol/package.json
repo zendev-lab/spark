@@ -42,7 +42,7 @@
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

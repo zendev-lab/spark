@@ -13,7 +13,7 @@ import {
 } from "./index.ts";
 import { createLegacyMemoryFixturePermit } from "./legacy-fixture.ts";
 import sparkMemoryExtension from "./extension.ts";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 
 test("spark memory stores, searches, and forgets explicit scoped entries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-store-"));

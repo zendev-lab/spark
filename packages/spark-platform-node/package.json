@@ -13,6 +13,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./headless-module": "./src/headless-module.ts",
+    "./json-files": "./src/json-files.ts",
+    "./paths": "./src/paths.ts",
     "./resource-paths": "./src/resource-paths.ts",
     "./strings": "./src/strings.ts",
     "./socket-message-port": "./src/socket-message-port.ts"

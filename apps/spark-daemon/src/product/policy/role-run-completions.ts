@@ -1,12 +1,9 @@
+import { nowIso, stableId, type TaskRef, type ProjectRef } from "@zendev-lab/spark-invocation";
 import {
-  nowIso,
-  stableId,
-  type TaskRef,
   type TaskRun,
   type TaskRunCompletionSummary,
   type TaskStatus,
-  type ProjectRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   loadHiddenRoleRunInboxState,

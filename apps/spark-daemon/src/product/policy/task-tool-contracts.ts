@@ -4,7 +4,7 @@ import type {
   TaskCompletionReadiness,
   TaskPlanItem,
   TaskStatus,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import { isUnfinishedTaskStatus, type TaskPlanInput } from "@zendev-lab/spark-tasks";
 
 export function terminalTaskPlanInputs(tasks: readonly TaskPlanInput[]): TaskPlanInput[] {

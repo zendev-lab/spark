@@ -3,7 +3,7 @@ import type {
   LeafCapabilityRequest,
   LeafCapabilityResult,
   LeafCapabilityRunner,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 
 import {
   SparkModelRegistry,

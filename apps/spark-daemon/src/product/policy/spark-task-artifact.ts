@@ -1,6 +1,8 @@
 import { defaultArtifactStore, type ArtifactRef } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore, type SparkTaskActionHandler } from "@zendev-lab/spark-tasks";
-import type { Project, ProjectRef, Task } from "@zendev-lab/spark-core";
+import type { ProjectRef } from "@zendev-lab/spark-invocation";
+import { type Project } from "@zendev-lab/spark-tasks";
+import { type Task } from "@zendev-lab/spark-tasks";
 import { sparkStateCwd } from "./session-state.ts";
 
 export function createTaskArtifactHandler(

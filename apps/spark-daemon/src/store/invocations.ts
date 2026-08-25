@@ -14,7 +14,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import { SparkDaemonControlError } from "../control-error.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
 

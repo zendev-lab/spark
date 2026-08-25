@@ -14,11 +14,9 @@ import {
   type JsonValue,
   type ProjectRef,
   type RoleRef,
-  type Task,
-  type TaskCompletionReadiness,
   type TaskRef,
-  type TaskStatus,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type Task, type TaskCompletionReadiness, type TaskStatus } from "@zendev-lab/spark-tasks";
 import {
   defaultTaskGraphStore,
   isUnfinishedTaskStatus,

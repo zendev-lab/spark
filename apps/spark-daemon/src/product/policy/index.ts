@@ -1,11 +1,11 @@
 import { registerSparkAskAutoAnswerProvider } from "@zendev-lab/spark-ask";
-import { sparkStateCwd } from "@zendev-lab/spark-core";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { registerSparkWorkflowTool } from "@zendev-lab/spark-workflows/extension";
 import {
   createSparkContextRegistry,
   registerSparkContextTool,
   type SparkContextProvider,
-} from "@zendev-lab/spark-host/context";
+} from "../host/context-tool.ts";
 import {
   registerSparkTaskTool,
   registerSparkTodoTool,

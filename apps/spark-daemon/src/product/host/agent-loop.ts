@@ -1,7 +1,7 @@
 /**
  * Thin native-host adapter for the shared Spark turn loop.
  *
- * Core model/tool orchestration remains in @zendev-lab/spark-turn. The native
+ * Core model/tool orchestration lives in the adjacent daemon agent runtime. The native
  * host only adds a request-bound preparation hook so dynamic host context
  * (currently selected skills) is refreshed before a real user submit without
  * teaching the shared turn loop about skill discovery.
@@ -13,7 +13,7 @@ import {
   type SparkAgentLoopRunHooks,
   type SparkRunOutcome,
   type SparkTurnUserContent,
-} from "@zendev-lab/spark-turn";
+} from "./agent-runtime/agent-loop.ts";
 
 export interface SparkAgentLoopOptions extends SparkTurnAgentLoopOptions {
   /** Refresh request-scoped host context before accepting a real user submit. */
@@ -102,4 +102,4 @@ export {
   type SparkTurnHost,
   type SparkTurnOutboxEnvelope,
   type SparkTurnRegisteredTool,
-} from "@zendev-lab/spark-turn";
+} from "./agent-runtime/agent-loop.ts";

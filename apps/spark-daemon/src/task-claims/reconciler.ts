@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Task } from "@zendev-lab/spark-core";
+import { type Task } from "@zendev-lab/spark-tasks";
 import {
   defaultTaskGraphStore,
   isUnfinishedTaskStatus,

@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
+import { contentHash, nowIso } from "@zendev-lab/spark-invocation";
 import {
-  contentHash,
-  nowIso,
   writeJsonFileAtomic,
   writeTextFileAtomic,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/json-files";
 
 import { errorMessage } from "./text.ts";
 import { isRecord } from "./local-rpc/is-record.ts";

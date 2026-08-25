@@ -1,4 +1,4 @@
-import type { RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
+import type { RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-invocation";
 import type { WorkflowRunRecord } from "@zendev-lab/spark-workflows";
 import {
   readRoleRunEvidencePreview,

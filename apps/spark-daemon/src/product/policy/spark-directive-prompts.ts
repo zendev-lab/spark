@@ -1,4 +1,4 @@
-import type { ProjectRef } from "@zendev-lab/spark-core";
+import type { ProjectRef } from "@zendev-lab/spark-invocation";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { RoadmapPlanningContext } from "../flows/roadmap-flow.ts";
 import { renderRoadmapPlanningContext } from "../flows/roadmap-flow.ts";

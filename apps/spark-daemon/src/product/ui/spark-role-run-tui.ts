@@ -1,6 +1,6 @@
 import { truncateToWidth } from "@zendev-lab/spark-text-rendering";
 
-import type { TaskRef } from "@zendev-lab/spark-core";
+import type { TaskRef } from "@zendev-lab/spark-invocation";
 import type {
   SparkRoleRunObservedStatus,
   SparkRoleRunRegistryEntry,

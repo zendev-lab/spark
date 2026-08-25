@@ -124,7 +124,7 @@ Spark keeps exactly two identity vocabularies. Do not add a third.
 
 | System | Shape | Owner | Use for |
 | --- | --- | --- | --- |
-| Domain refs | `kind:id` (e.g. `task:…`, `proj:…`, `evidence:…`) | `@zendev-lab/spark-core` (`RefKind`, `newRef`) | In-process task graphs, memory, tools, artifacts, agent-facing state |
+| Domain refs | `kind:id` (e.g. `task:…`, `proj:…`, `evidence:…`) | `@zendev-lab/spark-invocation` (`RefKind`, `newRef`) | In-process task graphs, memory, tools, artifacts, agent-facing state |
 | Wire ids | `prefix_hex` (e.g. `sess_<32 hex>`, `inv_<32 hex>`, `hreq_<32 hex>`) | `@zendev-lab/spark-protocol` (`refs.ts` / `createId`) | Daemon persistence, Hub, local RPC, runtime WebSocket envelopes |
 
 Translate at the boundary when a surface must speak both (for example projecting a domain `task:` ref into a protocol task view that still carries the same `task:` ref string today, versus minting a new `task_<hex>` for a daemon row). Interaction correlation uses wire-style ids (`humanRequestId`, `interactionRequestId`) as documented above; generated Ask correlations use `ask_<32 hex>`, while domain `ask:` refs remain graph-local. Readers accept the retired `ask_async:<64 hex>` autonomous correlation only for durable or in-flight requests created before this normalization; writers never emit it.

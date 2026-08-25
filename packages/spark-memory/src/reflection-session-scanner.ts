@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { sparkWorkspaceStatePath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 
 export const REFLECTION_SCAN_CURSOR_VERSION = 1;
 

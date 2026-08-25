@@ -3,7 +3,7 @@ import type {
   SparkHeadlessSessionCompactResult,
   SparkHeadlessSessionRunInput,
   SparkHeadlessTokenUsageContext,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "./host/headless-loader.ts";
 import {
   assistantMessageToText,
   classifyProviderFailure,
@@ -20,8 +20,8 @@ import {
   type RunRef,
   type ToolConfig,
   type ToolEffect,
-} from "@zendev-lab/spark-core";
-import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+} from "@zendev-lab/spark-invocation";
+import type { SparkDshTurnRuntime } from "./host/agent-runtime/agent-loop.ts";
 
 import type {
   SparkCliHostDiagnostic,
@@ -33,7 +33,7 @@ import type { SparkAgentLoopEvent, SparkRunOutcome } from "./host/agent-loop.ts"
 import { SparkAgentSession } from "./host/agent-session.ts";
 import type { SparkActiveSelection } from "./host/provider-registry.ts";
 
-export type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
+export type { SparkHeadlessSessionRunInput } from "./host/headless-loader.ts";
 
 export type SparkHeadlessRoleRunStatus =
   | "queued"
