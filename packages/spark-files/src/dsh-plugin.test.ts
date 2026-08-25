@@ -4,6 +4,7 @@ import { createScope } from "@deepseek-ai/dsh-scope";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, {
   defineTool,
+  jsonSchemaToTs,
   renderToolsSdk,
   type ToolDefinition,
   type ToolRunContext,
@@ -144,8 +145,13 @@ describe("Spark DSH file tools", () => {
   it("projects one escalation-free schema into Native and Code Mode", () => {
     const { context } = harness();
     const tools = createDshFileToolDefinitions(context);
+    const read = named(tools, "read");
     const write = named(tools, "write");
     const edit = named(tools, "edit");
+    expect((read.parameters as { required?: string[] }).required).toEqual(["path"]);
+    expect(
+      (read.parameters as { properties: Record<string, unknown> }).properties,
+    ).not.toHaveProperty("expectedVersion");
     const writeProperties = (write.parameters as { properties: Record<string, unknown> })
       .properties;
     const editProperties = (edit.parameters as { properties: Record<string, unknown> }).properties;
@@ -164,7 +170,7 @@ describe("Spark DSH file tools", () => {
         output: tool.output!.schema,
       })),
     );
-    expect(sdk).toContain("expectedVersion");
+    expect(jsonSchemaToTs(read.parameters)).not.toContain("expectedVersion");
     expect(sdk).not.toContain("sandbox_permissions");
     expect(sdk).not.toContain("justification");
   });
@@ -194,6 +200,15 @@ describe("Spark DSH file tools", () => {
       { kind: "present", version },
       expect.any(Object),
     );
+  });
+
+  it("treats a legacy empty read expectedVersion as absent", async () => {
+    const { context, encodedVersion } = harness();
+    const read = named(createDshFileToolDefinitions(context), "read");
+
+    await expect(
+      read.execute({ path: "file.txt", expectedVersion: "" }, execution()),
+    ).resolves.toMatchObject({ version: encodedVersion });
   });
 
   it("passes explicit CAS intent and standing sandbox policy to the DSH provider", async () => {
@@ -258,6 +273,22 @@ describe("Spark DSH file tools", () => {
       expect.any(AbortSignal),
       expect.any(Object),
     );
+  });
+
+  it("keeps stale writes fail-closed", async () => {
+    const { context, rawContext, encodedVersion } = harness();
+    const write = named(createDshFileToolDefinitions(context), "write");
+    rawContext.fs.writeText.mockRejectedValueOnce(new FsError("file changed", "FS_STALE_VERSION"));
+
+    await expect(
+      write.execute(
+        { path: "file.txt", content: "replacement\n", expectedVersion: encodedVersion },
+        execution(),
+      ),
+    ).rejects.toMatchObject({
+      code: "FS_STALE_VERSION",
+      message: expect.stringContaining("re-read the file"),
+    });
   });
 
   it("applies multi-edit against the observed version and commits through provider CAS", async () => {

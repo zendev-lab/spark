@@ -59,12 +59,14 @@ Spark/Pi `ToolConfig` executors or access Node's filesystem behind DSH. Every
 mutation passes the session's resolved `SandboxExecutionPolicy` to the
 provider, so workspace confinement remains enforced at the filesystem seam.
 
-The DSH surface keeps the Spark versioned workflow but uses the provider's
-opaque `FsVersion`, not the native host's content SHA-256. `read` returns that
-token with the same `LINE#HASH:text` anchors; `write` requires the token or
-`missing`, and `edit` requires the token plus one or more non-overlapping
-replacements. The provider enforces the final atomic CAS. These schemas do not
-advertise sandbox escalation fields and do not own an approval path.
+The DSH surface keeps the Spark versioned mutation workflow but uses the
+provider's opaque `FsVersion`, not the native host's content SHA-256. `read`
+always returns the current snapshot and its token with the same
+`LINE#HASH:text` anchors; it accepts no version precondition. `write` requires
+the token or `missing`, and `edit` requires the token plus one or more
+non-overlapping replacements. The provider enforces the final atomic CAS.
+These schemas do not advertise sandbox escalation fields and do not own an
+approval path.
 
 `spark-web-dsh` mounts this adapter only inside its managed Spark presets. The
 official DSH file-tool plugin remains globally mounted for `read_image`; the
