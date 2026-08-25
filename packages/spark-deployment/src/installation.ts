@@ -104,9 +104,7 @@ export function packageManagerUpdateCommand(
   return { command, args, display: formatCommand(method, args) };
 }
 
-export function resolveSparkCommandPath(
-  env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
+export function resolveSparkCommandPath(env: NodeJS.ProcessEnv = process.env): string | undefined {
   for (const directory of (env.PATH ?? "").split(delimiter)) {
     if (!directory) continue;
     const candidate = resolve(directory, "spark");

@@ -222,7 +222,7 @@ export class DaemonLensProcessBroker {
       if (this.#entries.get(processKey)) this.#entries.delete(processKey);
       if (!entry.stopping) this.#cooldowns.set(processKey, Date.now() + this.#cooldownMs);
       const exitedAt = new Date().toISOString();
-      this.#stateStore.updateProviderProcess(processKey, {
+      this.#stateStore.updateProviderProcess(entry.processKey, {
         status: entry.stopping ? "stopped" : "crashed",
         lastHeartbeatAt: exitedAt,
         exitedAt,
