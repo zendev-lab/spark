@@ -210,7 +210,8 @@ Binds to 127.0.0.1 by default. A non-loopback --host requires one or more
 Prints the workbench URL without opening a browser.
 Pass --hmr to use the Vite development server;
 the default serves the prebuilt handler without HMR for long-lived use.
-Shows every workspace bound to the local daemon.
+Opens on the daemon-wide Session and Invocation view. Workspace remains
+repository, cwd, and Artifact context rather than a navigation prerequisite.
 Hub remains the multi-daemon proxy and management plane.
 `;
 }

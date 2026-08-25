@@ -1,14 +1,16 @@
 # Spark Web
 
 Local daemon browser workbench. It binds loopback by default, requires a one-shot
-token, and talks to the Spark daemon through `spark-daemon-client`. It lists
-every workspace bound to that daemon. Register a local directory from the home
-page; Hub origin and announce stay on daemon login, not the workbench form.
+token, and talks to the Spark daemon through `spark-daemon-client`. Its home
+route is a daemon-wide Session and Invocation view with pending waits and recent
+Artifacts. Workspace is repository/cwd context and an optional grouping axis,
+not the product root. Register a local directory from the collapsed context
+section; Hub origin and announce stay on daemon login, not the workbench form.
 Hub is the multi-daemon proxy plus management, not the cross-workspace owner.
 
 The workbench reads and mutates typed daemon projections for Session history,
 tree lifecycle, Ask/Approval, Work, Artifacts, Role/Skill catalogs, model/auth
-settings, search, export, and diagnostics. It never reads `.spark/` or a Hub
+settings, search, export, Invocation detail, and diagnostics. It never reads `.spark/` or a Hub
 database in the browser. Process-local Share pages are random, read-only,
 non-persistent HTML; the PWA shell never caches Session, Artifact, or credential
 data.

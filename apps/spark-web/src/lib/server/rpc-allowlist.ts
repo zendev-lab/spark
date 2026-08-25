@@ -24,6 +24,7 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "turn.stream",
   "turn.cancel",
   "turn.result",
+  "invocation.list",
   "invocation.retry",
   "model.catalog",
   "model.default.set",
