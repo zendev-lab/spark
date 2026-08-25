@@ -46,6 +46,11 @@ describe("SparkDaemonUserTokenStore", () => {
       expect(store.verify(`${created.token}x`)).toBeUndefined();
       // Well-formed but unknown.
       expect(store.verify(`sdu_${"A".repeat(32)}`)).toBeUndefined();
+      // Credentials from the other families never cross over: hub-daemon
+      // access/refresh tokens and Hub browser sessions are not daemon-user tokens.
+      expect(store.verify(`spark_rt_${"A".repeat(32)}`)).toBeUndefined();
+      expect(store.verify(`spark_rt_refresh_${"A".repeat(32)}`)).toBeUndefined();
+      expect(store.verify(`spark_hub_access_${"A".repeat(32)}`)).toBeUndefined();
     } finally {
       db.close();
     }

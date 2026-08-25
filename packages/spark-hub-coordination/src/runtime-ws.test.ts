@@ -135,30 +135,34 @@ describe("runtime WebSocket handling", () => {
     ).run(runtimeId, "install-test", "Test runtime", runtimeProtocolVersion, now, now);
     for (const token of [
       {
-        id: "rttok_access",
+        id: "rtdc_access",
+        kind: "access",
         secret: accessToken,
         scopes: ["runtime:connect"],
         expiresAt: "2999-01-01T00:00:00.000Z",
       },
       {
-        id: "rttok_refresh",
+        id: "rtdc_refresh",
+        kind: "refresh",
         secret: refreshToken,
         scopes: ["runtime:refresh"],
         expiresAt: "2999-01-01T00:00:00.000Z",
       },
       {
-        id: "rttok_expired",
+        id: "rtdc_expired",
+        kind: "access",
         secret: expiredToken,
         scopes: ["runtime:connect"],
         expiresAt: "2000-01-01T00:00:00.000Z",
       },
     ]) {
       db.prepare(
-        `INSERT INTO runtime_tokens
-          (id, runtime_id, token_hash, label, scopes_json, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO daemon_credentials
+          (id, family, kind, runtime_id, token_hash, label, scopes_json, created_at, expires_at)
+         VALUES (?, 'hub-daemon', ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         token.id,
+        token.kind,
         runtimeId,
         hashSecret(token.secret),
         token.id,
@@ -168,9 +172,14 @@ describe("runtime WebSocket handling", () => {
       );
     }
 
-    expect(authenticateRuntimeToken(db, runtimeId, `Bearer ${accessToken}`)).toBe("rttok_access");
+    expect(authenticateRuntimeToken(db, runtimeId, `Bearer ${accessToken}`)).toBe("rtdc_access");
+    // A refresh credential is a renewal vehicle, not an uplink credential.
     expect(authenticateRuntimeToken(db, runtimeId, `Bearer ${refreshToken}`)).toBeNull();
     expect(authenticateRuntimeToken(db, runtimeId, `Bearer ${expiredToken}`)).toBeNull();
+    // A daemon-user token from the daemon-owned family never attaches an uplink.
+    expect(
+      authenticateRuntimeToken(db, runtimeId, "Bearer sdu_00000000000000000000000000000000"),
+    ).toBeNull();
     db.close();
   });
 

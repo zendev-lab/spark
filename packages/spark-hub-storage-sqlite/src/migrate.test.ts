@@ -169,6 +169,7 @@ describe("migrations", () => {
       "0024",
       "0025",
       "0026",
+      "0027",
     ]);
 
     const bindingColumns = db
@@ -192,7 +193,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(26);
+    expect(migrationCount.count).toBe(27);
     db.close();
   });
 
@@ -474,14 +475,111 @@ describe("migrations", () => {
 
     migrate(db, migrations);
 
-    const scopes = db
-      .prepare("SELECT id, scopes_json AS scopesJson FROM runtime_tokens ORDER BY id")
-      .all() as Array<{ id: string; scopesJson: string }>;
-    expect(scopes).toEqual([
-      { id: "rttok_access", scopesJson: '["runtime:connect"]' },
-      { id: "rttok_custom", scopesJson: '["runtime:connect","custom:scope"]' },
-      { id: "rttok_refresh", scopesJson: '["runtime:refresh"]' },
+    const credentials = db
+      .prepare(
+        `SELECT id, kind, scopes_json AS scopesJson
+         FROM daemon_credentials
+         ORDER BY id`,
+      )
+      .all() as Array<{ id: string; kind: string; scopesJson: string }>;
+    expect(credentials).toEqual([
+      { id: "rttok_access", kind: "access", scopesJson: '["runtime:connect"]' },
+      { id: "rttok_custom", kind: "access", scopesJson: '["runtime:connect","custom:scope"]' },
+      { id: "rttok_refresh", kind: "refresh", scopesJson: '["runtime:refresh"]' },
     ]);
+    db.close();
+  });
+
+  it("canonicalizes pre-existing runtime tokens into the hub-daemon credential family", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0026"),
+    );
+    const createdAt = "2026-07-13T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES ('rt_family', 'install-family', 'Family daemon', 'offline', '{}', '{}', ?, ?)`,
+    ).run(createdAt, createdAt);
+    db.prepare(
+      `INSERT INTO runtime_enrollment_tokens
+        (id, token_hash, label, scopes_json, created_at, expires_at, used_at, created_runtime_id)
+       VALUES ('rtetok_family', 'hash-bootstrap', 'bootstrap', '["runtime:daemon-attach","runtime:refresh"]', ?, ?, ?, 'rt_family')`,
+    ).run(createdAt, "2026-07-14T00:00:00.000Z", createdAt);
+    const insertToken = db.prepare(
+      `INSERT INTO runtime_tokens
+        (id, runtime_id, token_hash, label, scopes_json, created_at)
+       VALUES (?, 'rt_family', ?, ?, ?, ?)`,
+    );
+    insertToken.run(
+      "rttok_family_access",
+      "hash-family-access",
+      "runtime access token",
+      '["runtime:connect"]',
+      createdAt,
+    );
+    insertToken.run(
+      "rttok_family_refresh",
+      "hash-family-refresh",
+      "runtime refresh token",
+      '["runtime:refresh"]',
+      createdAt,
+    );
+    db.prepare(
+      `INSERT INTO runtime_sessions
+        (id, runtime_id, token_id, transport, status, connected_at, last_seen_at)
+       VALUES ('rtsn_family', 'rt_family', 'rttok_family_access', 'websocket', 'connected', ?, ?)`,
+    ).run(createdAt, createdAt);
+
+    migrate(db, migrations);
+
+    const credentials = db
+      .prepare(
+        `SELECT id, family, kind, bootstrap_kind AS bootstrapKind, bootstrap_id AS bootstrapId
+         FROM daemon_credentials
+         ORDER BY id`,
+      )
+      .all() as Array<{
+      id: string;
+      family: string;
+      kind: string;
+      bootstrapKind: string | null;
+      bootstrapId: string | null;
+    }>;
+    expect(credentials).toEqual([
+      {
+        id: "rttok_family_access",
+        family: "hub-daemon",
+        kind: "access",
+        bootstrapKind: "enrollment",
+        bootstrapId: "rtetok_family",
+      },
+      {
+        id: "rttok_family_refresh",
+        family: "hub-daemon",
+        kind: "refresh",
+        bootstrapKind: "enrollment",
+        bootstrapId: "rtetok_family",
+      },
+    ]);
+    // The uplink session's credential reference was re-pointed and still resolves.
+    const session = db
+      .prepare(
+        `SELECT rs.token_id AS tokenId, dc.kind AS credentialKind
+         FROM runtime_sessions rs
+         LEFT JOIN daemon_credentials dc ON dc.id = rs.token_id
+         WHERE rs.id = 'rtsn_family'`,
+      )
+      .get() as { tokenId: string | null; credentialKind: string | null } | undefined;
+    expect(session).toEqual({ tokenId: "rttok_family_access", credentialKind: "access" });
+    expect(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runtime_tokens'")
+        .all(),
+    ).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     db.close();
   });
 

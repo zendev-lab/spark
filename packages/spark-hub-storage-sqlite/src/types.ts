@@ -132,12 +132,17 @@ export interface RuntimeConnectionsTable {
   updated_at: string;
 }
 
-export interface RuntimeTokensTable {
+export interface DaemonCredentialsTable {
   id: string;
+  family: "hub-daemon";
+  kind: "access" | "refresh";
   runtime_id: string;
   token_hash: string;
   label: string | null;
   scopes_json: string;
+  bootstrap_kind: "enrollment" | "device" | null;
+  bootstrap_id: string | null;
+  rotated_from_id: string | null;
   created_at: string;
   expires_at: string | null;
   revoked_at: string | null;
@@ -574,7 +579,7 @@ export interface SparkDatabase {
   project_resources: ProjectResourcesTable;
   agent_specs: AgentSpecsTable;
   runtime_connections: RuntimeConnectionsTable;
-  runtime_tokens: RuntimeTokensTable;
+  daemon_credentials: DaemonCredentialsTable;
   runtime_enrollment_tokens: RuntimeEnrollmentTokensTable;
   runtime_device_authorizations: RuntimeDeviceAuthorizationsTable;
   runtime_sessions: RuntimeSessionsTable;
