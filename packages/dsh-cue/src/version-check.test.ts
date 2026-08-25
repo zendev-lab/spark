@@ -115,7 +115,7 @@ test("renderCuedVersionWarning renders only actionable warnings", () => {
     /cued 0\.0\.9 is older than latest Cue release 0\.1\.0/,
     /cued upgrade/,
     /cued restart/,
-    /PI_CUE_NO_VERSION_CHECK/,
+    /DSH_CUE_NO_VERSION_CHECK/,
   ]) {
     assert.match(outdated, pattern);
   }
@@ -263,10 +263,10 @@ test("checkCuedVersionAndWarn swallows latest-lookup errors", async () => {
   assert.deepEqual(messages, []);
 });
 
-test("PI_CUE_NO_VERSION_CHECK disables the check entirely", async () => {
+test("DSH_CUE_NO_VERSION_CHECK disables the check entirely", async () => {
   __resetVersionCheckForTests();
-  const previous = process.env.PI_CUE_NO_VERSION_CHECK;
-  process.env.PI_CUE_NO_VERSION_CHECK = "1";
+  const previous = process.env.DSH_CUE_NO_VERSION_CHECK;
+  process.env.DSH_CUE_NO_VERSION_CHECK = "1";
   try {
     const messages: string[] = [];
     const ctx = { ui: { notify: (msg: string) => messages.push(msg) } };
@@ -280,9 +280,9 @@ test("PI_CUE_NO_VERSION_CHECK disables the check entirely", async () => {
     assert.deepEqual(messages, []);
   } finally {
     if (previous === undefined) {
-      delete process.env.PI_CUE_NO_VERSION_CHECK;
+      delete process.env.DSH_CUE_NO_VERSION_CHECK;
     } else {
-      process.env.PI_CUE_NO_VERSION_CHECK = previous;
+      process.env.DSH_CUE_NO_VERSION_CHECK = previous;
     }
     __resetVersionCheckForTests();
   }

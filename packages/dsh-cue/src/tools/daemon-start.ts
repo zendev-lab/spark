@@ -27,7 +27,7 @@ async function startDaemonWithContract(
       stdio: ["ignore", "pipe", "pipe"],
     });
     const timeoutMs = timeoutMsFromEnv(
-      "PI_CUE_AUTOSTART_TIMEOUT_MS",
+      "DSH_CUE_AUTOSTART_TIMEOUT_MS",
       DEFAULT_CUED_AUTOSTART_TIMEOUT_MS,
     );
     let settled = false;

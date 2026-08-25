@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { CueClient } from "../packages/spark-cue/src/client/cue-client.ts";
-import { createCueToolRuntime } from "../packages/spark-cue/src/operations/index.ts";
+import { CueClient } from "../packages/dsh-cue/src/client/cue-client.ts";
+import { createCueToolRuntime } from "../packages/dsh-cue/src/operations/index.ts";
 
 const execFileAsync = promisify(execFile);
 const LOG_LIMIT_BYTES = 128 * 1024;
@@ -279,12 +279,12 @@ export function cueContractHarnessExitCode(
   return 0;
 }
 
-export async function runSparkCueContractHarness(
+export async function runDshCueContractHarness(
   options: CueContractHarnessOptions = {},
 ): Promise<CueContractHarnessReport> {
   const harnessStartedAt = Date.now();
   const strict = options.strict ?? false;
-  const outputPath = resolve(options.outputPath ?? "/tmp/spark-cue-contract-harness-report.json");
+  const outputPath = resolve(options.outputPath ?? "/tmp/dsh-cue-contract-harness-report.json");
   const binary = await resolveCuedBinary(options);
   const report: CueContractHarnessReport = {
     generatedAt: new Date().toISOString(),
@@ -320,7 +320,7 @@ export async function runSparkCueContractHarness(
     return report;
   }
 
-  const tempRoot = await mkdtemp(join(tmpdir(), "spark-cue-contract-"));
+  const tempRoot = await mkdtemp(join(tmpdir(), "dsh-cue-contract-"));
   const runtimeDir = join(tempRoot, "runtime");
   const dataDir = join(tempRoot, "data");
   const stateDir = join(tempRoot, "state");
@@ -377,16 +377,16 @@ export async function runSparkCueContractHarness(
       const sessionEnv = {
         PATH: process.env.PATH,
         LC_ALL: "C",
-        SPARK_CUE_CONTRACT: "1",
+        DSH_CUE_CONTRACT: "1",
       };
       clientA = await CueClient.connect(socketPath, {
-        sessionId: "spark-cue-contract-a",
+        sessionId: "dsh-cue-contract-a",
         cwd: workspaceA,
         env: sessionEnv,
       });
       clients.push(clientA);
       clientB = await CueClient.connect(socketPath, {
-        sessionId: "spark-cue-contract-b",
+        sessionId: "dsh-cue-contract-b",
         cwd: workspaceB,
         env: sessionEnv,
       });
@@ -409,7 +409,7 @@ export async function runSparkCueContractHarness(
           "named-sessions",
           "session-archive",
         ],
-        sessionIds: ["spark-cue-contract-a", "spark-cue-contract-b"],
+        sessionIds: ["dsh-cue-contract-a", "dsh-cue-contract-b"],
       };
     });
 
@@ -428,7 +428,7 @@ export async function runSparkCueContractHarness(
       const second = clientB;
 
       await recordCheck(report, "executionResult", async () => {
-        const result = await first.runExecution("printf spark-cue-contract-execution", {
+        const result = await first.runExecution("printf dsh-cue-contract-execution", {
           timeout: 10,
           pty: false,
         });
@@ -438,7 +438,7 @@ export async function runSparkCueContractHarness(
           `expected exitCode=0, got ${String(result.exitCode)}`,
         );
         requireContract(
-          result.stdout === "spark-cue-contract-execution",
+          result.stdout === "dsh-cue-contract-execution",
           `unexpected stdout ${JSON.stringify(result.stdout)}`,
         );
         return {
@@ -452,15 +452,15 @@ export async function runSparkCueContractHarness(
 
       await recordCheck(report, "twoSessionConcurrency", async () => {
         const [resultA, resultB] = await Promise.all([
-          first.runExecution("printf spark-cue-contract-session-a", { timeout: 10 }),
-          second.runExecution("printf spark-cue-contract-session-b", { timeout: 10 }),
+          first.runExecution("printf dsh-cue-contract-session-a", { timeout: 10 }),
+          second.runExecution("printf dsh-cue-contract-session-b", { timeout: 10 }),
         ]);
         requireContract(
-          resultA.stdout === "spark-cue-contract-session-a",
+          resultA.stdout === "dsh-cue-contract-session-a",
           `session A received ${JSON.stringify(resultA.stdout)}`,
         );
         requireContract(
-          resultB.stdout === "spark-cue-contract-session-b",
+          resultB.stdout === "dsh-cue-contract-session-b",
           `session B received ${JSON.stringify(resultB.stdout)}`,
         );
         requireContract(!first.isClosed && !second.isClosed, "one session closed the other");
@@ -476,11 +476,11 @@ export async function runSparkCueContractHarness(
         const [script, outsider] = await Promise.all([
           first.runScript({
             path: join(workspaceA, "two-items.cue"),
-            input: "sleep 0.4\nprintf spark-cue-contract-script-second",
+            input: "sleep 0.4\nprintf dsh-cue-contract-script-second",
             timeout: 10,
           }),
           delay(75).then(() =>
-            second.runExecution("printf spark-cue-contract-outsider", { timeout: 10 }),
+            second.runExecution("printf dsh-cue-contract-outsider", { timeout: 10 }),
           ),
         ]);
         requireContract(
@@ -500,7 +500,7 @@ export async function runSparkCueContractHarness(
           `outsider execution ${outsider.executionId} reused script identity ${script.executionId}`,
         );
         requireContract(
-          script.stdout === "spark-cue-contract-script-second",
+          script.stdout === "dsh-cue-contract-script-second",
           `unexpected script stdout ${JSON.stringify(script.stdout)}`,
         );
         return {
@@ -560,31 +560,31 @@ export async function runSparkCueContractHarness(
       });
 
       await recordCheck(report, "canonicalOperationRuntime", async () => {
-        const sessionId = "spark-cue-contract-a";
+        const sessionId = "dsh-cue-contract-a";
         const runtime = createCueToolRuntime({ client: first, autoStartLocal: false });
         let operationIndex = 0;
         const context = () => ({
           sessionId,
           cwd: workspaceA,
-          env: { PATH: process.env.PATH, LC_ALL: "C", SPARK_CUE_CONTRACT: "1" },
-          operationId: `spark-cue-contract-operation-${operationIndex++}`,
+          env: { PATH: process.env.PATH, LC_ALL: "C", DSH_CUE_CONTRACT: "1" },
+          operationId: `dsh-cue-contract-operation-${operationIndex++}`,
         });
         const cuePath = join(workspaceA, "operation-runtime.cue");
         const pythonPath = join(workspaceA, "operation-runtime.py");
         await Promise.all([
-          writeFile(cuePath, "printf spark-cue-operation-file\n", "utf8"),
-          writeFile(pythonPath, 'print("spark-cue-operation-python-file")\n', "utf8"),
+          writeFile(cuePath, "printf dsh-cue-operation-file\n", "utf8"),
+          writeFile(pythonPath, 'print("dsh-cue-operation-python-file")\n', "utf8"),
         ]);
 
         try {
           const foreground = await runtime.execute(
             "cue_exec",
-            { command: "printf spark-cue-operation-foreground" },
+            { command: "printf dsh-cue-operation-foreground" },
             context(),
           );
           requireContract(foreground.ok, foreground.text);
           requireContract(
-            foreground.stdout.text === "spark-cue-operation-foreground",
+            foreground.stdout.text === "dsh-cue-operation-foreground",
             `unexpected canonical stdout ${JSON.stringify(foreground.stdout)}`,
           );
 
@@ -616,7 +616,7 @@ export async function runSparkCueContractHarness(
           const cueRun = await runtime.execute("cue_run", { path: cuePath }, context());
           const cueScript = await runtime.execute(
             "cue_script",
-            { script: "printf spark-cue-operation-inline" },
+            { script: "printf dsh-cue-operation-inline" },
             context(),
           );
           const scriptRun = await runtime.execute(
@@ -626,7 +626,7 @@ export async function runSparkCueContractHarness(
           );
           const scriptEval = await runtime.execute(
             "script_eval",
-            { script: 'print("spark-cue-operation-python-inline")', language: "python" },
+            { script: 'print("dsh-cue-operation-python-inline")', language: "python" },
             context(),
           );
           for (const result of [cueRun, cueScript, scriptRun, scriptEval]) {
@@ -663,12 +663,12 @@ export async function runSparkCueContractHarness(
           await runtime.execute("cue_scope", { action: "config", tail_bytes: 4096 }, context());
           await runtime.execute(
             "cue_scope",
-            { action: "env_set", key: "SPARK_CUE_RUNTIME_E2E", value: "1" },
+            { action: "env_set", key: "DSH_CUE_RUNTIME_E2E", value: "1" },
             context(),
           );
           await runtime.execute(
             "cue_scope",
-            { action: "env_unset", key: "SPARK_CUE_RUNTIME_E2E" },
+            { action: "env_unset", key: "DSH_CUE_RUNTIME_E2E" },
             context(),
           );
           await runtime.execute(
@@ -768,12 +768,12 @@ for (let index = 2; index < process.argv.length; index += 1) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const strict = args.get("strict") === true || process.env.CUE_CONTRACT_STRICT === "1";
-  runSparkCueContractHarness({
+  runDshCueContractHarness({
     strict,
     outputPath:
       typeof args.get("output") === "string"
         ? String(args.get("output"))
-        : "/tmp/spark-cue-contract-harness-report.json",
+        : "/tmp/dsh-cue-contract-harness-report.json",
     cueRoot: typeof args.get("cue-root") === "string" ? String(args.get("cue-root")) : undefined,
     cuedBin: typeof args.get("cued-bin") === "string" ? String(args.get("cued-bin")) : undefined,
     startupTimeoutMs:
@@ -789,7 +789,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             reportPath:
               typeof args.get("output") === "string"
                 ? resolve(String(args.get("output")))
-                : "/tmp/spark-cue-contract-harness-report.json",
+                : "/tmp/dsh-cue-contract-harness-report.json",
             status: report.status,
             checks: report.checks,
             blockers: report.blockers,

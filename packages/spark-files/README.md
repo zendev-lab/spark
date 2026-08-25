@@ -49,7 +49,7 @@ on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
 - `find` — pure-JS glob file search over a gitignore-aware walk.
 
 `bash` is intentionally omitted: Spark uses `cue_exec` for shell execution and
-spark-cue disables bash by policy.
+command execution is supplied by the daemon's DSH Cue plugins.
 
 ## DSH adapter
 

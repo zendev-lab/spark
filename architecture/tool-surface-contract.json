@@ -28,42 +28,42 @@
       "effect": "read"
     },
     "cue_exec": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_history": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "read"
     },
     "cue_jobs": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_resources": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "read"
     },
     "cue_run": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_schedule": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_scope": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_script": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
@@ -148,12 +148,12 @@
       "effect": "read"
     },
     "script_eval": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "script_run": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },

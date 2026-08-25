@@ -407,8 +407,8 @@ export async function resolveCueExecTarget(
     const remoteCwd =
       requestedCwd ??
       ctx.cueRemoteCwd?.trim() ??
-      ctx.env?.SPARK_CUE_REMOTE_CWD?.trim() ??
-      process.env.SPARK_CUE_REMOTE_CWD?.trim();
+      ctx.env?.DSH_CUE_REMOTE_CWD?.trim() ??
+      process.env.DSH_CUE_REMOTE_CWD?.trim();
     if (!remoteCwd) {
       throw new Error(
         `cue_exec profile \`${transport.profile_name}\` uses SSH; provide cwd as a path that exists on ${transport.destination}. Local session paths are not mapped to remote hosts.`,

@@ -29,7 +29,7 @@ updated: 2026-08-23
 - 为 invocation、provider、tool、delivery 与代码交付保留隐私安全的关联观测边界；执行真相仍在 daemon/SQLite，可选 exporter 或外部观察面不得成为状态所有者。
 - 将 command policy 与实际执行隔离逐步对齐，在不改变 local-first 语义的前提下，为支持平台提供显式、fail-closed 的 sandbox runner。
 - 让 Spark 在没有 `.spark/` 或 `SPARK.md` 预置状态时也能默认进行轻量调查，并让 project-bound 命令在需要时从用户意图创建或恢复本地 Spark 状态。
-- 用持久化的项目与任务有向无环图、类型化证据制品、结构化提问与角色执行组织可追溯工作流；`Cue` 能力经 `spark-cue` 复用。
+- 用持久化的项目与任务有向无环图、类型化证据制品、结构化提问与角色执行组织可追溯工作流；`Cue` 能力经 Cordis `dsh-cue` service 复用。
 
 ## 架构方向
 
@@ -115,13 +115,12 @@ updated: 2026-08-23
 - Goal/Loop/Repro 的 `manual_only` 旁路需要 Session 级 `driverAuthority`：交互
   启动 ask 一次，CLI/API/daemon tick 静默授予；拒绝则退化为逐工具批准。绑定本身
   不是同意。
-- DSH Phase 2 已通过私有 `@zendev-lab/dsh-tool-cue` adapter 接入
-  SystemPrompt + Tools：`spark-cue/operations` 仍唯一拥有 Cue 语义，DSH
-  只适配受支持 DSH release 的 host ABI、权限和 presenter；当前托管的
-  `spark-standard` / `spark-code` preset 用 Cue 取代 DSH Bash/Pwsh/Jobs；规范化
-  切片把 Web DSH 收敛到独占 Spark preset root 下仅有的 `standard` / `ptc` 两个
-  agent preset（Spark Standard / Spark PTC），缺失 preset 由 DSH 原生错误处理。
-  两个托管 preset 的文本文件工具由
+- DSH Phase 2 已通过 `@zendev-lab/dsh-cue` service 与私有
+  `@zendev-lab/dsh-tool-cue` adapter 接入 SystemPrompt + Tools：`dsh-cue`
+  仍唯一拥有 Cue 语义，DSH
+  只适配受支持 DSH release 的 host ABI、权限和 presenter；当前
+  `spark-standard` / `spark-code` 用 Cue 取代 DSH Bash/Pwsh/Jobs，规范化切片再将
+  `spark-code` 硬切为 `spark-ptc`。两个托管 preset 的文本文件工具由
   `spark-files/dsh` 通过 DSH `ctx.fs` 提供显式版本 CAS 和逐调用沙箱策略；官方
   `read_image` 与 `dsh-tool-fs-search` 保留。
 - DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark

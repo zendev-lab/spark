@@ -84,13 +84,22 @@ describe("architecture inventory governance", () => {
   });
 
   test("rejects stale DSH independence migration exceptions", () => {
+    const candidateInventory = structuredClone(inventory);
     const candidateManifests = structuredClone(manifests);
-    delete candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-cue"];
+    candidateInventory.packages["@zendev-lab/dsh-tool-cue"].dshIndependenceException = {
+      dependencies: ["@zendev-lab/spark-core"],
+      reason: "Synthetic stale exception fixture.",
+      exitCondition: "Remove immediately.",
+    };
 
     expect(
-      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+      governance.validateArchitectureGovernance(
+        candidateInventory,
+        candidateManifests,
+        rootManifest,
+      ),
     ).toContain(
-      "@zendev-lab/dsh-tool-cue has stale DSH independence exception for @zendev-lab/spark-cue",
+      "@zendev-lab/dsh-tool-cue has stale DSH independence exception for @zendev-lab/spark-core",
     );
   });
 

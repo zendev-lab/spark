@@ -1,9 +1,9 @@
 /**
- * Detect outdated `cued` daemons from the spark-cue extension.
+ * Detect outdated `cued` daemons from the dsh-cue extension.
  *
- * spark-cue itself does not have an authoritative "expected" cued version —
+ * dsh-cue itself does not have an authoritative "expected" cued version —
  * it is shipped independently and may be installed against many Cue
- * releases over its lifetime. So instead of comparing against spark-cue's own
+ * releases over its lifetime. So instead of comparing against dsh-cue's own
  * `package.json` version, we ask the upstream release channel:
  *
  *   GET https://api.github.com/repos/zendev-lab/cue/releases/latest
@@ -28,9 +28,9 @@
  * suppresses the warning rather than disrupting extension startup.
  *
  * Toggles:
- *   - `PI_CUE_NO_VERSION_CHECK=1`   — disable entirely
- *   - `PI_CUE_VERSION_CACHE_TTL_MS` — override the 6h cache TTL
- *   - `PI_CUE_LATEST_RELEASE_URL`   — override the GitHub API URL (tests)
+ *   - `DSH_CUE_NO_VERSION_CHECK=1`   — disable entirely
+ *   - `DSH_CUE_VERSION_CACHE_TTL_MS` — override the 6h cache TTL
+ *   - `DSH_CUE_LATEST_RELEASE_URL`   — override the GitHub API URL (tests)
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -64,9 +64,9 @@ const DEFAULT_API_URL = "https://api.github.com/repos/zendev-lab/cue/releases/la
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const HTTP_TIMEOUT_MS = 4000;
 const NOTIFY_LEVEL = "warning";
-const ENV_NO_CHECK = "PI_CUE_NO_VERSION_CHECK";
-const ENV_TTL = "PI_CUE_VERSION_CACHE_TTL_MS";
-const ENV_API_URL = "PI_CUE_LATEST_RELEASE_URL";
+const ENV_NO_CHECK = "DSH_CUE_NO_VERSION_CHECK";
+const ENV_TTL = "DSH_CUE_VERSION_CACHE_TTL_MS";
+const ENV_API_URL = "DSH_CUE_LATEST_RELEASE_URL";
 
 let warnedForProcess = false;
 
@@ -105,11 +105,11 @@ export function renderWarning(verdict: VersionVerdict): string | null {
   const lines: string[] = [];
   if (verdict.kind === "unknown-running") {
     lines.push(
-      `spark-cue: cued does not report its version; latest Cue release is ${verdict.latest}.`,
+      `dsh-cue: cued does not report its version; latest Cue release is ${verdict.latest}.`,
     );
   } else {
     lines.push(
-      `spark-cue: cued ${verdict.daemon.kind === "reported" ? verdict.daemon.version : "(unknown)"} is older than latest Cue release ${verdict.latest}.`,
+      `dsh-cue: cued ${verdict.daemon.kind === "reported" ? verdict.daemon.version : "(unknown)"} is older than latest Cue release ${verdict.latest}.`,
     );
   }
   lines.push("  Self-update + restart:  cued upgrade");
@@ -147,7 +147,7 @@ export async function checkAndWarn(
         : { kind: "unknown" };
   } catch (error) {
     // Don't promote transport errors into version warnings.
-    console.debug("[spark-cue] version check ping failed; skipping warning", error);
+    console.debug("[dsh-cue] version check ping failed; skipping warning", error);
     return null;
   }
 
@@ -174,7 +174,7 @@ async function resolveLatest(override: VersionCheckOptions["latest"]): Promise<s
       try {
         return await override();
       } catch (error) {
-        console.debug("[spark-cue] version check latest override failed", error);
+        console.debug("[dsh-cue] version check latest override failed", error);
         return null;
       }
     }
@@ -233,7 +233,7 @@ async function readCache(path: string): Promise<CacheEntry | null> {
     }
     return null;
   } catch (error) {
-    console.debug(`[spark-cue] version cache read failed for ${path}`, error);
+    console.debug(`[dsh-cue] version cache read failed for ${path}`, error);
     return null;
   }
 }
@@ -244,7 +244,7 @@ async function writeCache(path: string, entry: CacheEntry): Promise<void> {
     await writeFile(path, JSON.stringify(entry), "utf-8");
   } catch (error) {
     // Best-effort; a read-only HOME just means we'll re-fetch next time.
-    console.debug(`[spark-cue] version cache write failed for ${path}`, error);
+    console.debug(`[dsh-cue] version cache write failed for ${path}`, error);
   }
 }
 
@@ -255,7 +255,7 @@ async function httpGetReleaseTag(url: string): Promise<string | null> {
     const response = await fetch(url, {
       headers: {
         Accept: "application/vnd.github.v3+json",
-        "User-Agent": "spark-cue version-check",
+        "User-Agent": "dsh-cue version-check",
       },
       signal: controller.signal,
     });
@@ -264,7 +264,7 @@ async function httpGetReleaseTag(url: string): Promise<string | null> {
     if (typeof data.tag_name !== "string" || data.tag_name.length === 0) return null;
     return normalizeTag(data.tag_name);
   } catch (error) {
-    console.debug(`[spark-cue] latest release fetch failed for ${url}`, error);
+    console.debug(`[dsh-cue] latest release fetch failed for ${url}`, error);
     return null;
   } finally {
     clearTimeout(timer);

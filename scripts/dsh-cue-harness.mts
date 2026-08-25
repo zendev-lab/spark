@@ -49,7 +49,7 @@ for (let index = 2; index < process.argv.length; index += 1) {
 
 const strict = args.get("strict") === true;
 const exercise = args.get("no-exercise") !== true;
-const outputPath = String(args.get("output") || "/tmp/spark-cue-harness-report.json");
+const outputPath = String(args.get("output") || "/tmp/dsh-cue-harness-report.json");
 
 async function run(command: string, argv: string[], timeoutMs = 10_000): Promise<CommandResult> {
   const label = [command, ...argv].join(" ");
@@ -113,7 +113,7 @@ async function exerciseDebugSocket(socketPath: string): Promise<{
   return { attempted: true, passed, commands };
 }
 
-export async function runSparkCueHarness(
+export async function runDshCueHarness(
   options: {
     strict?: boolean;
     exercise?: boolean;
@@ -123,10 +123,7 @@ export async function runSparkCueHarness(
   const useStrict = options.strict ?? strict;
   const useExercise = options.exercise ?? exercise;
   const reportOutput = options.outputPath ?? outputPath;
-  const socketPath = join(
-    await mkdtemp(join(tmpdir(), "spark-cue-harness-")),
-    "cue-tui-debug.sock",
-  );
+  const socketPath = join(await mkdtemp(join(tmpdir(), "dsh-cue-harness-")), "cue-tui-debug.sock");
   const commands: Record<string, CommandResult> = {};
   const blockers: string[] = [];
 
@@ -191,7 +188,7 @@ export async function runSparkCueHarness(
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runSparkCueHarness().catch((error: unknown) => {
+  runDshCueHarness().catch((error: unknown) => {
     console.error(error instanceof Error ? error.stack || error.message : String(error));
     process.exitCode = 1;
   });

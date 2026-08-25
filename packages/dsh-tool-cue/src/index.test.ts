@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
 import { validateJsonSchemaValue, type ToolDefinition } from "@deepseek-ai/dsh-tools";
-import { CUE_TOOL_NAMES } from "@zendev-lab/spark-cue/operations";
+import { CUE_TOOL_NAMES } from "@zendev-lab/dsh-cue/operations";
 import * as plugin from "./index.ts";
 import { apply, presentCueCall, presentCueResult } from "./index.ts";
 
@@ -13,6 +13,10 @@ function harness(
   const pre: Array<(exec: Record<string, unknown>, next: () => Promise<unknown>) => unknown> = [];
   const dispose: Array<() => void> = [];
   const context = {
+    cue: {
+      execute: vi.fn(async (toolName: string) => validOutput(toolName)),
+      releaseSession: vi.fn(),
+    },
     tools: {
       register(tool: ToolDefinition) {
         tools.push(tool);
@@ -104,8 +108,7 @@ describe("dsh-tool-cue plugin", () => {
     expect("default" in plugin).toBe(false);
     expect(plugin).toMatchObject({
       name: "dsh-tool-cue",
-      inject: ["tools", "systemPrompt", "sandboxPolicy", "sandbox", "approval", "shellEnv"],
-      Config: expect.any(Function),
+      inject: ["cue", "tools", "systemPrompt", "sandboxPolicy", "sandbox", "approval", "shellEnv"],
       apply: expect.any(Function),
     });
   });
@@ -161,6 +164,29 @@ describe("dsh-tool-cue plugin", () => {
         "",
       ),
     ).toEqual([]);
+    for (const cleanup of dispose) cleanup();
+  });
+
+  it("executes through the injected dsh-cue service", async () => {
+    const { context, tools, dispose } = harness();
+    const cueExec = tools.find((tool) => tool.name === "cue_exec");
+    const agent = { session: { id: "s1", header: { cwd: "/workspace" } } };
+
+    const result = await cueExec?.execute({ command: "pwd" }, {
+      agent,
+      callId: "cue-1",
+      rootCallId: "cue-1",
+      name: "cue_exec",
+      arguments: { command: "pwd" },
+      signal: new AbortController().signal,
+    } as never);
+
+    expect(context.cue.execute).toHaveBeenCalledWith(
+      "cue_exec",
+      { command: "pwd" },
+      expect.objectContaining({ sessionId: "dsh:s1", cwd: "/workspace" }),
+    );
+    expect(result).toMatchObject({ tool: "cue_exec", ok: true });
     for (const cleanup of dispose) cleanup();
   });
 

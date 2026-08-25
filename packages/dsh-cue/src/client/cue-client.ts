@@ -508,7 +508,11 @@ const MAX_PENDING_REQUESTS = 1_024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const SETTLED_RESPONSE_RETENTION_MS = 100;
 const MAX_REQUEST_ID = 0xffff_ffff;
-const PROCESS_SESSION_ID = `spark-cue:process:${process.pid}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`;
+const PROCESS_SESSION_ID = `dsh-cue:process:${process.pid}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`;
+/** Persisted idempotency domain retained across the spark-cue -> dsh-cue rename. */
+const LEGACY_SPARK_CUE_OPERATION_HASH_DOMAIN = "spark-cue-operation-v1";
+/** Persisted idempotency prefix retained across the spark-cue -> dsh-cue rename. */
+const LEGACY_SPARK_CUE_OPERATION_ID_PREFIX = "spark-cue:v1";
 
 // ── Connection state ───────────────────────────────────────────────────────
 
@@ -542,12 +546,12 @@ function requireOperationPart(value: string, label: string): string {
  */
 export function cueOperationId(operation: CueOperationKey): string {
   const canonical = JSON.stringify([
-    "spark-cue-operation-v1",
+    LEGACY_SPARK_CUE_OPERATION_HASH_DOMAIN,
     requireOperationPart(operation.sessionId, "operation sessionId"),
     requireOperationPart(operation.toolCallId, "operation toolCallId"),
     requireOperationPart(operation.kind, "operation kind"),
   ]);
-  return `spark-cue:v1:${createHash("sha256").update(canonical).digest("base64url")}`;
+  return `${LEGACY_SPARK_CUE_OPERATION_ID_PREFIX}:${createHash("sha256").update(canonical).digest("base64url")}`;
 }
 
 /** Derive a non-colliding child step while retaining the same logical tool call. */
@@ -623,8 +627,7 @@ function normalizeSessionEnv(
   forwardSensitiveEnv?: boolean,
 ): Record<string, string> {
   const source = input ?? process.env;
-  const forwardSensitive =
-    forwardSensitiveEnv ?? process.env.SPARK_CUE_FORWARD_SENSITIVE_ENV === "1";
+  const forwardSensitive = forwardSensitiveEnv ?? process.env.DSH_CUE_FORWARD_SENSITIVE_ENV === "1";
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(source)) {
     if (!forwardSensitive && isSensitiveCueEnvKey(key)) continue;
@@ -660,7 +663,7 @@ async function openUnixSocket(path: string): Promise<Socket> {
         resolve(socket);
       });
       const timeoutMs = timeoutMsFromEnv(
-        "PI_CUE_CONNECT_TIMEOUT_MS",
+        "DSH_CUE_CONNECT_TIMEOUT_MS",
         DEFAULT_CUE_CONNECT_TIMEOUT_MS,
       );
       if (timeoutMs > 0) {
@@ -1037,7 +1040,7 @@ export class CueClient {
         pty: opts?.pty ?? false,
         needs: opts?.needs,
         spawnAdapter: opts?.spawnAdapter,
-        sourceName: "<spark-cue>",
+        sourceName: "<dsh-cue>",
       }),
       cueOperationStep(opts?.operation, "submit"),
     );
@@ -1072,7 +1075,7 @@ export class CueClient {
         pty: opts?.pty ?? false,
         needs: opts?.needs,
         spawnAdapter: opts?.spawnAdapter,
-        sourceName: "<spark-cue>",
+        sourceName: "<dsh-cue>",
       }),
       cueOperationStep(opts?.operation, "submit"),
     );
@@ -1351,7 +1354,7 @@ export class CueClient {
       {
         CreateSchedule: {
           schedule: parseScheduleExpression(schedule),
-          execution: compileExecution(command, { sourceName: "<spark-cue-schedule>" }),
+          execution: compileExecution(command, { sourceName: "<dsh-cue-schedule>" }),
         },
       },
       operation,
@@ -1594,7 +1597,7 @@ export class CueClient {
           try {
             handler(payload);
           } catch (error) {
-            console.debug(`[spark-cue] event listener for ${channel} threw`, error);
+            console.debug(`[dsh-cue] event listener for ${channel} threw`, error);
           }
         }
       };
