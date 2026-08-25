@@ -1,8 +1,12 @@
 import {
   isSparkWebHtmlNavigation,
   renderSparkWebAccessPage,
-  sanitizeSparkWebReturnTo,
+  resolveSparkWebAccessChallenge,
+  resolveSparkWebAccessRequest,
+  SPARK_WEB_ACCESS_COOKIE,
+  SPARK_WEB_ACCESS_PAGE_HEADERS,
   SPARK_WEB_ACCESS_PATH,
+  sparkWebRequestReturnTo,
 } from "@zendev-lab/spark-daemon-client";
 import type { Handle, RequestEvent } from "@sveltejs/kit";
 import { error, redirect } from "@sveltejs/kit";
@@ -66,26 +70,23 @@ export const handle: Handle = async ({ event, resolve }) => {
     // The daemon owns the daemon-user token family; a daemon that cannot be
     // reached fails closed instead of falling back to any local comparison.
     const provided = tokenFromRequest(credentials);
-    if (!provided) {
-      if (isHtmlNavigation(event.request)) {
-        return accessPage("prompt", currentReturnTo(event));
-      }
-      error(401, "Spark web token required");
-    }
-    const verification = await verifySparkWebAccessToken(provided);
-    if (verification === "unavailable") {
-      if (isHtmlNavigation(event.request)) {
-        return accessPage("unavailable", currentReturnTo(event), 503);
-      }
-      error(503, "Spark daemon is unavailable to verify the web token");
-    }
+    const verification = provided ? await verifySparkWebAccessToken(provided) : "missing";
     if (verification !== "valid") {
-      if (isHtmlNavigation(event.request)) {
-        return accessPage("invalid", currentReturnTo(event), 401);
+      const challenge = resolveSparkWebAccessChallenge({
+        htmlNavigation: isHtmlNavigation(event.request),
+        reason: verification === "unavailable" ? "unavailable" : provided ? "invalid" : "missing",
+      });
+      if (challenge.type === "page") {
+        return accessPage(challenge.state, sparkWebRequestReturnTo(event.url), challenge.status);
       }
-      error(401, "Spark web token required");
+      error(
+        challenge.status,
+        challenge.status === 503
+          ? "Spark daemon is unavailable to verify the web token"
+          : "Spark web token required",
+      );
     }
-    if (event.url.searchParams.has(SPARK_WEB_TOKEN_QUERY)) {
+    if (event.url.searchParams.has(SPARK_WEB_TOKEN_QUERY) && provided) {
       setAccessCookie(event, provided);
     }
   }
@@ -98,23 +99,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 };
 
 async function handleAccessPage(event: RequestEvent, tokenRequired: boolean): Promise<Response> {
-  if (event.request.method === "GET" || event.request.method === "HEAD") {
-    const returnTo = sanitizeSparkWebReturnTo(event.url.searchParams.get("returnTo"));
-    if (!tokenRequired) redirect(303, returnTo);
-    return accessPage("prompt", returnTo);
+  const form = event.request.method === "POST" ? await event.request.formData() : undefined;
+  const formReturnTo = form?.get("returnTo");
+  const formToken = form?.get("token");
+  const outcome = await resolveSparkWebAccessRequest({
+    method: event.request.method,
+    tokenRequired,
+    returnTo:
+      typeof formReturnTo === "string" ? formReturnTo : event.url.searchParams.get("returnTo"),
+    token: typeof formToken === "string" ? formToken : null,
+    verify: verifySparkWebAccessToken,
+  });
+  if (outcome.type === "methodNotAllowed") error(405, "Method not allowed");
+  if (outcome.type === "redirect") {
+    if (outcome.token) setAccessCookie(event, outcome.token);
+    redirect(303, outcome.location);
   }
-  if (event.request.method !== "POST") error(405, "Method not allowed");
-
-  const form = await event.request.formData();
-  const returnTo = sanitizeSparkWebReturnTo(form.get("returnTo")?.toString());
-  if (!tokenRequired) redirect(303, returnTo);
-  const token = form.get("token")?.toString().trim() ?? "";
-  if (!token) return accessPage("invalid", returnTo, 401);
-  const verification = await verifySparkWebAccessToken(token);
-  if (verification === "unavailable") return accessPage("unavailable", returnTo, 503);
-  if (verification !== "valid") return accessPage("invalid", returnTo, 401);
-  setAccessCookie(event, token);
-  redirect(303, returnTo);
+  return accessPage(outcome.state, outcome.returnTo, outcome.status);
 }
 
 function isHtmlNavigation(request: Request): boolean {
@@ -124,12 +125,6 @@ function isHtmlNavigation(request: Request): boolean {
   });
 }
 
-function currentReturnTo(event: RequestEvent): string {
-  const next = new URL(event.url);
-  next.searchParams.delete(SPARK_WEB_TOKEN_QUERY);
-  return sanitizeSparkWebReturnTo(`${next.pathname}${next.search}`);
-}
-
 function accessPage(
   state: "prompt" | "invalid" | "unavailable",
   returnTo: string,
@@ -137,18 +132,13 @@ function accessPage(
 ): Response {
   return new Response(renderSparkWebAccessPage({ state, returnTo }), {
     status,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
+    headers: SPARK_WEB_ACCESS_PAGE_HEADERS,
   });
 }
 
 function setAccessCookie(event: RequestEvent, token: string): void {
   event.cookies.set(SPARK_WEB_TOKEN_COOKIE, token, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "strict",
+    ...SPARK_WEB_ACCESS_COOKIE,
     secure: event.url.protocol === "https:",
   });
 }

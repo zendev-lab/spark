@@ -3,9 +3,11 @@ import { isIP } from "node:net";
 import {
   isSparkWebLoopbackClientAddress,
   requestSparkDaemon,
+  sparkWebTokenFromCarriers,
   SPARK_WEB_TOKEN_COOKIE,
   SPARK_WEB_TOKEN_HEADER,
   SPARK_WEB_TOKEN_QUERY,
+  type SparkWebTokenVerification,
 } from "@zendev-lab/spark-daemon-client";
 
 import {
@@ -15,6 +17,7 @@ import {
 } from "./bind.ts";
 
 export { SPARK_WEB_TOKEN_COOKIE, SPARK_WEB_TOKEN_HEADER, SPARK_WEB_TOKEN_QUERY };
+export type { SparkWebTokenVerification };
 export const SPARK_WEB_BIND_HOST_ENV = "SPARK_WEB_BIND_HOST";
 export const SPARK_WEB_BIND_PORT_ENV = "SPARK_WEB_BIND_PORT";
 
@@ -25,8 +28,6 @@ export const SPARK_WEB_BIND_PORT_ENV = "SPARK_WEB_BIND_PORT";
  * arriving from an actual loopback peer are tokenless even when the listener
  * binds all interfaces; every remote peer requires a valid daemon-user token.
  */
-export type SparkWebTokenVerification = "valid" | "invalid" | "unavailable";
-
 export type SparkWebTokenVerifier = (token: string) => Promise<SparkWebTokenVerification>;
 
 async function verifySparkWebTokenWithDaemon(token: string): Promise<SparkWebTokenVerification> {
@@ -54,12 +55,7 @@ export function tokenFromRequest(input: {
   query?: string | null;
   header?: string | null;
 }): string | null {
-  const query = input.query?.trim();
-  if (query) return query;
-  const header = input.header?.trim();
-  if (header) return header;
-  const cookie = input.cookie?.trim();
-  return cookie || null;
+  return sparkWebTokenFromCarriers(input);
 }
 
 export type SparkWebAuthSource = "query" | "header" | "cookie" | "none";

@@ -16,18 +16,24 @@ import {
   type ServerResponse,
 } from "node:http";
 import { connect as netConnect } from "node:net";
-import { networkInterfaces } from "node:os";
 
 import {
   isSparkWebHtmlNavigation,
   isSparkWebLoopbackClientAddress,
   renderSparkWebAccessPage,
   requestSparkDaemon,
-  sanitizeSparkWebReturnTo,
+  resolveSparkWebAccessChallenge,
+  resolveSparkWebAccessRequest,
+  resolveSparkWebLanAddresses,
+  SPARK_WEB_ACCESS_PAGE_HEADERS,
   SPARK_WEB_ACCESS_PATH,
   SPARK_WEB_TOKEN_COOKIE,
   SPARK_WEB_TOKEN_HEADER,
   SPARK_WEB_TOKEN_QUERY,
+  sparkWebAccessSetCookie,
+  sparkWebRequestReturnTo,
+  sparkWebTokenFromCarriers,
+  type SparkWebTokenVerification,
 } from "@zendev-lab/spark-daemon-client";
 
 export const SPARK_WEB_DSH_TOKEN_QUERY = SPARK_WEB_TOKEN_QUERY;
@@ -40,13 +46,7 @@ export function isSparkWebDshLoopbackHost(host: string): boolean {
 
 /** Local non-loopback IPv4 literals are the only remote browser authorities. */
 export function resolveSparkWebDshLanAddresses(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .filter(
-      (iface): iface is NonNullable<typeof iface> =>
-        iface !== undefined && iface.family === "IPv4" && !iface.internal,
-    )
-    .map((iface) => iface.address);
+  return resolveSparkWebLanAddresses();
 }
 
 /**
@@ -82,7 +82,7 @@ export function normalizeSparkWebDshLanHeaders(
   return forwarded;
 }
 
-export type SparkWebDshTokenVerification = "valid" | "invalid" | "unavailable";
+export type SparkWebDshTokenVerification = SparkWebTokenVerification;
 export type SparkWebDshTokenVerifier = (token: string) => Promise<SparkWebDshTokenVerification>;
 
 /** Default verifier: the daemon-local RPC boundary, never a local store. */
@@ -129,11 +129,12 @@ export async function startSparkWebDshAuthProxy(
   const authenticate = async (request: IncomingMessage): Promise<AuthenticatedRequest> => {
     if (!requiresToken(request)) return { outcome: "authenticated" };
     const url = new URL(request.url ?? "/", "http://proxy.invalid");
+    const token = sparkWebTokenFromCarriers({
+      query: url.searchParams.get(SPARK_WEB_DSH_TOKEN_QUERY),
+      header: firstHeaderValue(request.headers[SPARK_WEB_DSH_TOKEN_HEADER]),
+      cookie: cookieValue(request.headers.cookie, SPARK_WEB_DSH_TOKEN_COOKIE),
+    });
     const queryToken = url.searchParams.get(SPARK_WEB_DSH_TOKEN_QUERY)?.trim() || undefined;
-    const headerToken =
-      firstHeaderValue(request.headers[SPARK_WEB_DSH_TOKEN_HEADER])?.trim() || undefined;
-    const cookieToken = cookieValue(request.headers.cookie, SPARK_WEB_DSH_TOKEN_COOKIE);
-    const token = queryToken ?? headerToken ?? cookieToken;
     if (queryToken && (request.method ?? "GET").toUpperCase() !== "GET") {
       return { outcome: "forbidden" };
     }
@@ -163,29 +164,31 @@ export async function startSparkWebDshAuthProxy(
           "spark web-dsh query tokens are only accepted for navigation",
         );
       }
-      if (auth.outcome === "daemonUnavailable") {
-        if (isHtmlNavigation(request)) {
-          return writeAccessPage(response, "unavailable", requestReturnTo(url), 503);
-        }
-        return writePlain(
-          response,
-          503,
-          "spark web-dsh cannot reach the Spark daemon to verify the token",
-        );
-      }
-      if (auth.outcome === "unauthenticated") {
-        if (isHtmlNavigation(request)) {
+      if (auth.outcome === "daemonUnavailable" || auth.outcome === "unauthenticated") {
+        const reason =
+          auth.outcome === "daemonUnavailable"
+            ? "unavailable"
+            : auth.hadToken
+              ? "invalid"
+              : "missing";
+        const challenge = resolveSparkWebAccessChallenge({
+          htmlNavigation: isHtmlNavigation(request),
+          reason,
+        });
+        if (challenge.type === "page") {
           return writeAccessPage(
             response,
-            auth.hadToken ? "invalid" : "prompt",
-            requestReturnTo(url),
-            auth.hadToken ? 401 : 200,
+            challenge.state,
+            sparkWebRequestReturnTo(url),
+            challenge.status,
           );
         }
         return writePlain(
           response,
-          401,
-          "spark web-dsh requires a daemon access token (spark daemon access create)",
+          challenge.status,
+          auth.outcome === "daemonUnavailable"
+            ? "spark web-dsh cannot reach the Spark daemon to verify the token"
+            : "spark web-dsh requires a daemon access token (spark daemon access create)",
         );
       }
       if (auth.outcome === "promoteQueryToken") {
@@ -272,25 +275,18 @@ async function handleAccessRequest(
   verify: SparkWebDshTokenVerifier,
   url: URL,
 ): Promise<void> {
-  if ((request.method ?? "GET").toUpperCase() === "GET") {
-    const returnTo = sanitizeSparkWebReturnTo(url.searchParams.get("returnTo"));
-    if (!tokenRequired) return writeRedirect(response, returnTo);
-    return writeAccessPage(response, "prompt", returnTo, 200);
-  }
-  if ((request.method ?? "GET").toUpperCase() !== "POST") {
-    return writePlain(response, 405, "Method not allowed");
-  }
-  const form = await readAccessForm(request);
-  const returnTo = sanitizeSparkWebReturnTo(form.get("returnTo"));
-  if (!tokenRequired) return writeRedirect(response, returnTo);
-  const token = form.get("token")?.trim() ?? "";
-  if (!token) return writeAccessPage(response, "invalid", returnTo, 401);
-  const verification = await verify(token);
-  if (verification === "unavailable") {
-    return writeAccessPage(response, "unavailable", returnTo, 503);
-  }
-  if (verification !== "valid") return writeAccessPage(response, "invalid", returnTo, 401);
-  return writeRedirect(response, returnTo, token);
+  const form =
+    (request.method ?? "GET").toUpperCase() === "POST" ? await readAccessForm(request) : undefined;
+  const outcome = await resolveSparkWebAccessRequest({
+    method: request.method,
+    tokenRequired,
+    returnTo: form?.get("returnTo") ?? url.searchParams.get("returnTo"),
+    token: form?.get("token"),
+    verify,
+  });
+  if (outcome.type === "methodNotAllowed") return writePlain(response, 405, "Method not allowed");
+  if (outcome.type === "redirect") return writeRedirect(response, outcome.location, outcome.token);
+  return writeAccessPage(response, outcome.state, outcome.returnTo, outcome.status);
 }
 
 function requestTrustError(
@@ -372,31 +368,19 @@ function isHtmlNavigation(request: IncomingMessage): boolean {
   });
 }
 
-function requestReturnTo(url: URL): string {
-  const next = new URL(url);
-  next.searchParams.delete(SPARK_WEB_DSH_TOKEN_QUERY);
-  return sanitizeSparkWebReturnTo(`${next.pathname}${next.search}`);
-}
-
 function writeAccessPage(
   response: ServerResponse,
   state: "prompt" | "invalid" | "unavailable",
   returnTo: string,
   status: number,
 ): void {
-  response.writeHead(status, {
-    "content-type": "text/html; charset=utf-8",
-    "cache-control": "no-store",
-  });
+  response.writeHead(status, SPARK_WEB_ACCESS_PAGE_HEADERS);
   response.end(renderSparkWebAccessPage({ state, returnTo }));
 }
 
 function writeRedirect(response: ServerResponse, location: string, token?: string): void {
   const headers: Record<string, string> = { location };
-  if (token) {
-    headers["set-cookie"] =
-      `${SPARK_WEB_DSH_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict`;
-  }
+  if (token) headers["set-cookie"] = sparkWebAccessSetCookie(token);
   response.writeHead(303, headers);
   response.end();
 }

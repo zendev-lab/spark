@@ -1,9 +1,32 @@
+import { isIPv4 } from "node:net";
+import { networkInterfaces } from "node:os";
+
 export const SPARK_WEB_TOKEN_COOKIE = "spark_web_token";
 export const SPARK_WEB_TOKEN_QUERY = "token";
 export const SPARK_WEB_TOKEN_HEADER = "x-spark-web-token";
 export const SPARK_WEB_ACCESS_PATH = "/__spark/access";
+export const SPARK_WEB_ACCESS_PAGE_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store",
+} as const;
+export const SPARK_WEB_ACCESS_COOKIE = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "strict",
+} as const;
 
 export type SparkWebAccessPageState = "prompt" | "invalid" | "unavailable";
+export type SparkWebTokenVerification = "valid" | "invalid" | "unavailable";
+export type SparkWebAccessChallengeReason = "missing" | "invalid" | "unavailable";
+
+export type SparkWebAccessOutcome =
+  | { type: "page"; status: number; state: SparkWebAccessPageState; returnTo: string }
+  | { type: "redirect"; location: string; token?: string }
+  | { type: "methodNotAllowed" };
+
+export type SparkWebAccessChallenge =
+  | { type: "page"; status: number; state: SparkWebAccessPageState }
+  | { type: "carrier"; status: 401 | 503 };
 
 /**
  * Direct browser access is a daemon-user carrier, not a token owner. Keep the
@@ -14,12 +37,20 @@ export type SparkWebAccessPageState = "prompt" | "invalid" | "unavailable";
 export function isSparkWebLoopbackClientAddress(address: string | null | undefined): boolean {
   if (!address) return false;
   const normalized = normalizeClientAddress(address);
-  return (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    normalized === "0:0:0:0:0:0:0:1" ||
-    /^127(?:\.\d{1,3}){3}$/u.test(normalized)
-  );
+  if (normalized === "localhost") return true;
+  if (isIPv4(normalized)) return normalized.startsWith("127.");
+  return normalized === "::1" || normalized === "0:0:0:0:0:0:0:1";
+}
+
+/** Match upstream DSH's all-interface trust model: local non-loopback IPv4 literals only. */
+export function resolveSparkWebLanAddresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter(
+      (iface): iface is NonNullable<typeof iface> =>
+        iface !== undefined && iface.family === "IPv4" && !iface.internal,
+    )
+    .map((iface) => iface.address);
 }
 
 export function isSparkWebHtmlNavigation(input: {
@@ -41,6 +72,73 @@ export function sanitizeSparkWebReturnTo(value: string | null | undefined): stri
   } catch {
     return "/";
   }
+}
+
+export function sparkWebRequestReturnTo(url: URL): string {
+  const next = new URL(url);
+  next.searchParams.delete(SPARK_WEB_TOKEN_QUERY);
+  return sanitizeSparkWebReturnTo(`${next.pathname}${next.search}`);
+}
+
+export function sparkWebTokenFromCarriers(input: {
+  query?: string | null;
+  header?: string | null;
+  cookie?: string | null;
+}): string | null {
+  const query = input.query?.trim();
+  if (query) return query;
+  const header = input.header?.trim();
+  if (header) return header;
+  const cookie = input.cookie?.trim();
+  return cookie || null;
+}
+
+export function sparkWebAccessSetCookie(token: string, secure = false): string {
+  return [
+    `${SPARK_WEB_TOKEN_COOKIE}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Strict",
+    ...(secure ? ["Secure"] : []),
+  ].join("; ");
+}
+
+export async function resolveSparkWebAccessRequest(input: {
+  method?: string | null;
+  tokenRequired: boolean;
+  returnTo?: string | null;
+  token?: string | null;
+  verify: (token: string) => Promise<SparkWebTokenVerification>;
+}): Promise<SparkWebAccessOutcome> {
+  const returnTo = sanitizeSparkWebReturnTo(input.returnTo);
+  const method = (input.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD") {
+    return input.tokenRequired
+      ? { type: "page", status: 200, state: "prompt", returnTo }
+      : { type: "redirect", location: returnTo };
+  }
+  if (method !== "POST") return { type: "methodNotAllowed" };
+  if (!input.tokenRequired) return { type: "redirect", location: returnTo };
+  const token = input.token?.trim() ?? "";
+  if (!token) return { type: "page", status: 401, state: "invalid", returnTo };
+  const verification = await input.verify(token);
+  if (verification === "unavailable") {
+    return { type: "page", status: 503, state: "unavailable", returnTo };
+  }
+  if (verification !== "valid") return { type: "page", status: 401, state: "invalid", returnTo };
+  return { type: "redirect", location: returnTo, token };
+}
+
+export function resolveSparkWebAccessChallenge(input: {
+  htmlNavigation: boolean;
+  reason: SparkWebAccessChallengeReason;
+}): SparkWebAccessChallenge {
+  if (!input.htmlNavigation) {
+    return { type: "carrier", status: input.reason === "unavailable" ? 503 : 401 };
+  }
+  if (input.reason === "unavailable") return { type: "page", status: 503, state: "unavailable" };
+  if (input.reason === "invalid") return { type: "page", status: 401, state: "invalid" };
+  return { type: "page", status: 200, state: "prompt" };
 }
 
 export function renderSparkWebAccessPage(

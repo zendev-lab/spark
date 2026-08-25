@@ -1,28 +1,16 @@
-import { networkInterfaces } from "node:os";
+import {
+  isSparkWebLoopbackClientAddress,
+  resolveSparkWebLanAddresses,
+} from "@zendev-lab/spark-daemon-client";
+
+export { resolveSparkWebLanAddresses };
 
 export const SPARK_WEB_DEFAULT_HOST = "127.0.0.1";
 export const SPARK_WEB_DEFAULT_PORT = 4310;
 export const SPARK_WEB_ALL_INTERFACES_HOST = "0.0.0.0";
 
 export function isSparkWebLoopbackHost(host: string): boolean {
-  const normalized = host
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/gu, "");
-  return (
-    normalized === "localhost" || normalized === "::1" || /^127(?:\.\d{1,3}){3}$/u.test(normalized)
-  );
-}
-
-/** Match upstream DSH's all-interface trust model: local non-loopback IPv4 literals only. */
-export function resolveSparkWebLanAddresses(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .filter(
-      (iface): iface is NonNullable<typeof iface> =>
-        iface !== undefined && iface.family === "IPv4" && !iface.internal,
-    )
-    .map((iface) => iface.address);
+  return isSparkWebLoopbackClientAddress(host);
 }
 
 export function sparkWebBrowserAuthority(host: string, port: number): string {
