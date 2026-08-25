@@ -39,7 +39,7 @@ module.exports = {
       severity: "error",
       from: {
         pathNot:
-          "^(packages/spark-llm/|packages/spark-turn/|packages/spark-session/|apps/spark-daemon/)",
+          "^(packages/spark-llm-providers/|packages/spark-turn/|packages/spark-session/|apps/spark-daemon/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
@@ -51,7 +51,7 @@ module.exports = {
         "dsh-llm is limited to the daemon composition root, the provider adapter family, and the transitional turn-loop driver.",
       severity: "error",
       from: {
-        pathNot: "^(apps/spark-daemon/|packages/spark-llm/|packages/spark-turn/)",
+        pathNot: "^(apps/spark-daemon/|packages/spark-llm-providers/|packages/spark-turn/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-llm(?:/|$)|/node_modules/@deepseek-ai/dsh-llm(?:/|$)|^@deepseek-ai/dsh-llm(?:/|$)",
@@ -339,7 +339,7 @@ module.exports = {
         "coverage",
         "\\.git",
         // Prebuilt DSH runtime bundles intentionally preserve host-resolved
-        // externals. Their source ownership is checked in packages/spark-llm;
+        // externals. Their source ownership is checked in packages/spark-llm-providers;
         // cruising generated imports would report the app as a second owner.
         "^apps/spark-web-dsh/lib/",
         // package-internal relative imports into own src are fine; deep-link rule

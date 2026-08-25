@@ -258,7 +258,7 @@ normative owner specifications and enforced owner APIs.
 
 The inventory has no `package.json#pi` owner (`productManifestOwner` is
 `null`). It assigns the remaining Pi SDK dependency (`pi-ai`) to
-`@zendev-lab/spark-llm`. `pi-tui` and `pi-coding-agent` are retired and must
+`@zendev-lab/spark-llm-providers`. `pi-tui` and `pi-coding-agent` are retired and must
 not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.

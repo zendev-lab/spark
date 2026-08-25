@@ -9,7 +9,7 @@ import {
   type ProviderFailureClassification,
   type ToolCall,
   type UserMessage,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 import { parseSparkSlashInput, sparkTextPhaseFromSignature } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,

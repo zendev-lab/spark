@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import type { DatabaseSync } from "node:sqlite";
 
-import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
+import { createSparkProviderControl } from "@zendev-lab/spark-llm-providers/control";
 import {
   createSparkDaemonOrpcClient,
   type SparkDaemonOrpcClientHandle,

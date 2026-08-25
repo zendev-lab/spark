@@ -54,11 +54,13 @@
       "@zendev-lab/spark-text-rendering": ["./packages/spark-text-rendering/src/index.ts"],
       "@zendev-lab/spark-workflows": ["./packages/spark-workflows/src/index.ts"],
       "@zendev-lab/spark-workflows/extension": ["./packages/spark-workflows/src/extension.ts"],
-      "@zendev-lab/spark-llm": ["./packages/spark-llm/src/index.ts"],
-      "@zendev-lab/spark-llm/baidu-oneapi-provider": [
-        "./packages/spark-llm/src/baidu-oneapi-provider.ts"
+      "@zendev-lab/spark-llm-providers": ["./packages/spark-llm-providers/src/index.ts"],
+      "@zendev-lab/spark-llm-providers/baidu-oneapi-provider": [
+        "./packages/spark-llm-providers/src/baidu-oneapi-provider.ts"
       ],
-      "@zendev-lab/spark-llm/models-extension": ["./packages/spark-llm/src/models-extension.ts"],
+      "@zendev-lab/spark-llm-providers/models-extension": [
+        "./packages/spark-llm-providers/src/models-extension.ts"
+      ],
       "@zendev-lab/spark-host": ["./packages/spark-host/src/runtime.ts"],
       "@zendev-lab/spark-host/context": ["./packages/spark-host/src/context-tool.ts"],
       "@zendev-lab/spark-host/keybindings": ["./packages/spark-host/src/keybindings.ts"],

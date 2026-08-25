@@ -1,7 +1,7 @@
 /**
  * DSH-facing Cordis plugin entry for the bundled Baidu OneAPI provider.
  *
- * Dual-product seam: Spark consumes `@zendev-lab/spark-llm` from its own
+ * Dual-product seam: Spark consumes `@zendev-lab/spark-llm-providers` from its own
  * workspace, while a DeepSeek Harness profile mounts this entry (built as a
  * standalone bundle) so the same provider catalog, gateway adaptations, and
  * retry behavior serve DSH. This file is the *host-neutral* plugin surface:
@@ -11,7 +11,7 @@
  * What the plugin does:
  *
  * - Registers the `baidu-oneapi` route on the host `LlmRuntime` through
- *   `SparkProviderLlmAdapter`, exposing the full spark-llm model catalog
+ *   `SparkProviderLlmAdapter`, exposing the full spark-llm-providers model catalog
  *   (gateway ids rewritten internally, measured context windows, reasoning
  *   efforts, per-model output caps).
  * - Resolves the API key per request: the host `credentials` service (the web
@@ -23,7 +23,7 @@
  *   stock `llm-pi-ai` provider remains disabled; Spark still owns every route,
  *   catalog, transport, and credential lookup.
  *
- * Build contract: `pnpm --filter @zendev-lab/spark-llm run build:dsh-plugin`
+ * Build contract: `pnpm --filter @zendev-lab/spark-llm-providers run build:dsh-plugin`
  * produces `dist/dsh-plugin.mjs` with `@deepseek-ai/*`, `@earendil-works/pi-ai`,
  * and `@deepseek-ai/schemastery` externalized, so the hosting process must
  * provide versions compatible with Spark's supported DSH ABI.

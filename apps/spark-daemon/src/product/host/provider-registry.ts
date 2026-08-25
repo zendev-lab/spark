@@ -1,8 +1,8 @@
 /**
- * Re-export of the canonical provider registry surface from `@zendev-lab/spark-llm`.
+ * Re-export of the canonical provider registry surface from `@zendev-lab/spark-llm-providers`.
  *
  * The higher-level provider-plugin registry, provider config/model types, and
- * the active-selection shape moved to the `spark-llm` package so any host or
+ * the active-selection shape moved to the `spark-llm-providers` package so any host or
  * runtime can drive provider plugins without importing application internals.
  * This module stays as a stable internal import path for Spark native hosts.
  */
@@ -13,4 +13,4 @@ export {
   type ProviderModelDefinition,
   type ProviderRegistrationAPI,
   type SparkActiveSelection,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";

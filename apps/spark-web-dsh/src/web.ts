@@ -7,7 +7,7 @@
  * profile Spark owns eight additions:
  *
  * 1. **spark-llm plugin, loaded automatically.** The provider bundle is built
- *    from `@zendev-lab/spark-llm` (esbuild, host externals resolved by the DSH
+ *    from `@zendev-lab/spark-llm-providers` (esbuild, host externals resolved by the DSH
  *    process) and placed under the profile's `plugins/spark-llm/`, then mounted
  *    through a generated patch overlay. The overlay disables stock
  *    `llm-pi-ai` so Spark remains the only provider/configuration owner.
@@ -164,9 +164,9 @@ export function resolveDshProfileDir(
   return join(dshHome, "profiles", "web");
 }
 
-/** Locate the installed `@zendev-lab/spark-llm` package root. */
+/** Locate the installed `@zendev-lab/spark-llm-providers` package root. */
 export function resolveSparkLlmPackageDir(): string {
-  return resolvePackageDir("@zendev-lab/spark-llm");
+  return resolvePackageDir("@zendev-lab/spark-llm-providers");
 }
 
 /** Locate the installed `@zendev-lab/spark-session` package root. */
@@ -757,7 +757,7 @@ export async function runSparkWebDirect(
  *   `spark-session-subagent` host plugins
  *   (paths relative to the profile root, so the DSH loader resolves them
  *   without an install);
- * - stock `llm-pi-ai` disabled so `spark-llm` owns provider configuration and
+ * - stock `llm-pi-ai` disabled so `spark-llm-providers` owns provider configuration and
  *   credentials without a competing configurable-provider directory;
  * - stock in-process spawn/fork backends disabled so Spark providers own those
  *   names on the official HOST;

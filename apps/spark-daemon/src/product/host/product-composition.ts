@@ -21,7 +21,7 @@ import {
 } from "@zendev-lab/spark-cue/operations";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesCapability from "@zendev-lab/spark-files/extension";
-import sparkModelsCapability from "@zendev-lab/spark-llm/models-extension";
+import sparkModelsCapability from "@zendev-lab/spark-llm-providers/models-extension";
 import sparkMemoryCapability, {
   type SparkMemoryExtensionApi,
 } from "@zendev-lab/spark-memory/extension";
@@ -103,7 +103,7 @@ export type SparkProductCapabilityName =
   | "@zendev-lab/spark-ask"
   | "@zendev-lab/spark-artifacts"
   | "@zendev-lab/spark-files"
-  | "@zendev-lab/spark-llm"
+  | "@zendev-lab/spark-llm-providers"
   | "@zendev-lab/spark-memory"
   | "@zendev-lab/spark-roles"
   | "@zendev-lab/spark-session"
@@ -134,7 +134,7 @@ const SPARK_PRODUCT_CAPABILITIES: readonly SparkProductCapability[] = [
     register: sparkFilesCapability as SparkProductCapabilityFactory,
   },
   {
-    name: "@zendev-lab/spark-llm",
+    name: "@zendev-lab/spark-llm-providers",
     register: sparkModelsCapability as SparkProductCapabilityFactory,
   },
   {

@@ -76,7 +76,7 @@ await build({
 });
 
 await build({
-  entryPoints: ["../../packages/spark-llm/src/dsh-plugin.ts"],
+  entryPoints: ["../../packages/spark-llm-providers/src/dsh-plugin.ts"],
   bundle: true,
   format: "esm",
   platform: "node",

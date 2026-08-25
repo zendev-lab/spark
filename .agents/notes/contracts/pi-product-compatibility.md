@@ -2,10 +2,10 @@
 
 ## Scope
 
-Spark retains the Pi SDK **kernel** behind the `spark-llm` boundary:
-`@earendil-works/pi-ai` is owned by `@zendev-lab/spark-llm`. This document
+Spark retains the Pi SDK **kernel** behind the `spark-llm-providers` boundary:
+`@earendil-works/pi-ai` is owned by `@zendev-lab/spark-llm-providers`. This document
 governs the retired Pi **product loader** surface. It does not govern the
-retained SDK kernel. `spark-text` is Spark-owned terminal-column layout and is
+retained SDK kernel. `spark-text-rendering` is Spark-owned terminal-column layout and is
 not a Pi SDK boundary.
 
 The dedicated Pi product adapter (`packages/pi-spark`) has been removed. There
@@ -28,7 +28,7 @@ replacement.
 
 - `productManifestOwner` is `null`;
 - the only allowed Pi SDK dependency is `@earendil-works/pi-ai`, owned by
-  `@zendev-lab/spark-llm`;
+  `@zendev-lab/spark-llm-providers`;
 - `@earendil-works/pi-tui` and `@earendil-works/pi-coding-agent` must not
   appear as workspace dependencies.
 

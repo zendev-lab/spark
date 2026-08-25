@@ -34,7 +34,7 @@
     "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-files": "workspace:^",
-    "@zendev-lab/spark-llm": "workspace:^",
+    "@zendev-lab/spark-llm-providers": "workspace:^",
     "@zendev-lab/spark-session": "workspace:^",
     "esbuild": "^0.28.0",
     "react": "^19.0.0"

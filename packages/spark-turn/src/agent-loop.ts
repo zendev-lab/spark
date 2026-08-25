@@ -49,8 +49,8 @@ import type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-llm";
-import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
+import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-llm-providers";
 
 export type {
   AssistantMessage,
@@ -63,7 +63,7 @@ export type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 
 import { createHash } from "node:crypto";
 import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
@@ -671,7 +671,7 @@ export interface SparkAgentLoopOptions {
 /**
  * Turn-loop subscriber events. Discriminants are single-sourced in
  * `@zendev-lab/spark-protocol` (`SPARK_AGENT_LOOP_EVENT_TYPES`). AI message
- * payloads use spark-llm / pi-ai types (not protocol view projections);
+ * payloads use spark-llm-providers / pi-ai types (not protocol view projections);
  * `view_event` carries protocol `SparkViewModelEvent`.
  */
 export type SparkAgentLoopEvent =

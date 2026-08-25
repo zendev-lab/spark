@@ -9,7 +9,7 @@ updated: 2026-08-23
 
 ## 起源
 
-`spark` 最初作为面向 Pi 产品的工作流套件起步，通过意图明确的用户命令与规范化工具，将项目意图、任务有向无环图、结构化提问、审查、证据制品、角色执行以及 `Cue` 执行能力组织为可追溯的本地工作流。仓库落地后，执行与会话中枢已迁移到 Spark daemon，产品面扩展为本地 Web 工作台、Hub 与消息通道。**Pi SDK** 中仅保留 `@earendil-works/pi-ai` 作为 `spark-llm` 的模型 transport 内核；独立的 Pi 产品 extension facade、`pi-spark` 发现适配器、`pi-tui` 与原生 TUI 均已退场。产品组合由 daemon 内部模块唯一拥有。
+`spark` 最初作为面向 Pi 产品的工作流套件起步，通过意图明确的用户命令与规范化工具，将项目意图、任务有向无环图、结构化提问、审查、证据制品、角色执行以及 `Cue` 执行能力组织为可追溯的本地工作流。仓库落地后，执行与会话中枢已迁移到 Spark daemon，产品面扩展为本地 Web 工作台、Hub 与消息通道。**Pi SDK** 中仅保留 `@earendil-works/pi-ai` 作为 `spark-llm-providers` 的模型 transport 内核；独立的 Pi 产品 extension facade、`pi-spark` 发现适配器、`pi-tui` 与原生 TUI 均已退场。产品组合由 daemon 内部模块唯一拥有。
 
 ## 目标
 
@@ -21,8 +21,8 @@ updated: 2026-08-23
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - `/plan`、`/execute`、`/fleet` 是 daemon 在 turn 提交通道上解析的一次性命令：仅向当前 Invocation 注入工作意图指导，不改变工具集合、sandbox、审批、授权或 admission，不持久化，普通下一轮恢复中性。持久 Session mode 已整体废除；fleet 协调复用现有 TaskGraph、TaskRun、资源调度器与 Session Registry，worker 只消费 Task 已关联的 `git_change` worktree，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
-- 让 `spark web` 成为以 Session / Invocation 为中心的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，在独占 Spark preset root 下只暴露 `standard` / `ptc` 两个 agent preset（Spark Standard / Spark PTC）。
-- 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
+- 让 `spark web` 成为以 Session / Invocation 为中心的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，并以 `spark-standard | spark-ptc` 替代四个 stock mode。
+- 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm-providers` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 daemon 内部产品模块静态组合 Spark 策略与受支持的 DSH/Cordis 插件；不新增 `spark-base`、Spark extension 发现路径或 Spark-owned `package.json#pi`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
 - 将用户成果收敛为原子 `issue | git_change | document` Artifact：`git_change` 内聚一个 owning worktree 与一个原生 GitHub PR stack，Task 只通过耐久 `artifactRefs` 组织成果；preview 是 Document 的视图，不是独立 kind。
@@ -37,7 +37,7 @@ updated: 2026-08-23
 [`architecture/packages.json`](./architecture/packages.json) 为准；包创建、合并与依赖
 规则由 [`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md) 约束。
 
-- Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm` 只作为 provider / `LlmAdapter` 实现族。Cordis 是 daemon 根、`dsh-llm` 小岛与 `spark-turn` driver 的 process-local 组合运行时，不是 Spark Session；详见 [Cordis 生命周期决策](.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md)与 [daemon 产品组合决策](.agents/notes/decisions/2026-08-21-daemon-product-composition.md)。
+- Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm-providers` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm-providers` 只作为 provider / `LlmAdapter` 实现族。Cordis 是 daemon 根、`dsh-llm` 小岛与 `spark-turn` driver 的 process-local 组合运行时，不是 Spark Session；详见 [Cordis 生命周期决策](.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md)与 [daemon 产品组合决策](.agents/notes/decisions/2026-08-21-daemon-product-composition.md)。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。
 - `@zendev-lab/dsh-channels` 是 daemon root 内的 Cordis transport/lifecycle 插件；Channel Session 是无需 Workspace 的 daemon-scoped root，私有 cwd 位于 daemon data root。Cordis 不接管 Registry、Invocation、outbox、retry、human wait 或 SQLite 权威；详见 [`.agents/notes/decisions/2026-08-21-daemon-global-channel-sessions.md`](.agents/notes/decisions/2026-08-21-daemon-global-channel-sessions.md)。
 - 跨表面 schema 与语义进入 `spark-protocol`，传输层只校验和翻译。
@@ -63,7 +63,7 @@ updated: 2026-08-23
 - 同一 ask 的“算不算有效回答 / gate 是否满足”在本地 Web、Hub、通道结算路径上共用 `spark-protocol` 语义，表面只做 UI。
 - Slash / action catalog 继续以协议为源；Hub 与本地 Web 只做 i18n 与执行。
 - 新功能默认可在本地 Web 或 Hub 验证，消息通道按 channel policy 收窄；无需先在 Pi 产品里跑通。
-- 无 Spark-owned `package.json#pi` 发现路径，无 Pi 产品兼容适配器，无第二套产品 composition。文档与边界检查区分 SDK 内核（`pi-ai` via 当前 `spark-llm`）与已退场的 Pi 产品宿主；通用 `SparkHostAPI` 完成拆分后，剩余 Invocation 契约原位收敛为 `spark-invocation`。
+- 无 Spark-owned `package.json#pi` 发现路径，无 Pi 产品兼容适配器，无第二套产品 composition。文档与边界检查区分 SDK 内核（`pi-ai` via 当前 `spark-llm-providers`）与已退场的 Pi 产品宿主；通用 `SparkHostAPI` 完成拆分后，剩余 Invocation 契约原位收敛为 `spark-invocation`。
 - 本地 Web 与 Hub 通过同一 daemon controller 运行只读 Side Thread、恢复隔离历史并将全文或紧凑摘要显式 handoff 回主会话；两个表面都不加载 `pi-coding-agent`。
 - 用户可从 npm 安装单一 `@zendev-lab/spark` 产品包并获得 `spark` 命令；发布物只包含编译后的 JavaScript、声明过的运行时依赖以及 daemon migrations、本地 Web 和 Hub 资产，不暴露内部 workspace 包图。
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。

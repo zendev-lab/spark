@@ -10,7 +10,7 @@ import {
   registerKimiCodingProvider,
   type AssistantMessageEvent,
   type ProviderConfig,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm-providers";
 
 function fakeStream(_model: unknown, _context: unknown, _options?: unknown) {
   return {} as unknown;
