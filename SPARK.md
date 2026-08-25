@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一本地 Web / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-21
+updated: 2026-08-23
 ---
 
 # `spark` 项目意图
@@ -13,7 +13,7 @@ updated: 2026-08-21
 
 ## 目标
 
-- 以 daemon 为 Session registry、scope/lineage 派生生命周期、关闭级联与 Invocation 调度真源；Workspace Session tree 与 daemon-global Channel root 共用一套状态机，本地 Web、Hub、消息通道、本地 RPC 不维护并行会话状态。
+- 以 daemon 为 Session registry、scope/lineage 派生生命周期、关闭级联与 Invocation 调度真源；workspace-bound 与 daemon-global Session root 共用一套状态机，本地 Web、Hub、消息通道、本地 RPC 不维护并行会话状态。
 - 将 Role 固定为静态行为/能力定义，Session 固定为执行上下文，Invocation 固定为一次执行；公开流程统一为创建 Role → `session spawn|fork` 创建 Role-bound Session → `session send(kind=request)` 触发 Invocation，三个阶段互不隐式代办。
 - Session Owner 只表达生命周期与资源归属，不表达 Role 能力或子 Session 创建授权；Registry 只持久化严格 state，`lifetime` 与 `activity` 分别由 Owner 和 Invocation 真相投影。
 - 以 Spark Hub 作为同一 Hub 内跨 workspace 的逻辑协调真源；Hub 持有 registry、委托状态、投递幂等、审计和有限回执，目标 daemon/workspace 始终持有执行、工具副作用与本地成果真相，Hub 只负责呈现和收集决策。
@@ -21,6 +21,7 @@ updated: 2026-08-21
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。`execute` mode 与 session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - 在现有 TaskGraph、TaskRun、资源调度器与 Session Registry 上提供 `fleet` Session mode：父会话只调度、核对、恢复与 Ask，worker 只消费 Task 已关联的 `git_change` worktree；重叠目标串行、独立 lane 并行，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
+- 让 `spark web` 成为以 Session / Invocation 为中心的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，在独占 Spark preset root 下只暴露 `standard` / `ptc` 两个 agent preset（Spark Standard / Spark PTC）。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 daemon 内部产品模块静态组合 Spark 策略与受支持的 DSH/Cordis 插件；不新增 `spark-base`、Spark extension 发现路径或 Spark-owned `package.json#pi`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
@@ -62,7 +63,7 @@ updated: 2026-08-21
 - 同一 ask 的“算不算有效回答 / gate 是否满足”在本地 Web、Hub、通道结算路径上共用 `spark-protocol` 语义，表面只做 UI。
 - Slash / action catalog 继续以协议为源；Hub 与本地 Web 只做 i18n 与执行。
 - 新功能默认可在本地 Web 或 Hub 验证，消息通道按 channel policy 收窄；无需先在 Pi 产品里跑通。
-- 无 Spark-owned `package.json#pi` 发现路径，无 Pi 产品兼容适配器，无第二套产品 composition。文档与边界检查区分 SDK 内核（`pi-ai` via `spark-llm`）与已退场的 Pi 产品宿主。宿主契约公开名为 `SparkHostAPI`（`spark-core`）；ask/tasks/context 注册入口为 `registerSpark*`。
+- 无 Spark-owned `package.json#pi` 发现路径，无 Pi 产品兼容适配器，无第二套产品 composition。文档与边界检查区分 SDK 内核（`pi-ai` via 当前 `spark-llm`）与已退场的 Pi 产品宿主；通用 `SparkHostAPI` 完成拆分后，剩余 Invocation 契约原位收敛为 `spark-invocation`。
 - 本地 Web 与 Hub 通过同一 daemon controller 运行只读 Side Thread、恢复隔离历史并将全文或紧凑摘要显式 handoff 回主会话；两个表面都不加载 `pi-coding-agent`。
 - 用户可从 npm 安装单一 `@zendev-lab/spark` 产品包并获得 `spark` 命令；发布物只包含编译后的 JavaScript、声明过的运行时依赖以及 daemon migrations、本地 Web 和 Hub 资产，不暴露内部 workspace 包图。
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。
@@ -82,6 +83,7 @@ updated: 2026-08-21
 
 ## 当前方向
 
+- 按 [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 推进：native Web 先完成 daemon-wide Session / Invocation 主路径，Web DSH 保持独立 fallback；10 个 owner 命名原位切换，删除 `spark-host` / `spark-modes` / `spark-turn` 后把包预算从当前 41 收敛到 38，不保留别名包。
 - 公共 CLI argv 只使用 Optique 作为解析器。
 - 对齐跨表面的 ask、gate 与 submit 语义，让协议成为唯一判定来源。
 - 为本地 RPC 兼容层定义可验证的退出条件，不向兼容传输增加新行为。
@@ -115,8 +117,11 @@ updated: 2026-08-21
   不是同意。
 - DSH Phase 2 已通过私有 `@zendev-lab/dsh-tool-cue` adapter 接入
   SystemPrompt + Tools：`spark-cue/operations` 仍唯一拥有 Cue 语义，DSH
-  只适配受支持 DSH release 的 host ABI、权限和 presenter；`spark-standard` / `spark-code`
-  用 Cue 取代 DSH Bash/Pwsh/Jobs。两个托管 preset 的文本文件工具由
+  只适配受支持 DSH release 的 host ABI、权限和 presenter；当前托管的
+  `spark-standard` / `spark-code` preset 用 Cue 取代 DSH Bash/Pwsh/Jobs；规范化
+  切片把 Web DSH 收敛到独占 Spark preset root 下仅有的 `standard` / `ptc` 两个
+  agent preset（Spark Standard / Spark PTC），缺失 preset 由 DSH 原生错误处理。
+  两个托管 preset 的文本文件工具由
   `spark-files/dsh` 通过 DSH `ctx.fs` 提供显式版本 CAS 和逐调用沙箱策略；官方
   `read_image` 与 `dsh-tool-fs-search` 保留。
 - DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark
@@ -126,7 +131,7 @@ updated: 2026-08-21
   `architecture/packages.json`。`spark-fusion` 已按此规则改名为 Cordis-native
   `dsh-tool-fusion`，旧 SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon
   durable admission seam，因此 `spark-acp` 暂不替换。完整处置见
-  [`.agents/notes/decisions/2026-08-20-dsh-package-naming.md`](.agents/notes/decisions/2026-08-20-dsh-package-naming.md)。
+  [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md)。
 - 产品 subagent 是 Role-bound 子 Session：官方 `@deepseek-ai/dsh-subagent`
   作为 HOST（`ctx.subagents`），`spark-session` 注册 spawn/fork provider。
   daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）；

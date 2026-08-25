@@ -83,7 +83,7 @@
       "current": 41,
       "ceiling": 41,
       "nonGrowth": true,
-      "reason": "The daemon now owns product composition directly; native spark-web and spark-web-dsh remain explicit applications."
+      "reason": "The 41-workspace transition graph still contains spark-host, spark-modes, and spark-turn; ten in-place renames and deletion of those three workspaces converge to 38 while native spark-web and spark-web-dsh remain explicit applications."
     },
     "packageNaming": {
       "temporaryDshDependencyExceptionsNonGrowth": true
