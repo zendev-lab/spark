@@ -11,9 +11,12 @@
  *    process) and placed under the profile's `plugins/spark-llm/`, then mounted
  *    through a generated patch overlay. The overlay disables stock
  *    `llm-pi-ai` so Spark remains the only provider/configuration owner.
- * 2. **dsh-cue service and dsh-tool-cue adapter plus the managed spark-standard / spark-code
+ * 2. **dsh-cue service and dsh-tool-cue adapter plus the managed spark-standard / spark-ptc
  *    presets and the package-owned cue Skill**, so Cue replaces DSH
- *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
+ *    Bash/Pwsh/Jobs with canonical guidance and no manual setup. The preset
+ *    compositions are static files versioned in this package
+ *    (`presets/agent-presets/`); boot installs them into the DSH user preset
+ *    root and retires a provably untouched legacy `spark-code` directory.
  * 3. **Spark file-tool plugin**, whose versioned read/write/edit operations
  *    shadow the upstream file mutations inside the managed presets.
  * 4. **dsh-tool-fusion plugin**, so the DSH-hosted web surface exposes the
@@ -68,7 +71,7 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cueSkillsRoot } from "@zendev-lab/cue";
-import { installManagedCuePresets } from "./cue-presets.ts";
+import { installManagedCuePresets, retireLegacyManagedCuePresets } from "./cue-presets.ts";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -774,7 +777,9 @@ export async function runSparkWebDirect(
  *   names on the official HOST;
  * - `spark-web-dsh` client plugin (package name; the client-modules host
  *   resolves it from the profile's node_modules and serves its bundle);
- * - `agent-presets` defaulting to spark-standard;
+ * - `agent-presets` defaulting to spark-standard (the supported DSH release
+ *   force-appends its shipped preset root at boot, so the roster's roots are
+ *   not overlay-configurable);
  * - HMR remains disabled for the long-lived compatibility server (the command
  *   builds bundles before boot, and HMR retains reload state across sessions);
  * - the `webserver` row restated with the requested host when it is not the
@@ -834,6 +839,12 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
     rows.push("    - id: spark-web-dsh", `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`);
   }
   if (!userPatch.includes("id: agent-presets")) {
+    // The supported DSH release's boot force-appends its shipped preset root
+    // after every overlay, so a `roots` override here would be inert, and
+    // `includeUserRoot: false` would hide the user root that carries the
+    // managed Spark presets. Spark therefore sets only the default; an
+    // exclusive roster would need a DSH release with deployment-configurable
+    // roots.
     rows.push("- id: agent-presets", "  config:", "    default: spark-standard");
   }
   rows.push(
@@ -921,19 +932,23 @@ export async function prepareSparkWebDispatch(
     );
   }
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
-  // Metadata and upstream source verification happen before any managed write.
+  // Metadata and preset-source verification happen before any managed write.
   const skillDir = resolveCueSkillsDir();
-  const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir, {
-    // Preset-relative imports travel with DSH_HOME while the host-level
-    // upstream tool-fs row retains read_image outside this scoped shadow.
-    toolFsPluginSpecifier: "../../profiles/web/plugins/spark-files/index.mjs",
-  });
+  const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
+  const retiredPresets = retireLegacyManagedCuePresets(dshHome);
   const files = await ensureSparkFilesBundle(profileDir);
   if (files.rebuilt) {
     process.stderr.write(`[spark web] built Spark file plugin bundle -> ${files.bundle}\n`);
   }
   for (const preset of presets) {
     if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);
+  }
+  for (const retired of retiredPresets) {
+    process.stderr.write(
+      retired.removed
+        ? `[spark web] retired generated legacy preset ${retired.id}\n`
+        : `[spark web] kept ${retired.reason ?? "unknown"} legacy preset ${retired.id}\n`,
+    );
   }
   const cueService = await ensureDshCueBundle(profileDir);
   if (cueService.rebuilt) {

@@ -84,7 +84,7 @@ still takes precedence.
 The Models page asks for an API key when adding Baidu OneAPI or Kimi For
 Coding. Kimi For Coding does not provide OAuth authentication.
 
-The managed `spark-standard` and `spark-code` presets expose versioned Spark
+The managed `spark-standard` and `spark-ptc` presets expose versioned Spark
 file tools over DSH's filesystem provider. Read the file first, then pass its
 opaque `version` as `expectedVersion` to `write` or `edit`; use `missing` only
 when creating a file. DSH still enforces the current session sandbox, while

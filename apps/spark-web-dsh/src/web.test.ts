@@ -5,16 +5,19 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 
+import { installManagedCuePresets } from "./cue-presets.ts";
 import {
   composeSparkWebPatch,
   composeWebArgs,
@@ -224,6 +227,31 @@ test("ensureSparkFilesBundle installs the owner adapter idempotently", async () 
     assert.equal(second.sourceDigest, first.sourceDigest);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("managed presets reference the Spark file bundle where the profile provides it", async () => {
+  const home = mkdtempSync(join(tmpdir(), "spark-web-preset-files-"));
+  const profile = join(home, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  const dshPackageDir = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "presets",
+    "upstream-package",
+  );
+  try {
+    const files = await ensureSparkFilesBundle(profile);
+    for (const preset of installManagedCuePresets(home, dshPackageDir, cueSkillsRoot)) {
+      const composition = readFileSync(join(preset.path, "agent.cordis.yml"), "utf8");
+      const specifier = /^- id: tool-fs\n  name: "([^"]+)"$/m.exec(composition)?.[1];
+      assert.ok(specifier !== undefined, "preset names a tool-fs adapter");
+      // The installed preset directory travels with DSH_HOME, so the
+      // preset-relative specifier must land on the profile plugin bundle.
+      assert.equal(resolve(preset.path, specifier), files.bundle);
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });
 

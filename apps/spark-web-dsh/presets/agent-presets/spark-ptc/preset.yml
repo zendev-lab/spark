@@ -1,0 +1,3 @@
+name: Spark PTC
+description: Spark Cue-first PTC Agent；通过生成的 TypeScript SDK 组合工具调用，不挂载 DSH Bash、Pwsh 或 Jobs 工具。
+order: 2
