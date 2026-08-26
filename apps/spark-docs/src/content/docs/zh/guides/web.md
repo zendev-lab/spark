@@ -66,11 +66,11 @@ Session Action Bar 中的 `/plan`、`/execute` 和 `/fleet` 是经由普通 turn
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-DSH server 本身始终锁定在回环地址，由 Spark 外层 access proxy 对外提供服务。该
-proxy 与 native Web 使用相同的 peer-based 规则和 Spark Access 页面：实际回环 peer
-免 token，本机接口 IPv4 自动发现，远端 peer 使用同一套 daemon-owned access token。
-Host、Origin 与 Fetch Metadata 检查仍先于 token 校验；API 与 WebSocket 保持
-transport-level 认证错误，daemon 不可达时 fail closed。
+DSH server 本身始终锁定在随机回环端口，并由一次性进程凭据保护；所有监听地址都由
+Spark 外层 access proxy 提供服务。该 proxy 与 native Web 使用相同的 peer-based 规则和
+Spark Access 页面：实际回环 peer 免 token，本机接口 IPv4 自动发现，远端 peer 使用同一套
+daemon-owned access token。Host、Origin 与 Fetch Metadata 检查仍先于 token 校验；API
+与 WebSocket 保持 transport-level 认证错误，daemon 不可达时 fail closed。
 
 DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 `cue` Skill 快照挂入
 DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding，

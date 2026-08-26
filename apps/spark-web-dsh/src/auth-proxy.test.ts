@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import { connect, type AddressInfo, type Socket } from "node:net";
 import { test } from "vitest";
 
 import {
   isSparkWebDshLoopbackHost,
   normalizeSparkWebDshLanHeaders,
+  SPARK_WEB_DSH_TOKEN_HEADER,
   startSparkWebDshAuthProxy,
   type SparkWebDshTokenVerifier,
 } from "./auth-proxy.ts";
+import { SPARK_WEB_DSH_PROXY_HEADER } from "./private-webserver.ts";
+
+const PRIVATE_PROXY_CREDENTIAL = "test-private-proxy-credential";
 
 function listenLoopback(server: Server): Promise<number> {
   return new Promise((resolveListen, rejectListen) => {
@@ -19,15 +23,22 @@ function listenLoopback(server: Server): Promise<number> {
   });
 }
 
-async function startUpstream(): Promise<{ server: Server; port: number; seen: string[] }> {
+async function startUpstream(): Promise<{
+  server: Server;
+  port: number;
+  seen: string[];
+  headers: IncomingHttpHeaders[];
+}> {
   const seen: string[] = [];
+  const headers: IncomingHttpHeaders[] = [];
   const server = createServer((request, response) => {
     seen.push(`${request.method} ${request.url} host=${request.headers.host}`);
+    headers.push(request.headers);
     response.writeHead(200, { "content-type": "text/plain" });
     response.end("upstream-ok");
   });
   const port = await listenLoopback(server);
-  return { server, port, seen };
+  return { server, port, seen, headers };
 }
 
 async function startProxy(
@@ -39,6 +50,7 @@ async function startProxy(
     host: "0.0.0.0",
     port: 0,
     targetPort,
+    proxyCredential: PRIVATE_PROXY_CREDENTIAL,
     verify,
     ...(remote
       ? {
@@ -119,6 +131,51 @@ test("loopback peers stay tokenless through an all-interface proxy", async () =>
     const response = await fetch(`http://127.0.0.1:${proxy.port}/`);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "upstream-ok");
+  } finally {
+    await proxy.close();
+    upstream.server.close();
+  }
+});
+
+test("loopback peers still pass the shared direct-Web trust boundary", async () => {
+  const upstream = await startUpstream();
+  const proxy = await startProxy(upstream.port, async () => "invalid", false);
+  try {
+    for (const forged of [
+      await rawGet(proxy.port, {}, `evil.example:${proxy.port}`),
+      await rawGet(proxy.port, {}, `127.0.0.1:${proxy.port + 1}`),
+      await rawGet(proxy.port, {}, `user@127.0.0.1:${proxy.port}`),
+      await rawGet(proxy.port, { origin: "https://evil.example" }),
+      await rawGet(proxy.port, { "sec-fetch-site": "cross-site" }),
+    ]) {
+      assert.equal(forged.status, 403);
+    }
+
+    const mutationWithoutProvenance = await rawRequest(proxy.port, {
+      method: "POST",
+      path: "/api/rpc",
+    });
+    assert.equal(mutationWithoutProvenance.status, 403);
+
+    const sameOriginMutation = await rawRequest(proxy.port, {
+      method: "POST",
+      path: "/api/rpc",
+      headers: {
+        origin: `http://127.0.0.1:${proxy.port}`,
+        "sec-fetch-site": "same-origin",
+      },
+    });
+    assert.equal(sameOriginMutation.status, 200);
+
+    const forgedUpgrade = await rawRequest(proxy.port, {
+      headers: {
+        connection: "Upgrade",
+        upgrade: "websocket",
+      },
+      host: `evil.example:${proxy.port}`,
+    });
+    assert.equal(forgedUpgrade.status, 403);
+    assert.deepEqual(upstream.seen, [`POST /api/rpc host=127.0.0.1:${upstream.port}`]);
   } finally {
     await proxy.close();
     upstream.server.close();
@@ -218,7 +275,7 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
     assert.equal(await headerAuth.text(), "upstream-ok");
 
     const cookieAuth = await fetch(`http://127.0.0.1:${proxy.port}/`, {
-      headers: { cookie: "spark_web_token=sdu_good" },
+      headers: { cookie: "theme=dark; spark_web_token=sdu_good" },
     });
     assert.equal(cookieAuth.status, 200);
 
@@ -237,6 +294,9 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
       `GET /api/sessions host=127.0.0.1:${upstream.port}`,
       `GET / host=127.0.0.1:${upstream.port}`,
     ]);
+    assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_PROXY_HEADER], PRIVATE_PROXY_CREDENTIAL);
+    assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_TOKEN_HEADER], undefined);
+    assert.equal(upstream.headers[1]?.cookie, "theme=dark");
   } finally {
     await proxy.close();
     upstream.server.close();
@@ -281,6 +341,18 @@ function rawGet(
   headers: Record<string, string>,
   host?: string,
 ): Promise<{ status: number; body: string }> {
+  return rawRequest(port, { headers, host });
+}
+
+function rawRequest(
+  port: number,
+  options: {
+    method?: string;
+    path?: string;
+    headers?: Record<string, string>;
+    host?: string;
+  },
+): Promise<{ status: number; body: string }> {
   return new Promise((resolveRaw, rejectRaw) => {
     const socket: Socket = connect({ host: "127.0.0.1", port });
     let buffer = "";
@@ -309,10 +381,10 @@ function rawGet(
     });
     socket.write(
       [
-        "GET / HTTP/1.1",
-        `Host: ${host ?? `127.0.0.1:${port}`}`,
+        `${options.method ?? "GET"} ${options.path ?? "/"} HTTP/1.1`,
+        `Host: ${options.host ?? `127.0.0.1:${port}`}`,
         "Connection: close",
-        ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
+        ...Object.entries(options.headers ?? {}).map(([name, value]) => `${name}: ${value}`),
         "",
         "",
       ].join("\r\n"),

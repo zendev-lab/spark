@@ -1,4 +1,4 @@
-import { isIPv4 } from "node:net";
+import { isIP, isIPv4 } from "node:net";
 import { networkInterfaces } from "node:os";
 
 export const SPARK_WEB_TOKEN_COOKIE = "spark_web_token";
@@ -18,6 +18,14 @@ export const SPARK_WEB_ACCESS_COOKIE = {
 export type SparkWebAccessPageState = "prompt" | "invalid" | "unavailable";
 export type SparkWebTokenVerification = "valid" | "invalid" | "unavailable";
 export type SparkWebAccessChallengeReason = "missing" | "invalid" | "unavailable";
+export type SparkWebAuthSource = "query" | "header" | "cookie" | "none";
+export type SparkWebRequestTrustFailure = "host" | "cross-site" | "origin" | "mutation-source";
+
+export interface SparkWebRequestTrust {
+  bindHost: string;
+  bindPort: number;
+  lanAddresses: readonly string[];
+}
 
 export type SparkWebAccessOutcome =
   | { type: "page"; status: number; state: SparkWebAccessPageState; returnTo: string }
@@ -59,6 +67,48 @@ export function isSparkWebHtmlNavigation(input: {
 }): boolean {
   const method = (input.method ?? "GET").toUpperCase();
   return (method === "GET" || method === "HEAD") && (input.accept ?? "").includes("text/html");
+}
+
+/**
+ * Shared Host, Origin, Fetch Metadata, and mutation-source boundary for direct
+ * Native Web and Web DSH access. Tokenless loopback changes authentication,
+ * never request provenance.
+ */
+export function resolveSparkWebRequestTrustFailure(input: {
+  method?: string | null;
+  host?: string | null;
+  origin?: string | null;
+  fetchSite?: string | null;
+  fetchMode?: string | null;
+  fetchDest?: string | null;
+  authSource: SparkWebAuthSource;
+  trust: SparkWebRequestTrust;
+  clientAddress: string | null | undefined;
+  allowCrossSiteDocumentNavigation?: boolean;
+}): SparkWebRequestTrustFailure | null {
+  const host = input.host?.trim().toLowerCase();
+  if (!host || !isAllowedWebAuthority(host, input.trust, input.clientAddress)) return "host";
+
+  const fetchSite = input.fetchSite?.trim().toLowerCase();
+  if (
+    fetchSite === "cross-site" &&
+    !(
+      input.allowCrossSiteDocumentNavigation === true &&
+      input.fetchMode?.trim().toLowerCase() === "navigate" &&
+      input.fetchDest?.trim().toLowerCase() === "document"
+    )
+  ) {
+    return "cross-site";
+  }
+
+  const origin = input.origin?.trim();
+  if (origin && !originMatchesAuthority(origin, host)) return "origin";
+  const method = (input.method ?? "GET").toUpperCase();
+  const mutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (mutation && input.authSource !== "header" && !origin && fetchSite !== "same-origin") {
+    return "mutation-source";
+  }
+  return null;
 }
 
 export function sanitizeSparkWebReturnTo(value: string | null | undefined): string {
@@ -205,6 +255,69 @@ function normalizeClientAddress(address: string): string {
     .replace(/^\[|\]$/gu, "")
     .split("%", 1)[0]!;
   return normalized.startsWith("::ffff:") ? normalized.slice("::ffff:".length) : normalized;
+}
+
+function isAllowedWebAuthority(
+  authority: string,
+  trust: SparkWebRequestTrust,
+  clientAddress: string | null | undefined,
+): boolean {
+  const parsed = parseAuthority(authority);
+  if (!parsed || parsed.port !== trust.bindPort) return false;
+  if (isSparkWebLoopbackClientAddress(parsed.hostname)) {
+    return isSparkWebLoopbackClientAddress(clientAddress);
+  }
+  if (isIP(parsed.hostname) === 0) return false;
+  const bindHost = normalizeHostname(trust.bindHost);
+  if (bindHost === "0.0.0.0") return trust.lanAddresses.includes(parsed.hostname);
+  return parsed.hostname === bindHost;
+}
+
+function originMatchesAuthority(origin: string, authority: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username === "" &&
+      url.password === "" &&
+      url.pathname === "/" &&
+      url.search === "" &&
+      url.hash === "" &&
+      url.host.toLowerCase() === authority
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseAuthority(authority: string): { hostname: string; port: number } | null {
+  try {
+    const url = new URL(`http://${authority}`);
+    if (
+      !url.hostname ||
+      url.host.toLowerCase() !== authority ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return {
+      hostname: normalizeHostname(url.hostname),
+      port: url.port.length > 0 ? Number(url.port) : 80,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/gu, "");
 }
 
 function escapeHtml(value: string): string {
