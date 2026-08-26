@@ -1,5 +1,17 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import {
+    Button,
+    EmptyState,
+    Field,
+    Input,
+    Notice,
+    PageHeader,
+    PageLayout,
+    Panel,
+    StatCard,
+    StatusPill,
+  } from "@zendev-lab/spark-ui";
   import { SessionTree } from "@zendev-lab/spark-ui/workbench";
   import { webRpc } from "$lib/web-rpc";
 
@@ -74,47 +86,40 @@
   }
 </script>
 
-<section class="page">
-  <header class="hero">
-    <div>
-      <p class="eyebrow">Spark daemon</p>
-      <h1>{copy.title}</h1>
-      <p>{copy.lede}</p>
-    </div>
-    <time datetime={data.observedAt}>{copy.observed} {formatTime(data.observedAt)}</time>
-  </header>
+{#snippet observedBadge()}
+  <time datetime={data.observedAt}>{copy.observed} {formatTime(data.observedAt)}</time>
+{/snippet}
+
+<PageLayout width="full">
+  <PageHeader eyebrow="Spark daemon" title={copy.title} lede={copy.lede} badge={observedBadge} />
 
   <section class="metrics" aria-label={copy.metrics}>
-    <article><strong>{data.sessions.length}</strong><span>{copy.sessionsStat}</span></article>
-    <article><strong>{activeInvocations.length}</strong><span>{copy.activeInvocationsStat}</span></article>
-    <article><strong>{data.waits.length}</strong><span>{copy.waitsStat}</span></article>
-    <article><strong>{data.artifactTotal}</strong><span>{copy.artifactsStat}</span></article>
+    <StatCard label={copy.sessionsStat} value={data.sessions.length} icon="message" tone="primary" />
+    <StatCard label={copy.activeInvocationsStat} value={activeInvocations.length} icon="activity" tone={activeInvocations.length > 0 ? "success" : "default"} />
+    <StatCard label={copy.waitsStat} value={data.waits.length} icon="inbox" tone={data.waits.length > 0 ? "warning" : "default"} />
+    <StatCard label={copy.artifactsStat} value={data.artifactTotal} icon="artifacts" tone="purple" />
   </section>
 
   <div class="primary-grid">
-    <section class="panel sessions-panel">
-      <header>
-        <div><h2>{copy.sessionTreeTitle}</h2><p>{copy.sessionTreeLede}</p></div>
-      </header>
+    <Panel class="sessions-panel" title={copy.sessionTreeTitle} note={copy.sessionTreeLede} compact>
       <SessionTree
         sessions={data.sessions}
         includeArchived={true}
         labels={data.messages.web.session.tree}
         hrefFor={(sessionId) => `/sessions/${encodeURIComponent(sessionId)}`}
       />
-    </section>
+    </Panel>
 
-    <section class="panel" id="invocations">
-      <header><h2>{copy.activeInvocations}</h2><span>{activeInvocations.length} / {data.invocationTotal}</span></header>
+    <Panel title={copy.activeInvocations} badge={`${activeInvocations.length} / ${data.invocationTotal}`} id="invocations" compact>
       {#if activeInvocations.length === 0}
-        <p class="empty">{copy.noActiveInvocations}</p>
+        <EmptyState compact icon="activity" title={copy.noActiveInvocations} />
       {:else}
         <ul class="records">
           {#each activeInvocations as invocation (invocation.invocationId)}
             <li>
               <a href={`/invocations/${encodeURIComponent(invocation.invocationId)}`}>
                 <strong>{invocation.invocationId}</strong>
-                <span class="status" data-status={invocation.status}>{statusLabel(invocation.status)}</span>
+                <StatusPill label={statusLabel(invocation.status)} status={invocation.status} />
               </a>
               {#if invocation.sessionId}
                 <a class="context-link" href={`/sessions/${encodeURIComponent(invocation.sessionId)}`}>{sessionLabel(invocation.sessionId)}</a>
@@ -134,28 +139,27 @@
             <li>
               <a href={`/invocations/${encodeURIComponent(invocation.invocationId)}`}>
                 <strong>{invocation.invocationId}</strong>
-                <span class="status" data-status={invocation.status}>{statusLabel(invocation.status)}</span>
+                <StatusPill label={statusLabel(invocation.status)} status={invocation.status} />
               </a>
               <small>{sessionLabel(invocation.sessionId)} · {formatTime(invocation.updatedAt)}</small>
             </li>
           {/each}
         </ul>
       {/if}
-    </section>
+    </Panel>
   </div>
 
   <div class="secondary-grid">
-    <section class="panel">
-      <header><h2>{copy.waitsTitle}</h2><span>{data.waits.length}</span></header>
+    <Panel title={copy.waitsTitle} badge={String(data.waits.length)} compact>
       {#if data.waits.length === 0}
-        <p class="empty">{copy.noWaits}</p>
+        <EmptyState compact icon="inbox" title={copy.noWaits} />
       {:else}
         <ul class="records">
           {#each data.waits as wait (wait.humanRequestId)}
             <li>
               <a href={`/sessions/${encodeURIComponent(wait.sessionId)}`}>
                 <strong>{wait.title || wait.kind}</strong>
-                <span class="status" data-status="waiting">{wait.mode ?? wait.kind}</span>
+                <StatusPill label={wait.mode ?? wait.kind} tone="warning" />
               </a>
               <p>{wait.prompt}</p>
               <small>{sessionLabel(wait.sessionId)} · {formatTime(wait.updatedAt)}</small>
@@ -163,18 +167,17 @@
           {/each}
         </ul>
       {/if}
-    </section>
+    </Panel>
 
-    <section class="panel">
-      <header><h2>{copy.artifactsTitle}</h2><span>{data.artifactTotal}</span></header>
+    <Panel title={copy.artifactsTitle} badge={String(data.artifactTotal)} compact>
       {#if data.artifacts.length === 0}
-        <p class="empty">{copy.noArtifacts}</p>
+        <EmptyState compact icon="artifacts" title={copy.noArtifacts} />
       {:else}
         <ul class="records compact">
           {#each data.artifacts as artifact (`${artifact.workspaceId}:${artifact.ref}`)}
             <li>
               <a href={`/workspaces/${encodeURIComponent(artifact.workspaceId)}`}>
-                <strong>{artifact.title}</strong><span class="status">{artifact.kind}</span>
+                <strong>{artifact.title}</strong><StatusPill label={artifact.kind} />
               </a>
               <small>{workspaceLabel(artifact.workspaceId)} · {formatTime(artifact.updatedAt)}</small>
             </li>
@@ -182,9 +185,9 @@
         </ul>
       {/if}
       {#if data.artifactUnavailableWorkspaceIds.length > 0}
-        <p class="warning">{copy.artifactsUnavailable}: {data.artifactUnavailableWorkspaceIds.length}</p>
+        <Notice tone="warning" message={`${copy.artifactsUnavailable}: ${data.artifactUnavailableWorkspaceIds.length}`} />
       {/if}
-    </section>
+    </Panel>
   </div>
 
   <details class="contexts">
@@ -205,31 +208,23 @@
     <form class="register" onsubmit={(event) => void registerWorkspace(event)}>
       <h3>{copy.registerTitle}</h3>
       <p class="hint">{copy.registerHintBefore} <code>spark daemon login</code> {copy.registerHintAfter}</p>
-      <label>{copy.localPath}<input type="text" autocomplete="off" bind:value={localPath} required /></label>
-      <label>{copy.displayName}<input type="text" autocomplete="off" bind:value={displayName} placeholder={copy.optional} /></label>
-      {#if registerError}<p class="error" role="alert">{registerError}</p>{/if}
-      <button type="submit" disabled={registering}>{registering ? copy.registering : copy.register}</button>
+      <Field id="workspace-local-path" label={copy.localPath} required reserveMeta={false}>
+        <Input id="workspace-local-path" type="text" autocomplete="off" bind:value={localPath} required />
+      </Field>
+      <Field id="workspace-display-name" label={copy.displayName} reserveMeta={false}>
+        <Input id="workspace-display-name" type="text" autocomplete="off" bind:value={displayName} placeholder={copy.optional} />
+      </Field>
+      {#if registerError}<Notice tone="danger" message={registerError} />{/if}
+      <Button type="submit" loading={registering}>{registering ? copy.registering : copy.register}</Button>
     </form>
   </details>
-</section>
+</PageLayout>
 
 <style>
-  .page { display: grid; gap: 20px; padding: 24px; }
-  .hero { align-items: end; display: flex; justify-content: space-between; gap: 24px; }
-  .hero h1, .panel h2, .panel h3 { margin: 0; }
-  .hero p:not(.eyebrow), .panel header p, .contexts > p { color: var(--color-ink-muted); margin: 4px 0 0; }
-  .eyebrow { color: var(--color-primary); font-size: .75rem; font-weight: 700; letter-spacing: .08em; margin: 0 0 4px; text-transform: uppercase; }
   time { color: var(--color-ink-muted); font-size: .8rem; white-space: nowrap; }
-  .metrics { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .metrics article, .panel, .contexts { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
-  .metrics article { display: grid; gap: 2px; padding: 14px 16px; }
-  .metrics strong { font-size: 1.6rem; }
-  .metrics span { color: var(--color-ink-muted); font-size: .85rem; }
-  .primary-grid, .secondary-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); }
-  .panel { display: grid; gap: 12px; min-width: 0; padding: 16px; }
-  .panel > header { align-items: start; display: flex; justify-content: space-between; gap: 16px; }
-  .panel > header span { color: var(--color-ink-muted); }
-  .panel h3 { font-size: 1rem; margin-top: 6px; }
+  .metrics { display: grid; gap: var(--spacing-md); grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .primary-grid, .secondary-grid { align-items: start; display: grid; gap: var(--spacing-md); grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); }
+  h3 { font-size: var(--text-card-title); margin: var(--spacing-xs) 0 0; }
   .records, .workspace-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
   .records li { border-top: 1px solid var(--color-border); display: grid; gap: 4px; padding-top: 9px; }
   .records li:first-child { border-top: 0; padding-top: 0; }
@@ -238,10 +233,7 @@
   .records .context-link { color: var(--color-ink-muted); display: block; font-size: .85rem; }
   .records small, .workspace-list small, .empty { color: var(--color-ink-muted); }
   .records p { margin: 0; }
-  .status { background: var(--color-canvas); border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-ink-muted); font-size: .75rem; padding: 2px 7px; }
-  .status[data-status="running"] { color: var(--color-primary); }
-  .status[data-status="failed"], .error, .warning { color: var(--color-danger, #dc2626); }
-  .contexts { padding: 14px 16px; }
+  .contexts { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--rounded-lg); box-shadow: var(--shadow-card); padding: var(--spacing-md) var(--spacing-lg); }
   .contexts summary { cursor: pointer; font-weight: 650; }
   .workspace-list { margin-top: 14px; }
   .workspace-list li { align-items: center; display: flex; justify-content: space-between; gap: 16px; }
@@ -249,9 +241,7 @@
   .workspace-list a span { color: var(--color-ink-muted); font-size: .85rem; }
   .register { border-top: 1px solid var(--color-border); display: grid; gap: 10px; margin-top: 16px; max-width: 680px; padding-top: 16px; }
   .register h3, .register p { margin: 0; }
-  .register label { display: grid; gap: 4px; }
-  .register input { min-width: 0; width: 100%; }
-  .register button { background: var(--color-primary); border: 0; border-radius: 8px; color: var(--color-on-primary); justify-self: start; padding: 8px 12px; }
+  .register > :global(.ui-button) { justify-self: start; }
   .hint { color: var(--color-ink-muted); font-size: .9rem; }
-  @media (max-width: 860px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .primary-grid, .secondary-grid { grid-template-columns: 1fr; } .hero { align-items: start; flex-direction: column; } }
+  @media (max-width: 860px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .primary-grid, .secondary-grid { grid-template-columns: 1fr; } }
 </style>

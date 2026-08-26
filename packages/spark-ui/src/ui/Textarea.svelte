@@ -36,8 +36,8 @@
     padding: 10px 12px;
     resize: vertical;
     transition:
-      border-color 120ms ease,
-      box-shadow 120ms ease;
+      border-color var(--motion-fast) ease,
+      box-shadow var(--motion-fast) ease;
     width: 100%;
   }
 

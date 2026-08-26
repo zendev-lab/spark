@@ -39,7 +39,7 @@ Status meanings:
 | PWA shell and online notifications | automated | Spark Web static shell; browser notification API | Web build/static policy tests | Manifest returned 200; install/offline/notification run pending |
 | Daemon status, bounded redacted logs and restart-after-drain | automated | daemon lifecycle owner | size/redaction/restart conflict tests | Active invocation drain run pending |
 | Loopback and trusted LAN boundary | automated | Spark Web gateway | Host, Origin, Fetch Metadata, daemon-user token, and CSRF tests; loopback tokenless | Loopback/trusted/invalid-host browser matrix pending |
-| EN/ZH, light/dark/system, keyboard and focus | automated | Spark i18n catalogs and shared UI callbacks | catalog alignment; localized shared composer-control browser coverage; `svelte-check` 0 errors / 0 warnings | Chromium EN/ZH, shared stop/retry/thinking controls, and Cmd+K passed; mobile/high-contrast/keyboard-only pending |
+| EN/ZH, light/dark/system, keyboard and focus | automated | Spark i18n catalogs and shared UI callbacks | catalog alignment; shared primitive browser coverage; localized composer, workspace, and shell browser coverage; `svelte-check` 0 errors / 0 warnings | Chromium EN/ZH, shared page/form/dialog/status/action surfaces, stop/retry/thinking controls, Cmd+K, and 390 px responsive layout passed with no console, page, or request errors; high-contrast and full keyboard-only journey remain pending |
 
 ## Replacement gate
 

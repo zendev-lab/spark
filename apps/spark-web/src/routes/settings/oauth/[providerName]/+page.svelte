@@ -3,6 +3,18 @@
   import { goto } from "$app/navigation";
   import type { SparkAuthFlow } from "@zendev-lab/spark-protocol";
   import {
+    Button,
+    Field,
+    Input,
+    Notice,
+    PageHeader,
+    PageLayout,
+    Panel,
+    Select,
+    StatusPill,
+    type SelectGroup,
+  } from "@zendev-lab/spark-ui";
+  import {
     authFlowStatusLabel,
     isTerminalAuthFlow,
     latestAuthProgress,
@@ -10,12 +22,21 @@
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
+  let copy = $derived(data.messages.web.settings);
   let flow = $state<SparkAuthFlow | null>(null);
   let errorText = $state("");
   let promptValue = $state("");
   let lastPromptId = $state("");
   let starting = $state(true);
   let responding = $state(false);
+  let promptGroups = $derived<SelectGroup[]>([
+    {
+      id: "oauth-prompt",
+      options: flow?.prompt?.kind === "select"
+        ? flow.prompt.options.map((option) => ({ value: option.id, label: option.label }))
+        : [],
+    },
+  ]);
 
   onMount(() => {
     let cancelled = false;
@@ -107,29 +128,24 @@
   }
 </script>
 
-<section class="page">
-  <p class="crumb"><a href="/settings">Providers</a></p>
-  <header>
-    <h1>Sign in to {data.provider.label}</h1>
-    <p>Spark opens the provider's OAuth flow. Secrets stay in the daemon; this page only shows the public login state.</p>
-  </header>
+<PageLayout width="compact">
+  <p class="crumb"><a href="/settings">← {copy.providersBack}</a></p>
+  <PageHeader title={`${copy.signInTo} ${data.provider.label}`} lede={copy.oauthLede} />
 
   {#if starting && !flow}
-    <p>Starting OAuth…</p>
+    <Notice message={copy.startingOAuth} />
   {/if}
-  {#if errorText}<p class="error">{errorText}</p>{/if}
+  {#if errorText}<Notice tone="danger" message={errorText} />{/if}
 
   {#if flow}
-    <article class="card">
+    <Panel>
       <div class="heading">
         <h2>{flow.providerLabel ?? flow.providerName}</h2>
-        <span class="badge {flow.status}">{authFlowStatusLabel(flow.status)}</span>
+        <StatusPill label={authFlowStatusLabel(flow.status)} status={flow.status} />
       </div>
 
       {#if flow.authorization}
-        <a class="button" href={flow.authorization.url} target="_blank" rel="noreferrer">
-          Open authorization
-        </a>
+        <Button class="authorization-action" href={flow.authorization.url} target="_blank" rel="noreferrer">{copy.openAuthorization}</Button>
         {#if flow.authorization.instructions}
           <p class="muted">{flow.authorization.instructions}</p>
         {/if}
@@ -137,7 +153,7 @@
 
       {#if flow.deviceCode}
         <div class="device">
-          <span>Device code</span>
+          <span>{copy.deviceCode}</span>
           <strong>{flow.deviceCode.userCode}</strong>
           <a href={flow.deviceCode.verificationUri} target="_blank" rel="noreferrer">
             {flow.deviceCode.verificationUri}
@@ -152,16 +168,12 @@
             void respond();
           }}
         >
-          <label>
-            {flow.prompt.message}
+          <Field id="oauth-prompt" label={flow.prompt.message} required={flow.prompt.kind === "select" || flow.prompt.allowEmpty !== true} reserveMeta={false}>
             {#if flow.prompt.kind === "select"}
-              <select bind:value={promptValue} required>
-                {#each flow.prompt.options as option (option.id)}
-                  <option value={option.id}>{option.label}</option>
-                {/each}
-              </select>
+              <Select id="oauth-prompt" bind:value={promptValue} groups={promptGroups} label={flow.prompt.message} required />
             {:else}
-              <input
+              <Input
+                id="oauth-prompt"
                 type="text"
                 placeholder={flow.prompt.placeholder ?? ""}
                 required={flow.prompt.allowEmpty !== true}
@@ -169,36 +181,30 @@
                 bind:value={promptValue}
               />
             {/if}
-          </label>
-          <button type="submit" disabled={responding}>{responding ? "Sending…" : "Continue"}</button>
+          </Field>
+          <Button type="submit" loading={responding}>{responding ? copy.sending : copy.continue}</Button>
         </form>
       {/if}
 
       {#if latestAuthProgress(flow)}
         <p class="muted">{latestAuthProgress(flow)}</p>
       {/if}
-      {#if flow.error}<p class="error">{flow.error}</p>{/if}
+      {#if flow.error}<Notice tone="danger" message={flow.error} />{/if}
 
       <div class="actions">
         {#if flow.status === "succeeded"}
-          <a class="button" href="/settings">Done</a>
+          <Button href="/settings">{copy.done}</Button>
         {:else if !isTerminalAuthFlow(flow.status)}
-          <button type="button" class="secondary" onclick={() => void cancel()}>Cancel</button>
+          <Button variant="secondary" onclick={() => void cancel()}>{copy.cancel}</Button>
         {:else}
-          <a href="/settings">Back to providers</a>
+          <Button variant="secondary" href="/settings">{copy.backToProviders}</Button>
         {/if}
       </div>
-    </article>
+    </Panel>
   {/if}
-</section>
+</PageLayout>
 
 <style>
-  .page {
-    padding: 24px;
-    display: grid;
-    gap: 16px;
-    max-width: 640px;
-  }
   .crumb,
   .muted {
     color: var(--color-ink-muted);
@@ -208,20 +214,8 @@
   a {
     color: inherit;
   }
-  header p {
-    color: var(--color-ink-muted);
-  }
-  h1,
   h2 {
     margin: 0;
-  }
-  .card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    padding: 16px;
-    display: grid;
-    gap: 12px;
   }
   .heading {
     display: flex;
@@ -229,63 +223,29 @@
     gap: 12px;
     align-items: center;
   }
-  .badge {
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    font-size: 12px;
-    padding: 4px 8px;
-  }
-  .badge.waiting_for_user,
-  .badge.pending {
-    color: var(--color-primary, #2563eb);
-  }
-  .badge.succeeded {
-    color: var(--color-success-strong, #15803d);
-  }
-  .badge.failed {
-    color: var(--color-danger, #b91c1c);
-  }
   .device {
     display: grid;
     gap: 4px;
     padding: 12px;
-    border-radius: 8px;
-    background: var(--color-canvas);
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
   }
   .device strong {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: 22px;
     letter-spacing: 0.12em;
   }
-  form,
-  label {
+  form {
     display: grid;
-    gap: 8px;
+    gap: var(--spacing-sm);
+  }
+  :global(.authorization-action),
+  form > :global(.ui-button) {
+    justify-self: start;
   }
   .actions {
     display: flex;
     gap: 8px;
-  }
-  button,
-  .button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 36px;
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px solid var(--color-border);
-    background: var(--color-ink);
-    color: var(--color-canvas);
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .secondary {
-    background: transparent;
-    color: inherit;
-  }
-  .error {
-    color: var(--color-danger, #b91c1c);
-    margin: 0;
   }
 </style>

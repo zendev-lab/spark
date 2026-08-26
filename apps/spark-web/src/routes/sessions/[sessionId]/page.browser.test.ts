@@ -226,6 +226,39 @@ describe("Session page owner state", () => {
     await screen.unmount();
   });
 
+  it("confirms Session closure with the shared dialog before calling the daemon owner", async () => {
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.close") {
+        return Promise.resolve({
+          ...sessionData("a").sessions[0],
+          lifecycle: "closed",
+        });
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("button", { name: "Close" }).click();
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    await expect
+      .element(screen.getByText("The daemon will mark Session a as closed."))
+      .toBeVisible();
+    expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.close")).toBe(false);
+
+    await screen.getByRole("button", { name: "Keep session" }).click();
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.close")).toBe(false);
+
+    await screen.getByRole("button", { name: "Close" }).click();
+    await screen.getByRole("button", { name: "Close session" }).click();
+    await expect
+      .poll(() => mocks.webRpc.mock.calls.some(([method]) => method === "session.close"))
+      .toBe(true);
+    await expect.poll(() => mocks.goto).toHaveBeenCalledWith("/sessions");
+    await screen.unmount();
+  });
+
   it("drops an Artifact response from the previous Session", async () => {
     mocks.webRpc.mockResolvedValue({ waits: [] });
     const response = deferred<Response>();

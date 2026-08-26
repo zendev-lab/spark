@@ -2,6 +2,9 @@
   import "@zendev-lab/spark-ui/tokens.css";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import { Button, Dialog, Icon, Input, Select, type SelectGroup } from "@zendev-lab/spark-ui";
+  import { DialogClose, DialogTitle } from "@zendev-lab/spark-ui/headless";
   import { webRpc } from "$lib/web-rpc";
 
   let { children, data } = $props();
@@ -22,7 +25,26 @@
     }>
   >([]);
   let theme = $state<"light" | "dark" | "system">("system");
-  let searchTrigger: HTMLButtonElement;
+  let searchTrigger = $state<HTMLButtonElement | HTMLAnchorElement>();
+  let themeGroups = $derived<SelectGroup[]>([
+    {
+      id: "theme",
+      options: [
+        { value: "system", label: copy.systemTheme },
+        { value: "light", label: copy.lightTheme },
+        { value: "dark", label: copy.darkTheme },
+      ],
+    },
+  ]);
+  let localeGroups = $derived<SelectGroup[]>([
+    {
+      id: "locale",
+      options: [
+        { value: "en", label: "EN" },
+        { value: "zh-CN", label: "中文" },
+      ],
+    },
+  ]);
 
   onMount(() => {
     if ("serviceWorker" in navigator) {
@@ -42,7 +64,6 @@
         searchOpen = true;
         requestAnimationFrame(() => document.getElementById("spark-global-search")?.focus());
       }
-      if (event.key === "Escape" && searchOpen) closeSearch();
     };
     addEventListener("keydown", keydown);
     return () => {
@@ -69,14 +90,11 @@
       return;
     }
     searchOpen = true;
-    if (searchOpen) {
-      requestAnimationFrame(() => document.getElementById("spark-global-search")?.focus());
-    }
+    requestAnimationFrame(() => document.getElementById("spark-global-search")?.focus());
   }
 
   function closeSearch() {
     searchOpen = false;
-    requestAnimationFrame(() => searchTrigger?.focus());
   }
 
   async function selectLocale(locale: "en" | "zh-CN") {
@@ -108,6 +126,11 @@
     if (result.workspaceId) return `/workspaces/${encodeURIComponent(result.workspaceId)}`;
     return "/";
   }
+
+  function navCurrent(href: string): "page" | undefined {
+    if (href === "/") return page.url.pathname === "/" ? "page" : undefined;
+    return page.url.pathname.startsWith(href) ? "page" : undefined;
+  }
 </script>
 
 <svelte:head>
@@ -120,28 +143,58 @@
 <div class="shell">
   <a class="skip-link" href="#spark-main">{data.messages.shared.skipToContent}</a>
   <header class="top">
-    <a href="/" class="brand">Spark</a>
-    <nav>
-      <a href="/">{copy.overview}</a>
-      <a href="/sessions">{copy.sessions}</a>
-      <a href="/settings">{copy.settings}</a>
-      <button bind:this={searchTrigger} type="button" aria-expanded={searchOpen} onclick={toggleSearch}>{copy.search}</button>
-      <label class="theme"><span class="sr-only">{copy.theme}</span><select value={theme} onchange={(event) => selectTheme((event.currentTarget as HTMLSelectElement).value as "light" | "dark" | "system")}><option value="system">{copy.systemTheme}</option><option value="light">{copy.lightTheme}</option><option value="dark">{copy.darkTheme}</option></select></label>
-      <label class="locale"><span class="sr-only">{copy.language}</span><select value={data.locale} onchange={(event) => void selectLocale((event.currentTarget as HTMLSelectElement).value as "en" | "zh-CN")}><option value="en">EN</option><option value="zh-CN">中文</option></select></label>
-    </nav>
+    <a href="/" class="brand"><span aria-hidden="true"><Icon name="spark" size={17} /></span><span>Spark</span></a>
+    <div class="top-actions">
+      <nav aria-label={copy.primaryNavigation}>
+        <a href="/" aria-current={navCurrent("/")}><Icon name="home" size={15} /><span>{copy.overview}</span></a>
+        <a href="/sessions" aria-current={navCurrent("/sessions")}><Icon name="message" size={15} /><span>{copy.sessions}</span></a>
+        <a href="/settings" aria-current={navCurrent("/settings")}><Icon name="settings" size={15} /><span>{copy.settings}</span></a>
+      </nav>
+      <Button bind:element={searchTrigger} variant="ghost" size="compact" ariaExpanded={searchOpen} onclick={toggleSearch}>
+        <Icon name="search" size={15} />
+        <span>{copy.search}</span>
+        <kbd>⌘K</kbd>
+      </Button>
+      <Select id="spark-theme" value={theme} groups={themeGroups} label={copy.theme} compact fit onValueChange={(value) => selectTheme(value as "light" | "dark" | "system")} />
+      <Select id="spark-locale" value={data.locale} groups={localeGroups} label={copy.language} compact fit onValueChange={(value) => void selectLocale(value as "en" | "zh-CN")} />
+    </div>
   </header>
-  {#if searchOpen}
-    <section class="global-search" aria-label={copy.globalSearchRegion}>
-      <form onsubmit={(event) => void globalSearch(event)}>
-        <label for="spark-global-search">{copy.globalSearchLabel}</label>
-        <div><input id="spark-global-search" type="search" bind:value={searchQuery} required /><button type="submit" disabled={searching}>{searching ? copy.searching : copy.search}</button><button type="button" onclick={closeSearch}>{copy.close}</button></div>
-      </form>
-      {#if searchError}<p role="alert">{searchError}</p>{/if}
-      {#if searchResults.length > 0}<ul>{#each searchResults as result (result.ref)}<li><a href={resultHref(result)}><span>{result.kind}</span><strong>{result.title}</strong>{#if result.summary}<small>{result.summary}</small>{/if}</a></li>{/each}</ul>{/if}
-    </section>
-  {/if}
   <main id="spark-main" tabindex="-1">{@render children()}</main>
 </div>
+
+<Dialog
+  bind:open={searchOpen}
+  width="min(720px, calc(100vw - 32px))"
+  maxHeight="min(680px, calc(100dvh - 32px))"
+  layout="grid"
+  overflow="hidden"
+  mobile="sheet"
+  onOpenChangeComplete={(open) => {
+    if (!open) requestAnimationFrame(() => searchTrigger?.focus());
+  }}
+>
+  <section class="search-dialog" aria-label={copy.globalSearchRegion}>
+    <header>
+      <div>
+        <DialogTitle class="search-title">{copy.globalSearchLabel}</DialogTitle>
+      </div>
+      <DialogClose class="dialog-close" aria-label={copy.close}><Icon name="close" size={17} /></DialogClose>
+    </header>
+    <form onsubmit={(event) => void globalSearch(event)}>
+      <Icon name="search" size={18} />
+      <Input id="spark-global-search" type="search" bind:value={searchQuery} required aria-label={copy.globalSearchLabel} />
+      <Button type="submit" disabled={searching}>{searching ? copy.searching : copy.search}</Button>
+    </form>
+    {#if searchError}<p class="search-error" role="alert">{searchError}</p>{/if}
+    <div class="search-results">
+      {#if searchResults.length > 0}
+        <ul>{#each searchResults as result (result.ref)}<li><a href={resultHref(result)} onclick={() => (searchOpen = false)}><span>{result.kind}</span><strong>{result.title}</strong>{#if result.summary}<small>{result.summary}</small>{/if}</a></li>{/each}</ul>
+      {:else if searchQuery.trim() && !searching}
+        <p class="search-empty">{copy.noSearchResults}</p>
+      {/if}
+    </div>
+  </section>
+</Dialog>
 
 <style>
   :global(body) {
@@ -169,91 +222,159 @@
     transform: translateY(0);
   }
   .top {
-    display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    gap: var(--spacing-lg);
+    justify-content: space-between;
+    min-height: var(--shell-topbar-height);
+    padding: 8px var(--spacing-xl);
+    position: sticky;
+    top: 0;
+    z-index: 40;
   }
   .brand {
-    font-weight: 650;
+    align-items: center;
     color: inherit;
+    display: inline-flex;
+    font-weight: 700;
+    gap: 7px;
     text-decoration: none;
+  }
+  .brand > span:first-child {
+    align-items: center;
+    background: var(--color-primary-weak);
+    border-radius: var(--rounded-md);
+    color: var(--color-primary);
+    display: inline-flex;
+    height: 28px;
+    justify-content: center;
+    width: 28px;
+  }
+  .top-actions {
+    align-items: center;
+    display: flex;
+    gap: var(--spacing-xs);
+    min-width: 0;
   }
   nav {
     display: flex;
-    gap: 16px;
+    gap: var(--spacing-xxs);
   }
   nav a {
+    align-items: center;
+    border-radius: var(--rounded-md);
     color: var(--color-ink-muted);
+    display: inline-flex;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-caption-medium);
+    gap: 6px;
+    min-height: var(--control-height-compact);
+    padding: 5px 9px;
     text-decoration: none;
   }
-  nav button {
-    background: transparent;
-    border: 0;
-    color: var(--color-ink-muted);
-    cursor: pointer;
-    font: inherit;
-    padding: 0;
-  }
-  .theme select,
-  .locale select {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
+  nav a:hover {
+    background: var(--color-surface-soft);
     color: var(--color-ink);
   }
-  .sr-only {
-    block-size: 1px;
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    inline-size: 1px;
-    overflow: hidden;
-    position: absolute;
-    white-space: nowrap;
+  nav a[aria-current="page"] {
+    background: var(--color-primary-weak);
+    color: var(--color-primary);
   }
-  .global-search {
-    background: var(--color-surface);
+  kbd {
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-xs);
+    color: var(--color-ink-subtle);
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  :global(.search-dialog) {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    min-height: 240px;
+  }
+  :global(.search-dialog > header) {
+    align-items: start;
     border-bottom: 1px solid var(--color-border);
-    box-shadow: var(--shadow-card-raised);
-    display: grid;
-    gap: 10px;
-    max-height: 50vh;
-    overflow: auto;
-    padding: 12px 20px;
-    position: relative;
-    z-index: 10;
-  }
-  .global-search form,
-  .global-search form div {
     display: flex;
-    gap: 8px;
+    justify-content: space-between;
+    padding: var(--spacing-lg) var(--spacing-xl);
   }
-  .global-search form {
-    flex-direction: column;
+  :global(.search-title) {
+    font-size: var(--text-section-title);
+    font-weight: var(--weight-section-title);
+    margin: 0;
   }
-  .global-search input {
-    flex: 1;
-    min-width: 0;
+  :global(.search-dialog > header p) {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+    margin: 3px 0 0;
   }
-  .global-search ul {
+  :global(.dialog-close) {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    display: inline-flex;
+    height: 32px;
+    justify-content: center;
+    width: 32px;
+  }
+  :global(.dialog-close:hover) {
+    background: var(--color-surface-soft);
+  }
+  :global(.search-dialog > form) {
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
     display: grid;
-    gap: 4px;
+    gap: var(--spacing-sm);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: var(--spacing-md) var(--spacing-xl);
+  }
+  .search-results {
+    min-height: 0;
+    overflow: auto;
+    padding: var(--spacing-xs);
+  }
+  .search-results ul {
+    display: grid;
+    gap: var(--spacing-xxs);
     list-style: none;
     margin: 0;
     padding: 0;
   }
-  .global-search li a {
+  .search-results li a {
+    border-radius: var(--rounded-md);
     color: inherit;
     display: grid;
-    gap: 3px;
+    gap: 3px var(--spacing-sm);
     grid-template-columns: 90px minmax(0, 1fr);
-    padding: 6px;
+    padding: 9px var(--spacing-sm);
     text-decoration: none;
   }
-  .global-search small {
+  .search-results li a:hover {
+    background: var(--color-primary-weak);
+  }
+  .search-results span,
+  .search-results small {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+  .search-results small {
     grid-column: 2;
+  }
+  .search-error,
+  .search-empty {
+    color: var(--color-ink-subtle);
+    margin: 0;
+    padding: var(--spacing-lg);
+  }
+  .search-error {
+    color: var(--color-danger-strong);
   }
   main {
     flex: 1 1 auto;
@@ -261,28 +382,29 @@
   }
   @media (max-width: 640px) {
     .top {
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 12px;
+      align-items: center;
+      gap: var(--spacing-xs);
+      padding: 8px var(--spacing-sm);
     }
-    nav {
-      flex-wrap: wrap;
-      gap: 8px 12px;
-      justify-content: flex-end;
+    .brand > span:last-child,
+    nav a span,
+    :global(.top-actions > .ui-button span),
+    kbd {
+      display: none;
     }
-    .global-search {
-      padding: 10px 12px;
+    .top-actions {
+      gap: var(--spacing-xxs);
+    }
+    nav a {
+      padding-inline: 8px;
     }
   }
   @media (prefers-contrast: more) {
     .top,
-    .global-search,
-    .theme select,
-    .locale select {
+    :global(.search-dialog) {
       border-color: currentColor;
     }
-    nav a,
-    nav button {
+    nav a {
       color: var(--color-ink);
       text-decoration: underline;
       text-underline-offset: 3px;

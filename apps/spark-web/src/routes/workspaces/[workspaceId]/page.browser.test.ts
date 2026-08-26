@@ -217,7 +217,8 @@ describe("Workspace page owner state", () => {
     const screen = await render(WorkspacePage, { data: workspaceData("a") });
 
     await screen.getByRole("button", { name: "New session" }).click();
-    await screen.getByRole("combobox", { name: "Working directory" }).selectOptions("artifact:a");
+    await screen.getByRole("button", { name: "Working directory" }).click();
+    await screen.getByRole("option", { name: /Artifact a/ }).click();
     await screen.getByRole("button", { name: "Browse subdirectory" }).click();
     await screen.getByRole("button", { name: "Use this directory" }).click();
     await screen.getByRole("button", { name: "Create Session" }).click();

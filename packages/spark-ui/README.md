@@ -12,6 +12,34 @@ copy, and localized product wording before passing structured props into it.
 `spark-ui` is a component library name only. It is not an Artifact media type,
 wire format, or executable MDX runtime.
 
+## Product visual system
+
+The root export owns the shared product primitives: `PageLayout`, `PageHeader`,
+`Panel`, `StatCard`, `EmptyState`, `Notice`, `StatusPill`, `Button`, `Field`,
+`Input`, `Select`, `Checkbox`, `Textarea`, `Dialog`, and `ConfirmDialog`.
+Applications compose navigation and domain content from these primitives; they
+must not create a competing button, form, card, status, dialog, spacing, or
+focus language in route-local CSS. A specialized native input may remain only
+when it supplies browser capability that the primitives do not replace, such as
+the visually hidden file picker behind a tokenized trigger.
+
+`tokens.css` is the executable source of truth for color roles, typography,
+spacing, radius, elevation, control height, page width, theme, focus, and
+reduced-motion behavior. Productive controls use the 32 px compact or 40 px
+default height. Page composition separates layout from interaction: use one of
+the bounded `PageLayout` widths, a single `PageHeader`, semantic Panels, and
+vertically scannable Fields. Primary, secondary, danger, and ghost Button
+variants communicate action hierarchy rather than decorative color.
+
+The system follows the same durable principles documented by
+[GitHub Primer layout](https://primer.style/product/getting-started/foundations/layout/)
+and [form patterns](https://primer.style/product/ui-patterns/forms/),
+[Radix Themes layout separation](https://www.radix-ui.com/themes/docs/overview/layout),
+[Atlassian design-token ownership](https://atlassian.design/foundations/tokens/use-tokens-in-code/),
+and [Carbon productive forms](https://carbondesignsystem.com/components/form/usage/).
+These are references for cohesion, accessibility, density, and responsive
+behavior; Spark keeps its own Svelte/Bits UI implementation and visual identity.
+
 ## Conversation API
 
 Import reusable chat presentation from `@zendev-lab/spark-ui/conversation`.
