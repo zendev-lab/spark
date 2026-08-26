@@ -81,12 +81,15 @@ following a symlink cycle while preserving explicit file reads and writes
 through symlink paths. Remove this compatibility guard once the supported DSH
 release owns equivalent cycle detection.
 
-For the supported DSH release, Spark rejects cold history artifacts larger than 8 MiB
-before upstream `inspect()` can materialize the complete transcript. Servable
-history pages are sized adaptively from the artifact, then checked against an
-8 MiB response budget before HTTP transport. Oversized pages retry with fewer
+For the supported DSH release, Spark rejects cold history artifacts whose
+physical or decoded size exceeds 8 MiB before upstream `inspect()` can
+materialize the complete transcript. The preflight checks every independently
+compressed frame in the append-only Zstandard container, so a small,
+high-compression artifact cannot bypass the memory fence. Servable history
+pages are sized adaptively from the artifact, then checked against an 8 MiB
+response budget before HTTP transport. Oversized pages retry with fewer
 messages, compact cumulative token chunks to final message events, and return a
 marked text preview when even one final message is too large. Resume, fork, and
-background persistence paths are unchanged. Override the compressed-artifact
-limit with `SPARK_WEB_MAX_COLD_HISTORY_ARTIFACT_BYTES` and the response limit
-with `SPARK_WEB_MAX_HISTORY_RESPONSE_BYTES`.
+background persistence paths are unchanged. Override the cold-artifact limit
+with `SPARK_WEB_MAX_COLD_HISTORY_ARTIFACT_BYTES` and the response limit with
+`SPARK_WEB_MAX_HISTORY_RESPONSE_BYTES`.

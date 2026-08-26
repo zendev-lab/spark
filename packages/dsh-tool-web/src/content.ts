@@ -435,14 +435,40 @@ async function boundedResponseText(
   response: Response,
   maxBytes: number,
 ): Promise<{ text: string; truncated: boolean }> {
-  const text = await response.text();
-  if (text.length > maxBytes) {
-    return {
-      text: `${text.slice(0, maxBytes)}\n[truncated ${text.length - maxBytes} chars]`,
-      truncated: true,
-    };
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new Error("web fetch maxBytes must be a positive safe integer");
   }
-  return { text, truncated: false };
+  if (response.body === null) return { text: "", truncated: false };
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const text: string[] = [];
+  let bytes = 0;
+  let truncated = false;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      const remaining = maxBytes - bytes;
+      if (chunk.value.byteLength > remaining) {
+        text.push(decoder.decode(chunk.value.subarray(0, remaining), { stream: true }));
+        bytes = maxBytes;
+        truncated = true;
+        await reader.cancel().catch(() => undefined);
+        break;
+      }
+      text.push(decoder.decode(chunk.value, { stream: true }));
+      bytes += chunk.value.byteLength;
+    }
+    text.push(decoder.decode());
+  } finally {
+    reader.releaseLock();
+  }
+
+  const content = text.join("");
+  return truncated
+    ? { text: `${content}\n[truncated after ${maxBytes} bytes]`, truncated: true }
+    : { text: content, truncated: false };
 }
 
 function sanitizeText(value: string): string {

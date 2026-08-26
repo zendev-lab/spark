@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
+import { constants as zstdConstants, zstdDecompressSync } from "node:zlib";
 
 /**
  * Spark-owned safety policies for the DSH Web host.
@@ -23,6 +24,7 @@ export const MAX_COLD_HISTORY_ARTIFACT_BYTES_ENV = "SPARK_WEB_MAX_COLD_HISTORY_A
 export const DEFAULT_MAX_HISTORY_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const MAX_HISTORY_RESPONSE_BYTES_ENV = "SPARK_WEB_MAX_HISTORY_RESPONSE_BYTES";
 const DEFAULT_HISTORY_MESSAGES = 50;
+const ZSTD_MAGIC = 0xfd2fb528;
 
 interface HistoryRequest {
   rpcId: unknown;
@@ -140,6 +142,140 @@ export function maxHistoryResponseBytes(raw = process.env[MAX_HISTORY_RESPONSE_B
     DEFAULT_MAX_HISTORY_RESPONSE_BYTES,
     raw,
   );
+}
+
+interface ZstdFrameRange {
+  start: number;
+  end: number;
+}
+
+function scanZstdFrames(buffer: Buffer): {
+  frames: ZstdFrameRange[];
+  tornStart?: number;
+} {
+  const frames: ZstdFrameRange[] = [];
+  let offset = 0;
+  while (offset < buffer.length) {
+    const start = offset;
+    if (buffer.length - offset < 4) return { frames, tornStart: start };
+    if (buffer.readUInt32LE(offset) !== ZSTD_MAGIC) {
+      throw new Error(`invalid Zstandard frame magic at byte ${offset}`);
+    }
+    offset += 4;
+    if (offset === buffer.length) return { frames, tornStart: start };
+
+    const descriptor = buffer.readUInt8(offset);
+    offset += 1;
+    if ((descriptor & 0x18) !== 0) {
+      throw new Error(`reserved Zstandard frame-header bit at byte ${offset - 1}`);
+    }
+    const contentSizeFlag = descriptor >>> 6;
+    const singleSegment = (descriptor & 0x20) !== 0;
+    const checksum = (descriptor & 0x04) !== 0;
+    const dictionaryFlag = descriptor & 0x03;
+    const dictionaryBytes = dictionaryFlag === 3 ? 4 : dictionaryFlag;
+    const contentSizeBytes = contentSizeFlag === 0 ? (singleSegment ? 1 : 0) : 1 << contentSizeFlag;
+    const remainingHeaderBytes = (singleSegment ? 0 : 1) + dictionaryBytes + contentSizeBytes;
+    if (buffer.length - offset < remainingHeaderBytes) return { frames, tornStart: start };
+    offset += remainingHeaderBytes;
+
+    for (;;) {
+      if (buffer.length - offset < 3) return { frames, tornStart: start };
+      const blockHeader = buffer.readUIntLE(offset, 3);
+      offset += 3;
+      const lastBlock = (blockHeader & 1) !== 0;
+      const blockType = (blockHeader >>> 1) & 3;
+      const blockSize = blockHeader >>> 3;
+      if (blockType === 3) {
+        throw new Error(`reserved Zstandard block type at byte ${offset - 3}`);
+      }
+      const payloadBytes = blockType === 1 ? 1 : blockSize;
+      if (buffer.length - offset < payloadBytes) return { frames, tornStart: start };
+      offset += payloadBytes;
+      if (lastBlock) break;
+    }
+
+    if (checksum) {
+      if (buffer.length - offset < 4) return { frames, tornStart: start };
+      offset += 4;
+    }
+    frames.push({ start, end: offset });
+  }
+  return { frames };
+}
+
+function decompressedZstdBytesWithin(
+  buffer: Buffer,
+  maxBytes: number,
+): { decodedBytes: number; exceedsLimit: boolean } {
+  const { frames, tornStart } = scanZstdFrames(buffer);
+  let decodedBytes = 0;
+  const decode = (frame: Buffer, finishFlush?: number) => {
+    const remaining = maxBytes - decodedBytes;
+    try {
+      const decoded = zstdDecompressSync(frame, {
+        ...(finishFlush === undefined ? {} : { finishFlush }),
+        maxOutputLength: remaining + 1,
+      });
+      decodedBytes += decoded.byteLength;
+      return decodedBytes > maxBytes;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ERR_BUFFER_TOO_LARGE") {
+        decodedBytes = maxBytes + 1;
+        return true;
+      }
+      throw error;
+    }
+  };
+
+  for (const frame of frames) {
+    if (decode(buffer.subarray(frame.start, frame.end))) {
+      return { decodedBytes, exceedsLimit: true };
+    }
+  }
+  if (tornStart !== undefined && decode(buffer.subarray(tornStart), zstdConstants.ZSTD_e_flush)) {
+    return { decodedBytes, exceedsLimit: true };
+  }
+  return { decodedBytes, exceedsLimit: false };
+}
+
+async function coldHistoryArtifactFootprint(
+  path: string,
+  maxBytes: number,
+): Promise<{ physicalBytes: number; decodedBytes?: number; exceedsLimit: boolean }> {
+  const file = await open(path, "r");
+  let artifact: Buffer;
+  let physicalBytes: number;
+  try {
+    const before = await file.stat({ bigint: true });
+    physicalBytes = Number(before.size);
+    if (before.size > BigInt(maxBytes)) return { physicalBytes, exceedsLimit: true };
+    artifact = Buffer.allocUnsafe(physicalBytes);
+    let offset = 0;
+    while (offset < artifact.byteLength) {
+      const { bytesRead } = await file.read(artifact, offset, artifact.byteLength - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    const after = await file.stat({ bigint: true });
+    if (
+      offset !== physicalBytes ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      before.size !== after.size ||
+      before.mtimeNs !== after.mtimeNs ||
+      before.ctimeNs !== after.ctimeNs
+    ) {
+      throw new Error("history artifact changed during bounded preflight");
+    }
+  } finally {
+    await file.close();
+  }
+  if (!path.endsWith(".zstd")) {
+    return { physicalBytes, decodedBytes: artifact.byteLength, exceedsLimit: false };
+  }
+  const decoded = decompressedZstdBytesWithin(artifact, maxBytes);
+  return { physicalBytes, ...decoded };
 }
 
 /**
@@ -470,6 +606,8 @@ export function apply(ctx: SparkWebHostContext): void {
     }
 
     let artifactBytes: number | undefined;
+    let coldArtifactExceedsFence = false;
+    let decodedArtifactBytes: number | undefined;
     if (meta !== undefined) {
       const location = ctx.sessionPersistence.locate(meta);
       if (location === undefined && live === undefined) {
@@ -480,7 +618,14 @@ export function apply(ctx: SparkWebHostContext): void {
       }
       if (location !== undefined) {
         try {
-          artifactBytes = (await stat(location.path)).size;
+          if (live === undefined) {
+            const footprint = await coldHistoryArtifactFootprint(location.path, artifactFence);
+            artifactBytes = footprint.physicalBytes;
+            decodedArtifactBytes = footprint.decodedBytes;
+            coldArtifactExceedsFence = footprint.exceedsLimit;
+          } else {
+            artifactBytes = (await stat(location.path)).size;
+          }
         } catch (error) {
           if (live === undefined) {
             return historyRefusal(
@@ -492,13 +637,17 @@ export function apply(ctx: SparkWebHostContext): void {
       }
     }
 
-    if (live === undefined && artifactBytes !== undefined && artifactBytes > artifactFence) {
+    if (live === undefined && artifactBytes !== undefined && coldArtifactExceedsFence) {
+      const measured =
+        decodedArtifactBytes === undefined
+          ? `${artifactBytes} physical bytes`
+          : `${decodedArtifactBytes} decoded bytes (${artifactBytes} physical bytes)`;
       ctx.logger?.warn(
-        `spark web refused cold history for ${request.payload.sessionId}: artifact ${artifactBytes} bytes exceeds ${artifactFence}`,
+        `spark web refused cold history for ${request.payload.sessionId}: artifact ${measured} exceeds ${artifactFence}`,
       );
       return historyRefusal(
         request,
-        `this history is too large to open safely (${artifactBytes} bytes compressed; Spark Web limit ${artifactFence}). ` +
+        `this history is too large to open safely (${measured}; Spark Web limit ${artifactFence}). ` +
           `Start a new session or raise ${MAX_COLD_HISTORY_ARTIFACT_BYTES_ENV} explicitly.`,
       );
     }
