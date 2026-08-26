@@ -157,8 +157,10 @@ exactly once; list returns metadata only; revoke is immediate and
 idempotent; verify collapses missing, malformed, expired, and revoked
 tokens into one boolean so adapters cannot probe failure causes. Native
 Web verifies every non-loopback request through the daemon; Web DSH pins
-its DSH compatibility server to loopback and exposes only an
-authenticated proxy on a non-loopback bind. Both adapters accept the
+its DSH compatibility server to a randomized loopback port guarded by a
+per-process credential and exposes every listener through Spark's trust proxy.
+The proxy keeps loopback peers tokenless and verifies non-loopback peers
+through the daemon. Both adapters accept the
 token as a navigation-only `token` query parameter (promoted to an
 HttpOnly cookie), the `x-spark-web-token` header, or the
 `spark_web_token` cookie.

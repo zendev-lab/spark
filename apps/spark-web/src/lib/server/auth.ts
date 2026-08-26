@@ -1,12 +1,13 @@
-import { isIP } from "node:net";
-
 import {
   isSparkWebLoopbackClientAddress,
   requestSparkDaemon,
+  resolveSparkWebRequestTrustFailure,
   sparkWebTokenFromCarriers,
   SPARK_WEB_TOKEN_COOKIE,
   SPARK_WEB_TOKEN_HEADER,
   SPARK_WEB_TOKEN_QUERY,
+  type SparkWebAuthSource,
+  type SparkWebRequestTrust,
   type SparkWebTokenVerification,
 } from "@zendev-lab/spark-daemon-client";
 
@@ -17,7 +18,7 @@ import {
 } from "./bind.ts";
 
 export { SPARK_WEB_TOKEN_COOKIE, SPARK_WEB_TOKEN_HEADER, SPARK_WEB_TOKEN_QUERY };
-export type { SparkWebTokenVerification };
+export type { SparkWebAuthSource, SparkWebRequestTrust, SparkWebTokenVerification };
 export const SPARK_WEB_BIND_HOST_ENV = "SPARK_WEB_BIND_HOST";
 export const SPARK_WEB_BIND_PORT_ENV = "SPARK_WEB_BIND_PORT";
 
@@ -58,8 +59,6 @@ export function tokenFromRequest(input: {
   return sparkWebTokenFromCarriers(input);
 }
 
-export type SparkWebAuthSource = "query" | "header" | "cookie" | "none";
-
 export function sparkWebAuthSource(input: {
   cookie?: string | null;
   query?: string | null;
@@ -69,12 +68,6 @@ export function sparkWebAuthSource(input: {
   if (input.header?.trim()) return "header";
   if (input.cookie?.trim()) return "cookie";
   return "none";
-}
-
-export interface SparkWebRequestTrust {
-  bindHost: string;
-  bindPort: number;
-  lanAddresses: string[];
 }
 
 export function resolveSparkWebRequestTrust(
@@ -127,80 +120,28 @@ function requestTrustError(
   },
   allowCrossSiteDocumentNavigation: boolean,
 ): string | null {
-  const hostHeader = input.request.headers.get("host")?.trim().toLowerCase();
-  if (!hostHeader || !isAllowedAuthority(hostHeader, input.trust, input.clientAddress)) {
-    return "Spark web rejected the request Host";
+  const failure = resolveSparkWebRequestTrustFailure({
+    method: input.request.method,
+    host: input.request.headers.get("host"),
+    origin: input.request.headers.get("origin"),
+    fetchSite: input.request.headers.get("sec-fetch-site"),
+    fetchMode: input.request.headers.get("sec-fetch-mode"),
+    fetchDest: input.request.headers.get("sec-fetch-dest"),
+    authSource: input.authSource,
+    trust: input.trust,
+    clientAddress: input.clientAddress,
+    allowCrossSiteDocumentNavigation,
+  });
+  switch (failure) {
+    case "host":
+      return "Spark web rejected the request Host";
+    case "cross-site":
+      return "Spark web rejected a cross-site request";
+    case "origin":
+      return "Spark web rejected the request Origin";
+    case "mutation-source":
+      return "Spark web requires same-origin metadata for cookie-authenticated mutations";
+    default:
+      return null;
   }
-  const fetchSite = input.request.headers.get("sec-fetch-site")?.trim().toLowerCase();
-  if (
-    fetchSite === "cross-site" &&
-    !(
-      allowCrossSiteDocumentNavigation &&
-      input.request.headers.get("sec-fetch-mode")?.trim().toLowerCase() === "navigate" &&
-      input.request.headers.get("sec-fetch-dest")?.trim().toLowerCase() === "document"
-    )
-  ) {
-    return "Spark web rejected a cross-site request";
-  }
-
-  const origin = input.request.headers.get("origin")?.trim();
-  if (origin && !originMatchesAuthority(origin, hostHeader)) {
-    return "Spark web rejected the request Origin";
-  }
-  const method = input.request.method.toUpperCase();
-  const mutation = !["GET", "HEAD", "OPTIONS"].includes(method);
-  if (mutation && input.authSource !== "header" && !origin && fetchSite !== "same-origin") {
-    return "Spark web requires same-origin metadata for cookie-authenticated mutations";
-  }
-  return null;
-}
-
-function isAllowedAuthority(
-  authority: string,
-  trust: SparkWebRequestTrust,
-  clientAddress: string | null | undefined,
-): boolean {
-  const parsed = parseAuthority(authority);
-  if (!parsed || parsed.port !== trust.bindPort) return false;
-  if (isSparkWebLoopbackHost(parsed.hostname)) {
-    return isSparkWebLoopbackClientAddress(clientAddress);
-  }
-  if (isIP(parsed.hostname) === 0) return false;
-  const bindHost = normalizeHostname(trust.bindHost);
-  if (bindHost === SPARK_WEB_ALL_INTERFACES_HOST) {
-    return trust.lanAddresses.includes(parsed.hostname);
-  }
-  return parsed.hostname === bindHost;
-}
-
-function originMatchesAuthority(origin: string, authority: string): boolean {
-  try {
-    const url = new URL(origin);
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      url.host.toLowerCase() === authority
-    );
-  } catch {
-    return false;
-  }
-}
-
-function parseAuthority(authority: string): { hostname: string; port: number } | null {
-  try {
-    const url = new URL(`http://${authority}`);
-    if (!url.hostname || url.username || url.password || url.pathname !== "/") return null;
-    return {
-      hostname: normalizeHostname(url.hostname),
-      port: url.port.length > 0 ? Number(url.port) : 80,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function normalizeHostname(hostname: string): string {
-  return hostname
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/gu, "");
 }

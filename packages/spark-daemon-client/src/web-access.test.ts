@@ -6,6 +6,7 @@ import {
   isSparkWebHtmlNavigation,
   isSparkWebLoopbackClientAddress,
   renderSparkWebAccessPage,
+  resolveSparkWebRequestTrustFailure,
   resolveSparkWebAccessChallenge,
   resolveSparkWebAccessRequest,
   resolveSparkWebLanAddresses,
@@ -51,6 +52,102 @@ test("LAN discovery returns local IPv4 literals, never loopback", () => {
     assert.equal(isIPv4(address), true, address);
     assert.equal(address.startsWith("127."), false, address);
   }
+});
+
+test("direct Web trust is shared across loopback and LAN adapters", () => {
+  const loopback = { bindHost: "127.0.0.1", bindPort: 4310, lanAddresses: [] };
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "127.0.0.1:4310",
+      authSource: "none",
+      trust: loopback,
+      clientAddress: "127.0.0.1",
+    }),
+    null,
+  );
+  for (const host of [
+    "evil.example:4310",
+    "127.0.0.1:4311",
+    "user@127.0.0.1:4310",
+    "127.0.0.1:4310?ignored",
+    "2130706433:4310",
+    "0177.0.0.1:4310",
+    "127.0.0.1:04310",
+  ]) {
+    assert.equal(
+      resolveSparkWebRequestTrustFailure({
+        host,
+        authSource: "none",
+        trust: loopback,
+        clientAddress: "127.0.0.1",
+      }),
+      "host",
+      host,
+    );
+  }
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      method: "POST",
+      host: "127.0.0.1:4310",
+      origin: "https://evil.example",
+      authSource: "none",
+      trust: loopback,
+      clientAddress: "127.0.0.1",
+    }),
+    "origin",
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      method: "POST",
+      host: "127.0.0.1:4310",
+      authSource: "cookie",
+      trust: loopback,
+      clientAddress: "127.0.0.1",
+    }),
+    "mutation-source",
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      method: "POST",
+      host: "127.0.0.1:4310",
+      authSource: "header",
+      trust: loopback,
+      clientAddress: "127.0.0.1",
+    }),
+    null,
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "127.0.0.1:4310",
+      authSource: "header",
+      trust: loopback,
+      clientAddress: "10.0.0.9",
+    }),
+    "host",
+  );
+
+  const lan = { bindHost: "0.0.0.0", bindPort: 4310, lanAddresses: ["10.0.0.2"] };
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "10.0.0.2:4310",
+      origin: "http://10.0.0.2:4310",
+      fetchSite: "same-origin",
+      authSource: "cookie",
+      trust: lan,
+      clientAddress: "10.0.0.9",
+    }),
+    null,
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "10.0.0.2:4310",
+      fetchSite: "cross-site",
+      authSource: "header",
+      trust: lan,
+      clientAddress: "10.0.0.9",
+    }),
+    "cross-site",
+  );
 });
 
 test("access return paths stay same-origin", () => {

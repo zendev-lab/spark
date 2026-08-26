@@ -19,12 +19,11 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
 Usage:
   spark-web-dsh [--host <host>] [--port <port>] [args...]
 
-The DSH profile must already exist. Requests from an actual loopback peer are
-tokenless. An explicit non-loopback --host exposes only Spark's access proxy;
-local interface IPs are trusted automatically and remote peers enter the Spark
-Access page backed by daemon-user tokens (spark daemon access create). The DSH
-server itself stays on loopback. The server prints its URL without opening a
-browser.
+The DSH profile must already exist. Spark's access proxy owns every listener;
+the DSH server itself stays on a private loopback port. Requests from an actual
+loopback peer are tokenless. Local interface IPs are trusted automatically and
+remote peers enter the Spark Access page backed by daemon-user tokens
+(spark daemon access create). The server prints its URL without opening a browser.
 `);
     return 0;
   }

@@ -40,12 +40,12 @@ spark web-dsh
 spark web-dsh --host 0.0.0.0 --port 3080
 ```
 
-The DSH compatibility server itself stays pinned to loopback whenever Spark
-exposes a non-loopback listener. Spark's outer access proxy owns the actual
-network boundary. Requests from an actual loopback peer remain tokenless even
-when the listener binds `0.0.0.0`; local non-loopback IPv4 authorities are
-discovered automatically, and remote peers require the daemon-owned
-`daemon-user` token family.
+The DSH compatibility server itself always stays on a randomized loopback port
+guarded by a per-process credential. Spark's outer access proxy owns every
+listener and the actual network boundary. Requests from an actual loopback peer
+remain tokenless even when the listener binds `0.0.0.0`; local non-loopback IPv4
+authorities are discovered automatically, and remote peers require the
+daemon-owned `daemon-user` token family.
 
 Remote document navigation opens the same Spark Access page as native
 `spark web`. Generate a token with `spark daemon access create`, enter it on the

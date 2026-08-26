@@ -81,13 +81,14 @@ the server URL without opening a browser:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-The DSH server itself stays pinned to loopback behind Spark's outer access
-proxy. That proxy uses the same peer-based rule and Spark Access page as native
-Web: actual loopback peers are tokenless, local interface IP literals are
-discovered automatically, and remote peers require the same daemon-owned access
-tokens. Host, Origin, and Fetch Metadata checks still run before token
-verification. API and WebSocket requests retain carrier-level authentication
-errors, and the proxy fails closed while the daemon is unreachable.
+The DSH server itself stays on a randomized loopback port protected by a
+per-process credential. Every listener belongs to Spark's outer access proxy,
+which uses the same peer-based rule and Spark Access page as native Web: actual
+loopback peers are tokenless, local interface IP literals are discovered
+automatically, and remote peers require the same daemon-owned access tokens.
+Host, Origin, and Fetch Metadata checks still run before token verification.
+API and WebSocket requests retain carrier-level authentication errors, and the
+proxy fails closed while the daemon is unreachable.
 
 The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
 `cue` Skill in the DSH Skill catalog. It handles

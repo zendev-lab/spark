@@ -28,6 +28,7 @@ import {
   ensureDshWebProviderBundle,
   ensureSparkFilesBundle,
   ensureSparkLlmBundle,
+  ensureSparkPrivateWebServerBundle,
   ensureSparkSessionSubagentBundle,
   ensureSparkWebClient,
   parseSparkWebArgs,
@@ -70,6 +71,12 @@ test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest",
     trustedHosts: ["a:3080"],
     argv: [],
   });
+  assert.deepEqual(parseSparkWebArgs(["--port=8081"]), {
+    host: undefined,
+    port: 8081,
+    trustedHosts: [],
+    argv: [],
+  });
   assert.deepEqual(parseSparkWebArgs([]), {
     host: undefined,
     port: undefined,
@@ -77,13 +84,14 @@ test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest",
     argv: [],
   });
   assert.throws(() => parseSparkWebArgs(["--port", "abc"]), /must be a number/);
+  assert.throws(() => parseSparkWebArgs(["--port=65536"]), /between 1 and 65535/u);
   assert.throws(() => parseSparkWebArgs(["--host"]), /requires a value/);
 });
 
 test("composeSparkWebPatch replaces stock providers, mounts Spark DSH plugins, and bounds the long-lived web server", () => {
   const dir = mkdtempSync(join(tmpdir(), "spark-web-patch-"));
   try {
-    const defaultPatch = composeSparkWebPatch(dir, { argv: [], trustedHosts: [] });
+    const defaultPatch = composeSparkWebPatch(dir);
     const defaultText = defaultPatch.rows.join("\n");
     assert.match(defaultText, /- id: spark-llm/);
     assert.match(defaultText, /name: \.\/plugins\/spark-llm\/index\.mjs/);
@@ -104,19 +112,36 @@ test("composeSparkWebPatch replaces stock providers, mounts Spark DSH plugins, a
     assert.match(defaultText, /- id: agent-presets\n  config:\n    default: spark-standard/);
     assert.match(defaultText, /name: ["']@zendev-lab\/spark-web-dsh["']/);
     assert.match(defaultText, /- id: hmr\n  disabled: true/);
-    assert.doesNotMatch(defaultText, /- id: webserver/);
+    assert.match(
+      defaultText,
+      /- id: spark-private-webserver\n      name: \.\/plugins\/spark-private-webserver\/index\.mjs\n      inject: \[webStartup\]\n      config:\n        host: 127\.0\.0\.1\n        port: !!js ctx\.webStartup\.port \?\? 3080/,
+    );
+    assert.match(
+      defaultText,
+      /- id: webserver\n  name: '@deepseek-ai\/dsh-host-webserver'\n  disabled: true/,
+    );
     assert.ok(existsSync(defaultPatch.path), "patch file written");
-
-    const lanPatch = composeSparkWebPatch(dir, { host: "0.0.0.0", argv: [], trustedHosts: [] });
-    assert.match(lanPatch.rows.join("\n"), /- id: webserver\n  config:\n    host: 0\.0\.0\.0/);
 
     writeFileSync(
       join(dir, "cordis.patch.yml"),
       "- insert:\n    - id: spark-session-subagent\n      name: ./plugins/spark-session-subagent/index.mjs\n",
     );
-    const skipped = composeSparkWebPatch(dir, { argv: [], trustedHosts: [] }).rows.join("\n");
+    const skipped = composeSparkWebPatch(dir).rows.join("\n");
     assert.doesNotMatch(skipped, /- id: spark-session-subagent/);
     assert.match(skipped, /- id: spark-llm/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("private WebServer bundle extends the installed DSH service with credential guards", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-private-webserver-"));
+  const profile = join(dir, "profiles", "web");
+  try {
+    const bundle = await ensureSparkPrivateWebServerBundle(profile);
+    const source = readFileSync(bundle, "utf8");
+    assert.match(source, /@deepseek-ai\/dsh-host-webserver/u);
+    assert.match(source, /x-spark-web-dsh-proxy/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -360,6 +385,8 @@ test("sparkWebBootScript imports the dsh runtime without a CLI spawn", () => {
   assert.match(script, /\.sort\(\)\[0\]/, "picks the boot entry deterministically");
   assert.match(script, /"\/tmp\/patch-a\.yml"/, "passes patch paths through");
   assert.match(script, /--trusted-host=127\.0\.0\.1/, "passes web args through");
+  assert.match(script, /readFileSync\(3, "utf8"\)/u, "receives the credential over a pipe");
+  assert.match(script, /private-proxy-credential/u, "hands it only to the private adapter");
   assert.doesNotMatch(script, /spawn\(/, "never shells out");
 });
 
