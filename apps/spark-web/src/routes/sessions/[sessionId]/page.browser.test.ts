@@ -191,6 +191,41 @@ afterEach(() => {
 });
 
 describe("Session page owner state", () => {
+  it("uses shared controls and localized labels in the composer header", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const data = sessionData("a");
+    data.messages = getDictionary("zh-CN");
+    const screen = await render(SessionPage, { data });
+
+    const stop = screen.getByRole("button", { name: "停止" });
+    await expect.element(stop).toBeDisabled();
+    await expect.element(stop).toHaveAttribute("data-variant", "danger");
+    await expect
+      .element(screen.getByRole("button", { name: "重试" }))
+      .toHaveAttribute("data-variant", "secondary");
+    const thinking = screen.getByRole("button", { name: "思考级别" });
+    await expect.element(thinking).toHaveClass(/ui-select-trigger/u);
+    await expect.element(thinking).toHaveTextContent("高");
+    expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.thinking.set")).toBe(
+      false,
+    );
+
+    await thinking.click();
+    await screen.getByRole("option", { name: "极高" }).click();
+    await expect
+      .poll(() =>
+        mocks.webRpc.mock.calls.some(
+          ([method, input]) =>
+            method === "session.thinking.set" &&
+            input.sessionId === "a" &&
+            input.thinkingLevel === "xhigh",
+        ),
+      )
+      .toBe(true);
+
+    await screen.unmount();
+  });
+
   it("drops an Artifact response from the previous Session", async () => {
     mocks.webRpc.mockResolvedValue({ waits: [] });
     const response = deferred<Response>();

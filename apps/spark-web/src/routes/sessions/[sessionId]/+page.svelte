@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { goto } from "$app/navigation";
+  import { Button, Icon, Select, type SelectGroup } from "@zendev-lab/spark-ui";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
     ApprovalPart,
@@ -174,6 +175,18 @@
         label: actions[action.id] ?? action.label,
       })),
     };
+  });
+  let thinkingGroups = $derived.by((): SelectGroup[] => {
+    const actions = data.messages.shared.workbench.slashActions.actions as Record<string, string>;
+    return [
+      {
+        id: "thinking-levels",
+        options: sparkThinkingLevelOptions.map((level) => ({
+          value: level,
+          label: actions[`thinking-${level}`] ?? level,
+        })),
+      },
+    ];
   });
   let messages = $derived(snapshot.messages.map(conversationMessageFromView));
   let activity = $derived(resolveSessionActivityState({ session: snapshot, projectedTurns: [] }));
@@ -1281,26 +1294,35 @@
             selectedLabel={copy.selected}
             onCommit={commitModelValue}
           />
-          <button type="button" onclick={stopCurrentTurn} disabled={!activity.runningTurnId}>
+          <Button
+            type="button"
+            variant="danger"
+            size="compact"
+            onclick={stopCurrentTurn}
+            disabled={!activity.runningTurnId}
+          >
+            <Icon name="stop" size={13} />
             {copy.stop}
-          </button>
-          <button type="button" onclick={retryCurrentTurn}>{copy.retry}</button>
-          <label>
-            {copy.thinking}
-            <select
+          </Button>
+          <Button type="button" variant="secondary" size="compact" onclick={retryCurrentTurn}>
+            <Icon name="retry" size={13} />
+            {copy.retry}
+          </Button>
+          <div class="thinking-control">
+            <span>{copy.thinking}</span>
+            <Select
+              id="spark-web-thinking"
               value={snapshot.thinkingLevel ?? "high"}
-              onchange={(event) => {
-                const value = (event.currentTarget as HTMLSelectElement).value as SparkThinkingLevel;
+              groups={thinkingGroups}
+              label={copy.thinking}
+              compact
+              onValueChange={(value) => {
                 if ((sparkThinkingLevelOptions as readonly string[]).includes(value)) {
-                  changeThinkingLevel(value);
+                  changeThinkingLevel(value as SparkThinkingLevel);
                 }
               }}
-            >
-              {#each sparkThinkingLevelOptions as level (level)}
-                <option value={level}>{level}</option>
-              {/each}
-            </select>
-          </label>
+            />
+          </div>
         </div>
       {/snippet}
       {#snippet tools()}
@@ -1506,8 +1528,19 @@
   }
   .controls {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
+  }
+  .thinking-control {
+    align-items: center;
+    color: var(--color-ink-muted);
+    display: flex;
+    font-size: var(--text-caption);
+    gap: 6px;
+  }
+  .thinking-control > span {
+    white-space: nowrap;
   }
   .attachment-list {
     display: flex;
