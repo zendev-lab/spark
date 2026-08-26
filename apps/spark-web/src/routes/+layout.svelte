@@ -122,7 +122,7 @@
   <header class="top">
     <a href="/" class="brand">Spark</a>
     <nav>
-      <a href="/">{copy.workspaces}</a>
+      <a href="/">{copy.overview}</a>
       <a href="/sessions">{copy.sessions}</a>
       <a href="/settings">{copy.settings}</a>
       <button bind:this={searchTrigger} type="button" aria-expanded={searchOpen} onclick={toggleSearch}>{copy.search}</button>

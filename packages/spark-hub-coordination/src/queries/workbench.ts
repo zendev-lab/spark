@@ -22,27 +22,31 @@ import {
 export function loadWorkbenchLayout(
   db: DatabaseSync,
   pathname: string,
-  options: { preferredWorkspaceSlug?: string | null; authorizedWorkspaceId?: string | null } = {},
+  options: {
+    preferredWorkspaceSlug?: string | null;
+    authorizedWorkspaceIds?: readonly string[] | null;
+  } = {},
 ) {
-  const workspaces = db
-    .prepare(
-      `SELECT w.id,
-              w.slug,
-              w.name,
-              rwb.local_path AS localPath
-       FROM workspaces w
-       LEFT JOIN workspace_leases wob
-         ON wob.workspace_id = w.id AND wob.ended_at IS NULL
-       LEFT JOIN runtime_workspace_bindings rwb
-         ON rwb.id = wob.runtime_workspace_binding_id
-       WHERE w.status = 'active'
-         AND (? IS NULL OR w.id = ?)
-       ORDER BY w.updated_at DESC, w.created_at DESC`,
-    )
-    .all(
-      options.authorizedWorkspaceId ?? null,
-      options.authorizedWorkspaceId ?? null,
-    ) as unknown as WorkbenchWorkspaceSummary[];
+  const authorizedWorkspaceIds = options.authorizedWorkspaceIds ?? null;
+  const workspaces =
+    authorizedWorkspaceIds !== null && authorizedWorkspaceIds.length === 0
+      ? []
+      : (db
+          .prepare(
+            `SELECT w.id,
+                    w.slug,
+                    w.name,
+                    rwb.local_path AS localPath
+             FROM workspaces w
+             LEFT JOIN workspace_leases wob
+               ON wob.workspace_id = w.id AND wob.ended_at IS NULL
+             LEFT JOIN runtime_workspace_bindings rwb
+               ON rwb.id = wob.runtime_workspace_binding_id
+             WHERE w.status = 'active'
+               ${authorizedWorkspaceIds !== null ? `AND w.id IN (${placeholders(authorizedWorkspaceIds.length)})` : ""}
+             ORDER BY w.updated_at DESC, w.created_at DESC`,
+          )
+          .all(...(authorizedWorkspaceIds ?? [])) as unknown as WorkbenchWorkspaceSummary[]);
 
   const workspaceId = workspaceIdFromPath(pathname);
   const loadedPathWorkspace = workspaceId
@@ -50,13 +54,13 @@ export function loadWorkbenchLayout(
     : null;
   const pathWorkspace =
     loadedPathWorkspace &&
-    (!options.authorizedWorkspaceId || loadedPathWorkspace.id === options.authorizedWorkspaceId)
+    (!authorizedWorkspaceIds || authorizedWorkspaceIds.includes(loadedPathWorkspace.id))
       ? loadedPathWorkspace
       : null;
   const preferredSlug = options.preferredWorkspaceSlug?.trim() || null;
   const preferredWorkspace = preferredSlug
     ? (workspaces.find((workspace) => workspace.slug === preferredSlug) ??
-      (options.authorizedWorkspaceId ? null : loadWorkspaceByRouteId(db, preferredSlug)) ??
+      (authorizedWorkspaceIds ? null : loadWorkspaceByRouteId(db, preferredSlug)) ??
       null)
     : null;
   const activeWorkspace =
@@ -87,62 +91,66 @@ export function loadWorkbenchHome(
   input: {
     forceWorkspaceCreate: boolean;
     pendingWorkspaceSetup: PendingWorkspaceBindingSetup | null;
-    authorizedWorkspaceId?: string | null;
+    authorizedWorkspaceIds?: readonly string[] | null;
   },
 ) {
-  const workspaces = db
-    .prepare(
-      `SELECT w.id,
-              w.slug,
-              w.name,
-              w.description,
-              w.status,
-              w.created_at AS createdAt,
-              w.updated_at AS updatedAt,
-              COUNT(DISTINCT p.id) AS projectCount,
-              COUNT(DISTINCT CASE WHEN ii.status = 'pending' THEN ii.id END) AS pendingInboxCount,
-              COUNT(DISTINCT a.id) AS artifactCount,
-              rb.display_name AS bindingName,
-              rb.status AS bindingStatus,
-              rc.name AS runtimeName,
-              rc.status AS runtimeStatus,
-              wps.profile_name AS profileName,
-              wps.source_kind AS profileSourceKind
-       FROM workspaces w
-       LEFT JOIN projects p ON p.workspace_id = w.id
-       LEFT JOIN inbox_items ii ON ii.workspace_id = w.id
-       LEFT JOIN artifacts a
-         ON a.workspace_id = w.id
-        AND a.kind IN ('issue', 'git_change', 'document', 'pr', 'preview')
-       LEFT JOIN workspace_leases wob
-         ON wob.workspace_id = w.id
-        AND wob.ended_at IS NULL
-       LEFT JOIN runtime_workspace_bindings rb ON rb.id = wob.runtime_workspace_binding_id
-       LEFT JOIN runtime_connections rc ON rc.id = rb.runtime_id
-       LEFT JOIN workspace_profile_sources wps ON wps.workspace_id = w.id
-       WHERE w.status = 'active'
-         AND (? IS NULL OR w.id = ?)
-       GROUP BY w.id
-       ORDER BY w.updated_at DESC, w.created_at DESC`,
-    )
-    .all(input.authorizedWorkspaceId ?? null, input.authorizedWorkspaceId ?? null) as Array<{
-    id: string;
-    slug: string;
-    name: string;
-    description: string | null;
-    status: string;
-    createdAt: string;
-    updatedAt: string;
-    projectCount: number;
-    pendingInboxCount: number;
-    artifactCount: number;
-    bindingName: string | null;
-    bindingStatus: string | null;
-    runtimeName: string | null;
-    runtimeStatus: string | null;
-    profileName: string | null;
-    profileSourceKind: string | null;
-  }>;
+  const authorizedWorkspaceIds = input.authorizedWorkspaceIds ?? null;
+  const workspaces =
+    authorizedWorkspaceIds !== null && authorizedWorkspaceIds.length === 0
+      ? []
+      : (db
+          .prepare(
+            `SELECT w.id,
+                    w.slug,
+                    w.name,
+                    w.description,
+                    w.status,
+                    w.created_at AS createdAt,
+                    w.updated_at AS updatedAt,
+                    COUNT(DISTINCT p.id) AS projectCount,
+                    COUNT(DISTINCT CASE WHEN ii.status = 'pending' THEN ii.id END) AS pendingInboxCount,
+                    COUNT(DISTINCT a.id) AS artifactCount,
+                    rb.display_name AS bindingName,
+                    rb.status AS bindingStatus,
+                    rc.name AS runtimeName,
+                    rc.status AS runtimeStatus,
+                    wps.profile_name AS profileName,
+                    wps.source_kind AS profileSourceKind
+             FROM workspaces w
+             LEFT JOIN projects p ON p.workspace_id = w.id
+             LEFT JOIN inbox_items ii ON ii.workspace_id = w.id
+             LEFT JOIN artifacts a
+               ON a.workspace_id = w.id
+              AND a.kind IN ('issue', 'git_change', 'document', 'pr', 'preview')
+             LEFT JOIN workspace_leases wob
+               ON wob.workspace_id = w.id
+              AND wob.ended_at IS NULL
+             LEFT JOIN runtime_workspace_bindings rb ON rb.id = wob.runtime_workspace_binding_id
+             LEFT JOIN runtime_connections rc ON rc.id = rb.runtime_id
+             LEFT JOIN workspace_profile_sources wps ON wps.workspace_id = w.id
+             WHERE w.status = 'active'
+               ${authorizedWorkspaceIds !== null ? `AND w.id IN (${placeholders(authorizedWorkspaceIds.length)})` : ""}
+             GROUP BY w.id
+             ORDER BY w.updated_at DESC, w.created_at DESC`,
+          )
+          .all(...(authorizedWorkspaceIds ?? [])) as Array<{
+          id: string;
+          slug: string;
+          name: string;
+          description: string | null;
+          status: string;
+          createdAt: string;
+          updatedAt: string;
+          projectCount: number;
+          pendingInboxCount: number;
+          artifactCount: number;
+          bindingName: string | null;
+          bindingStatus: string | null;
+          runtimeName: string | null;
+          runtimeStatus: string | null;
+          profileName: string | null;
+          profileSourceKind: string | null;
+        }>);
 
   return {
     workspaces: input.forceWorkspaceCreate ? [] : workspaces,
@@ -156,6 +164,10 @@ export function loadWorkbenchHome(
       ? resolvePendingWorkspaceRuntimeState(db, input.pendingWorkspaceSetup)
       : null,
   };
+}
+
+function placeholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
 }
 
 export function loadWorkspaceDashboard(db: DatabaseSync, workspaceRouteId: string) {

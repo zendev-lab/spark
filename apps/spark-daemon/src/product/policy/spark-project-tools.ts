@@ -1,5 +1,5 @@
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { EvidenceRef, JsonValue, ProjectRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, JsonValue, ProjectRef } from "@zendev-lab/spark-invocation";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { clarifyProjectPurposeIfNeeded } from "../flows/project-purpose-flow.ts";
 import { normalizeProjectKindId, renderSparkProjectKindDisplay } from "./project-kind-registry.ts";

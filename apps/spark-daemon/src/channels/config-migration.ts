@@ -7,13 +7,13 @@ import {
   type ChannelAdapterConfig,
   type ChannelRouteConfig,
   type ChannelsConfig,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import {
   channelConfigPath,
   resolveSparkPaths,
   writePrivateFile,
   type ResolveSparkHomeOptions,
-} from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node";
 
 const CHANNEL_CONFIG_MIGRATION_VERSION = 1;
 
@@ -316,7 +316,7 @@ async function writeJournal(path: string, journal: MigrationJournal): Promise<vo
 }
 
 async function chmodPrivate(path: string): Promise<void> {
-  if (process.platform !== "win32") await chmod(path, 0o600);
+  await chmod(path, 0o600);
 }
 
 async function fileExists(path: string): Promise<boolean> {

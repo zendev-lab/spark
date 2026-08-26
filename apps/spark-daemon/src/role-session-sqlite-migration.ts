@@ -3,7 +3,8 @@ import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { DatabaseSync, StatementResultingChanges } from "node:sqlite";
 
-import { contentHash, nowIso, writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import { contentHash, nowIso } from "@zendev-lab/spark-invocation";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 
 import { rewriteStructuredRoleRefs } from "./role-session-data-migration.ts";
 

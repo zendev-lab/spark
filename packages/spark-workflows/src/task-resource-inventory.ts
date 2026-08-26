@@ -2,7 +2,8 @@ import { execFile as execFileCallback } from "node:child_process";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 
-import type { TaskGpuResource, TaskResourceInventory } from "@zendev-lab/spark-core";
+import { type TaskGpuResource } from "@zendev-lab/spark-tasks";
+import { type TaskResourceInventory } from "@zendev-lab/spark-tasks";
 
 const execFile = promisify(execFileCallback);
 export const SPARK_TASK_RESOURCE_INVENTORY_ENV = "SPARK_TASK_RESOURCE_INVENTORY";

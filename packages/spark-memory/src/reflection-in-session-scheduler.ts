@@ -1,8 +1,8 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { sparkStateCwd, sparkWorkspaceStatePath } from "@zendev-lab/spark-core";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
+import { sparkStateCwd, sparkWorkspaceStatePath } from "@zendev-lab/spark-platform-node/paths";
 
 import {
   emptyReflectionScanCursor,

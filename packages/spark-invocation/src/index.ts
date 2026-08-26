@@ -1,0 +1,1338 @@
+import { randomUUID, createHash } from "node:crypto";
+import { isNativeError } from "node:util/types";
+
+/**
+ * spark-invocation — Spark execution-admission contracts and lightweight primitives.
+ *
+ * This package centralises the immutable Invocation service plus the structural
+ * capability ABI used by daemon product composition. Capability adapters stay
+ * portable as long as they depend only on the names exported from here.
+ *
+ * Runtime impact: intentionally tiny. Besides type declarations, this package
+ * exposes dependency-light generic helpers for refs and stable IDs. It owns no
+ * durable state, scheduler, provider discovery, filesystem adapter, rendering
+ * policy, or product composition.
+ *
+ * Design rules:
+ *   - Every method is `optional` so adapters must guard each call. This lets
+ *     a host implement only the slice it cares about while still satisfying the
+ *     contract (e.g. a roles-only host might omit `registerTool`).
+ *   - SparkHostContext is a union of capabilities observed across pi-coding-agent
+ *     and Spark native hosts; consumers should only read what they need.
+ *   - Adding a method here is a contract change. Update both hosts and the
+ *     SparkHostAPI contract tests in the same change set.
+ */
+
+export interface SparkHostAPI {
+  registerCommand?(name: string, config: CommandConfig): void;
+  registerTool?(config: ToolConfig): void;
+  /**
+   * Register a tool without advertising it in ordinary turns. A host may
+   * activate an internal tool only through an explicit tool allowlist.
+   */
+  registerInternalTool?(config: ToolConfig): void;
+  registerShortcut?(shortcut: string, options: ShortcutConfig): void;
+  on?(
+    event: string,
+    handler: (event: unknown, ctx: SparkHostContext) => unknown,
+    options?: SparkHostHookOptions,
+  ): void;
+  /** Names of the tools currently active for the agent (a subset of getAllTools). */
+  getActiveTools?(): string[];
+  /** All configured tools, including ones that are currently inactive. */
+  getAllTools?(): ToolInfo[];
+  setActiveTools?(names: string[]): void;
+  sendMessage?(
+    message: SparkHostRuntimeMessage,
+    options?: { deliverAs?: "steer" | "followUp" | "nextTurn"; triggerTurn?: boolean },
+  ): void;
+  sendUserMessage?(
+    content: string,
+    options?: {
+      deliverAs?: "steer" | "followUp" | "nextTurn";
+      streamingBehavior?: "steer" | "followUp";
+    },
+  ): void;
+}
+
+/**
+ * Authority carried by extension-originated runtime messages. The safe default
+ * is runtime data; only repo-owned control paths should opt into trusted
+ * runtime control explicitly.
+ */
+export type SparkHostRuntimeMessageAuthority = "runtime_control" | "runtime_data";
+export type SparkHostRuntimeMessageTrust = "trusted" | "untrusted";
+
+export interface SparkHostRuntimeMessage {
+  customType: string;
+  /** Stable producer-supplied identity used for idempotent outbox delivery. */
+  deliveryId?: string;
+  content: string;
+  display?: boolean;
+  details?: Record<string, unknown>;
+  authority?: SparkHostRuntimeMessageAuthority;
+  trust?: SparkHostRuntimeMessageTrust;
+}
+
+export type CommandSource = "system" | "extension" | (string & {});
+export type CommandPlane = "daemon" | "server" | "tui" | "system" | (string & {});
+
+export interface CommandMetadata {
+  source?: CommandSource;
+  extensionId?: string;
+  plane?: CommandPlane;
+  resource?: string;
+  verbs?: string[];
+  canonicalCliTarget?: string;
+  deprecatedAliasFor?: string;
+}
+
+export interface CommandConfig {
+  description: string;
+  argumentHint?: string;
+  metadata?: CommandMetadata;
+  getArgumentCompletions?: (
+    argumentPrefix: string,
+  ) =>
+    | Array<{ value: string; label: string; description?: string }>
+    | null
+    | Promise<Array<{ value: string; label: string; description?: string }> | null>;
+  handler: (args: string, ctx: SparkHostCommandContext) => void | Promise<void>;
+}
+
+export interface ShortcutConfig {
+  description?: string;
+  handler: (ctx: SparkHostContext) => unknown;
+  isActive?: (ctx: SparkHostContext) => boolean;
+}
+
+/** Observable side-effect class used by Spark host execution policy. */
+export type ToolEffect =
+  | "read"
+  | "network_read"
+  | "control"
+  | "local_write"
+  | "external_write"
+  | "destructive";
+
+/**
+ * Static effect declaration for an extension lifecycle hook. A host with an
+ * effect allowlist dispatches a hook only when every declared effect is
+ * allowed. Omit this on a hook whose effects cannot be proven; restricted
+ * hosts deliberately treat an omitted or malformed declaration as unknown.
+ */
+export interface SparkHostHookOptions {
+  effects?: readonly ToolEffect[];
+}
+
+/** Pi-compatible per-tool sibling-call execution mode. */
+export type ToolExecutionMode = "sequential" | "parallel";
+
+/**
+ * Static approval requirement declared by the tool owner.
+ *
+ * `manual_only` is a narrow capability grant: a daemon-owned continuation
+ * driver may execute the call without another approval only after the owning
+ * Session has a persisted `driverAuthority: "granted"` fact. A manually
+ * submitted turn still requires approval until that fact exists. It must only
+ * be used for bounded, reversible low-risk effects; high-risk effects remain
+ * `required`.
+ */
+export type ToolApprovalPolicy = "none" | "manual_only" | "required";
+
+/** Session-scoped consent for driver `manual_only` bypass. */
+export type SparkDriverAuthority = "granted" | "denied";
+
+/**
+ * Declarative tool policy owned by the package that implements the tool.
+ * Domain values are intentionally opaque strings: the shared extension
+ * contract carries policy data but does not own product routing.
+ */
+export interface ToolPolicy {
+  readonly effect?: ToolEffect;
+  readonly executionMode?: ToolExecutionMode;
+  readonly domains?: readonly string[];
+  readonly approval?: ToolApprovalPolicy;
+}
+
+/** Spark policy carried by a Cordis-native DSH tool definition. */
+export interface SparkDshToolPolicyMetadata extends ToolPolicy {
+  /** Which owner can reconcile an uncertain post-dispatch outcome. */
+  readonly reconcile: "none" | "tool_owner";
+}
+
+export type ResolvedToolEffect = ToolEffect | "unknown";
+
+/** Normalized, immutable policy snapshot exposed by Spark hosts. */
+export interface ResolvedToolPolicy {
+  readonly effect: ResolvedToolEffect;
+  readonly executionMode: ToolExecutionMode;
+  readonly domains: readonly string[];
+  readonly approval: ToolApprovalPolicy;
+}
+
+export interface ToolExecutionResult {
+  content: Array<{ type: "text"; text: string }>;
+  details?: Record<string, unknown>;
+  isError?: boolean;
+}
+
+export type ToolExecutionRetryability = "transient" | "permanent" | "agent-decides";
+
+export type ToolExecutionReconciliation =
+  | { outcome: "completed"; result: ToolExecutionResult }
+  | { outcome: "not-sent"; retryability: ToolExecutionRetryability }
+  | { outcome: "unknown"; message?: string };
+
+export interface ToolConfig {
+  name: string;
+  label?: string;
+  description: string;
+  promptGuidelines?: string[];
+  parameters: unknown;
+  /** Canonical composable policy declaration for Spark hosts. */
+  policy?: ToolPolicy;
+  /**
+   * Optional argument-aware policy refinement. `policy` remains the
+   * conservative registration envelope used by host allowlists.
+   */
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
+  /**
+   * Side-effect classification owned by the tool implementation. Hosts must
+   * treat an omitted value as unknown, never infer it from the tool name.
+   * @deprecated Declare `policy.effect`; retained for Pi and existing tools.
+   */
+  effect?: ToolEffect;
+  /**
+   * Whether sibling calls may execute concurrently. Spark only honors
+   * `parallel` for tools also classified as `effect: "read"`; omitted values
+   * fail closed to sequential execution. This field matches Pi's tool contract.
+   * @deprecated Declare `policy.executionMode`; retained for Pi compatibility.
+   */
+  executionMode?: ToolExecutionMode;
+  /**
+   * When true, the host turn loop must satisfy the session `approvalMethod`
+   * (`skip` | `human` | `auto`) before executing this tool.
+   * @deprecated Declare `policy.approval`; retained for existing hosts.
+   */
+  requiresApproval?: boolean;
+  renderCall?: (
+    args: Record<string, unknown>,
+    theme: ToolRenderTheme,
+    context: unknown,
+  ) => ToolRenderComponent;
+  execute(
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+    ctx: SparkHostContext,
+  ): Promise<ToolExecutionResult>;
+  /**
+   * Query durable operation state after a post-dispatch failure. Implementations
+   * must not create a new side effect: `completed` returns its receipt/result;
+   * `not-sent` separately declares retryability; and `unknown` prevents replay
+   * while returning an error result to the Agent for recovery.
+   */
+  reconcile?(
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+    ctx: SparkHostContext,
+    failure: unknown,
+  ): Promise<ToolExecutionReconciliation>;
+}
+
+/**
+ * Resolve canonical and legacy declarations into one fail-closed snapshot.
+ * Missing legacy approval remains `none` for backwards compatibility, while
+ * malformed values or conflicting declarations never grant concurrency or
+ * suppress approval.
+ */
+export function resolveToolPolicy(config: ToolConfig): ResolvedToolPolicy {
+  const policyValue: unknown = config.policy;
+  const policy = isRecord(policyValue) ? policyValue : undefined;
+  const malformedPolicy =
+    (policyValue !== undefined && !policy) ||
+    !isOptionalToolEffect(policy?.effect) ||
+    !isOptionalToolEffect(config.effect) ||
+    declarationsConflict(policy?.effect, config.effect) ||
+    !isOptionalToolExecutionMode(policy?.executionMode) ||
+    !isOptionalToolExecutionMode(config.executionMode) ||
+    declarationsConflict(policy?.executionMode, config.executionMode) ||
+    !isOptionalToolApproval(policy?.approval) ||
+    (config.requiresApproval !== undefined && typeof config.requiresApproval !== "boolean") ||
+    !isOptionalPolicyLabels(policy?.domains);
+
+  const canonicalEffect = policy?.effect;
+  const legacyEffect: unknown = config.effect;
+  const effect = resolveToolEffect(canonicalEffect, legacyEffect, malformedPolicy);
+
+  const approval = resolveToolApproval(policy?.approval, config.requiresApproval, malformedPolicy);
+  const requestedExecutionMode = resolveToolExecutionMode(
+    policy?.executionMode,
+    config.executionMode,
+    malformedPolicy,
+  );
+  const executionMode =
+    requestedExecutionMode === "parallel" && effect === "read" && approval === "none"
+      ? "parallel"
+      : "sequential";
+
+  return Object.freeze({
+    effect,
+    executionMode,
+    domains: Object.freeze(normalizePolicyLabels(policy?.domains)),
+    approval,
+  });
+}
+
+/** Resolve the policy for one concrete call without weakening registration allowlists. */
+export function resolveToolPolicyForArgs(
+  config: ToolConfig,
+  args: Readonly<Record<string, unknown>>,
+): ResolvedToolPolicy {
+  if (!config.resolvePolicy) return resolveToolPolicy(config);
+  try {
+    const policy = config.resolvePolicy(args);
+    const {
+      resolvePolicy: _resolvePolicy,
+      effect: _effect,
+      executionMode: _executionMode,
+      requiresApproval: _requiresApproval,
+      ...canonical
+    } = config;
+    const resolved = resolveToolPolicy({
+      ...canonical,
+      policy,
+    });
+    return resolved.effect === "unknown" ? unknownRequiredToolPolicy() : resolved;
+  } catch {
+    return unknownRequiredToolPolicy();
+  }
+}
+
+function unknownRequiredToolPolicy(): ResolvedToolPolicy {
+  return Object.freeze({
+    effect: "unknown",
+    executionMode: "sequential",
+    domains: Object.freeze([]),
+    approval: "required",
+  });
+}
+
+function resolveToolEffect(
+  canonical: unknown,
+  legacy: unknown,
+  malformedPolicy: boolean,
+): ResolvedToolEffect {
+  if (malformedPolicy || !isOptionalToolEffect(canonical) || !isOptionalToolEffect(legacy)) {
+    return "unknown";
+  }
+  if (canonical !== undefined && legacy !== undefined && canonical !== legacy) return "unknown";
+  return canonical ?? legacy ?? "unknown";
+}
+
+function resolveToolExecutionMode(
+  canonical: unknown,
+  legacy: unknown,
+  malformedPolicy: boolean,
+): ToolExecutionMode {
+  if (
+    malformedPolicy ||
+    !isOptionalToolExecutionMode(canonical) ||
+    !isOptionalToolExecutionMode(legacy)
+  ) {
+    return "sequential";
+  }
+  if (canonical !== undefined && legacy !== undefined && canonical !== legacy) return "sequential";
+  return canonical ?? legacy ?? "sequential";
+}
+
+function resolveToolApproval(
+  canonical: unknown,
+  legacy: unknown,
+  malformedPolicy: boolean,
+): ToolApprovalPolicy {
+  if (malformedPolicy || (legacy !== undefined && typeof legacy !== "boolean")) return "required";
+  if (legacy === true || canonical === "required") return "required";
+  if (canonical === "manual_only" && legacy === undefined) return "manual_only";
+  if (canonical === undefined || canonical === "none") return "none";
+  return "required";
+}
+
+function normalizePolicyLabels(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return [];
+  return [...new Set(value.map((entry) => entry.trim()).filter(Boolean))];
+}
+
+function isOptionalToolEffect(value: unknown): value is ToolEffect | undefined {
+  return (
+    value === undefined ||
+    value === "read" ||
+    value === "network_read" ||
+    value === "control" ||
+    value === "local_write" ||
+    value === "external_write" ||
+    value === "destructive"
+  );
+}
+
+function isOptionalToolExecutionMode(value: unknown): value is ToolExecutionMode | undefined {
+  return value === undefined || value === "sequential" || value === "parallel";
+}
+
+function isOptionalToolApproval(value: unknown): value is ToolApprovalPolicy | undefined {
+  return value === undefined || value === "none" || value === "manual_only" || value === "required";
+}
+
+function isOptionalPolicyLabels(value: unknown): value is readonly string[] | undefined {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((entry) => typeof entry === "string"))
+  );
+}
+
+function declarationsConflict(canonical: unknown, legacy: unknown): boolean {
+  return canonical !== undefined && legacy !== undefined && canonical !== legacy;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export interface ToolRenderTheme {
+  fg?: (color: string, text: string) => string;
+  bold?: (text: string) => string;
+}
+
+export interface ToolRenderComponent {
+  render(width: number): string[];
+}
+
+export interface ToolInfo {
+  name: string;
+  /** Resolved policy when the host supports Spark policy normalization. */
+  policy?: ResolvedToolPolicy;
+}
+
+export type ExtensionUiNotifyLevel = "info" | "warning" | "error" | "success";
+
+/**
+ * Host-facing interaction request contract.
+ *
+ * Structurally aligned with `@zendev-lab/spark-protocol`'s
+ * `sparkInteractionRequestSchema` discriminated union. Wire validation stays in
+ * protocol (zod); this type is the portable `ExtensionUi.interaction` surface.
+ * Keep both in lockstep — protocol type tests assert assignability.
+ */
+export type ExtensionInteractionSource =
+  | "tui"
+  | "web"
+  | "daemon"
+  | "extension"
+  | "runtime"
+  | "test";
+
+export type ExtensionInteractionResponseStatus =
+  | "answered"
+  | "pending"
+  | "cancelled"
+  | "blocked"
+  | "error";
+
+/** JSON-friendly declaration for the exact Ask semantics a host transport owns. */
+export interface ExtensionAskFlowInteractionCapabilities {
+  deliveries: Array<"blocking" | "async">;
+  timeout: boolean;
+  responseCorrelation: "request_id";
+  asyncAcknowledgement?: "pending_with_human_request_id" | undefined;
+}
+
+export interface ExtensionInteractionCapabilities {
+  version: 1;
+  askFlow?: ExtensionAskFlowInteractionCapabilities | undefined;
+}
+
+export interface ExtensionAskOptionView {
+  value: string;
+  label: string;
+  description?: string | undefined;
+  preview?: string | undefined;
+}
+
+export interface ExtensionAskQuestionView {
+  id: string;
+  prompt: string;
+  header?: string | undefined;
+  type?: "single" | "multi" | "preview" | "freeform" | undefined;
+  required?: boolean | undefined;
+  defaultValues?: string[] | undefined;
+  options?: ExtensionAskOptionView[] | undefined;
+}
+
+export interface ExtensionInteractionRequestBase {
+  version?: number | undefined;
+  requestId: string;
+  title: string;
+  prompt?: string | undefined;
+  createdAt?: string | undefined;
+  source?: ExtensionInteractionSource | undefined;
+  metadata?: Record<string, unknown> | undefined;
+}
+
+export interface ExtensionEvidenceRequestBinding {
+  schema: "spark.evidence-request/v1";
+  askRef: string;
+  ownerSessionId: string;
+  goalOrReproId: string;
+  modeScope: "goal" | "repro";
+  planRevision: number;
+  ownerStepOrUnresolvedId: string;
+  stepDefinitionDigest: string;
+  requestHash: string;
+  ownerQuestionId: string;
+  expectedAnswerKind: "single" | "multi" | "freeform" | "approval";
+}
+
+export interface ExtensionAskFlowInteractionRequest extends ExtensionInteractionRequestBase {
+  kind: "askFlow";
+  /** Host-generated tool invocation identity used to resume the same durable wait. */
+  toolCallId?: string | undefined;
+  delivery?: "blocking" | "async" | undefined;
+  timeoutMs?: number | undefined;
+  mode?: "clarification" | "decision" | "approval" | "unblock" | undefined;
+  flow?: string | undefined;
+  questions: ExtensionAskQuestionView[];
+  allowElaborate?: boolean | undefined;
+  evidenceRequest?: ExtensionEvidenceRequestBinding | undefined;
+}
+
+export interface ExtensionModelRef {
+  providerName: string;
+  modelId: string;
+  providerLabel?: string | undefined;
+  modelLabel?: string | undefined;
+}
+
+export interface ExtensionModelSelectOption extends ExtensionModelRef {
+  value: string;
+  description?: string | undefined;
+  active?: boolean | undefined;
+  metadata?: Record<string, unknown> | undefined;
+}
+
+export interface ExtensionModelSelectInteractionRequest extends ExtensionInteractionRequestBase {
+  kind: "modelSelect";
+  active?: ExtensionModelRef | undefined;
+  options?: ExtensionModelSelectOption[] | undefined;
+}
+
+export interface ExtensionWorkflowPickerOption {
+  selector: string;
+  label: string;
+  description?: string | undefined;
+  phaseCount?: number | undefined;
+  metadata?: Record<string, unknown> | undefined;
+}
+
+export interface ExtensionWorkflowPickerInteractionRequest extends ExtensionInteractionRequestBase {
+  kind: "workflowPicker";
+  options?: ExtensionWorkflowPickerOption[] | undefined;
+}
+
+export interface ExtensionConfirmationInteractionRequest extends ExtensionInteractionRequestBase {
+  kind: "confirmation";
+  severity?: "info" | "warning" | "danger" | undefined;
+  confirmLabel?: string | undefined;
+  cancelLabel?: string | undefined;
+}
+
+export interface ExtensionDiffApprovalInteractionRequest extends ExtensionInteractionRequestBase {
+  kind: "diffApproval";
+  filePath?: string | undefined;
+  diff: string;
+  summary?: string | undefined;
+  approveLabel?: string | undefined;
+  rejectLabel?: string | undefined;
+}
+
+export interface ExtensionToolApprovalInteractionRequest extends ExtensionInteractionRequestBase {
+  kind: "toolApproval";
+  toolName: string;
+  toolCallId?: string | undefined;
+  arguments?: unknown;
+  reason?: string | undefined;
+  approveLabel?: string | undefined;
+  rejectLabel?: string | undefined;
+}
+
+export type ExtensionInteractionRequest =
+  | ExtensionAskFlowInteractionRequest
+  | ExtensionModelSelectInteractionRequest
+  | ExtensionWorkflowPickerInteractionRequest
+  | ExtensionConfirmationInteractionRequest
+  | ExtensionDiffApprovalInteractionRequest
+  | ExtensionToolApprovalInteractionRequest;
+
+export interface ExtensionInteractionResponseBase {
+  version?: number | undefined;
+  requestId: string;
+  status: ExtensionInteractionResponseStatus;
+  message?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
+}
+
+export interface ExtensionAskFlowInteractionResponse extends ExtensionInteractionResponseBase {
+  kind: "askFlow";
+  humanRequestId?: string | undefined;
+  answers?: Record<string, unknown> | undefined;
+  nextAction?: "resume" | "block" | "cancel" | undefined;
+}
+
+export interface ExtensionModelSelectInteractionResponse extends ExtensionInteractionResponseBase {
+  kind: "modelSelect";
+  selection?: ExtensionModelRef | undefined;
+}
+
+export interface ExtensionWorkflowPickerInteractionResponse extends ExtensionInteractionResponseBase {
+  kind: "workflowPicker";
+  selector?: string | undefined;
+}
+
+export interface ExtensionApprovalInteractionResponse extends ExtensionInteractionResponseBase {
+  kind: "confirmation" | "diffApproval" | "toolApproval";
+  approved?: boolean | undefined;
+  note?: string | undefined;
+}
+
+export type ExtensionInteractionResponse =
+  | ExtensionAskFlowInteractionResponse
+  | ExtensionModelSelectInteractionResponse
+  | ExtensionWorkflowPickerInteractionResponse
+  | ExtensionApprovalInteractionResponse;
+
+export interface ExtensionUi {
+  notify?: (message: string, level?: ExtensionUiNotifyLevel) => void;
+  confirm?: (title: string, message: string) => Promise<boolean>;
+  input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
+  /** Collect a value through a host UI that renders only masked input. */
+  secret?: (title: string) => Promise<string | undefined>;
+  select?: (title: string, options: string[]) => Promise<string | undefined>;
+  selectWithCustom?: (
+    title: string,
+    input: { options: string[]; customLabel: string },
+  ) => Promise<{ value?: string; customText?: string } | string | undefined>;
+  /**
+   * Protocol-shaped interaction bridge for host-rendered UI. Spark hosts pass
+   * Spark interaction protocol payloads here. Callers select a supported
+   * transport from `interactionCapabilities` before dispatch; a dispatched
+   * interaction fails closed instead of falling through to another transport.
+   */
+  interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Explicit transport contract used before dispatching async or timeout-backed asks. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
+  setStatus?: (key: string, text: string | undefined) => void;
+  setWidget?: (
+    key: string,
+    callback: unknown,
+    options?: { placement?: "aboveEditor" | "belowEditor" },
+  ) => void;
+  setTitle?: (title: string) => void;
+  custom?: (...args: unknown[]) => unknown;
+}
+
+export interface SessionModelRef {
+  provider: string;
+  id: string;
+  api?: string;
+}
+
+export type SparkDelegationThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/** Exact current-Session authority available to bounded child delegation. */
+export interface SparkHostDelegationEnvelope {
+  model: SessionModelRef;
+  thinking: SparkDelegationThinkingLevel;
+  activeTools: string[];
+  allowedToolEffects: ToolEffect[];
+}
+
+/**
+ * Stable, credential-free reason codes for a degraded leaf capability call.
+ * Hosts must never derive these from raw provider error text.
+ */
+export type LeafDegradeReason =
+  | "aborted"
+  | "no-model"
+  | "model-binding-unavailable"
+  | "route-unavailable"
+  | "model-call-failed"
+  | "host-unsupported";
+
+/**
+ * A bounded, single-shot model call requested by a high-level tool. A leaf owns
+ * no task, session, tools, or recursion: the calling tool stays responsible for
+ * verifying the advisory result and for any fallback.
+ */
+export interface LeafCapabilityRequest {
+  /** Stable leaf capability id, e.g. "web-researcher" or "memory-reranker". */
+  role: string;
+  /** System-level brief describing exactly the bounded transformation to run. */
+  brief: string;
+  /** Prepared, caller-gathered input payload (treated as untrusted data). */
+  input: string;
+  /** Explicit model override ("provider/model" or a model id). */
+  model?: string;
+  /** Session model to use when no explicit override is provided. */
+  sessionModel?: string;
+  /** Bounded output ceiling for the single completion. */
+  maxTokens?: number;
+  /** Request a reasoning-capable route when available. */
+  reasoning?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface LeafCapabilityResult {
+  /** True when the leaf could not run a model and the caller must fall back. */
+  degraded: boolean;
+  /** Advisory model output text; empty when degraded. */
+  text: string;
+  /** Resolved model id for the completion, when one ran. */
+  model?: string;
+  /** Stable, credential-free reason code when degraded. */
+  reasonCode?: LeafDegradeReason;
+}
+
+/**
+ * Host-provided single-shot leaf runner. Optional on SparkHostContext: portable
+ * extensions and non-Spark hosts may omit it, and tools must degrade gracefully
+ * when it is absent.
+ */
+export type LeafCapabilityRunner = (
+  request: LeafCapabilityRequest,
+) => Promise<LeafCapabilityResult>;
+
+/**
+ * Shared production seam consumer for high-level tools. Calls the optional
+ * host `ctx.runLeaf` and, when the host does not provide it, returns a stable
+ * degraded result (reasonCode "host-unsupported") instead of throwing, so every
+ * leaf-backed tool degrades identically to mechanical output. Tools should call
+ * this rather than touching `ctx.runLeaf` directly.
+ */
+export async function callLeafOrDegrade(
+  ctx: Pick<SparkHostContext, "runLeaf">,
+  request: LeafCapabilityRequest,
+): Promise<LeafCapabilityResult> {
+  const result = await ctx.runLeaf?.(request);
+  if (!result) return { degraded: true, text: "", reasonCode: "host-unsupported" };
+  return result;
+}
+
+/** Daemon-owned execution epoch for one durable Invocation. */
+export interface SparkInvocationAttempt {
+  readonly epoch: number;
+  readonly daemonGeneration: number;
+  readonly correlationId: string;
+}
+
+export const SPARK_INVOCATION_EVENT_TYPE = "spark/invocation" as const;
+
+/** Ignorable DSH transcript correlation record for one admitted attempt. */
+export interface SparkInvocationEventData {
+  readonly invocationId: string;
+  readonly attemptEpoch: number;
+  readonly daemonGeneration: number;
+  readonly correlationId: string;
+}
+
+/** Role revision frozen when the daemon admitted an Invocation. */
+export interface SparkInvocationRole {
+  readonly ref?: string;
+  readonly id: string;
+  readonly revision?: string;
+}
+
+/** Narrow process-local ports available to Invocation-scoped Cordis plugins. */
+export interface SparkInvocationPorts {
+  readonly runLeaf?: LeafCapabilityRunner;
+  readonly interaction?: (
+    request: ExtensionInteractionRequest,
+  ) => Promise<ExtensionInteractionResponse>;
+}
+
+/**
+ * Immutable Invocation authority exposed to Cordis capability plugins.
+ *
+ * This is runtime context, not durable state. The daemon creates one snapshot
+ * for the exact `Invocation -> ExecutionAttempt -> DSH Turn` admission. Plugins
+ * consume it through `ctx.sparkInvocation`; they must not construct stores,
+ * schedulers, provider registries, or terminal-state writers of their own.
+ */
+export interface SparkInvocationService {
+  readonly workspaceId?: string;
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly attempt: SparkInvocationAttempt;
+  readonly role?: SparkInvocationRole;
+  readonly driverAuthority?: SparkDriverAuthority;
+  readonly model?: Readonly<SessionModelRef>;
+  readonly signal: AbortSignal;
+  readonly ports: SparkInvocationPorts;
+}
+
+export interface CreateSparkInvocationServiceInput {
+  workspaceId?: string;
+  cwd: string;
+  sessionId: string;
+  invocationId: string;
+  attempt: SparkInvocationAttempt;
+  role?: SparkInvocationRole;
+  driverAuthority?: SparkDriverAuthority;
+  model?: SessionModelRef;
+  signal: AbortSignal;
+  ports?: SparkInvocationPorts;
+}
+
+/** Build the frozen process-local snapshot mounted by the Invocation plugin. */
+export function createSparkInvocationService(
+  input: CreateSparkInvocationServiceInput,
+): SparkInvocationService {
+  const cwd = requiredInvocationText(input.cwd, "cwd");
+  const sessionId = requiredInvocationText(input.sessionId, "sessionId");
+  const invocationId = requiredInvocationText(input.invocationId, "invocationId");
+  const epoch = positiveInvocationInteger(input.attempt.epoch, "attempt.epoch");
+  const daemonGeneration = positiveInvocationInteger(
+    input.attempt.daemonGeneration,
+    "attempt.daemonGeneration",
+  );
+  const correlationId = requiredInvocationText(
+    input.attempt.correlationId,
+    "attempt.correlationId",
+  );
+  const workspaceId = input.workspaceId?.trim();
+  const role = input.role
+    ? Object.freeze({
+        ...(input.role.ref?.trim() ? { ref: input.role.ref.trim() } : {}),
+        id: requiredInvocationText(input.role.id, "role.id"),
+        ...(input.role.revision?.trim() ? { revision: input.role.revision.trim() } : {}),
+      })
+    : undefined;
+  const model = input.model
+    ? Object.freeze({
+        provider: requiredInvocationText(input.model.provider, "model.provider"),
+        id: requiredInvocationText(input.model.id, "model.id"),
+        ...(input.model.api?.trim() ? { api: input.model.api.trim() } : {}),
+      })
+    : undefined;
+  const ports = Object.freeze({
+    ...(input.ports?.runLeaf ? { runLeaf: input.ports.runLeaf } : {}),
+    ...(input.ports?.interaction ? { interaction: input.ports.interaction } : {}),
+  });
+  return Object.freeze({
+    ...(workspaceId ? { workspaceId } : {}),
+    cwd,
+    sessionId,
+    invocationId,
+    attempt: Object.freeze({ epoch, daemonGeneration, correlationId }),
+    ...(role ? { role } : {}),
+    ...(input.driverAuthority ? { driverAuthority: input.driverAuthority } : {}),
+    ...(model ? { model } : {}),
+    signal: input.signal,
+    ports,
+  });
+}
+
+function requiredInvocationText(value: string, field: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`Spark Invocation ${field} is required`);
+  return normalized;
+}
+
+function positiveInvocationInteger(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Spark Invocation ${field} must be a positive integer`);
+  }
+  return value;
+}
+
+export type ExtensionRoleLaunchMode = "fresh" | "forked";
+export type ExtensionRoleRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "not_started";
+
+export type RoleRunCompletionOutcomeKind = "completed" | "blocked" | "failed" | "cancelled";
+
+/**
+ * Stable signal emitted when an older host-provided native role executor
+ * catches Spark's known module-graph initialization incompatibility. Callers
+ * must compare this code exactly and must not infer compatibility from status,
+ * display text, stderr, or JSON events.
+ */
+export const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE =
+  "native_executor_module_graph_incompatible";
+export const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON =
+  "Host-provided native role executor is incompatible with the active Spark module graph";
+
+const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_ERROR_MESSAGE =
+  "Cannot read properties of undefined (reading 'defaultSparkConfigPath')";
+
+export function isRoleNativeExecutorCompatibilityError(error: unknown): boolean {
+  if (!isNativeError(error)) return false;
+  try {
+    const candidate = error as { name?: unknown; message?: unknown };
+    return (
+      candidate.name === "TypeError" &&
+      candidate.message === ROLE_NATIVE_EXECUTOR_COMPATIBILITY_ERROR_MESSAGE
+    );
+  } catch {
+    return false;
+  }
+}
+
+export interface RoleRunCompletionOutcome {
+  kind: RoleRunCompletionOutcomeKind;
+  /** Stable machine-readable terminal code; never infer this from display text. */
+  code: string;
+  reason: string;
+  nextAction?: string;
+}
+
+export interface ExtensionRoleRunInputController {
+  send(text: string): void | Promise<void>;
+}
+
+export interface ExtensionRoleRunInputControl {
+  register(controller: ExtensionRoleRunInputController): () => void;
+}
+
+export interface ExtensionRoleRunRequest {
+  /** Accounting classification supplied by the owning orchestration surface. */
+  usageExecutionKind?: "role_run" | "workflow_agent";
+  role: {
+    ref: RoleRef;
+    id: string;
+    revision: string;
+    systemPrompt: string;
+    source?: "builtin" | "extension" | "project" | "user";
+    capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "manage" | "spawn">;
+    skills?: string[];
+    modelType?: string;
+    allowedTools?: string[];
+    allowedToolEffects?: ToolEffect[];
+  };
+  instruction: {
+    roleRef: RoleRef;
+    instruction: string;
+    inputs?: string[];
+  };
+  record: {
+    ref: RunRef;
+    roleRef: RoleRef;
+    /** Effective Role revision frozen when the Invocation started. */
+    roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
+    runName?: string;
+    instruction: string;
+    status: ExtensionRoleRunStatus;
+    startedAt?: string;
+    finishedAt?: string;
+    model?: string;
+    outcome?: RoleRunCompletionOutcome;
+  };
+  cwd: string;
+  timeoutMs: number;
+  requireStructuredOutcome?: boolean;
+  signal?: AbortSignal;
+  sessionDir?: string;
+  runName?: string;
+  launch?: ExtensionRoleLaunchMode;
+  forkFromSession?: string;
+  model?: string;
+  thinking?: SparkDelegationThinkingLevel;
+  /**
+   * Reviewer-only compatibility authority. Hosts may emit the stable native
+   * compatibility outcome only for this exact marker and only when no event
+   * stream can already have exposed unreviewed diagnostics.
+   */
+  nativeCompatibilityRecovery?: "reviewer";
+  env?: NodeJS.ProcessEnv;
+  onEvent?: (event: unknown) => void | Promise<void>;
+  inputControl?: ExtensionRoleRunInputControl;
+}
+
+export interface ExtensionRoleRunResult {
+  record: ExtensionRoleRunRequest["record"];
+  outcome?: RoleRunCompletionOutcome;
+  stdout: string;
+  stderr: string;
+  jsonEvents: unknown[];
+}
+
+export type ExtensionRoleRunner = (
+  request: ExtensionRoleRunRequest,
+) => Promise<ExtensionRoleRunResult>;
+
+export type SparkSessionMessageSource = "tui" | "web" | "channel" | "daemon" | "session";
+
+export interface SparkHostLoopContext {
+  loopId: string;
+  binding: {
+    goalId?: string;
+    workflowRunId?: string;
+    reproId?: string;
+  };
+  generation: number;
+  ownerSessionId: string;
+  schedule(input: {
+    delayMs?: number;
+    dueAt?: string;
+    reason?: string;
+    prompt?: string;
+  }): Promise<unknown>;
+  stop(input?: { reason?: string }): Promise<unknown>;
+}
+
+/**
+ * True when this loop binding is a continuation driver that *may* receive
+ * `manual_only` bypass. Binding alone is not consent; callers must also read
+ * the Session `driverAuthority` fact.
+ */
+export function hasActiveDriverBinding(loop?: SparkHostLoopContext): boolean {
+  if (!loop) return false;
+  const { goalId, reproId, workflowRunId } = loop.binding;
+  return Boolean(goalId || reproId || !workflowRunId);
+}
+
+export interface SparkSessionLeaseIdentity {
+  workspaceId: string;
+  clientId: string;
+  leaseFence: string;
+  sessionId: string;
+}
+
+/** Worktree isolation enforced by the daemon for one admitted Invocation. */
+export type TaskExecutionIsolation =
+  | "readonly"
+  | "workspace"
+  | "isolated_worktree"
+  | "isolated_results";
+
+/** Host-private immutable write boundary for one daemon-owned Task Invocation. */
+export interface SparkTaskExecutionScope {
+  isolation: TaskExecutionIsolation;
+  /** Daemon-validated TaskRun provenance for project-bound tools and owner callbacks. */
+  binding?: {
+    ownerSessionId: string;
+    projectRef: ProjectRef;
+    taskRef: TaskRef;
+    runRef: RunRef;
+    jobId: string;
+    attempt: number;
+  };
+  primaryArtifactRef?: ArtifactRef;
+  writableArtifactRefs: ArtifactRef[];
+  writableRoots: string[];
+  resultsRoot?: string;
+}
+
+export interface SparkHostContext {
+  cwd?: string;
+  /** Durable workspace owner for state and daemon routing. */
+  workspaceId?: string;
+  /** Current Spark view/session identity for session-scoped extension state. */
+  sessionId?: string;
+  /** Optional absolute path to the Spark state root directory (`.../.spark`). */
+  sparkStateRoot?: string;
+  /** Execution surface policy supplied by the host for this session. */
+  sessionSurface?: "local" | "channel";
+  /** Origin label for hidden session-message metadata. */
+  sessionSource?: SparkSessionMessageSource;
+  /** Current daemon-fenced session lease, supplied only by trusted local hosts. */
+  sessionLease?: () => SparkSessionLeaseIdentity | undefined;
+  /** Current daemon invocation, available only in daemon-owned headless turns. */
+  invocationId?: string;
+  /** Exact daemon execution epoch paired with `invocationId`. */
+  invocationAttempt?: SparkInvocationAttempt;
+  /** Effective Role revision frozen for the current daemon Invocation. */
+  invocationRole?: SparkInvocationRole;
+  /** Daemon-resolved invocation scope; model/tool arguments cannot widen it. */
+  taskExecutionScope?: SparkTaskExecutionScope;
+  /**
+   * Host-signed, current-turn direct-memory intent receipt. Hosts keep the
+   * signer private and expose only this verification input to capability code.
+   */
+  memoryDirectIntent?: unknown;
+  /** Host-signed exact-current-turn positive/negative feedback receipt. */
+  memoryFeedback?: unknown;
+  /** Host-private verification closure; successful verification consumes the receipt once. */
+  verifyMemoryFeedback?: (
+    value: unknown,
+  ) =>
+    | Promise<{ ok: boolean; code?: string; receipt?: unknown }>
+    | { ok: boolean; code?: string; receipt?: unknown };
+  /** Host-private commit after the telemetry transaction is durably persisted. */
+  commitMemoryFeedback?: (value: unknown) => boolean;
+  /** Release a verified reservation after telemetry persistence fails. */
+  releaseMemoryFeedback?: (value: unknown) => boolean;
+  /** Host-private verification closure for the exact active turn receipt. */
+  verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
+  /** Present only inside a daemon-owned autonomous loop tick. */
+  loop?: SparkHostLoopContext;
+  /**
+   * Persisted Session consent for driver `manual_only` bypass. Absent means
+   * unresolved; a live loop binding must not be treated as a grant.
+   */
+  driverAuthority?: SparkDriverAuthority;
+  /**
+   * Host-resolved current-Session delegation authority. Child execution must
+   * fail closed when this envelope is absent rather than infer parent policy.
+   */
+  delegation?: SparkHostDelegationEnvelope;
+  /** Session IDs already participating in a synchronous question chain. */
+  sessionQuestionChain?: string[];
+  /** Host-owned policy for detached asynchronous Goal/Repro evidence requests. */
+  sparkAutonomousAsk?: {
+    modeScope: "goal" | "repro";
+    goalOrReproId: string;
+    ownerSessionId: string;
+    resolveBinding(request: Readonly<Record<string, unknown>>):
+      | Promise<{
+          planRevision: number;
+          ownerStepOrUnresolvedId: string;
+          stepDefinitionDigest: string;
+        }>
+      | {
+          planRevision: number;
+          ownerStepOrUnresolvedId: string;
+          stepDefinitionDigest: string;
+        };
+  };
+  model?: SessionModelRef;
+  hasUI?: boolean;
+  ui?: ExtensionUi;
+  isIdle?: () => boolean;
+  /**
+   * Optional single-shot spark-llm-providers leaf runner supplied by Spark hosts. High-level
+   * tools call `ctx.runLeaf?.(request)` to add bounded reasoning (synthesis,
+   * rerank, extraction) and fall back to mechanical output when it is absent or
+   * returns `{ degraded: true }`.
+   */
+  runLeaf?: LeafCapabilityRunner;
+  /**
+   * Optional daemon-native role runner supplied by Spark hosts. Role tools use
+   * this instead of spawning a nested `pi` process and fail loudly when absent.
+   */
+  runRole?: ExtensionRoleRunner;
+  /** Host-owned roots for reviewer-only isolated native compatibility recovery. */
+  roleNativeCompatibilityRecovery?: {
+    sparkHome?: string;
+    controlSparkHome?: string;
+  };
+}
+
+export interface SparkHostCommandContext extends SparkHostContext {
+  waitForIdle?: () => Promise<void>;
+  sendUserMessage?: (content: string) => Promise<void>;
+}
+
+/**
+ * Agent/domain ref kinds (`kind:id`, e.g. `task:…`, `proj:…`).
+ *
+ * This is the in-process graph / memory / tool identity vocabulary owned by
+ * the original contract. It is intentionally separate from the daemon/Hub wire id
+ * vocabulary in `@zendev-lab/spark-protocol` (`prefix_hex`, see
+ * `packages/spark-protocol/src/refs.ts`). Do not invent a third id scheme —
+ * map at the boundary when crossing from domain refs to wire ids (or vice versa).
+ */
+export type RefKind =
+  | "spark"
+  | "proj"
+  | "task"
+  | "role"
+  | "artifact"
+  | "evidence"
+  | "run"
+  | "review"
+  | "ask"
+  | "cue-job"
+  | "subgoal";
+
+export type Ref<K extends RefKind> = `${K}:${string}` & { readonly __kind?: K };
+
+export type SparkRef = Ref<"spark">;
+export type ProjectRef = Ref<"proj">;
+export type TaskRef = Ref<"task">;
+export type RoleRef = Ref<"role">;
+export type ArtifactRef = Ref<"artifact">;
+export type EvidenceRef = Ref<"evidence">;
+export type RunRef = Ref<"run">;
+export type ReviewRef = Ref<"review">;
+export type AskRef = Ref<"ask">;
+export type CueJobRef = Ref<"cue-job">;
+export type SubgoalRef = Ref<"subgoal">;
+
+export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
+export type SparkSubgoalAuthority = "safe_local" | "driver_local" | "ask_decision" | "ask_approval";
+
+export interface SparkSubgoalDefinition {
+  goal: string;
+  doneWhen: string[];
+  evidenceRequired: string[];
+  authority: SparkSubgoalAuthority;
+  dependsOn?: SubgoalRef[];
+}
+
+export type SparkSubgoalVerificationResult =
+  | {
+      verdict: "Pass";
+      subgoalRef: SubgoalRef;
+      planRevision: number;
+      definitionDigest: string;
+      evidenceRefs: EvidenceRef[];
+      verifiedDoneWhen: string[];
+      canonicalAskEvidenceRef?: EvidenceRef;
+    }
+  | {
+      verdict: "Repair";
+      subgoalRef: SubgoalRef;
+      reasons: string[];
+    };
+
+export interface SparkSubgoal extends SparkSubgoalDefinition {
+  ref: SubgoalRef;
+  planRevision: number;
+  status: SparkSubgoalStatus;
+  taskRef?: TaskRef;
+  evidenceRefs: EvidenceRef[];
+  verification?: Extract<SparkSubgoalVerificationResult, { verdict: "Pass" }>;
+  blocker?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AnyRef =
+  | SparkRef
+  | ProjectRef
+  | TaskRef
+  | RoleRef
+  | EvidenceRef
+  | RunRef
+  | ReviewRef
+  | AskRef
+  | CueJobRef
+  | SubgoalRef;
+
+export type PiErrorCode =
+  | "INVALID_REF"
+  | "VALIDATION_ERROR"
+  | "DEPENDENCY_ERROR"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "POLICY_VIOLATION"
+  | "RUNNER_ERROR";
+
+export class PiError extends Error {
+  readonly code: PiErrorCode;
+  readonly details?: Record<string, unknown>;
+
+  constructor(code: PiErrorCode, message: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "PiError";
+    this.code = code;
+    if (details !== undefined) this.details = details;
+  }
+}
+
+export class ValidationError extends PiError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("VALIDATION_ERROR", message, details);
+    this.name = "ValidationError";
+  }
+}
+
+export class DependencyError extends PiError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("DEPENDENCY_ERROR", message, details);
+    this.name = "DependencyError";
+  }
+}
+
+export class NotFoundError extends PiError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("NOT_FOUND", message, details);
+    this.name = "NotFoundError";
+  }
+}
+
+export const DEFAULT_READY_TASK_MAX_CONCURRENCY = 4;
+export const DEFAULT_READY_TASK_TIMEOUT_MS = 3_600_000;
+
+export function newRef<K extends RefKind>(kind: K, id: string = randomUUID()): Ref<K> {
+  if (!id || id.includes(":")) throw new PiError("INVALID_REF", `invalid ${kind} id: ${id}`);
+  return `${kind}:${id}` as Ref<K>;
+}
+
+export function refKind(ref: string): RefKind {
+  const kind = ref.split(":", 1)[0];
+  if (!kind || !isRefKind(kind)) throw new PiError("INVALID_REF", `unknown ref kind: ${ref}`);
+  return kind;
+}
+
+export function refId(ref: AnyRef | string): string {
+  const index = ref.indexOf(":");
+  if (index < 0) throw new PiError("INVALID_REF", `invalid ref: ${ref}`);
+  return ref.slice(index + 1);
+}
+
+export function isRefKind(value: string): value is RefKind {
+  return [
+    "spark",
+    "proj",
+    "task",
+    "role",
+    "artifact",
+    "evidence",
+    "run",
+    "review",
+    "ask",
+    "cue-job",
+    "subgoal",
+  ].includes(value);
+}
+
+export function isRef<K extends RefKind>(value: string, kind?: K): value is Ref<K> {
+  const index = value.indexOf(":");
+  if (index < 1 || index === value.length - 1) return false;
+  const actual = value.slice(0, index);
+  return isRefKind(actual) && (!kind || actual === kind);
+}
+
+export function assertRef<K extends RefKind>(value: string, kind: K): Ref<K> {
+  if (!isRef(value, kind)) throw new PiError("INVALID_REF", `expected ${kind} ref`, { value });
+  return value;
+}
+
+export function stableId(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
+
+export function contentHash(input: string | Uint8Array): string {
+  return createHash("sha256").update(input).digest("hex");
+}
+
+export function nowIso(): string {
+  return new Date().toISOString();
+}
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };

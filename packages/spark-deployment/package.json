@@ -1,0 +1,27 @@
+{
+  "name": "@zendev-lab/spark-deployment",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Read-only TypeScript projection for the native Spark deployment owner.",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "package.json",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && cargo clippy -p spark-deployment --all-targets -- -D warnings",
+    "test": "vp test run && cargo test -p spark-deployment"
+  },
+  "dependencies": {
+    "@zendev-lab/spark-platform-node": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

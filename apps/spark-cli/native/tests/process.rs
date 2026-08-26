@@ -57,7 +57,7 @@ fn preserves_companion_signals_through_unix_exec() {
 #[test]
 fn emits_stable_json_build_info() {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../packages/spark-update/fixtures/build-info-v2.json");
+        .join("../../../packages/spark-deployment/fixtures/build-info-v2.json");
     let output = spark()
         .env("SPARK_BUILD_INFO_PATH", fixture)
         .args(["version", "--json"])

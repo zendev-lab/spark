@@ -12,7 +12,7 @@ import { parseDocument } from "yaml";
 import {
   defaultProjectResourceDirs,
   orderedSparkResourceRoots,
-} from "@zendev-lab/spark-system/resource-paths";
+} from "@zendev-lab/spark-platform-node/resource-paths";
 
 import { getBuiltinWorkflowDefinition, listBuiltinWorkflows } from "./builtins.ts";
 import { parseWorkflowScript } from "./metadata.ts";

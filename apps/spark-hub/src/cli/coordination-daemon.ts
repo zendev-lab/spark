@@ -7,7 +7,7 @@ import {
   type SparkSessionProjection,
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { requestSparkDaemon, type SparkDaemonClientOptions } from "@zendev-lab/spark-daemon-client";
 
 export type HubCoordinationDaemonRequest = <M extends SparkLocalRpcMethod>(

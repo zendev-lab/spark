@@ -9,8 +9,11 @@ declare global {
     interface Locals {
       requestId: string;
       sessionToken: string | null;
-      workspaceSessionToken: string | null;
-      workspaceId: string | null;
+      /**
+       * Remote member sessions: the workspaces leased to their granted daemons.
+       * `null` means unrestricted (owner session or local access).
+       */
+      authorizedWorkspaceIds: string[] | null;
       hasControlPlaneAccess: boolean;
     }
   }

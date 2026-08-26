@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import { replaySparkAskTool, runSparkAskTool, type SparkAskToolParams } from "./spark-ask-tool.ts";
-import { sparkStateCwd, type EvidenceRef } from "@zendev-lab/spark-core";
+import { type EvidenceRef } from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { normalizeEvidenceRef } from "./evidence-tools.ts";
 import { sparkAskUi } from "./spark-ask-ui.ts";
 import type { SparkToolRegistrar } from "./spark-tool-registration.ts";

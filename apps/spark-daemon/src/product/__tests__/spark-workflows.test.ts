@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunner } from "@zendev-lab/spark-invocation";
 import {
   defaultSparkDynamicWorkflowEventStore,
   defaultSparkDynamicWorkflowManager,
@@ -22,7 +22,7 @@ import {
 import {
   createSparkWorkflowRoleRunAdapter,
   type SparkRoleRunResult,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { defaultProjectRoleModelSettingsStore } from "@zendev-lab/spark-roles";
 import {
   registerSparkWorkflowRunTool,

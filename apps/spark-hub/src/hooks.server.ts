@@ -1,19 +1,13 @@
-import type { DatabaseSync } from "node:sqlite";
 import { createId } from "@zendev-lab/spark-protocol";
+import { listUserDaemonGrantWorkspaceIds } from "@zendev-lab/spark-hub-coordination/hub-access";
 import type { Handle, HandleServerError, RequestEvent } from "@sveltejs/kit";
 import {
   getCurrentHubSession,
-  getCurrentWorkspaceSession,
-  isRemoteWorkspaceDataPath,
+  hubSessionAllowsRequest,
   refreshHubSession,
-  refreshWorkspaceSession,
   sessionCookieName,
   sessionRefreshCookieName,
   setHubSessionCookies,
-  setWorkspaceSessionCookies,
-  workspaceSessionAllowsRequest,
-  workspaceSessionCookieName,
-  workspaceSessionRefreshCookieName,
 } from "$lib/server/auth";
 import { getDatabase, pinDatabase, unpinDatabase } from "$lib/server/db";
 import {
@@ -24,11 +18,11 @@ import {
 import { INVOCATION_ROUTE_UNAVAILABLE_ERROR_CODE } from "$lib/error-codes";
 import { localeCookieName, resolveRequestLocale } from "$lib/i18n";
 import { remoteAccessDecision } from "$lib/server/remote-access";
-import { loadWorkspaceByRouteId } from "$lib/server/workspace-routing";
 
 export const handle: Handle = async ({ event, resolve }) => {
   event.locals.requestId = createId("msg");
   event.locals.hasControlPlaneAccess = false;
+  event.locals.authorizedWorkspaceIds = null;
   let databasePinned = false;
   try {
     pinDatabase();
@@ -44,60 +38,25 @@ export const handle: Handle = async ({ event, resolve }) => {
           secure: event.url.protocol === "https:",
         });
         event.locals.sessionToken = refreshed.sessionToken;
-        hubSession = refreshed;
+        hubSession = getCurrentHubSession(db, refreshed.sessionToken);
       }
     }
-
-    event.locals.workspaceSessionToken = event.cookies.get(workspaceSessionCookieName) ?? null;
-    let workspaceSession = getCurrentWorkspaceSession(db, event.locals.workspaceSessionToken);
-    if (!workspaceSession) {
-      const refreshed = refreshWorkspaceSession(
-        db,
-        event.cookies.get(workspaceSessionRefreshCookieName) ?? null,
-      );
-      if (refreshed) {
-        setWorkspaceSessionCookies(event.cookies, refreshed, {
-          secure: event.url.protocol === "https:",
-        });
-        event.locals.workspaceSessionToken = refreshed.sessionToken;
-        workspaceSession = refreshed;
-      }
-    }
-    event.locals.workspaceId = workspaceSession?.workspaceId ?? null;
 
     const clientAddress = getClientAddress(event);
     const decision = remoteAccessDecision({ url: event.url, clientAddress });
-    event.locals.hasControlPlaneAccess = !decision.required || Boolean(hubSession);
-    if (decision.required && !hubSession && !workspaceSession) {
-      const routeWorkspace = activeRouteWorkspace(db, event.url.pathname);
-      return routeWorkspace
-        ? remoteAccessRequiredResponse(event, "workspace", routeWorkspace.slug)
-        : remoteAccessRequiredResponse(event, "hub");
+    event.locals.hasControlPlaneAccess = !decision.required || hubSession?.role === "owner";
+    if (decision.required && !hubSession) {
+      return remoteAccessRequiredResponse(event);
     }
     if (
       decision.required &&
       hubSession &&
-      !workspaceSession &&
-      isRemoteWorkspaceDataPath(event.url.pathname)
+      !hubSessionAllowsRequest(db, hubSession, event.url.pathname)
     ) {
-      const slug = workspaceSlugFromPath(event.url.pathname);
-      if (slug) {
-        return remoteAccessRequiredResponse(event, "workspace", slug);
-      }
+      return hubAccessForbiddenResponse();
     }
-    if (
-      decision.required &&
-      workspaceSession &&
-      !workspaceSessionAllowsRequest(db, workspaceSession.workspaceId, event.url.pathname)
-    ) {
-      const routeWorkspace = activeRouteWorkspace(db, event.url.pathname);
-      if (routeWorkspace && routeWorkspace.id !== workspaceSession.workspaceId) {
-        return remoteAccessRequiredResponse(event, "workspace", routeWorkspace.slug);
-      }
-      // Hub owner sessions may still use control-plane routes.
-      if (!hubSession || isRemoteWorkspaceDataPath(event.url.pathname)) {
-        return workspaceAccessForbiddenResponse(workspaceSession.workspaceSlug);
-      }
+    if (decision.required && hubSession && hubSession.role !== "owner") {
+      event.locals.authorizedWorkspaceIds = listUserDaemonGrantWorkspaceIds(db, hubSession.userId);
     }
 
     const locale = resolveRequestLocale({
@@ -148,46 +107,20 @@ function getClientAddress(event: RequestEvent): string | null {
   }
 }
 
-function workspaceSlugFromPath(pathname: string): string | null {
-  const segment = pathname.split("/").filter(Boolean)[0];
-  if (!segment) return null;
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
-
-function activeRouteWorkspace(db: DatabaseSync, pathname: string) {
-  const routeId = workspaceSlugFromPath(pathname);
-  return routeId ? loadWorkspaceByRouteId(db, routeId) : undefined;
-}
-
-function remoteAccessRequiredResponse(
-  event: RequestEvent,
-  layer: "hub" | "workspace",
-  workspaceSlug?: string,
-): Response {
+function remoteAccessRequiredResponse(event: RequestEvent): Response {
   const acceptsHtml = event.request.headers.get("accept")?.includes("text/html") ?? false;
   if ((event.request.method === "GET" || event.request.method === "HEAD") && acceptsHtml) {
     const next = `${event.url.pathname}${event.url.search}`;
-    const location =
-      layer === "workspace" && workspaceSlug
-        ? `/${encodeURIComponent(workspaceSlug)}/login?next=${encodeURIComponent(next)}`
-        : `/login?next=${encodeURIComponent(next)}`;
     return new Response(null, {
       status: 303,
-      headers: { location },
+      headers: { location: `/login?next=${encodeURIComponent(next)}` },
     });
   }
 
   return new Response(
     JSON.stringify({
-      error: layer === "workspace" ? "workspace_access_auth_required" : "hub_access_auth_required",
-      message:
-        layer === "workspace"
-          ? "Spark Hub requires a workspace-scoped access session for this path."
-          : "Spark Hub requires a Hub access session.",
+      error: "hub_access_auth_required",
+      message: "Spark Hub requires a Hub access session.",
     }),
     {
       status: 401,
@@ -198,11 +131,11 @@ function remoteAccessRequiredResponse(
   );
 }
 
-function workspaceAccessForbiddenResponse(workspaceSlug: string): Response {
+function hubAccessForbiddenResponse(): Response {
   return new Response(
     JSON.stringify({
-      error: "workspace_access_forbidden",
-      message: `This browser session grants only workspace ${workspaceSlug}.`,
+      error: "hub_access_forbidden",
+      message: "This Hub session does not grant the requested resource.",
     }),
     { status: 403, headers: { "content-type": "application/json" } },
   );

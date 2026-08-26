@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { accessMigrations } from "./access.js";
 import { channelMigrations } from "./channels.js";
 import { executionAttemptMigrations } from "./execution-attempts.js";
 import { humanWaitMigrations } from "./human-waits.js";
@@ -22,6 +23,7 @@ export const daemonMigrations: readonly Migration[] = [
   ...loopMigrations,
   ...humanWaitMigrations,
   ...invocationPostLoopMigrations,
+  ...accessMigrations,
   ...workspaceMigrations,
 ];
 

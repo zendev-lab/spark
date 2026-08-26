@@ -1,5 +1,6 @@
 import { Type } from "typebox";
-import type { Task, TaskClaim } from "@zendev-lab/spark-core";
+import { type Task } from "@zendev-lab/spark-tasks";
+import { type TaskClaim } from "@zendev-lab/spark-tasks";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 import { currentSparkProject, sparkStateCwd } from "./session-state.ts";
 import { normalizeOptionalToolString } from "./task-plan-tool.ts";

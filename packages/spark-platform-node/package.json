@@ -1,0 +1,38 @@
+{
+  "name": "@zendev-lab/spark-platform-node",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Node platform adapters for Spark paths, permissions, commands, SQLite, and local IPC.",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "package.json",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./headless-module": "./src/headless-module.ts",
+    "./json-files": "./src/json-files.ts",
+    "./paths": "./src/paths.ts",
+    "./resource-paths": "./src/resource-paths.ts",
+    "./strings": "./src/strings.ts",
+    "./socket-message-port": "./src/socket-message-port.ts"
+  },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run",
+    "test:mutation": "stryker run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/server": "catalog:",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "^4.1.5"
+  }
+}

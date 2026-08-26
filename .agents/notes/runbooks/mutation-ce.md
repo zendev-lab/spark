@@ -10,14 +10,14 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 | --- | --- |
 | `@zendev-lab/spark-retry` | `src/**/*.ts` except tests |
 | `@zendev-lab/spark-protocol` | colocated / architecture-covered modules |
-| `@zendev-lab/spark-hub-db` | `client.ts`, `dialect.ts`, `migrate.ts` |
-| `@zendev-lab/spark-system` | `paths.ts`, `daemon-local-rpc.ts` |
+| `@zendev-lab/spark-hub-storage-sqlite` | `client.ts`, `dialect.ts`, `migrate.ts` |
+| `@zendev-lab/spark-platform-node` | `paths.ts`, `daemon-local-rpc.ts` |
 
 ### L1 (Vitest packages with colocated tests)
 
 | Package | Mutate surface |
 | --- | --- |
-| `@zendev-lab/dsh-channels` | modules with `*.test.ts` peers |
+| `@zendev-lab/dsh-channel-transports` | modules with `*.test.ts` peers |
 | `@zendev-lab/spark-hub-coordination` | modules with `*.test.ts` peers (+ `hub-queries.ts`) |
 | `@zendev-lab/spark-session` | `action-tool`, `mail-store`, `registry`, `snapshot` |
 | `@zendev-lab/spark-artifacts` | product store/forge/types/worktree |
@@ -26,13 +26,13 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 | `@zendev-lab/spark-daemon` | selected product task/TODO/selector policy modules |
 | `@zendev-lab/spark-tasks` | task/TODO store modules shared by extension tests |
 
-Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation CE), Hub and the remainder of the daemon tree, and packages whose behavior is only covered by root integration tests (`spark-host`, `spark-turn`, `spark-llm`, …).
+Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation CE), Hub, the remainder of the daemon tree, and packages whose behavior is only covered by root integration tests (for example `spark-llm-providers`).
 
 ## Commands
 
 ```bash
 pnpm run test:mutation
-pnpm --filter @zendev-lab/dsh-channels run test:mutation
+pnpm --filter @zendev-lab/dsh-channel-transports run test:mutation
 ```
 
 CI: `.github/workflows/ce-mutation.yml` (Monday 03:17 UTC + `workflow_dispatch`, `continue-on-error`, uploads HTML/JSON reports).

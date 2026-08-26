@@ -6,14 +6,13 @@ import { fileURLToPath } from "node:url";
 import { ensureSparkDaemonRunning, SparkDaemonStartupError } from "@zendev-lab/spark-daemon-client";
 import { formatSparkCliError, SparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
 
+import { SPARK_WEB_BIND_HOST_ENV, SPARK_WEB_BIND_PORT_ENV } from "./lib/server/auth.ts";
 import {
-  resolveSparkWebToken,
-  SPARK_WEB_BIND_HOST_ENV,
-  SPARK_WEB_BIND_PORT_ENV,
-  SPARK_WEB_TOKEN_ENV,
-  SPARK_WEB_TRUSTED_HOSTS_ENV,
-} from "./lib/server/auth.ts";
-import { parseSparkWebBindArgs, sparkWebBrowserAuthority } from "./lib/server/bind.ts";
+  isSparkWebLoopbackHost,
+  parseSparkWebBindArgs,
+  sparkWebBrowserAuthority,
+  sparkWebReachableHosts,
+} from "./lib/server/bind.ts";
 import {
   attachSparkWebLease,
   heartbeatSparkWebLease,
@@ -58,11 +57,8 @@ export async function runSparkWebCli(
       { cause: error },
     );
   }
-  const token = resolveSparkWebToken();
-  process.env[SPARK_WEB_TOKEN_ENV] = token;
   process.env[SPARK_WEB_BIND_HOST_ENV] = bind.host;
   process.env[SPARK_WEB_BIND_PORT_ENV] = String(bind.port);
-  process.env[SPARK_WEB_TRUSTED_HOSTS_ENV] = bind.trustedHosts.join(",");
 
   try {
     await (options.ensureDaemonRunning ?? ensureSparkDaemonRunning)();
@@ -76,9 +72,7 @@ export async function runSparkWebCli(
   }, 15_000);
   heartbeat.unref();
 
-  const browserHost = bind.trustedHosts[0] ?? bind.host;
-  const origin = `http://${sparkWebBrowserAuthority(browserHost, bind.port)}`;
-  const url = `${origin}/?token=${encodeURIComponent(token)}`;
+  const urls = sparkWebBrowserUrls(bind);
 
   const stop = async () => {
     clearInterval(heartbeat);
@@ -120,8 +114,27 @@ export async function runSparkWebCli(
     });
   }
 
-  process.stdout.write(`Spark web listening on ${url}\n`);
+  process.stdout.write(`Spark web listening:\n${urls.map((url) => `  ${url}`).join("\n")}\n`);
+  if (!isSparkWebLoopbackHost(bind.host)) {
+    process.stdout.write(
+      "Remote peers require a daemon access token: spark daemon access create\n",
+    );
+  }
   return await new Promise<number>(() => undefined);
+}
+
+export function sparkWebBrowserUrls(
+  bind: Pick<ReturnType<typeof parseSparkWebBindArgs>, "host" | "port">,
+): string[] {
+  return sparkWebReachableHosts(bind.host).map(
+    (host) => `http://${sparkWebBrowserAuthority(host, bind.port)}/`,
+  );
+}
+
+export function sparkWebBrowserUrl(
+  bind: Pick<ReturnType<typeof parseSparkWebBindArgs>, "host" | "port">,
+): string {
+  return sparkWebBrowserUrls(bind)[0]!;
 }
 
 export function runSparkWebProcess(options: SparkWebCliOptions = {}): void {
@@ -203,14 +216,18 @@ export function sparkWebHelpText(): string {
   return `spark-web - local Spark daemon workbench
 
 Usage:
-  spark-web [--host 127.0.0.1] [--port 4310] [--trusted-host HOST] [--hmr]
+  spark-web [--host 127.0.0.1] [--port 4310] [--hmr]
 
-Binds to 127.0.0.1 by default. A non-loopback --host requires one or more
---trusted-host values; Host, same-origin metadata, and the token are all checked.
-Prints the workbench URL without opening a browser.
+Binds to 127.0.0.1 by default. Binding 0.0.0.0 exposes the workbench on this
+host's local IPv4 interfaces automatically; no trusted-host configuration is
+needed. Requests from an actual loopback peer are tokenless. Remote peers need
+a daemon access token (spark daemon access create). Host, same-origin metadata,
+and mutation provenance are still checked for every bind.
+Prints the reachable workbench URLs without opening a browser.
 Pass --hmr to use the Vite development server;
 the default serves the prebuilt handler without HMR for long-lived use.
-Shows every workspace bound to the local daemon.
+Opens on the daemon-wide Session and Invocation view. Workspace remains
+repository, cwd, and Artifact context rather than a navigation prerequisite.
 Hub remains the multi-daemon proxy and management plane.
 `;
 }

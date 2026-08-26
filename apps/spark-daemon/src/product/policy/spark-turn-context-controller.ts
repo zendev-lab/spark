@@ -4,7 +4,7 @@ import type {
   SparkContextBundle,
   SparkContextProviderSummary,
   SparkContextRegistry,
-} from "@zendev-lab/spark-host/context";
+} from "../host/context-tool.ts";
 import { sparkSessionOwnerKey } from "./session-state.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 

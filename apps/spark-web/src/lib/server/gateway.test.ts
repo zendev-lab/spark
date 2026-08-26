@@ -6,7 +6,6 @@ import {
   isSparkWebReadOnlyShareRequest,
   sparkWebRequestTrustError,
   sparkWebShareRequestTrustError,
-  tokensMatch,
   tokenFromRequest,
 } from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
@@ -29,44 +28,43 @@ test("bind arguments default HMR off and accept explicit HMR opt-in", () => {
   assert.equal(parseSparkWebBindArgs(["--hmr"]).hmr, true);
 });
 
-test("bind arguments accept the legacy no-open flag and require a trusted network host", () => {
-  assert.deepEqual(
-    parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311", "--trusted-host", "spark.lan"]),
-    {
-      host: "0.0.0.0",
-      port: 4311,
-      trustedHosts: ["spark.lan"],
-      hmr: false,
-      argv: [],
-    },
-  );
+test("bind arguments expose all interfaces without a trusted-host side channel", () => {
+  assert.deepEqual(parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311"]), {
+    host: "0.0.0.0",
+    port: 4311,
+    hmr: false,
+    argv: [],
+  });
   assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open", "--hmr"]), {
     host: "127.0.0.1",
     port: 4311,
-    trustedHosts: [],
     hmr: true,
     argv: [],
   });
-  assert.throws(() => parseSparkWebBindArgs(["--host", "0.0.0.0"]), /requires --trusted-host/u);
-  assert.equal(sparkWebBrowserAuthority("spark.lan", 4310), "spark.lan:4310");
-  assert.equal(sparkWebBrowserAuthority("spark.lan:8443", 4310), "spark.lan:8443");
+  assert.throws(
+    () => parseSparkWebBindArgs(["--host", "0.0.0.0", "--trusted-host", "spark.lan"]),
+    /no longer supports --trusted-host/u,
+  );
+  assert.equal(sparkWebBrowserAuthority("192.168.1.5", 4310), "192.168.1.5:4310");
   assert.equal(sparkWebBrowserAuthority("::1", 4310), "[::1]:4310");
 });
 
-test("request trust enforces Host, Origin, Fetch Metadata, and cookie mutation CSRF", () => {
-  const trust = { bindHost: "0.0.0.0", bindPort: 4310, trustedHosts: ["spark.lan"] };
+test("request trust enforces local IP Host, Origin, Fetch Metadata, and cookie mutation CSRF", () => {
+  const trust = { bindHost: "10.0.0.2", bindPort: 4310, lanAddresses: [] };
+  const clientAddress = "10.0.0.9";
   assert.equal(
     sparkWebRequestTrustError({
-      request: new Request("http://spark.lan:4310/api/v1/rpc", {
+      request: new Request("http://10.0.0.2:4310/api/v1/rpc", {
         method: "POST",
         headers: {
-          host: "spark.lan:4310",
-          origin: "http://spark.lan:4310",
+          host: "10.0.0.2:4310",
+          origin: "http://10.0.0.2:4310",
           "sec-fetch-site": "same-origin",
         },
       }),
       authSource: "cookie",
       trust,
+      clientAddress,
     }),
     null,
   );
@@ -78,38 +76,42 @@ test("request trust enforces Host, Origin, Fetch Metadata, and cookie mutation C
       }),
       authSource: "cookie",
       trust,
+      clientAddress,
     }) ?? "",
     /Host/u,
   );
   assert.match(
     sparkWebRequestTrustError({
-      request: new Request("http://spark.lan:4310/api/v1/rpc", {
+      request: new Request("http://10.0.0.2:4310/api/v1/rpc", {
         method: "POST",
-        headers: { host: "spark.lan:4310" },
+        headers: { host: "10.0.0.2:4310" },
       }),
       authSource: "cookie",
       trust,
+      clientAddress,
     }) ?? "",
     /same-origin metadata/u,
   );
   assert.equal(
     sparkWebRequestTrustError({
-      request: new Request("http://spark.lan:4310/api/v1/rpc", {
+      request: new Request("http://10.0.0.2:4310/api/v1/rpc", {
         method: "POST",
-        headers: { host: "spark.lan:4310" },
+        headers: { host: "10.0.0.2:4310" },
       }),
       authSource: "header",
       trust,
+      clientAddress,
     }),
     null,
   );
 });
 
 test("cross-site document navigation is allowed only for read-only share URLs", () => {
-  const trust = { bindHost: "0.0.0.0", bindPort: 4310, trustedHosts: ["spark.lan"] };
-  const request = new Request("http://spark.lan:4310/share/12345678901234567890123456789012", {
+  const trust = { bindHost: "10.0.0.2", bindPort: 4310, lanAddresses: [] };
+  const clientAddress = "10.0.0.9";
+  const request = new Request("http://10.0.0.2:4310/share/12345678901234567890123456789012", {
     headers: {
-      host: "spark.lan:4310",
+      host: "10.0.0.2:4310",
       "sec-fetch-site": "cross-site",
       "sec-fetch-mode": "navigate",
       "sec-fetch-dest": "document",
@@ -119,9 +121,9 @@ test("cross-site document navigation is allowed only for read-only share URLs", 
     isSparkWebReadOnlyShareRequest(request, "/share/12345678901234567890123456789012"),
     true,
   );
-  assert.equal(sparkWebShareRequestTrustError({ request, trust }), null);
+  assert.equal(sparkWebShareRequestTrustError({ request, trust, clientAddress }), null);
   assert.match(
-    sparkWebRequestTrustError({ request, authSource: "none", trust }) ?? "",
+    sparkWebRequestTrustError({ request, authSource: "none", trust, clientAddress }) ?? "",
     /cross-site/u,
   );
   assert.equal(isSparkWebReadOnlyShareRequest(request, "/api/v1/rpc"), false);
@@ -131,17 +133,17 @@ test("cross-site document navigation is allowed only for read-only share URLs", 
         headers: { ...Object.fromEntries(request.headers), "sec-fetch-dest": "empty" },
       }),
       trust,
+      clientAddress,
     }) ?? "",
     /cross-site/u,
   );
 });
 
-test("token comparison rejects missing and mismatched values", () => {
-  assert.equal(tokensMatch("abc", "abc"), true);
-  assert.equal(tokensMatch("abc", "abd"), false);
-  assert.equal(tokensMatch("abc", null), false);
+test("token carriers prefer query, then header, then cookie", () => {
   assert.equal(tokenFromRequest({ query: "q", cookie: "c" }), "q");
+  assert.equal(tokenFromRequest({ header: "h", cookie: "c" }), "h");
   assert.equal(tokenFromRequest({ cookie: "c" }), "c");
+  assert.equal(tokenFromRequest({}), null);
 });
 
 test("RPC allowlist forwards known methods and rejects unknown ones", async () => {

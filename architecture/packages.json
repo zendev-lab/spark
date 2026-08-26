@@ -74,16 +74,16 @@
       "sdkDependencies": [
         {
           "dependency": "@earendil-works/pi-ai",
-          "owner": "@zendev-lab/spark-llm"
+          "owner": "@zendev-lab/spark-llm-providers"
         }
       ],
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 41,
-      "ceiling": 41,
+      "current": 38,
+      "ceiling": 38,
       "nonGrowth": true,
-      "reason": "The daemon now owns product composition directly; native spark-web and spark-web-dsh remain explicit applications."
+      "reason": "The normalized 38-workspace graph keeps native spark-web and spark-web-dsh as explicit applications while daemon product composition owns the former host and turn facades; spark-modes was removed: durable session modes are retired in favor of one-shot /plan, /execute, and /fleet commands."
     },
     "packageNaming": {
       "temporaryDshDependencyExceptionsNonGrowth": true
@@ -91,12 +91,19 @@
     "compositionRoots": ["@zendev-lab/spark-daemon"]
   },
   "packages": {
-    "@zendev-lab/dsh-channels": {
-      "path": "packages/dsh-channels",
+    "@zendev-lab/dsh-channel-transports": {
+      "path": "packages/dsh-channel-transports",
       "layer": "adapter",
       "owner": "channels",
       "stability": "supported",
       "stateWriter": "none"
+    },
+    "@zendev-lab/dsh-cue": {
+      "path": "packages/dsh-cue",
+      "layer": "runtime",
+      "owner": "execution-adapters",
+      "stability": "supported",
+      "stateWriter": "external"
     },
     "@zendev-lab/dsh-tool-cue": {
       "path": "packages/dsh-tool-cue",
@@ -104,12 +111,7 @@
       "owner": "execution-adapters",
       "stability": "internal",
       "stateWriter": "none",
-      "distribution": "private",
-      "dshIndependenceException": {
-        "dependencies": ["@zendev-lab/spark-cue"],
-        "reason": "The existing Cue tool adapter still consumes the pre-Cordis Spark Cue execution kernel.",
-        "exitCondition": "Remove when the Cue execution kernel becomes the independent dsh-cue service."
-      }
+      "distribution": "private"
     },
     "@zendev-lab/spark-acp": {
       "path": "packages/spark-acp",
@@ -141,19 +143,12 @@
       "stateWriter": "none",
       "distribution": "public-npm"
     },
-    "@zendev-lab/spark-core": {
-      "path": "packages/spark-core",
+    "@zendev-lab/spark-invocation": {
+      "path": "packages/spark-invocation",
       "layer": "foundation",
-      "owner": "host-contract",
+      "owner": "invocations",
       "stability": "supported",
       "stateWriter": "none"
-    },
-    "@zendev-lab/spark-cue": {
-      "path": "packages/spark-cue",
-      "layer": "adapter",
-      "owner": "execution-adapters",
-      "stability": "supported",
-      "stateWriter": "external"
     },
     "@zendev-lab/spark-daemon": {
       "path": "apps/spark-daemon",
@@ -200,13 +195,6 @@
       "stability": "internal",
       "stateWriter": "external"
     },
-    "@zendev-lab/spark-host": {
-      "path": "packages/spark-host",
-      "layer": "runtime",
-      "owner": "extension-host",
-      "stability": "supported",
-      "stateWriter": "host"
-    },
     "@zendev-lab/spark-hub": {
       "path": "apps/spark-hub",
       "layer": "application",
@@ -222,8 +210,8 @@
       "stability": "private",
       "stateWriter": "hub"
     },
-    "@zendev-lab/spark-hub-db": {
-      "path": "packages/spark-hub-db",
+    "@zendev-lab/spark-hub-storage-sqlite": {
+      "path": "packages/spark-hub-storage-sqlite",
       "layer": "private-adapter",
       "owner": "hub",
       "stability": "private",
@@ -243,15 +231,15 @@
       "stability": "internal",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-llm": {
-      "path": "packages/spark-llm",
+    "@zendev-lab/spark-llm-providers": {
+      "path": "packages/spark-llm-providers",
       "layer": "capability",
       "owner": "llm",
       "stability": "supported",
       "stateWriter": "user"
     },
-    "@zendev-lab/spark-loop": {
-      "path": "packages/spark-loop",
+    "@zendev-lab/spark-driver": {
+      "path": "packages/spark-driver",
       "layer": "capability",
       "owner": "goals",
       "stability": "supported",
@@ -270,13 +258,6 @@
       "owner": "memory",
       "stability": "supported",
       "stateWriter": "workspace"
-    },
-    "@zendev-lab/spark-modes": {
-      "path": "packages/spark-modes",
-      "layer": "capability",
-      "owner": "modes",
-      "stability": "supported",
-      "stateWriter": "host"
     },
     "@zendev-lab/spark-protocol": {
       "path": "packages/spark-protocol",
@@ -307,8 +288,8 @@
       "stability": "supported",
       "stateWriter": "host"
     },
-    "@zendev-lab/spark-runtime": {
-      "path": "packages/spark-runtime",
+    "@zendev-lab/spark-task-runtime": {
+      "path": "packages/spark-task-runtime",
       "layer": "runtime",
       "owner": "task-execution",
       "stability": "supported",
@@ -321,8 +302,8 @@
       "stability": "supported",
       "stateWriter": "daemon"
     },
-    "@zendev-lab/spark-system": {
-      "path": "packages/spark-system",
+    "@zendev-lab/spark-platform-node": {
+      "path": "packages/spark-platform-node",
       "layer": "foundation",
       "owner": "system-primitives",
       "stability": "supported",
@@ -336,27 +317,21 @@
       "stability": "supported",
       "stateWriter": "workspace"
     },
-    "@zendev-lab/spark-text": {
-      "path": "packages/spark-text",
+    "@zendev-lab/spark-text-rendering": {
+      "path": "packages/spark-text-rendering",
       "layer": "foundation",
       "owner": "presentation-primitives",
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-tool-web": {
-      "path": "packages/spark-tool-web",
+    "@zendev-lab/dsh-tool-web": {
+      "path": "packages/dsh-tool-web",
       "layer": "capability",
       "owner": "web",
       "stability": "supported",
-      "stateWriter": "user",
-      "namingRationale": "Spark Web tools retain product cache, code search, content retrieval, and response identity contracts."
-    },
-    "@zendev-lab/spark-turn": {
-      "path": "packages/spark-turn",
-      "layer": "runtime",
-      "owner": "turn-runtime",
-      "stability": "supported",
-      "stateWriter": "none"
+      "stateWriter": "none",
+      "allowedWorkspaceDependencies": [],
+      "namingRationale": "The standard DSH tool consumer uses ctx.web providers and an Agent-lifetime bounded memory cache; it owns no persistent state."
     },
     "@zendev-lab/spark-ui": {
       "path": "packages/spark-ui",
@@ -365,8 +340,8 @@
       "stability": "private",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-update": {
-      "path": "packages/spark-update",
+    "@zendev-lab/spark-deployment": {
+      "path": "packages/spark-deployment",
       "layer": "foundation",
       "owner": "deployment",
       "stability": "supported",
@@ -374,7 +349,7 @@
       "allowedWorkspaceDependencies": [
         "@zendev-lab/spark-i18n",
         "@zendev-lab/spark-protocol",
-        "@zendev-lab/spark-system"
+        "@zendev-lab/spark-platform-node"
       ]
     },
     "@zendev-lab/spark-web": {

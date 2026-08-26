@@ -113,7 +113,7 @@ cross-scope, or disappeared paths fail closed.
 
 ## Transcript persistence
 
-Canonical Session transcripts are DSH session JSONL. `packages/spark-host`
+Canonical Session transcripts are DSH session JSONL. The daemon product host's
 `SparkSessionStore` is the transition codec: transcript v4 writes model-visible
 content as native DSH surface events. It does not duplicate active messages in
 `spark/record`; ignorable Spark events carry only projection metadata,
@@ -186,7 +186,7 @@ lane Session.
 
 A message-platform Channel is daemon-global ingress and delivery bound to one
 daemon Channel Session. It is not a Session owner, executor, Task store, or
-scheduler. `@zendev-lab/dsh-channels` is the Cordis lifecycle plugin and typed
+scheduler. `@zendev-lab/dsh-channel-transports` is the Cordis lifecycle plugin and typed
 `ctx.channels` service; Spark Session Registry, Invocation, outbox, retry,
 human wait, and SQLite remain the only durable authorities.
 

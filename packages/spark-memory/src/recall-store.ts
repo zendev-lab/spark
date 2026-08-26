@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import {
   sparkWorkspaceStatePath,
-  writeJsonFileAtomic,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node/paths";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   appendUnapprovedMemoryRevision,

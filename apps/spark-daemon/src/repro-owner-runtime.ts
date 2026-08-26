@@ -3,7 +3,7 @@ import {
   sparkTurnSubmitResultSchema,
   type SparkEvidenceAnswerEvent,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import type { DatabaseSync } from "node:sqlite";
 import type { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";

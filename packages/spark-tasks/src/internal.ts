@@ -5,8 +5,11 @@ import {
   nowIso,
   stableId,
   type ArtifactRef,
-  type Project,
   type RoleRef,
+  type TaskRef,
+} from "@zendev-lab/spark-invocation";
+import {
+  type Project,
   type Task,
   type TaskAttribution,
   type TaskCancellation,
@@ -22,11 +25,10 @@ import {
   type TaskPlanIssueKind,
   type TaskPlanItem,
   type TaskPlanReadiness,
-  type TaskRef,
   type TaskRun,
   type TaskTodo,
   type TaskTodoStatus,
-} from "@zendev-lab/spark-core";
+} from "./types.ts";
 import type {
   CreateTaskTodoInput,
   NonConcreteTaskIssue,

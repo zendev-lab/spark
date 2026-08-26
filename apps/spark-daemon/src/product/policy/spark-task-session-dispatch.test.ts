@@ -5,14 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultArtifactStore, type EvidenceRef } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
-import type {
-  ArtifactRef,
-  ProjectRef,
-  TaskRef,
-  TaskResourceAllocation,
-  TaskRun,
-} from "@zendev-lab/spark-core";
-import { loadSessionGoal } from "@zendev-lab/spark-loop";
+import type { ArtifactRef, ProjectRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type TaskResourceAllocation, type TaskRun } from "@zendev-lab/spark-tasks";
+import { loadSessionGoal } from "@zendev-lab/spark-driver";
 import type { SparkFleetWorkerBinding, SparkSessionLineage } from "@zendev-lab/spark-protocol";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";

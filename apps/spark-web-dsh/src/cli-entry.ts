@@ -17,13 +17,22 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
     process.stdout.write(`spark-web-dsh - Spark product workbench hosted by DeepSeek Harness
 
 Usage:
-  spark-web-dsh [--host <host>] [--port <port>] [--trusted-host <host>] [args...]
+  spark-web-dsh [--host <host>] [--port <port>] [args...]
 
-The DSH profile must already exist. Explicit non-loopback binds expose the
-Harness agent surface to that network and should be used only on trusted hosts.
-The server prints its URL without opening a browser.
+The DSH profile must already exist. Requests from an actual loopback peer are
+tokenless. An explicit non-loopback --host exposes only Spark's access proxy;
+local interface IPs are trusted automatically and remote peers enter the Spark
+Access page backed by daemon-user tokens (spark daemon access create). The DSH
+server itself stays on loopback. The server prints its URL without opening a
+browser.
 `);
     return 0;
+  }
+  if (argv.some((arg) => arg === "--trusted-host" || arg.startsWith("--trusted-host="))) {
+    process.stderr.write(
+      "spark web-dsh: --trusted-host has been removed; local interface addresses are trusted automatically\n",
+    );
+    return 2;
   }
   try {
     return await runSparkWeb(parseSparkWebArgs(argv));

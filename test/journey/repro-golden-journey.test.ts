@@ -19,10 +19,10 @@ import {
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
 } from "@zendev-lab/spark-session/transcript";
-import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
@@ -762,10 +762,10 @@ async function startRegisteredWorkspace(
     env: {
       ...fixture.target.env,
       // The source Hub executes its built SvelteKit handler, while the
-      // migration owner remains the spark-hub-db source package. Point only
+      // migration owner remains the spark-hub-storage-sqlite source package. Point only
       // the Hub process at that real asset directory; the daemon keeps its
       // ordinary source-workspace environment.
-      SPARK_PRODUCT_DIST: resolve(root, "packages/spark-hub-db/src"),
+      SPARK_PRODUCT_DIST: resolve(root, "packages/spark-hub-storage-sqlite/src"),
     },
   } satisfies SparkProcessTarget;
   const hubStarted = jsonObject(
@@ -969,7 +969,7 @@ async function restartDaemon(target: SparkProcessTarget): Promise<number> {
   const status = jsonObject((await runSparkProcess(target, ["daemon", "status", "--json"])).stdout);
   const previousPid = numberField(objectField(status, "daemon"), "pid");
   try {
-    process.kill(process.platform === "win32" ? previousPid : -previousPid, "SIGKILL");
+    process.kill(-previousPid, "SIGKILL");
   } catch {
     process.kill(previousPid, "SIGKILL");
   }

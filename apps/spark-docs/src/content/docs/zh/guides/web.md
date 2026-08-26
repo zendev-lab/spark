@@ -9,24 +9,39 @@ description: 启动绑定本地 Spark daemon 的浏览器工作台。
 spark web
 ```
 
-`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出一次性 token
-URL，例如 `http://127.0.0.1:4310/?token=...`，但不会自动打开浏览器。显式传入非回环 `--host` 时必须
-同时给出至少一个 `--trusted-host`。服务器会校验 Host、Origin/Fetch Metadata、
-mutation 来源与 token；这仍是受信任的单用户 LAN 界面，不是公网多用户控制面。
+`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出工作台 URL（例如
+`http://127.0.0.1:4310/`），但不会自动打开浏览器。真正从回环 peer 到达的请求免
+token。
 
-需要改变绑定或端口时，使用 `--host`、可重复的 `--trusted-host` 和 `--port`：
+需要通过本机局域网 IPv4 访问时，直接绑定 `0.0.0.0`。Spark 会自动发现本机非回环
+IPv4，不再维护单独的 trusted-host allowlist。Direct Web 只接受回环地址与本机接口
+IP literal；Host、Origin/Fetch Metadata 与 mutation 来源检查先于认证执行，因此它仍是
+受信任的单用户 LAN 界面，不是公网多用户控制面。
 
 ```bash
-spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
+spark web --host 0.0.0.0 --port 4310
 ```
 
-本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
-默认关闭 HMR。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
-本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
-Hub 仍是多 daemon 代理与管理界面。
+远端 peer 必须持有 daemon 访问 token。`daemon-user` token family 由 daemon 拥有：
+只存哈希，并负责校验每个携带的 token。用 `spark daemon access create` 创建（明文只
+打印一次），用 `spark daemon access list` 查看元数据，用
+`spark daemon access revoke` 吊销。
 
-工作台通过 typed daemon projection 读取和操作 Session 历史及生命周期、
-Ask/Approval 恢复、Work 与 Artifact、Role/Skill catalog、模型与 Provider 设置、
+远端浏览器进行页面导航时会进入统一的 Spark Access 页面。输入 token 后，Spark 通过
+daemon 校验，并写入 HttpOnly、SameSite=Strict cookie，再返回原页面。`?token=…` 继续
+作为自动化/deep link 的 navigation-only 兼容 carrier，并会提升为同一 cookie。API 与
+WebSocket 请求不会收到 HTML 登录页，未认证时仍返回 transport-level 401/503。缺失、
+错误、过期和已吊销 token 不暴露具体 token 状态；daemon 不可达时 fail closed。
+
+本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
+默认关闭 HMR。首页直接展示 daemon 全局 Session tree、Invocation、待处理人工交互
+与最近 Artifact；没有注册 Workspace 时也能打开，包括 daemon-scoped Channel
+Session。Workspace 只保留仓库、cwd 与 Artifact 上下文，可从折叠的上下文区注册
+本地目录；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。Hub 仍是多
+daemon 代理与管理界面，也是正式 DNS / 多 daemon 远程访问的支持边界。
+
+工作台通过 typed daemon projection 读取和操作 Session 历史及生命周期、Invocation
+列表与详情、Ask/Approval 恢复、Work 与 Artifact、Role/Skill catalog、模型与 Provider 设置、
 搜索、导出和诊断。浏览器不会直接读取 `.spark/`、Hub 数据库或任意宿主路径。
 目录选择只能落在已注册 workspace 或 owning Spark worktree 中，并由 daemon 对
 realpath 与 symlink 边界做校验。
@@ -36,10 +51,10 @@ realpath 与 symlink 边界做校验。
 Session、Artifact、credential 或导出数据。本地 Share 是随机、只读、仅当前进程
 有效的 HTML 预览，不上传也不持久化。
 
-Session Action Bar 中的 `/plan`、`/execute` 和 `/fleet` 会调用 daemon 的 typed
-Session mode controller。所选 mode 随 Session workspace state 持久化，刷新不会
-产生浏览器自有的 mode。此控制只选择 mode；Plan review 尚未完成，后续必须复用
-daemon 的 Ask/Approval owner，不能由浏览器编造状态。
+Session Action Bar 中的 `/plan`、`/execute` 和 `/fleet` 是经由普通 turn 提交通道
+发送的一次性命令：由 daemon 解析，仅向当前 Invocation 注入工作意图指导；不持久化，
+刷新和普通后续轮次都保持中性。审批仍复用 daemon 的 Ask/Approval owner，
+不能由浏览器编造状态。
 
 ## DSH 宿主的 Spark 工作台
 
@@ -50,6 +65,12 @@ daemon 的 Ask/Approval owner，不能由浏览器编造状态。
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
+
+DSH server 本身始终锁定在回环地址，由 Spark 外层 access proxy 对外提供服务。该
+proxy 与 native Web 使用相同的 peer-based 规则和 Spark Access 页面：实际回环 peer
+免 token，本机接口 IPv4 自动发现，远端 peer 使用同一套 daemon-owned access token。
+Host、Origin 与 Fetch Metadata 检查仍先于 token 校验；API 与 WebSocket 保持
+transport-level 认证错误，daemon 不可达时 fail closed。
 
 DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 `cue` Skill 快照挂入
 DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding，
@@ -66,7 +87,7 @@ Codex 会复用由 Spark OAuth 登录流程创建的凭据。支持推理的路�
 在“模型”页面添加 Baidu OneAPI 或 Kimi For Coding 时，界面会直接要求填写
 API Key。Kimi For Coding 不提供 OAuth 认证。
 
-托管的 `spark-standard` 与 `spark-code` preset 会通过 DSH 文件系统 provider
+托管的 `spark-standard` 与 `spark-ptc` preset 会通过 DSH 文件系统 provider
 暴露带版本保护的 Spark 文件工具。先读取文件，再把返回的不透明 `version` 作为
 `expectedVersion` 传给 `write` 或 `edit`；只有新建文件时使用 `missing`。DSH
 仍在 provider 边界执行当前会话的沙箱策略，工具 schema 不再暴露无法成功的升权
@@ -114,8 +135,9 @@ Create Local Share 会生成随机的只读 URL，HTML 只保留在当前 Spark 
 
 ## 会话 attach
 
-会话与 canonical workspace 绑定。请连接同一 daemon，启动 `spark web`，再从
-workspace 和 Session 列表打开会话。不要用浏览器计时器或 transcript
+请连接同一 daemon，启动 `spark web`，再从 daemon 全局会话树打开 Session。
+Workspace-scoped Session 保留自己的 cwd/仓库上下文；daemon Channel Session 不要求
+Workspace。不要用浏览器计时器或 transcript
 文本推断执行状态；两个视图不一致时先检查 daemon：
 
 ```bash

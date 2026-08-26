@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { AssistantMessage } from "@zendev-lab/spark-llm";
-import { createSparkDshTurnTestRuntime } from "@zendev-lab/spark-turn/testing/dsh-runtime";
+import type { AssistantMessage } from "@zendev-lab/spark-llm-providers";
+import { createSparkDshTurnTestRuntime } from "../host/agent-runtime/testing/dsh-runtime.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   createSparkCliHostServices,
   type SparkCliHostServicesOptions,
   type SparkConfig,
 } from "../host/index.ts";
-import { buildRoleRunFailureDiagnostic } from "@zendev-lab/spark-runtime";
+import { buildRoleRunFailureDiagnostic } from "@zendev-lab/spark-task-runtime";
 
 test("empty-output Role Invocation failure records a lifecycle-neutral diagnostic", () => {
   const diagnostic = buildRoleRunFailureDiagnostic({

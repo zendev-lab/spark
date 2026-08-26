@@ -1,6 +1,6 @@
 import { Type } from "typebox";
-import type { ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import type { ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-invocation";
+import { truncateToWidth } from "@zendev-lab/spark-text-rendering";
 import {
   executeSparkSessionAction,
   type SparkSessionAction,
@@ -36,7 +36,7 @@ export function registerSparkSessionTool(
       "Message-platform sessions may use only list/get/send/lookup/wait/inbox/read/ack. Their list/get/send/lookup/wait targets are restricted to the current workspace, and sends require local targets.",
       "inbox/read/ack are current-session-only; inbox supports offset/limit pagination.",
     ],
-    policy: sessionToolPolicy("external_write", ["plan", "execute", "fleet"]),
+    policy: sessionToolPolicy("external_write"),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
       return action === "list" ||
@@ -44,8 +44,8 @@ export function registerSparkSessionTool(
         action === "inbox" ||
         action === "lookup" ||
         action === "wait"
-        ? sessionToolPolicy("read", ["plan", "execute", "fleet"])
-        : sessionToolPolicy("external_write", ["plan", "execute"]);
+        ? sessionToolPolicy("read")
+        : sessionToolPolicy("external_write");
     },
     parameters: Type.Object({
       action: Type.String({
@@ -176,15 +176,11 @@ export function registerSparkSessionTool(
   });
 }
 
-function sessionToolPolicy(
-  effect: "read" | "external_write",
-  modes: readonly string[],
-): NonNullable<ToolConfig["policy"]> {
+function sessionToolPolicy(effect: "read" | "external_write"): NonNullable<ToolConfig["policy"]> {
   return {
     effect,
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["sessions"],
-    modes,
     approval: "none",
   };
 }

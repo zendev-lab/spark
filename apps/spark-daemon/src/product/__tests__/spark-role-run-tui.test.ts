@@ -4,15 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type {
-  Project,
-  ProjectRef,
-  RoleRef,
-  RunRef,
-  Task,
-  TaskRef,
-  TaskRun,
-} from "@zendev-lab/spark-core";
+import type { ProjectRef, RoleRef, RunRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type Project } from "@zendev-lab/spark-tasks";
+import { type Task, type TaskRun } from "@zendev-lab/spark-tasks";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
 import registerSparkProduct from "../policy/index.ts";
@@ -21,7 +15,7 @@ import {
   type SparkRoleRunRegistryEntry,
 } from "../policy/spark-role-run-observability.ts";
 import { roleRunTaskInfoByRefForTests } from "../policy/spark-role-run-tui-controller.ts";
-import type { SparkWidgetTheme, SparkWidgetTui } from "@zendev-lab/spark-host/spark-widget";
+import type { SparkWidgetTheme, SparkWidgetTui } from "../host/spark-widget.ts";
 import {
   formatSparkRoleRunStatusSummary,
   renderSparkRoleRunBoardLines,

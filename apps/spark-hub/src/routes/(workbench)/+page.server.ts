@@ -16,7 +16,7 @@ export const load: PageServerLoad = ({ locals, url }) => {
   return loadWorkbenchHome(getDatabase(), {
     forceWorkspaceCreate: false,
     pendingWorkspaceSetup: null,
-    authorizedWorkspaceId: locals?.workspaceId ?? null,
+    authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
   });
 };
 
@@ -26,6 +26,9 @@ export const actions: Actions = {
       cookieLocale: cookies.get(localeCookieName),
       acceptLanguage: request.headers.get("accept-language"),
     }).home.workspaceHome;
+    if (!locals.hasControlPlaneAccess) {
+      return fail(403, { intent: "removeWorkspace", message: t.removeMissing });
+    }
     const db = getDatabase();
     const formData = await request.formData();
     const workspaceId = formText(formData, "workspaceId").trim();

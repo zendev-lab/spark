@@ -2,18 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import piAskExtension from "@zendev-lab/spark-ask/extension";
-import piCueExtension from "@zendev-lab/spark-cue";
 import piGraftExtension from "@zendev-lab/spark-graft/extension";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
-
-test("SparkHostRuntime accepts piCueExtension(pi) without throwing", () => {
-  const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });
-  assert.doesNotThrow(() => piCueExtension(host));
-  const toolNames = host.getAllTools().map((tool) => tool.name);
-  assert.ok(toolNames.includes("cue_exec"), `expected cue_exec in ${toolNames.join(",")}`);
-  assert.ok(toolNames.includes("cue_jobs"));
-  assert.ok(toolNames.length >= 5, "spark-cue registers multiple tools");
-});
+import { SparkHostRuntime } from "../host/runtime.ts";
 
 test("SparkHostRuntime accepts piGraftExtension(pi) and records its tools", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });
@@ -30,7 +20,6 @@ test("SparkHostRuntime accepts piGraftExtension(pi) and records its tools", () =
     effect: "local_write",
     executionMode: "sequential",
     domains: ["graft"],
-    modes: [],
     approval: "none",
   });
 });

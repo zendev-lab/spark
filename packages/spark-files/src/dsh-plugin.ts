@@ -153,10 +153,6 @@ function versionIntent(expectedVersion: string): FsWriteIntent {
   return { kind: "replaceIfVersion", version: decodeProviderVersion(expectedVersion) };
 }
 
-function versionsMatch(left: FsVersion, right: FsVersion): boolean {
-  return left === right;
-}
-
 function assertLegacySandboxArgsAreSafe(args: unknown, effectiveMode: string): void {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return;
   const record = args as Record<string, unknown>;
@@ -213,11 +209,7 @@ async function readVersionedSnapshot(
     }
     const content = await ctx.fs.readText(target, exec.signal);
     const after = await ctx.fs.stat(target, exec.signal);
-    if (
-      after !== undefined &&
-      after.type === "file" &&
-      versionsMatch(before.version, after.version)
-    ) {
+    if (after !== undefined && after.type === "file" && before.version === after.version) {
       return {
         target,
         content,
@@ -261,10 +253,8 @@ function readWindow(snapshot: VersionedSnapshot, offset?: number, limit?: number
     requestedLimit,
   });
   const anchors: typeof metadata.window.anchors = [];
-  let outputBytes = Buffer.byteLength(
-    `[File version: ${encodeProviderVersion(snapshot.version)}]\n\n`,
-    "utf8",
-  );
+  const version = encodeProviderVersion(snapshot.version);
+  let outputBytes = Buffer.byteLength(`[File version: ${version}]\n\n`, "utf8");
   for (const anchor of metadata.window.anchors) {
     const separatorBytes = anchors.length === 0 ? 0 : 1;
     const anchorBytes = Buffer.byteLength(anchor.anchor, "utf8");
@@ -291,7 +281,7 @@ function readWindow(snapshot: VersionedSnapshot, offset?: number, limit?: number
 
   return {
     path: snapshot.target.displayPath,
-    version: encodeProviderVersion(snapshot.version),
+    version,
     sizeBytes: snapshot.sizeBytes,
     offset: startLineIndex + 1,
     lines: anchors.map(({ line, hash, anchor, text }) => ({
@@ -333,10 +323,6 @@ export function createDshFileToolDefinitions(ctx: Context): ToolDefinition[] {
         type: "integer",
         description: `Maximum lines to return, up to ${DEFAULT_READ_MAX_LINES}.`,
       },
-      expectedVersion: {
-        type: "string",
-        description: "Optional exact opaque version returned by an earlier read.",
-      },
     },
     output: {
       schema: readOutputSchema,
@@ -352,15 +338,6 @@ export function createDshFileToolDefinitions(ctx: Context): ToolDefinition[] {
     async execute(args, exec) {
       const path = requiredPath(args.path);
       const snapshot = await readVersionedSnapshot(ctx, path, exec);
-      if (
-        args.expectedVersion !== undefined &&
-        args.expectedVersion !== encodeProviderVersion(snapshot.version)
-      ) {
-        throw new FsError(
-          `cannot read "${snapshot.target.displayPath}": file version changed; re-read without expectedVersion`,
-          "FS_STALE_VERSION",
-        );
-      }
       const value = readWindow(snapshot, args.offset, args.limit);
       ctx.emit(
         "fs/observed",

@@ -3,7 +3,7 @@
 Working-tree file tools for Spark-native extension hosts: `read`, `write`,
 `edit`, `grep`, and `find`. These give a Spark host a stable coding-agent file
 surface without depending on pi-coding-agent; the implementation depends only
-on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
+on `@zendev-lab/spark-invocation`, `typebox`, `diff`, `ignore`, and `minimatch` — no
 `@earendil-works/pi-coding-agent` runtime, no `@earendil-works/pi-tui`, and no
 `rg`/`fd`/`bash` subprocess.
 
@@ -49,7 +49,7 @@ on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
 - `find` — pure-JS glob file search over a gitignore-aware walk.
 
 `bash` is intentionally omitted: Spark uses `cue_exec` for shell execution and
-spark-cue disables bash by policy.
+command execution is supplied by the daemon's DSH Cue plugins.
 
 ## DSH adapter
 
@@ -59,12 +59,14 @@ Spark/Pi `ToolConfig` executors or access Node's filesystem behind DSH. Every
 mutation passes the session's resolved `SandboxExecutionPolicy` to the
 provider, so workspace confinement remains enforced at the filesystem seam.
 
-The DSH surface keeps the Spark versioned workflow but uses the provider's
-opaque `FsVersion`, not the native host's content SHA-256. `read` returns that
-token with the same `LINE#HASH:text` anchors; `write` requires the token or
-`missing`, and `edit` requires the token plus one or more non-overlapping
-replacements. The provider enforces the final atomic CAS. These schemas do not
-advertise sandbox escalation fields and do not own an approval path.
+The DSH surface keeps the Spark versioned mutation workflow but uses the
+provider's opaque `FsVersion`, not the native host's content SHA-256. `read`
+always returns the current snapshot and its token with the same
+`LINE#HASH:text` anchors; it accepts no version precondition. `write` requires
+the token or `missing`, and `edit` requires the token plus one or more
+non-overlapping replacements. The provider enforces the final atomic CAS.
+These schemas do not advertise sandbox escalation fields and do not own an
+approval path.
 
 `spark-web-dsh` mounts this adapter only inside its managed Spark presets. The
 official DSH file-tool plugin remains globally mounted for `read_image`; the

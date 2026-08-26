@@ -2,15 +2,9 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { ensureArtifactPreviewCache } from "@zendev-lab/spark-hub-coordination/artifact-cache";
 import { getDatabase } from "$lib/server/db";
 
-export const GET: RequestHandler = ({ locals, params }) => {
+export const GET: RequestHandler = ({ params }) => {
   if (!params.artifactId) {
     throw error(400, "Missing artifact id");
-  }
-  if (locals.workspaceId) {
-    const artifact = getDatabase()
-      .prepare("SELECT workspace_id AS workspaceId FROM artifacts WHERE id = ? LIMIT 1")
-      .get(params.artifactId) as { workspaceId: string } | undefined;
-    if (artifact?.workspaceId !== locals.workspaceId) throw error(404, "Artifact not found");
   }
 
   try {

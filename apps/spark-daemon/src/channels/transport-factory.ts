@@ -5,7 +5,7 @@ import {
   type ChannelTransport,
   type QqbotAdapterConfig,
   type QqbotTransportOptions,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import type { DatabaseSync } from "node:sqlite";
 import { SparkQqbotGatewayCursorStore } from "../store/qqbot-gateway-cursors.ts";
 
@@ -27,7 +27,7 @@ export interface DaemonChannelTransportFactoryOptions {
   ) => ChannelTransport;
 }
 
-/** Keep SQLite cursor ownership out of dsh-channels. */
+/** Keep SQLite cursor ownership out of dsh-channel-transports. */
 export function createDaemonChannelTransportFactory(
   db: DatabaseSync,
   options: DaemonChannelTransportFactoryOptions = {},

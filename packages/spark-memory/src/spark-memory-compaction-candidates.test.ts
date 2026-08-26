@@ -19,7 +19,7 @@ import type {
   SparkCompactionCandidatePipelineOptions,
   SparkCompactionCandidatePipelineResult,
 } from "./compaction-candidates.ts";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 
 const structuredSummary = {
   mode: "smart",

@@ -1594,11 +1594,17 @@ const messages = {
     },
     access: {
       title: "Browser access",
-      body: "Mint one-time Hub keys for remote browsers. Keys exchange at /login and are not tied to a workspace.",
+      body: "Mint one-time Hub keys for remote browsers. Each key grants its member specific daemons; the member sees exactly the workspaces those daemons lease.",
       createHeading: "Issue a Hub key",
-      createBody: "Each key authenticates one browser to the Hub control plane.",
+      createBody:
+        "Each key signs one browser in as a Hub member with grants for the selected daemons.",
       label: "Access label (optional)",
       labelPlaceholder: "Teammate access",
+      userLabel: "Member name (optional)",
+      userPlaceholder: "Jane",
+      daemonsLabel: "Daemon grants",
+      memberLabel: "Member",
+      grantedDaemons: "Granted daemons",
       createToken: "Generate one-time key",
       tokenCreatedTitle: "Hub key ready — shown once",
       tokenCreatedHint:
@@ -1694,6 +1700,7 @@ const messages = {
         "Directory disconnected from this Hub workspace. The daemon will synchronize the change on its next heartbeat.",
       workspaceAlreadyUnbound: "This Hub workspace is already disconnected.",
       workspaceLeaseChanged: "The connected directory lease changed. Refresh and try again.",
+      daemonRequired: "Select at least one daemon for this key.",
     },
   },
   daemonAuthorization: {
@@ -1742,25 +1749,13 @@ const messages = {
     headTitle: "Sign in · Spark",
     eyebrow: "Hub access",
     title: "Open Spark Hub",
-    lede: "Enter a one-time Hub key. It unlocks the control plane; each workspace still needs its own key.",
-    unconfigured: "No active Hub access key is available. Run spark hub access create on the host.",
+    lede: "Enter a one-time Hub key. It signs you in with the daemon access an owner granted to you.",
+    unconfigured:
+      "No active Hub access key is available. Run spark hub access create --daemon <runtime-id> on the host.",
     tokenLabel: "One-time Hub key",
     tokenPlaceholder: "spark_hub_auth_…",
     action: "Continue",
     invalid: "The Hub key is invalid, expired, revoked, or already used.",
-  },
-  workspaceLogin: {
-    headTitle: "Workspace sign in · Spark",
-    eyebrow: "Workspace access",
-    title: "Open this workspace",
-    lede: "Enter a one-time key issued for {workspace}. It does not grant access to other workspaces or Hub settings.",
-    unconfigured:
-      "No active workspace access key is available. Ask an operator to run spark hub workspace access create --workspace <id>.",
-    tokenLabel: "One-time workspace key",
-    tokenPlaceholder: "spark_workspace_auth_…",
-    action: "Continue",
-    invalid: "The workspace key is invalid, expired, revoked, or already used.",
-    wrongWorkspace: "That key belongs to a different workspace.",
   },
   setup: {
     headTitle: "Set up Spark Hub",

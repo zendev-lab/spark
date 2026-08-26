@@ -29,8 +29,8 @@ Hub 与本地 Web 也可作为独立 app package 安装。其他源码 workspace
 | --- | --- |
 | `apps/spark-cli`、`spark-daemon`、`apps/spark-web`、`apps/spark-hub` | 可执行分发器与交互/运行时 host |
 | `apps/spark-daemon/src/product`、`spark-daemon-client` | daemon 内部产品组合根与共享 daemon client 边界 |
-| 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
-| `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-text` | 跨表面契约与低依赖基础层 |
+| 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、Role、Session 等可复用行为 |
+| `spark-protocol`、`spark-invocation`、`spark-task-runtime`、`spark-platform-node`、`spark-text-rendering` | 跨表面契约与低依赖基础层 |
 | `packages/spark-hub-*` | Hub 私有数据库、协调与本地化实现 |
 
 贡献者可查看 `.agents/notes/contracts/package-architecture.md` 的依赖规则，以及
@@ -75,7 +75,7 @@ Project → Task plan → claim 或 assign → Run → Artifact → Review
 阻塞、验证失败或需要决策。`/fleet` 通过可复用 daemon worker Session 协调目标
 互不冲突的安全 ready frontier，父会话本身不直接修改代码。Goal、Loop、Repro 和
 Workflow 为需要持续或重复的
-工作提供 daemon 所有的续跑能力。`/automate` 只是这些已有模式的选择器。
+工作提供 daemon 所有的续跑能力。`/automate` 只是这些已有续跑能力的选择器。
 
 Repro 拥有三个稳定子 Session：Implementation、Exactness 和 Formalize。daemon
 推进固定的五 checkpoint 链，只有 Formalize 可以设置 `formalizedRevision`。Goal

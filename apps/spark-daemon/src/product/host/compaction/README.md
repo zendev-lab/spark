@@ -6,8 +6,8 @@ Transcript-level compaction for Pi-compatible JSONL sessions.
 
 | Candidate package | Why not |
 | --- | --- |
-| `@zendev-lab/spark-turn` | Owns **tool-result** compaction only (`compactToolResultContent`). Transcript compaction needs session entry trees, branch leaf switching, and `SparkSessionStore` mutation — turn-loop scope would widen incorrectly. |
+| daemon agent runtime | Owns **tool-result** compaction only (`compactToolResultContent`). Transcript compaction needs Session entry trees, branch leaf switching, and `SparkSessionStore` mutation, so it remains composition policy. |
 | `@zendev-lab/spark-session` | Owns daemon **registry / mailbox / `session({action})`** and the DSH JSONL transcript codec/migration. Transcript compaction policy remains in product composition until it becomes a DSH plugin. |
-| `@zendev-lab/spark-host` | Host-neutral ExtensionAPI runtime; pulling filesystem JSONL + Pi branch semantics would couple every host to one session layout. |
+| generic capability package | Pulling filesystem JSONL and branch semantics into a shared package would couple every consumer to one Session layout. |
 
 Split here into `types.ts` + `algorithm.ts` until a shared transcript format package exists.

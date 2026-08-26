@@ -3,7 +3,7 @@ import {
   requireCurrentLensPass,
   type ArtifactRef,
 } from "@zendev-lab/spark-artifacts";
-import type { Task } from "@zendev-lab/spark-core";
+import { type Task } from "@zendev-lab/spark-tasks";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 
 export async function requireTaskLensPasses(cwd: string, task: Task): Promise<void> {

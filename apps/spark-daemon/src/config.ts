@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
-import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-system";
+import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY,
   MAX_INVOCATION_SCHEDULER_CONCURRENCY,

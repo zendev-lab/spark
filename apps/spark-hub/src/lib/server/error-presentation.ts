@@ -1,4 +1,4 @@
-import { HubDatabaseLockedError } from "@zendev-lab/spark-hub-db";
+import { HubDatabaseLockedError } from "@zendev-lab/spark-hub-storage-sqlite";
 import {
   SparkDaemonLocalRpcUnavailableError,
   SparkDaemonPreDispatchUnavailableError,

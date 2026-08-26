@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test, vi } from "vitest";
 
-import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channels";
+import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import type {
   SparkModelControlSnapshot,
   SparkModelRef,
   SparkProtocolJsonValue,
 } from "@zendev-lab/spark-protocol";
-import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   channelConfigurationProjection,
   executeSparkDaemonEphemeralSecretControl,

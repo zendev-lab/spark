@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
-import { migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createId } from "@zendev-lab/spark-protocol";
 
 import { runSparkHubCli } from "./hub-cli.ts";

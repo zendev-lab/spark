@@ -5,7 +5,7 @@ import {
   migrate,
   openDatabase,
   type HubDatabaseLockHandle,
-} from "@zendev-lab/spark-hub-db";
+} from "@zendev-lab/spark-hub-storage-sqlite";
 import type { DatabaseSync } from "node:sqlite";
 
 /** Idle grace before closing the DB and releasing the process lock when pin count hits 0. */

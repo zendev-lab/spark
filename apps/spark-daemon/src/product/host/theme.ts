@@ -1,8 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import type { SparkHostRenderTheme } from "@zendev-lab/spark-host/types";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
+import type { SparkHostRenderTheme } from "./types.ts";
 
 export type SparkMarkdownTheme = {
   heading: (text: string) => string;

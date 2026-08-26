@@ -6,7 +6,7 @@ import {
   sparkScriptedAssistant,
   sparkScriptedToolCall,
   type SparkScriptedProviderRequest,
-} from "@zendev-lab/spark-turn/testing/scripted-provider";
+} from "../../../apps/spark-daemon/src/product/host/agent-runtime/testing/scripted-provider.ts";
 
 interface ScriptedToolCall {
   id: string;

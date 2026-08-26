@@ -16,11 +16,13 @@ import {
   isRef,
   newRef,
   nowIso,
-  sparkWorkspaceStatePath,
   stableId,
+} from "@zendev-lab/spark-invocation";
+import {
+  sparkWorkspaceStatePath,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node/paths";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   appendMemoryRevision,

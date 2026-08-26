@@ -5,7 +5,7 @@ import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   compactToolResultContent,
   parseSparkPromptItemMetadata,
-} from "@zendev-lab/spark-turn";
+} from "../agent-runtime/agent-loop.ts";
 import type {
   SparkBranchSummaryEntry,
   SparkCompactionEntry,

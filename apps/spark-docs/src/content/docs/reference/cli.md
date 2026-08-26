@@ -66,23 +66,44 @@ spark hub --help
 ## Local web workbench
 
 `spark web` starts the local browser workbench for every workspace bound to the
-same daemon. It binds loopback by default, requires a one-shot token, and talks
-to the Spark daemon through `spark-daemon-client`. A non-loopback `--host`
-requires a repeatable `--trusted-host`; the server rejects untrusted Host,
-Origin, Fetch Metadata, token, and cross-site mutation provenance. Hub remains
-the multi-daemon proxy and management UI.
+same daemon. It binds loopback by default and talks to the Spark daemon through
+`spark-daemon-client`. Requests from an actual loopback peer are tokenless.
+Binding `0.0.0.0` automatically exposes the host's local IPv4 interface
+addresses; there is no separate trusted-host configuration. Direct Web accepts
+loopback and local interface IP literals only and validates Host, Origin, Fetch
+Metadata, and cross-site mutation provenance before authentication. Hub remains
+the multi-daemon proxy and the supported DNS-based remote-access boundary.
 
 ```bash
 spark web
 spark web --port 4310
-spark web --host 0.0.0.0 --trusted-host spark.lan
+spark web --host 0.0.0.0 --port 4310
 ```
 
-The command prints the tokenized workbench URL without opening a browser.
+The command prints the reachable workbench URLs without opening a browser.
+
+Daemon access tokens are owned by the daemon, which stores only hashes. Create
+a token (the plaintext prints exactly once), list the metadata, or revoke:
+
+```text
+spark daemon access create [--label <note>] [--expires-at <iso>] [--json]
+spark daemon access list [--json]
+spark daemon access revoke <token-id> [--json]
+```
+
+Remote document navigation opens the Spark Access page. Enter the token there;
+it is verified by the daemon and stored in an HttpOnly, SameSite=Strict cookie.
+The `?token=…` navigation carrier and `x-spark-web-token` header remain available
+for automation/compatibility. API and WebSocket requests retain carrier-level
+401/503 responses rather than HTML login pages. Missing, wrong, expired, and
+revoked tokens do not expose token-state detail, and verification fails closed
+while the daemon is unreachable.
 
 The additional `spark web-dsh` command starts the separately packaged
 DSH-hosted Spark product app without changing `spark web`. It remains available
-until the native Spark Web replacement gate has passed:
+until the native Spark Web replacement gate has passed. Its DSH server stays on
+loopback behind Spark's access proxy. That proxy uses the same peer-based token
+rule, local-IP trust semantics, and Spark Access page as native Web:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
@@ -232,8 +253,7 @@ spark daemon workspace ls --json
 spark daemon workspace move <id> <new-path> --dry-run
 spark daemon workspace unregister <id> --dry-run
 spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
-spark hub access create
-spark hub workspace access create --workspace <id>
+spark hub access create --daemon <runtime-id> [--daemon <runtime-id> ...] [--user <name>]
 ```
 
 Use `--allow-insecure-http` only for an explicitly trusted private network.

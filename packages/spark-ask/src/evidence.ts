@@ -6,13 +6,15 @@ import {
   type SparkMemoryApprovalBinding,
   type SparkMemoryApprovalProof,
 } from "@zendev-lab/spark-protocol";
+import { type EvidenceRef } from "@zendev-lab/spark-invocation";
 import {
   readJsonFileOptional,
-  sparkWorkspaceStatePath,
   writeJsonFileAtomic,
-  type EvidenceRef,
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 
 import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
 

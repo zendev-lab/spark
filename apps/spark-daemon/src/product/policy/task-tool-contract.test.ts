@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { TaskPlan } from "@zendev-lab/spark-core";
+import { type TaskPlan } from "@zendev-lab/spark-tasks";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkPlanTasksTool } from "./spark-plan-tasks-tool-registration.ts";
 import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";

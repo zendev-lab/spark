@@ -5,20 +5,20 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import type {
   ArtifactRef,
   ProjectRef,
   RoleRef,
   RunRef,
   SparkHostLoopContext,
-} from "@zendev-lab/spark-core";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+} from "@zendev-lab/spark-invocation";
+import { SparkHostRuntime } from "../product/host/runtime.ts";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionRunInput,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
@@ -26,9 +26,12 @@ import {
   type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { builtinRoleAllowedToolEffects, builtinRoleAllowedTools } from "@zendev-lab/spark-roles";
-import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
-import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import {
+  SparkTurnRestartYieldError,
+  type SparkTurnResumeCheckpoint,
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkDaemonLoopTickTask,
   SparkDaemonSessionCompactTask,
@@ -71,11 +74,24 @@ function context(
 ): SparkDaemonTaskExecutionContext {
   return {
     invocationId: "invocation-1",
+    invocationAttempt: {
+      epoch: 1,
+      daemonGeneration: 1,
+      correlationId: "attempt:invocation-1:1",
+    },
     signal,
     emitEvent: (event) => {
       emitted.push(event);
     },
   };
+}
+
+function invocationAttempt(invocationId: string) {
+  return {
+    epoch: 1,
+    daemonGeneration: 1,
+    correlationId: `attempt:${invocationId}:1`,
+  } as const;
 }
 
 function daemonChannelSession(
@@ -216,6 +232,7 @@ describe("daemon native session execution", () => {
         { type: "session.run", sessionId, prompt: "finish" },
         {
           invocationId,
+          invocationAttempt: invocationAttempt(invocationId),
           signal: new AbortController().signal,
           emitEvent: (event) => {
             if (event.type !== "daemon.view_event") return;
@@ -337,6 +354,7 @@ describe("daemon native session execution", () => {
 
     const running = executor(task, {
       invocationId: "invocation-retry-terminal-bundle",
+      invocationAttempt: invocationAttempt("invocation-retry-terminal-bundle"),
       signal: new AbortController().signal,
       emitEvent: (event) => {
         if (event.type !== "daemon.view_event") return;
@@ -519,7 +537,6 @@ describe("daemon native session execution", () => {
         expect.objectContaining({
           cwd: firstRoot,
           sparkStateRoot: join(workspaceRoot, ".spark"),
-          mode: "execute",
           taskExecutionScope: {
             isolation: "isolated_worktree",
             binding: {
@@ -656,7 +673,6 @@ describe("daemon native session execution", () => {
         expect.objectContaining({
           cwd: workspaceRoot,
           sparkStateRoot: join(workspaceRoot, ".spark"),
-          mode: "execute",
           taskExecutionScope: {
             isolation: "workspace",
             binding: {
@@ -803,6 +819,16 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "sess_task_execution",
+        invocationId: "invocation-1",
+        invocationAttempt: {
+          epoch: 1,
+          daemonGeneration: 1,
+          correlationId: "attempt:invocation-1:1",
+        },
+        invocationRole: expect.objectContaining({
+          ref: "role:builtin-explorer",
+          revision: expect.any(String),
+        }),
         sessionLease: {
           workspaceId: "workspace-task",
           clientId: "client-task",

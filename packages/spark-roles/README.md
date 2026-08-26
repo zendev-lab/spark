@@ -1,6 +1,6 @@
 # @zendev-lab/spark-roles
 
-Owns reusable `RoleSpec` definitions, Role-Skill composition, Skill discovery and prompt rendering, external Role model settings, the internal Role execution runtime, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation. Canonical Skill APIs are exported from `@zendev-lab/spark-roles/{builtin-skills,skill-resolver}`; the matching `spark-host` subpaths are compatibility re-exports only.
+Owns reusable `RoleSpec` definitions, Role-Skill composition, Skill discovery and prompt rendering, external Role model settings, the internal Role execution runtime, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation. Canonical Skill APIs are exported from `@zendev-lab/spark-roles/{builtin-skills,skill-resolver}` and daemon product composition imports those owner paths directly.
 
 Role is static catalog. Session binds at most one Role through `roleBinding` at runtime. A Role-bound child Session is a subagent; it is not a second runtime type. The human operator is not a Role. See [`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
 

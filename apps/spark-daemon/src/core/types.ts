@@ -26,11 +26,12 @@ import {
   type ChannelImage,
   type ChannelMessageReference,
   type InfoflowAttachment,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
+import type { SparkInvocationAttempt } from "@zendev-lab/spark-invocation";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkReproUsageScope,
   SparkUsageExecutionKind,
@@ -192,6 +193,8 @@ export type SparkDaemonTokenUsageSettlementSink = (input: {
 
 export interface SparkDaemonTaskExecutionContext {
   invocationId: string;
+  /** Exact daemon execution epoch authorized to start at most one DSH Turn. */
+  invocationAttempt: SparkInvocationAttempt;
   signal: AbortSignal;
   timeoutMs?: number;
   /**

@@ -1,4 +1,4 @@
-import type { SparkHostContext } from "@zendev-lab/spark-core";
+import type { SparkHostContext } from "@zendev-lab/spark-invocation";
 
 export const AUTONOMOUS_ASYNC_ONLY = "AUTONOMOUS_ASYNC_ONLY";
 

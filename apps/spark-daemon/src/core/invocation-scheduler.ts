@@ -11,7 +11,7 @@ import {
   isSparkTurnRestartYieldError,
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type { SparkReproUsageScope } from "@zendev-lab/spark-protocol/token-usage";
 import {
   SparkInvocationStore,
@@ -35,6 +35,7 @@ import {
   getSparkDaemonTaskSessionId,
   validateSparkDaemonTask,
   type SparkDaemonTask,
+  type SparkDaemonTaskExecutionContext,
   type SparkDaemonTaskExecutor,
   type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
@@ -668,79 +669,87 @@ export class SparkInvocationScheduler {
         persistUsage: (usage) => recordUsage(usage as SparkDaemonTokenUsageObservation),
         eventIngress: this.executionEventIngress,
       });
-      const context = {
-        invocationId: invocation.invocationId,
-        signal: controller.signal,
-        timeoutMs: this.taskTimeoutMs,
-        beginDurableCommit: () => {
-          if (commitState.started) return;
-          if (controller.signal.aborted) {
-            throw abortReason(controller.signal, new Error("invocation aborted before commit"));
-          }
-          const persisted = this.store.require(invocation.invocationId);
-          if (persisted.status !== "running") {
-            throw new Error(
-              `Invocation ${invocation.invocationId} is ${persisted.status} before durable commit`,
-            );
-          }
-          if (persisted.cancelReason) {
-            const error = new InvocationCancelledError(persisted.cancelReason);
-            controller.abort(error);
-            throw error;
-          }
-          this.store.markDurableCommitStarted(invocation.invocationId);
-          commitState.started = true;
-          timeout.disable();
-        },
-        deferTerminalUntil,
-        withPausedTimeout: async <T>(operation: () => Promise<T>) => {
-          const entry = this.activeEntry(invocation.invocationId);
-          if (entry) entry.pauseState = "human-wait";
-          const humanWait = new AbortController();
-          try {
-            this.yieldHumanWaitForRestartIfRequested(invocation.invocationId, controller, () => {
+      const executionContextForCurrentAttempt = (): SparkDaemonTaskExecutionContext => {
+        const activeAttempt = attemptSession!.current();
+        return {
+          invocationId: invocation.invocationId,
+          invocationAttempt: {
+            epoch: activeAttempt.attemptEpoch,
+            daemonGeneration: activeAttempt.daemonGeneration,
+            correlationId: activeAttempt.correlationId,
+          },
+          signal: controller.signal,
+          timeoutMs: this.taskTimeoutMs,
+          beginDurableCommit: () => {
+            if (commitState.started) return;
+            if (controller.signal.aborted) {
+              throw abortReason(controller.signal, new Error("invocation aborted before commit"));
+            }
+            const persisted = this.store.require(invocation.invocationId);
+            if (persisted.status !== "running") {
+              throw new Error(
+                `Invocation ${invocation.invocationId} is ${persisted.status} before durable commit`,
+              );
+            }
+            if (persisted.cancelReason) {
+              const error = new InvocationCancelledError(persisted.cancelReason);
+              controller.abort(error);
+              throw error;
+            }
+            this.store.markDurableCommitStarted(invocation.invocationId);
+            commitState.started = true;
+            timeout.disable();
+          },
+          deferTerminalUntil,
+          withPausedTimeout: async <T>(operation: () => Promise<T>) => {
+            const entry = this.activeEntry(invocation.invocationId);
+            if (entry) entry.pauseState = "human-wait";
+            const humanWait = new AbortController();
+            try {
+              this.yieldHumanWaitForRestartIfRequested(invocation.invocationId, controller, () => {
+                restartYieldCommitted = true;
+              });
+              return await Promise.race([
+                timeout.runPaused(operation),
+                this.waitForRestartThenYieldHumanWait(
+                  invocation.invocationId,
+                  controller,
+                  humanWait.signal,
+                  () => {
+                    restartYieldCommitted = true;
+                  },
+                ),
+              ]);
+            } finally {
+              humanWait.abort();
+              if (entry && entry.pauseState === "human-wait") entry.pauseState = "busy";
+            }
+          },
+          yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
+            rememberPersistableRestartCheckpoint(invocation.invocationId, checkpoint);
+            if (!this.restartRequestedSignal?.aborted) return;
+            if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+              throw new Error(
+                `Spark daemon restart ${invocation.invocationId} cannot persist this turn checkpoint; refusing to continue past a model-to-tool boundary.`,
+              );
+            }
+            this.commitRestartYield(invocation.invocationId, checkpoint, controller, () => {
               restartYieldCommitted = true;
             });
-            return await Promise.race([
-              timeout.runPaused(operation),
-              this.waitForRestartThenYieldHumanWait(
-                invocation.invocationId,
-                controller,
-                humanWait.signal,
-                () => {
-                  restartYieldCommitted = true;
-                },
-              ),
-            ]);
-          } finally {
-            humanWait.abort();
-            if (entry && entry.pauseState === "human-wait") entry.pauseState = "busy";
-          }
-        },
-        yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
-          rememberPersistableRestartCheckpoint(invocation.invocationId, checkpoint);
-          if (!this.restartRequestedSignal?.aborted) return;
-          if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
-            throw new Error(
-              `Spark daemon restart ${invocation.invocationId} cannot persist this turn checkpoint; refusing to continue past a model-to-tool boundary.`,
-            );
-          }
-          this.commitRestartYield(invocation.invocationId, checkpoint, controller, () => {
-            restartYieldCommitted = true;
-          });
-        },
-        emitEvent: (event: SparkDaemonEvent) => attemptSession!.recordEvent(event),
-        ...(this.tokenUsageStore
-          ? {
-              ...(rootUsageExecution ? { tokenUsageScope: rootUsageExecution.scope } : {}),
-              registerTokenUsageExecution: registerUsageExecution,
-              settleTokenUsageExecution: settleUsageExecution,
-              recordTokenUsage: (observation: SparkDaemonTokenUsageObservation) =>
-                attemptSession!.recordUsage(observation),
-            }
-          : {}),
+          },
+          emitEvent: (event: SparkDaemonEvent) => attemptSession!.recordEvent(event),
+          ...(this.tokenUsageStore
+            ? {
+                ...(rootUsageExecution ? { tokenUsageScope: rootUsageExecution.scope } : {}),
+                registerTokenUsageExecution: registerUsageExecution,
+                settleTokenUsageExecution: settleUsageExecution,
+                recordTokenUsage: (observation: SparkDaemonTokenUsageObservation) =>
+                  attemptSession!.recordUsage(observation),
+              }
+            : {}),
+        };
       };
-      executeInProcess = () => this.executeTask(task, context);
+      executeInProcess = () => this.executeTask(task, executionContextForCurrentAttempt());
       executorSettled = attemptSession.execute();
       trackExecutorSettlement(executorSettled);
       const result = await Promise.race([

@@ -12,7 +12,7 @@ import type { DatabaseSync } from "node:sqlite";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { test } from "vitest";
 
-import { FakeChannelTransport } from "@zendev-lab/dsh-channels";
+import { FakeChannelTransport } from "@zendev-lab/dsh-channel-transports";
 import {
   createId,
   runtimeProtocolVersion,
@@ -23,7 +23,11 @@ import {
   type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
-import { channelConfigPath, resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import {
+  channelConfigPath,
+  resolveSparkPaths,
+  writePrivateFile,
+} from "@zendev-lab/spark-platform-node";
 
 import {
   handleServerMessage,
@@ -43,7 +47,7 @@ import {
   createWorkspaceWithLease,
   hashSecret,
 } from "@zendev-lab/spark-hub-coordination";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createOwnerSession, getCurrentUserId } from "./auth.ts";
 import { createHubRuntimeModelChannelClient } from "./hub-runtime-model-channel-client.ts";
 import { createHubRuntimeSessionClient } from "./hub-runtime-session-client.ts";
@@ -100,11 +104,11 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
       .run(runtimeId, installationId, runtimeProtocolVersion, now, now);
     hubDb
       .prepare(
-        `INSERT INTO runtime_tokens
-        (id, runtime_id, token_hash, label, scopes_json, created_at)
-       VALUES (?, ?, ?, 'runtime access token', '["runtime:connect"]', ?)`,
+        `INSERT INTO daemon_credentials
+        (id, family, kind, runtime_id, token_hash, label, scopes_json, created_at)
+       VALUES (?, 'hub-daemon', 'access', ?, ?, 'runtime access token', '["runtime:connect"]', ?)`,
       )
-      .run(createId("rttok"), runtimeId, hashSecret(runtimeToken), now);
+      .run(createId("rtdc"), runtimeId, hashSecret(runtimeToken), now);
     hubDb
       .prepare(
         `INSERT INTO runtime_workspace_bindings

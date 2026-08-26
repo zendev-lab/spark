@@ -801,7 +801,7 @@ test("SparkRolesReviewerRunner resolves reviewer model from role model settings"
     assert.ok(tools.includes("grep"));
     assert.ok(tools.includes("find"));
     assert.equal(tools.includes("web_search"), false);
-    assert.equal(tools.includes("fetch_content"), false);
+    assert.equal(tools.includes("web_fetch"), false);
     assert.equal(tools.includes("get_search_content"), false);
     assert.equal(tools.includes("cue_exec"), false);
     assert.equal(tools.includes("script_eval"), false);
@@ -1056,7 +1056,7 @@ test("SparkRolesReviewerRunner runs reviewer gates in fresh mode even with paren
     assert.ok(tools.includes("grep"));
     assert.ok(tools.includes("find"));
     assert.equal(tools.includes("web_search"), false);
-    assert.equal(tools.includes("fetch_content"), false);
+    assert.equal(tools.includes("web_fetch"), false);
     assert.equal(tools.includes("get_search_content"), false);
     assert.equal(tools.includes("cue_exec"), false);
     assert.equal(tools.includes("script_eval"), false);

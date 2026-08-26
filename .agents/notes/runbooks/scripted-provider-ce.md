@@ -25,8 +25,8 @@ behavior reports for 30 days.
 Run the focused owner test once:
 
 ```bash
-pnpm --filter @zendev-lab/spark-turn exec vp test run \
-  src/spark-scripted-provider.test.ts
+pnpm --filter @zendev-lab/spark-daemon exec vp test run \
+  src/product/host/agent-runtime/spark-scripted-provider.test.ts
 ```
 
 Run the repeated CE lane:
@@ -64,7 +64,8 @@ The initial suite protects seven deterministic contracts:
 | Script exhaustion | An unexpected provider follow-up fails immediately instead of hanging or silently fabricating a response. |
 
 The reusable `createSparkScriptedProvider` test double lives in
-`packages/spark-turn/src/testing/scripted-provider.ts`. It records bounded
+`apps/spark-daemon/src/product/host/agent-runtime/testing/scripted-provider.ts`.
+It records bounded
 request snapshots and privacy-safe trace events, validates configured round
 counts, and supports normal messages, partial-event failures, and hangs. It
 implements the real `SparkAgentStreamFunction` boundary; the AgentLoop, host
@@ -73,7 +74,8 @@ production code.
 
 ## Pass semantics and budgets
 
-The repeated lane uses the spark-turn behavior-CE module (`packages/spark-turn/src/behavior-ce.ts`). It fails when:
+The repeated lane uses the daemon agent-runtime behavior-CE module
+(`apps/spark-daemon/src/product/host/agent-runtime/behavior-ce.ts`). It fails when:
 
 - an expected run or case is missing;
 - a run exposes a different case inventory;
@@ -121,6 +123,6 @@ case.
 
 This lane does not evaluate model intelligence, prompt quality, HTTP/SSE adapter
 serialization, transport retry policy, or live-provider availability. Transport
-retry remains owned by `spark-llm`; a future fake HTTP provider server can test
+retry remains owned by `spark-llm-providers`; a future fake HTTP provider server can test
 that adapter boundary separately. Live-provider canaries must remain a distinct
 secret-backed lane with explicit request, token, cost, and wall-clock budgets.

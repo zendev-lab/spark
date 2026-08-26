@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 
 import { runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.ts";
 import { relocateSparkDaemonHub } from "./relocation.ts";
 import {

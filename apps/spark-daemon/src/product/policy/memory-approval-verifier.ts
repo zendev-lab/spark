@@ -2,11 +2,8 @@ import { resolve } from "node:path";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
-import {
-  sparkWorkspaceStatePath,
-  type EvidenceRef,
-  type SparkHostContext,
-} from "@zendev-lab/spark-core";
+import { type EvidenceRef, type SparkHostContext } from "@zendev-lab/spark-invocation";
+import { sparkWorkspaceStatePath } from "@zendev-lab/spark-platform-node/paths";
 import {
   createFileMemoryApprovalProofCommitter,
   createFileMemoryApprovalProofReserver,

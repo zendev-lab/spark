@@ -1,21 +1,13 @@
 import { redirect, type RequestHandler } from "@sveltejs/kit";
-import {
-  hashSecret,
-  sessionCookieName,
-  sessionRefreshCookieName,
-  workspaceSessionCookieName,
-  workspaceSessionRefreshCookieName,
-} from "$lib/server/auth";
+import { hashSecret, sessionCookieName, sessionRefreshCookieName } from "$lib/server/auth";
 import { getDatabase } from "$lib/server/db";
 
 export const POST: RequestHandler = ({ cookies }) => {
   const sessionToken = cookies.get(sessionCookieName);
   const refreshToken = cookies.get(sessionRefreshCookieName);
-  const workspaceSessionToken = cookies.get(workspaceSessionCookieName);
-  const workspaceRefreshToken = cookies.get(workspaceSessionRefreshCookieName);
   const now = new Date().toISOString();
 
-  const hashes = [sessionToken, refreshToken, workspaceSessionToken, workspaceRefreshToken]
+  const hashes = [sessionToken, refreshToken]
     .filter((value): value is string => Boolean(value))
     .map((value) => hashSecret(value));
 
@@ -32,7 +24,5 @@ export const POST: RequestHandler = ({ cookies }) => {
 
   cookies.delete(sessionCookieName, { path: "/" });
   cookies.delete(sessionRefreshCookieName, { path: "/" });
-  cookies.delete(workspaceSessionCookieName, { path: "/" });
-  cookies.delete(workspaceSessionRefreshCookieName, { path: "/" });
   redirect(303, "/");
 };

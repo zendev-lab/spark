@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { SparkInvocationScheduler } from "../core/invocation-scheduler.ts";
 import {
   CHANNEL_REPLY_TERMINAL_PRESENTED_ERROR_CODE,

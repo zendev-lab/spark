@@ -29,7 +29,7 @@ import {
   type SparkSessionProjection,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
-import type { ChannelsConfig } from "@zendev-lab/dsh-channels";
+import type { ChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { getDatabase } from "./db.ts";
 
 export interface HubRuntimeModelChannelClient {

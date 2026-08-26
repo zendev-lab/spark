@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { createDaemonSessionRegistry } from "./local-rpc.js";
 import { handleLocalRpcLine } from "./local-rpc/dispatch.ts";
 import { MAX_PENDING_SESSION_REQUEST_QUEUE } from "./session-mail-execution.ts";

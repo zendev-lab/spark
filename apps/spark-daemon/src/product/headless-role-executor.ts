@@ -1,10 +1,10 @@
 import type { SparkCliHostServicesFactory } from "./host/contracts.ts";
-import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+import type { SparkHeadlessTokenUsageContext } from "./host/headless-loader.ts";
+import type { SparkDshTurnRuntime } from "./host/agent-runtime/agent-loop.ts";
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionCompactResult,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "./host/headless-loader.ts";
 import {
   assistantTextFromHeadlessResult,
   createSparkHeadlessRoleExecutor as createCoreRoleExecutor,

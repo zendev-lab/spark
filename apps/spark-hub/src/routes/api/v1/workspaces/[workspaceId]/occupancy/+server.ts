@@ -11,9 +11,6 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = async ({ locals, params, request }) => {
   const workspaceId = params.workspaceId;
   if (!workspaceId) throw error(400, "workspaceId is required");
-  if (locals.workspaceId && locals.workspaceId !== workspaceId) {
-    throw error(403, "Workspace session does not match occupancy target");
-  }
 
   const db = getDatabase();
   if (!workspaceExists(db, workspaceId)) throw error(404, "Workspace not found");

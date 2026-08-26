@@ -15,7 +15,7 @@ import {
   type ProviderId,
   type WorkspaceRevision,
 } from "@zendev-lab/spark-lens";
-import { gitCommand } from "@zendev-lab/spark-system";
+import { gitCommand } from "@zendev-lab/spark-platform-node";
 import { expect, test } from "vitest";
 
 import { DaemonLensPatchService } from "./patch-service.ts";

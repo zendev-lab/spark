@@ -6,7 +6,7 @@ import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import {
   SPARK_ROLE_RUN_RETENTION_TAIL_BYTES,
   collectRoleRunEvidenceRetentionPlan,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   loadSparkGraph,
   sanitizeStoreScope,

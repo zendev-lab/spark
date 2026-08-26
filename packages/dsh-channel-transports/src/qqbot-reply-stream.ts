@@ -1,0 +1,317 @@
+import type { QqbotApiClient } from "./qqbot-api.ts";
+import { QQBOT_MARKDOWN_MAX_BYTES, chunkQqbotMarkdownText } from "./qqbot-markdown.ts";
+import {
+  channelDeliveryNotSent,
+  channelDeliveryOutcomeUnknown,
+  type ChannelReplyStream,
+  type ChannelReplyTarget,
+} from "./reply.ts";
+
+const QQBOT_STREAM_FLUSH_MS = 500;
+/** Platform stream frames idle out if no update arrives for too long during tool waits. */
+const QQBOT_STREAM_KEEPALIVE_MS = 10_000;
+
+export interface QqbotC2CReplyStreamOptions {
+  api: QqbotApiClient;
+  resolveToken: () => Promise<string>;
+  openid: string;
+  messageId: string;
+  /** Reserve the durable final passive-reply sequence on first network flush. */
+  reserveFinalSeq: () => number;
+  /** Reserve all passive slots needed by overflow chunks before dispatching final. */
+  reserveFollowUpSeqs?: (count: number) => boolean;
+  /** Test seam for flush scheduling. */
+  flushDelayMs?: number;
+  keepaliveDelayMs?: number;
+  schedule?: (callback: () => void, delayMs: number) => unknown;
+  cancelSchedule?: (handle: unknown) => void;
+  /**
+   * Optional follow-up sender used when the final answer exceeds one markdown
+   * frame. The stream finalizes the first chunk in place; remaining chunks are
+   * delivered as ordinary passive markdown replies.
+   */
+  sendFollowUpMarkdown?: (content: string) => Promise<void>;
+}
+
+/**
+ * QQ C2C native stream_messages surface: one markdown body that replaces in
+ * place until input_state=10. Group/channel have no equivalent API.
+ */
+export function createQqbotC2CReplyStream(options: QqbotC2CReplyStreamOptions): ChannelReplyStream {
+  const flushDelayMs = options.flushDelayMs ?? QQBOT_STREAM_FLUSH_MS;
+  const keepaliveDelayMs = options.keepaliveDelayMs ?? QQBOT_STREAM_KEEPALIVE_MS;
+  const schedule =
+    options.schedule ?? ((callback: () => void, delayMs: number) => setTimeout(callback, delayMs));
+  const cancelSchedule =
+    options.cancelSchedule ??
+    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+
+  let answer = "";
+  /** Last body successfully accepted by QQ; later replace frames must keep this prefix. */
+  let committedAnswer = "";
+  /**
+   * When tool/ask rounds produce a final body that would mutate the delivered
+   * prefix (QQ error 40007), keep the stream on the committed body and deliver
+   * the real answer as a separate passive markdown follow-up.
+   */
+  let separateFinal: string | undefined;
+  let index = 0;
+  let streamMsgId: string | undefined;
+  let msgSeq: number | undefined;
+  let pendingTimer: unknown;
+  let keepaliveTimer: unknown;
+  let flushChain: Promise<void> = Promise.resolve();
+  let finished = false;
+  let deliveredFrame = false;
+  let lastFlushError: unknown;
+
+  const enqueueFlush = (final: boolean, content: string, keepalive = false) => {
+    const run = async () => {
+      if (finished && !final) return;
+      const raw = ensureStreamMarkdown(content);
+      if (!raw.trim() && !final && !keepalive) return;
+      msgSeq ??= options.reserveFinalSeq();
+      const token = await options.resolveToken();
+      const response = await options.api.sendC2CStreamMessage(token, options.openid, {
+        input_mode: "replace",
+        input_state: final ? 10 : 1,
+        content_type: "markdown",
+        content_raw: raw,
+        event_id: options.messageId,
+        msg_id: options.messageId,
+        msg_seq: msgSeq,
+        index,
+        ...(streamMsgId ? { stream_msg_id: streamMsgId } : {}),
+      });
+      deliveredFrame = true;
+      committedAnswer = content;
+      index += 1;
+      const nextId = response.id?.trim();
+      if (nextId) streamMsgId = nextId;
+      lastFlushError = undefined;
+      if (final) finished = true;
+    };
+
+    // Keep the serial chain alive after intermediate failures so `complete()`
+    // can still deliver the terminal input_state=10 frame with the full answer.
+    // Callers await `attempt` for the real error; never leave a second rejected
+    // promise on `flushChain` (that becomes an unhandled rejection).
+    const attempt = flushChain.then(run, run);
+    flushChain = attempt.catch((error) => {
+      lastFlushError = error;
+      if (!final) {
+        console.error("[dsh-channel-transports] qqbot c2c stream flush failed", error);
+      }
+    });
+    return attempt;
+  };
+
+  const clearPending = () => {
+    if (pendingTimer !== undefined) {
+      cancelSchedule(pendingTimer);
+      pendingTimer = undefined;
+    }
+  };
+
+  const clearKeepalive = () => {
+    if (keepaliveTimer === undefined) return;
+    cancelSchedule(keepaliveTimer);
+    keepaliveTimer = undefined;
+  };
+
+  const armKeepalive = () => {
+    if (finished) return;
+    clearKeepalive();
+    keepaliveTimer = schedule(() => {
+      keepaliveTimer = undefined;
+      if (finished) return;
+      void enqueueFlush(false, answer, true).catch(() => {
+        // enqueueFlush already records/logs intermediate failures.
+      });
+      armKeepalive();
+    }, keepaliveDelayMs);
+  };
+
+  const scheduleFlush = () => {
+    if (finished || pendingTimer !== undefined) return;
+    pendingTimer = schedule(() => {
+      pendingTimer = undefined;
+      void enqueueFlush(false, answer).catch(() => {
+        // enqueueFlush already records/logs intermediate failures.
+      });
+    }, flushDelayMs);
+    armKeepalive();
+  };
+
+  const finalizeWithOptionalFollowUps = async (fullAnswer: string) => {
+    clearPending();
+    clearKeepalive();
+    const chunks = chunkQqbotMarkdownText(fullAnswer, QQBOT_MARKDOWN_MAX_BYTES);
+    const primary = chunks[0] ?? "";
+    const followUps = chunks.slice(1);
+
+    // A C2C stream has one replaceable passive slot. Finalize that slot only
+    // when the complete answer fits in it; otherwise sending the first chunk
+    // as terminal before discovering that the remaining passive budget is
+    // exhausted makes QQ show a plausible prefix while silently losing the
+    // tail. The caller's durable message path remains the owner for a long
+    // answer when no bounded follow-up sender is available.
+    if (followUps.length > 0) {
+      const canReserveOverflow = Boolean(
+        options.sendFollowUpMarkdown && options.reserveFollowUpSeqs,
+      );
+      if (canReserveOverflow) {
+        // Claim the terminal sequence before overflow so a no-flush stream
+        // cannot reserve the same passive slot twice.
+        msgSeq ??= options.reserveFinalSeq();
+      }
+      if (!canReserveOverflow || !options.reserveFollowUpSeqs!(followUps.length)) {
+        const cause = new Error(
+          "qqbot c2c passive reply budget cannot deliver the complete oversized answer",
+        );
+        // A successful intermediate replace frame is already an external
+        // effect. A fresh ordinary fallback could duplicate visible text.
+        throw deliveredFrame ? channelDeliveryOutcomeUnknown(cause) : channelDeliveryNotSent(cause);
+      }
+    }
+
+    answer = primary;
+    try {
+      await enqueueFlush(true, primary);
+    } catch (error) {
+      // Prefer the freshest terminal failure; fall back to last intermediate.
+      throw error ?? lastFlushError;
+    }
+    for (const chunk of followUps) {
+      await options.sendFollowUpMarkdown!(chunk);
+    }
+  };
+
+  const finalizeWithSeparateFollowUp = async (followUpText: string) => {
+    clearPending();
+    clearKeepalive();
+    const canSendFollowUp = Boolean(options.sendFollowUpMarkdown && options.reserveFollowUpSeqs);
+    if (!canSendFollowUp || !options.reserveFollowUpSeqs!(1)) {
+      const cause = new Error(
+        "qqbot c2c stream cannot replace a delivered prefix and has no follow-up budget",
+      );
+      throw deliveredFrame ? channelDeliveryOutcomeUnknown(cause) : channelDeliveryNotSent(cause);
+    }
+    // Close the already-visible stream on its committed body, then send the
+    // true post-ask / post-tool answer as a new passive markdown message.
+    const terminalBody = committedAnswer.trim() ? committedAnswer : "…";
+    try {
+      await enqueueFlush(true, terminalBody);
+    } catch (error) {
+      throw error ?? lastFlushError;
+    }
+    await options.sendFollowUpMarkdown!(followUpText);
+  };
+
+  return {
+    answerMode: "inline",
+    appendText(delta) {
+      if (finished || !delta) return;
+      if (separateFinal !== undefined) {
+        separateFinal += delta;
+        return;
+      }
+      answer += delta;
+      scheduleFlush();
+    },
+    replaceText(text) {
+      if (finished) return;
+      if (deliveredFrame && !preservesQqbotStreamPrefix(committedAnswer, text)) {
+        // QQ rejects replace frames that mutate an already-sent prefix
+        // (`已下发内容前缀不可修改` / 40007). Common after blocking asks.
+        separateFinal = text;
+        answer = committedAnswer;
+        clearPending();
+        armKeepalive();
+        return;
+      }
+      separateFinal = undefined;
+      answer = text;
+      scheduleFlush();
+    },
+    // Keep tool/progress off the C2C stream body; Hub/TUI remain the
+    // process surfaces. Still refresh the frame so long tool waits do not
+    // idle-out the platform stream before final delivery.
+    notifyToolStart() {
+      armKeepalive();
+      if (separateFinal !== undefined) return;
+      if (!answer.trim()) return;
+      void enqueueFlush(false, answer, true).catch(() => undefined);
+    },
+    notifyToolResult() {
+      armKeepalive();
+      if (separateFinal !== undefined) return;
+      if (!answer.trim()) return;
+      void enqueueFlush(false, answer, true).catch(() => undefined);
+    },
+    async complete() {
+      if (separateFinal !== undefined) {
+        await finalizeWithSeparateFollowUp(separateFinal);
+        return;
+      }
+      await finalizeWithOptionalFollowUps(answer);
+    },
+    async fail(message) {
+      const failureText = message.trim() || "处理失败，请稍后重试";
+      if (separateFinal !== undefined) {
+        await finalizeWithSeparateFollowUp(failureText);
+        return;
+      }
+      if (!answer.trim()) answer = failureText;
+      await finalizeWithOptionalFollowUps(answer);
+    },
+  };
+}
+
+/** QQ stream updates must keep the previously delivered body as a prefix. */
+function preservesQqbotStreamPrefix(committed: string, next: string): boolean {
+  const previous = committed.trimEnd();
+  if (!previous) return true;
+  const candidate = next.trimEnd();
+  return candidate === previous || candidate.startsWith(previous);
+}
+
+export function tryCreateQqbotC2CReplyStream(input: {
+  target: ChannelReplyTarget;
+  api: QqbotApiClient;
+  resolveToken: () => Promise<string>;
+  reserveFinalSeq: (messageId: string) => number | undefined;
+  sendFollowUpMarkdown?: (content: string) => Promise<void>;
+  reserveFollowUpSeqs?: (count: number) => boolean;
+}): ChannelReplyStream | undefined {
+  const recipient = input.target.recipient.trim();
+  const messageId = input.target.messageId?.trim();
+  if (!messageId) return undefined;
+  const match = /^c2c:(.+)$/iu.exec(recipient);
+  const openid = match?.[1]?.trim();
+  if (!openid) return undefined;
+  return createQqbotC2CReplyStream({
+    api: input.api,
+    resolveToken: input.resolveToken,
+    openid,
+    messageId,
+    sendFollowUpMarkdown: input.sendFollowUpMarkdown,
+    reserveFollowUpSeqs: input.reserveFollowUpSeqs,
+    reserveFinalSeq: () => {
+      const msgSeq = input.reserveFinalSeq(messageId);
+      if (msgSeq === undefined) {
+        throw channelDeliveryNotSent(
+          new Error("qqbot passive reply budget exhausted before c2c stream"),
+        );
+      }
+      return msgSeq;
+    },
+  });
+}
+
+/** QQ final stream frames require a trailing newline for markdown. */
+function ensureStreamMarkdown(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "\n";
+  return trimmed.endsWith("\n") ? trimmed : `${trimmed}\n`;
+}

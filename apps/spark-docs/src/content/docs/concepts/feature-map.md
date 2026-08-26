@@ -31,8 +31,8 @@ For contributors, the source topology stays compact by family:
 | --- | --- |
 | `apps/spark-cli`, `spark-daemon`, `apps/spark-web`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
 | `apps/spark-daemon/src/product`, `spark-daemon-client` | Daemon-internal product composition and the shared daemon client boundary |
-| Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
-| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-text` | Cross-surface contracts and dependency-light foundations |
+| Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, roles, sessions, and other reusable behavior |
+| `spark-protocol`, `spark-invocation`, `spark-task-runtime`, `spark-platform-node`, `spark-text-rendering` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
 
 Contributors can inspect `.agents/notes/contracts/package-architecture.md` for dependency
@@ -84,7 +84,7 @@ needed. `/fleet` coordinates a safe, target-disjoint ready frontier through
 reusable daemon worker Sessions without letting the owner edit code directly.
 Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
-modes.
+continuation owners.
 
 Repro owns three stable child Sessions: Implementation, Exactness, and
 Formalize. The daemon advances their fixed five-checkpoint chain, and only

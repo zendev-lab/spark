@@ -7,10 +7,10 @@
  * can inject a picker through `picker` when wiring Ctrl+L.
  */
 
-import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-llm/control";
+import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-llm-providers/control";
 import type { SparkConfig, SparkConfigSaveOptions } from "./config.ts";
 import { loadSparkConfig, saveSparkConfig } from "./config.ts";
-import type { SparkKeybindingContext, SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
+import type { SparkKeybindingContext, SparkKeybindings } from "./keybindings.ts";
 import type {
   ProviderConfig,
   ProviderModelDefinition,

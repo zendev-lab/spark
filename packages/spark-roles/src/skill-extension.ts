@@ -7,16 +7,15 @@ import type {
   SparkHostContext,
   ToolConfig,
   ToolEffect,
-  ToolRenderComponent,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   loadSparkSkillByName,
   SparkSkillResolver,
   type SparkLoadedSkill,
   type SparkSkillResolverOptions,
 } from "./skill-resolver-entry.ts";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { ToolCallText } from "@zendev-lab/spark-text";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import { Type } from "typebox";
 import { runRole, type RoleCapability, type RoleRunRef } from "./role-runtime.ts";
 
@@ -70,8 +69,7 @@ export const SKILL_AGENT_ALLOWED_TOOLS = [
   "find",
   "context",
   "web_search",
-  "code_search",
-  "fetch_content",
+  "web_fetch",
   "get_search_content",
   "cue_exec",
   "cue_run",
@@ -95,7 +93,6 @@ const SKILL_AGENT_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["skills", "roles"],
-  modes: ["execute"],
   approval: "none",
 } as const;
 
@@ -550,8 +547,8 @@ function skillAgentCapabilities(allowedTools: readonly string[]): RoleCapability
   const tools = new Set(allowedTools);
   const capabilities: RoleCapability[] = [];
   if (
-    ["read", "grep", "find", "context", "code_search", "fetch_content", "get_search_content"].some(
-      (tool) => tools.has(tool),
+    ["read", "grep", "find", "context", "web_fetch", "get_search_content"].some((tool) =>
+      tools.has(tool),
     )
   ) {
     capabilities.push("read");
@@ -564,11 +561,7 @@ function skillAgentCapabilities(allowedTools: readonly string[]): RoleCapability
   ) {
     capabilities.push("exec");
   }
-  if (
-    ["web_search", "code_search", "fetch_content", "get_search_content"].some((tool) =>
-      tools.has(tool),
-    )
-  ) {
+  if (["web_search", "web_fetch", "get_search_content"].some((tool) => tools.has(tool))) {
     capabilities.push("net");
   }
   return capabilities;

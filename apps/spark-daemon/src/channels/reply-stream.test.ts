@@ -3,7 +3,7 @@ import {
   type SparkDaemonEvent,
   type SparkMessageView,
 } from "@zendev-lab/spark-protocol";
-import type { ChannelReplyStream } from "@zendev-lab/dsh-channels";
+import type { ChannelReplyStream } from "@zendev-lab/dsh-channel-transports";
 import { describe, expect, it, vi } from "vitest";
 import { ChannelReplyEventProjector } from "./reply-stream.ts";
 

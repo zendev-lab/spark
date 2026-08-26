@@ -8,22 +8,24 @@ import {
   type ProjectRef,
   type RoleRef,
   type RunRef,
-  type Task,
   type TaskRef,
+} from "@zendev-lab/spark-invocation";
+import {
+  type Task,
   type TaskExecutionPolicy,
   type TaskResourceAllocation,
   type TaskRun,
   type TaskRunExecutionBinding,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import {
   setSessionGoal,
   sparkSessionKey,
   sparkStateCwd,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
-import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
+import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   fleetLaneKey,

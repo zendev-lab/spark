@@ -6,7 +6,7 @@ import {
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { localRpcError } from "./helpers.ts";
 import { invokeLocalRpcService } from "./service.ts";
 import type { LocalRpcHandlerOptions } from "./types.ts";
@@ -75,6 +75,20 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       status: os.daemon.status.handler(async () => invoke("daemon.status", {})),
       stop: os.daemon.stop.handler(async () => invoke("daemon.stop", {})),
       restart: os.daemon.restart.handler(async () => invoke("daemon.restart", {})),
+      access: {
+        create: os.daemon.access.create.handler(async ({ input: params }) =>
+          invoke("daemon.access.create", params),
+        ),
+        list: os.daemon.access.list.handler(async ({ input: params }) =>
+          invoke("daemon.access.list", params),
+        ),
+        revoke: os.daemon.access.revoke.handler(async ({ input: params }) =>
+          invoke("daemon.access.revoke", params),
+        ),
+        verify: os.daemon.access.verify.handler(async ({ input: params }) =>
+          invoke("daemon.access.verify", params),
+        ),
+      },
     },
     file: {
       execute: os.file.execute.handler(async ({ input: params }) => invoke("file.execute", params)),
@@ -319,11 +333,6 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       model: {
         set: os.session.model.set.handler(async ({ input: params }) =>
           invoke("session.model.set", params),
-        ),
-      },
-      mode: {
-        set: os.session.mode.set.handler(async ({ input: params }) =>
-          invoke("session.mode.set", params),
         ),
       },
       thinking: {

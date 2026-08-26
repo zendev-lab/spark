@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   runtimeCommandResultPayloadSchema,
@@ -10,7 +10,7 @@ import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadSubmitResultSchema,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";

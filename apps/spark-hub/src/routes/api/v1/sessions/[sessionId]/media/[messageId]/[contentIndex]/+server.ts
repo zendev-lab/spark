@@ -5,13 +5,13 @@ import {
 import { workspaceIdForWorkbenchSession } from "$lib/workbench-session-scope";
 import { error, type RequestHandler } from "@sveltejs/kit";
 
-export const GET: RequestHandler = async ({ locals, params }) => {
+export const GET: RequestHandler = async ({ params }) => {
   const sessionId = params.sessionId?.trim();
   const messageId = params.messageId?.trim();
   if (!sessionId || !messageId) throw error(404, "Session media not found");
   const session = getProjectedManagedSessionForHub(sessionId);
   const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-  if (!session || !workspaceId || (locals?.workspaceId && locals.workspaceId !== workspaceId)) {
+  if (!session || !workspaceId) {
     throw error(404, "Session media not found");
   }
   const contentIndex = Number(params.contentIndex);

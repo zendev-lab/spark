@@ -9,13 +9,14 @@ import {
   loadSparkConfig,
   mergeWithDefault as mergeSparkConfigWithDefault,
   saveSparkConfig,
+  type SparkConfig,
 } from "../host/config.ts";
 
 test("default Spark providers include shared Baidu OneAPI, OpenAI Codex, and Kimi adapters", () => {
   assert.deepEqual(DEFAULT_SPARK_CONFIG.providers, [
-    "@zendev-lab/spark-llm/baidu-oneapi-provider",
-    "@zendev-lab/spark-llm/openai-codex-provider",
-    "@zendev-lab/spark-llm/kimi-coding-provider",
+    "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+    "@zendev-lab/spark-llm-providers/openai-codex-provider",
+    "@zendev-lab/spark-llm-providers/kimi-coding-provider",
   ]);
   assert.equal(DEFAULT_SPARK_CONFIG.activeThinkingLevel, "high");
   assert.deepEqual(DEFAULT_SPARK_CONFIG.enabledModels, [
@@ -184,7 +185,7 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
     const path = join(dir, "config.json");
     await saveSparkConfig(
       {
-        providers: ["@zendev-lab/spark-llm/baidu-oneapi-provider", "my-provider"],
+        providers: ["@zendev-lab/spark-llm-providers/baidu-oneapi-provider", "my-provider"],
         activeModelId: "baidu-oneapi/claude-opus-5",
         activeThinkingLevel: "medium",
         compact: {
@@ -202,9 +203,9 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
     );
     const config = await loadSparkConfig(path);
     assert.deepEqual(config.providers, [
-      "@zendev-lab/spark-llm/baidu-oneapi-provider",
-      "@zendev-lab/spark-llm/openai-codex-provider",
-      "@zendev-lab/spark-llm/kimi-coding-provider",
+      "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm-providers/openai-codex-provider",
+      "@zendev-lab/spark-llm-providers/kimi-coding-provider",
       "my-provider",
     ]);
     assert.equal(config.activeModelId, "baidu-oneapi/claude-opus-5");
@@ -231,17 +232,41 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
   }
 });
 
-test("mergeSparkConfigWithDefault restores bundled providers to legacy provider lists", () => {
+test("mergeSparkConfigWithDefault restores bundled providers to configured provider lists", () => {
   const merged = mergeSparkConfigWithDefault({
-    providers: ["@zendev-lab/spark-llm/baidu-oneapi-provider", "my-provider"],
+    providers: ["@zendev-lab/spark-llm-providers/baidu-oneapi-provider", "my-provider"],
   });
 
   assert.deepEqual(merged.providers, [
-    "@zendev-lab/spark-llm/baidu-oneapi-provider",
-    "@zendev-lab/spark-llm/openai-codex-provider",
-    "@zendev-lab/spark-llm/kimi-coding-provider",
+    "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+    "@zendev-lab/spark-llm-providers/openai-codex-provider",
+    "@zendev-lab/spark-llm-providers/kimi-coding-provider",
     "my-provider",
   ]);
+});
+
+test("legacy provider package specifiers migrate before config is persisted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-config-provider-package-migration-"));
+  try {
+    const path = join(dir, "config.json");
+    await saveSparkConfig(
+      {
+        ...DEFAULT_SPARK_CONFIG,
+        providers: ["@zendev-lab/spark-llm/baidu-oneapi-provider", "my-provider"],
+      },
+      path,
+    );
+
+    const onDisk = JSON.parse(await readFile(path, "utf8")) as SparkConfig;
+    assert.deepEqual(onDisk.providers, [
+      "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm-providers/openai-codex-provider",
+      "@zendev-lab/spark-llm-providers/kimi-coding-provider",
+      "my-provider",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("mergeSparkConfigWithDefault migrates legacy activeProvider/activeModel to activeModelId", () => {

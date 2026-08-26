@@ -5,21 +5,27 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 
+import { installManagedCuePresets } from "./cue-presets.ts";
 import {
   composeSparkWebPatch,
   composeWebArgs,
+  ensureDshCueBundle,
   ensureDshToolCueBundle,
   ensureDshToolFusionBundle,
+  ensureDshToolWebBundle,
+  ensureDshWebProviderBundle,
   ensureSparkFilesBundle,
   ensureSparkLlmBundle,
   ensureSparkSessionSubagentBundle,
@@ -27,6 +33,8 @@ import {
   parseSparkWebArgs,
   prepareSparkWebDispatch,
   resolveDshProfileDir,
+  resolveDshCuePackageDir,
+  resolveDshToolWebPackageDir,
   resolveFromDirectory,
   resolveCueSkillsDir,
   resolveSparkFilesPackageDir,
@@ -81,10 +89,14 @@ test("composeSparkWebPatch replaces stock providers, mounts Spark DSH plugins, a
     assert.match(defaultText, /name: \.\/plugins\/spark-llm\/index\.mjs/);
     assert.match(defaultText, /- id: llm-pi-ai\n  disabled: true/);
     assert.match(defaultText, /- id: spark-web-dsh/);
+    assert.match(defaultText, /- id: dsh-cue/);
+    assert.match(defaultText, /name: \.\/plugins\/dsh-cue\/index\.mjs/);
     assert.match(defaultText, /- id: dsh-tool-cue/);
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-cue\/index\.mjs/);
     assert.match(defaultText, /- id: dsh-tool-fusion/);
     assert.match(defaultText, /name: \.\/plugins\/dsh-tool-fusion\/index\.mjs/);
+    assert.match(defaultText, /- id: dsh-web-provider/);
+    assert.match(defaultText, /name: \.\/plugins\/dsh-web-provider\/index\.mjs/);
     assert.match(defaultText, /- id: spark-session-subagent/);
     assert.match(defaultText, /name: \.\/plugins\/spark-session-subagent\/index\.mjs/);
     assert.match(defaultText, /- id: spark-base-tool-fs/);
@@ -147,8 +159,27 @@ test("ensureSparkSessionSubagentBundle builds the plugin bundle into the profile
   }
 });
 
+test("ensureDshCueBundle installs the execution service idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-cue-service-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshCueBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-cue", ".source-sha256")));
+
+    const second = await ensureDshCueBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ensureDshToolCueBundle uses a source digest and never writes the source checkout", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "spark-cue-bundle-"));
+  const dir = mkdtempSync(join(tmpdir(), "dsh-tool-cue-bundle-"));
   const profile = join(dir, "profiles", "web");
   mkdirSync(join(profile, "plugins"), { recursive: true });
   try {
@@ -185,6 +216,44 @@ test("ensureDshToolFusionBundle installs the Fusion plugin idempotently", async 
   }
 });
 
+test("ensureDshToolWebBundle installs the per-agent Web tools idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-tool-web-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshToolWebBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-tool-web", ".source-sha256")));
+
+    const second = await ensureDshToolWebBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDshWebProviderBundle installs the host ctx.web providers idempotently", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-web-provider-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshWebProviderBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-web-provider", ".source-sha256")));
+
+    const second = await ensureDshWebProviderBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ensureSparkFilesBundle installs the owner adapter idempotently", async () => {
   const dir = mkdtempSync(join(tmpdir(), "spark-files-bundle-"));
   const profile = join(dir, "profiles", "web");
@@ -204,7 +273,36 @@ test("ensureSparkFilesBundle installs the owner adapter idempotently", async () 
   }
 });
 
-test("spark-llm package resolves from the workspace and exposes the plugin entry", () => {
+test("managed presets reference the profile-owned file and Web bundles", async () => {
+  const home = mkdtempSync(join(tmpdir(), "spark-web-preset-files-"));
+  const profile = join(home, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  const dshPackageDir = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "presets",
+    "upstream-package",
+  );
+  try {
+    const files = await ensureSparkFilesBundle(profile);
+    const web = await ensureDshToolWebBundle(profile);
+    for (const preset of installManagedCuePresets(home, dshPackageDir, cueSkillsRoot)) {
+      const composition = readFileSync(join(preset.path, "agent.cordis.yml"), "utf8");
+      const specifier = /^- id: tool-fs\n  name: "([^"]+)"$/m.exec(composition)?.[1];
+      assert.ok(specifier !== undefined, "preset names a tool-fs adapter");
+      // The installed preset directory travels with DSH_HOME, so the
+      // preset-relative specifier must land on the profile plugin bundle.
+      assert.equal(resolve(preset.path, specifier), files.bundle);
+      const webSpecifier = /^- id: tool-web\n  name: "([^"]+)"$/m.exec(composition)?.[1];
+      assert.ok(webSpecifier !== undefined, "preset names the local Web tool plugin");
+      assert.equal(resolve(preset.path, webSpecifier), web.bundle);
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("spark-llm-providers package resolves from the workspace and exposes the plugin entry", () => {
   const llmDir = resolveSparkLlmPackageDir();
   assert.ok(existsSync(join(llmDir, "src", "dsh-plugin.ts")), "plugin entry exists");
 });
@@ -219,6 +317,17 @@ test("spark-files package resolves from the workspace and exposes the DSH adapte
   assert.ok(existsSync(join(filesDir, "src", "dsh-plugin.ts")), "DSH adapter exists");
 });
 
+test("dsh-tool-web resolves from the workspace and exposes tool and provider plugins", () => {
+  const webDir = resolveDshToolWebPackageDir();
+  assert.ok(existsSync(join(webDir, "src", "index.ts")), "tool plugin entry exists");
+  assert.ok(existsSync(join(webDir, "src", "provider.ts")), "provider plugin entry exists");
+});
+
+test("dsh-cue resolves its package root and exposes the Cordis plugin", () => {
+  const cueDir = resolveDshCuePackageDir();
+  assert.ok(existsSync(join(cueDir, "src", "plugin.ts")), "Cordis plugin entry exists");
+});
+
 test("spark-web-dsh resolves its package root and package-owned Cue Skill", () => {
   const webDir = resolveSparkWebDshPackageDir();
   assert.ok(existsSync(join(webDir, "src", "client.tsx")), "client plugin entry exists");
@@ -229,7 +338,7 @@ test("spark-web-dsh resolves its package root and package-owned Cue Skill", () =
 });
 
 test("resolveCueSkillsDir fails closed for a missing or linked Skill", () => {
-  const dir = mkdtempSync(join(tmpdir(), "spark-cue-skill-"));
+  const dir = mkdtempSync(join(tmpdir(), "dsh-cue-skill-"));
   try {
     assert.throws(() => resolveCueSkillsDir(join(dir, "missing")), /package-owned Cue Skill/u);
     mkdirSync(join(dir, "cue"));

@@ -1,15 +1,13 @@
+import { nowIso, stableId, type TaskRef } from "@zendev-lab/spark-invocation";
 import {
-  nowIso,
-  stableId,
   type Task,
   type TaskExecutionPolicy,
   type TaskGpuResource,
-  type TaskRef,
   type TaskResourceAllocation,
   type TaskResourceAllocationGroup,
   type TaskResourceInventory,
   type TaskRun,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 
 export type TaskResourceDeferralReason =
   | "attempt_limit"

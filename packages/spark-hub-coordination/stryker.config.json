@@ -42,7 +42,6 @@
     "src/runtime-session-control.ts",
     "src/runtime-ws.ts",
     "src/session-activity.ts",
-    "src/workspace-access.ts",
     "src/workspace-identity.ts"
   ]
 }

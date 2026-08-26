@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-core";
+import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-invocation";
 
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "../host/runtime.ts";
 
 test("SparkHostRuntime registers tools and reflects them in getAllTools", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-test" });
@@ -79,7 +79,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
       effect: "read",
       executionMode: "parallel",
       domains: [" files ", "files"],
-      modes: ["plan", "execute"],
       approval: "none",
     },
     async execute() {
@@ -92,7 +91,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "read",
     executionMode: "parallel",
     domains: ["files"],
-    modes: ["plan", "execute"],
     approval: "none",
   });
   assert.equal(Object.isFrozen(safePolicy), true);
@@ -119,7 +117,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "external_write",
     executionMode: "sequential",
     domains: [],
-    modes: [],
     approval: "manual_only",
   });
 
@@ -145,7 +142,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "unknown",
     executionMode: "sequential",
     domains: [],
-    modes: [],
     approval: "required",
   });
 
@@ -164,7 +160,6 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
     effect: "unknown",
     executionMode: "sequential",
     domains: [],
-    modes: [],
     approval: "required",
   });
 });

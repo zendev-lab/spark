@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
 import { EvidenceStore, validateEvidenceRecord } from "@zendev-lab/spark-artifacts";
-import {
-  formatJsonFile,
-  newRef,
-  readJsonFileOptional,
-  refKind,
-  refId,
-  isRef,
-  isRefKind,
-  writeJsonFileAtomic,
-  writeTextFileAtomic,
-  type TaskPlan,
-} from "@zendev-lab/spark-core";
+import { newRef, refKind, refId, isRef, isRefKind } from "@zendev-lab/spark-invocation";
+import { type TaskPlan } from "@zendev-lab/spark-tasks";
 import { builtinRoleRef, createBuiltinRoles } from "@zendev-lab/spark-roles";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 import { isGenericTaskNameForTitle } from "../policy/spark-claim-task-tool-registration.ts";
@@ -38,16 +28,6 @@ function executionReadyPlan(objective: string): TaskPlan {
     openQuestions: [],
     askRefs: [],
   };
-}
-
-class TestJsonFormatError extends Error {
-  readonly filePath: string;
-
-  constructor(filePath: string, message: string) {
-    super(`${filePath}: ${message}`);
-    this.name = "TestJsonFormatError";
-    this.filePath = filePath;
-  }
 }
 
 test("refs carry kind and id", () => {
@@ -158,42 +138,6 @@ test("Evidence store defaults and filters curation lifecycle", async () => {
         (artifact) => artifact.ref,
       ),
       [trace.ref, document.ref],
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("JSON and text file helpers keep optional read, formatting, and parse error semantics", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-json-"));
-  try {
-    const filePath = join(dir, "nested", "state.json");
-    const createError = (path: string, message: string) => new TestJsonFormatError(path, message);
-
-    assert.equal(await readJsonFileOptional(filePath, createError), undefined);
-
-    await writeJsonFileAtomic(filePath, { version: 1, enabled: true });
-    assert.equal(await readFile(filePath, "utf8"), formatJsonFile({ version: 1, enabled: true }));
-    assert.deepEqual(await readJsonFileOptional(filePath, createError), {
-      version: 1,
-      enabled: true,
-    });
-
-    const textPath = join(dir, "nested", "note.txt");
-    await writeTextFileAtomic(textPath, "hello\n");
-    assert.equal(await readFile(textPath, "utf8"), "hello\n");
-    assert.deepEqual(
-      (await readdir(join(dir, "nested"))).filter((entry) => entry.endsWith(".tmp")),
-      [],
-    );
-
-    await writeFile(filePath, "{not-json", "utf8");
-    await assert.rejects(
-      () => readJsonFileOptional(filePath, createError),
-      (error) =>
-        error instanceof TestJsonFormatError &&
-        error.filePath === filePath &&
-        /not valid JSON/.test(error.message),
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

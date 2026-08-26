@@ -1,7 +1,11 @@
 /** Path helpers for Spark daemon core state. */
 
 import { join, resolve } from "node:path";
-import { resolveSparkHome, resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import {
+  resolveSparkHome,
+  resolveSparkPaths,
+  type SparkPaths,
+} from "@zendev-lab/spark-platform-node";
 
 export interface SparkDaemonPathOptions {
   sparkHome?: string;

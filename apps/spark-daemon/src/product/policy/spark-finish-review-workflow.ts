@@ -3,9 +3,8 @@ import {
   newRef,
   nowIso,
   type LeafDegradeReason,
-  type Task,
-  type TaskPlan,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type Task, type TaskPlan } from "@zendev-lab/spark-tasks";
 import {
   builtinRoleRef,
   parseReviewerVerdictForInput,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Task, TaskRun } from "@zendev-lab/spark-core";
+import { type Task } from "@zendev-lab/spark-tasks";
+import { type TaskRun } from "@zendev-lab/spark-tasks";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
 describe("Task Session origin validity", () => {

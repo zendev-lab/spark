@@ -3,13 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
-import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
@@ -520,36 +519,6 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("routes Session mode changes through the persisted workspace owner", async () => {
-    const { paths, db } = createFixture();
-    const cwd = join(paths.dataDir, "session-mode-workspace");
-    mkdirSync(cwd, { recursive: true });
-    const workspace = registerWorkspace(db, { localPath: cwd });
-    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
-      daemonId: "session-mode-service-test",
-      daemonCwd: cwd,
-      resolveWorkspaceCwd: (workspaceId) =>
-        workspaceId === workspace.id ? workspace.localPath : undefined,
-    });
-    await createDaemonWorkspaceSession(registry, {
-      sessionId: "session-mode-service",
-      workspaceId: workspace.id,
-      cwd,
-    });
-
-    await expect(
-      invokeLocalRpcService(
-        "session.mode.set",
-        { sessionId: "session-mode-service", mode: "plan" },
-        { paths, db, handlerOptions: { sessionRegistry: registry } },
-      ),
-    ).resolves.toEqual({ sessionId: "session-mode-service", mode: "plan" });
-    await expect(
-      loadSparkSessionWorkspaceState(cwd, { sessionId: "session-mode-service" }),
-    ).resolves.toMatchObject({ version: 4, mode: "plan" });
-    db.close();
-  });
-
   it("serves the persisted repro token aggregate through read-only usage.summary", async () => {
     const { paths, db } = createFixture();
     const invocations = new SparkInvocationStore(db);
@@ -817,6 +786,45 @@ describe("transport-neutral local RPC service", () => {
       { paths, db },
     );
     expect(artifact.content[0]?.text).toContain("Created artifact:");
+    db.close();
+  });
+
+  it("manages daemon-user access tokens through create/list/revoke/verify", async () => {
+    const { paths, db } = createFixture();
+    const created = await invokeLocalRpcService(
+      "daemon.access.create",
+      { label: "laptop" },
+      { paths, db },
+    );
+    expect(created.token).toMatch(/^sdu_[A-Za-z0-9_-]{32}$/u);
+    expect(created.record.label).toBe("laptop");
+
+    const listed = await invokeLocalRpcService("daemon.access.list", {}, { paths, db });
+    expect(listed.tokens.map((token) => token.id)).toEqual([created.record.id]);
+    expect(JSON.stringify(listed)).not.toContain(created.token);
+
+    const valid = await invokeLocalRpcService(
+      "daemon.access.verify",
+      { token: created.token },
+      { paths, db },
+    );
+    expect(valid).toEqual({ valid: true });
+    expect(
+      await invokeLocalRpcService("daemon.access.verify", { token: "sdu_nope" }, { paths, db }),
+    ).toEqual({ valid: false });
+
+    const revoked = await invokeLocalRpcService(
+      "daemon.access.revoke",
+      { id: created.record.id },
+      { paths, db },
+    );
+    expect(revoked).toEqual({ id: created.record.id, revoked: true });
+    expect(
+      await invokeLocalRpcService("daemon.access.revoke", { id: created.record.id }, { paths, db }),
+    ).toEqual({ id: created.record.id, revoked: true });
+    expect(
+      await invokeLocalRpcService("daemon.access.verify", { token: created.token }, { paths, db }),
+    ).toEqual({ valid: false });
     db.close();
   });
 

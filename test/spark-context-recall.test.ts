@@ -7,7 +7,7 @@ import { test } from "vitest";
 import {
   createSparkContextRegistry,
   registerSparkContextTool,
-} from "@zendev-lab/spark-host/context";
+} from "../apps/spark-daemon/src/product/host/context-tool.ts";
 import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
 
 type ToolResult = {
@@ -54,7 +54,6 @@ test("context tool lists and previews registered providers within budgets", asyn
     effect: "read",
     executionMode: "parallel",
     domains: ["context"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
 

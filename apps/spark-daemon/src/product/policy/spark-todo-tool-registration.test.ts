@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { nowIso, type EvidenceRef, type TaskPlan } from "@zendev-lab/spark-core";
+import { nowIso, type EvidenceRef } from "@zendev-lab/spark-invocation";
+import { type TaskPlan } from "@zendev-lab/spark-tasks";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";
 import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";

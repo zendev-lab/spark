@@ -1,6 +1,6 @@
 import { readFile, rm } from "node:fs/promises";
 
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import {
   parseSparkMemoryApprovalAuthorization,
   type SparkMemoryApprovalProof,

@@ -251,12 +251,11 @@ Machine connectivity and browser access are separate:
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark hub access create
-spark hub workspace access create --workspace <hub-workspace-id>
+spark hub access create --daemon <runtime-id>
 ```
 
-- Exchange the Hub key at `/login`.
-- Exchange the workspace key at `/{slug}/login`.
+- Exchange the Hub key at `/login`; the session reaches exactly the workspaces
+  owned by the granted daemons.
 - Generate a fresh workspace registration token for every additional local
   directory.
 

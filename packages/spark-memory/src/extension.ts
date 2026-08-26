@@ -6,13 +6,13 @@ import { Type } from "typebox";
 import {
   callLeafOrDegrade,
   type SparkHostContext,
-  type SparkStateRootContext,
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
-} from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-invocation";
+import { type SparkStateRootContext } from "@zendev-lab/spark-platform-node/paths";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSparkMemoryDirectIntentApprovalProof,
   parseSparkMemoryApprovalProof,
@@ -952,7 +952,6 @@ function readOnlyMemoryToolPolicy(
     effect: "read",
     executionMode,
     domains: ["memory"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   };
 }

@@ -31,7 +31,7 @@ second CLI catalog.
 | `spark` | n/a | native root CLI | root parsing, diagnostic rendering, companion routing, build-info, install/update policy, and deployment transitions | daemon execution, Hub coordination, Web, DSH, ACP/MCP semantics, or plugin composition |
 | `spark-daemon` | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous Loop timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
-| `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`fetch_content` |
+| `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`web_fetch` |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
 | slash `system` | n/a | interactive kernel command source | `/help`, `/exit`, `/quit`, `/clear` | project/task/goal/session/workflow commands |
@@ -63,7 +63,7 @@ session id and only connection-local active-invocation routing is retained.
 ## Boundary invariants
 
 - Every stateful domain has exactly one authoritative owner. The Hub modules in
-  `packages/spark-hub-coordination` and `packages/spark-hub-db` own
+  `packages/spark-hub-coordination` and `packages/spark-hub-storage-sqlite` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
   inventory `stateWriter: hub` records the canonical storage boundary, not a
@@ -99,10 +99,10 @@ session id and only connection-local active-invocation routing is retained.
 | --- | --- | --- |
 | Session registry/lifecycle, Invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, local web, Hub, ACP, channel transports |
 | autonomous goal/loop/repro/execute/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | local web, Hub, and compatible hosts send controls and render `loop.update` |
-| model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
+| model/tool turn execution and effect policy | daemon `product/host/agent-runtime` | daemon host runners provide Session and Invocation context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
-| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-db` | `spark-hub`; target daemon retains execution truth |
+| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-storage-sqlite` | `spark-hub`; target daemon retains execution truth |
 | local browser presentation and interaction | `apps/spark-web` behind `spark-web` / `spark-ui` boundaries | no durable business-state ownership |
 | product composition | `apps/spark-daemon/src/product` | daemon statically assembles host-neutral capabilities and supported DSH/Cordis plugins; no second facade owns behavior |
 

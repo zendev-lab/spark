@@ -17,53 +17,48 @@
       "kind": "capability",
       "effect": "external_write"
     },
-    "code_search": {
-      "owner": "@zendev-lab/spark-tool-web",
-      "kind": "compatibility",
-      "effect": "network_read"
-    },
     "context": {
-      "owner": "@zendev-lab/spark-host",
+      "owner": "@zendev-lab/spark-daemon",
       "kind": "action",
       "effect": "read"
     },
     "cue_exec": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_history": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "read"
     },
     "cue_jobs": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_resources": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "read"
     },
     "cue_run": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_schedule": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_scope": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "cue_script": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
@@ -82,11 +77,6 @@
       "kind": "action",
       "effect": "local_write"
     },
-    "fetch_content": {
-      "owner": "@zendev-lab/spark-tool-web",
-      "kind": "capability",
-      "effect": "network_read"
-    },
     "find": {
       "owner": "@zendev-lab/spark-files",
       "kind": "capability",
@@ -98,7 +88,7 @@
       "effect": "read"
     },
     "get_search_content": {
-      "owner": "@zendev-lab/spark-tool-web",
+      "owner": "@zendev-lab/dsh-tool-web",
       "kind": "capability",
       "effect": "read"
     },
@@ -127,13 +117,8 @@
       "kind": "action",
       "effect": "unclassified"
     },
-    "mode": {
-      "owner": "@zendev-lab/spark-daemon",
-      "kind": "action",
-      "effect": "unclassified"
-    },
     "models": {
-      "owner": "@zendev-lab/spark-llm",
+      "owner": "@zendev-lab/spark-llm-providers",
       "kind": "capability",
       "effect": "read"
     },
@@ -153,12 +138,12 @@
       "effect": "read"
     },
     "script_eval": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
     "script_run": {
-      "owner": "@zendev-lab/spark-cue",
+      "owner": "@zendev-lab/dsh-cue",
       "kind": "capability",
       "effect": "external_write"
     },
@@ -187,8 +172,13 @@
       "kind": "action",
       "effect": "unclassified"
     },
+    "web_fetch": {
+      "owner": "@zendev-lab/dsh-tool-web",
+      "kind": "capability",
+      "effect": "network_read"
+    },
     "web_search": {
-      "owner": "@zendev-lab/spark-tool-web",
+      "owner": "@zendev-lab/dsh-tool-web",
       "kind": "capability",
       "effect": "network_read"
     },

@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
+import { type EvidenceRef } from "@zendev-lab/spark-invocation";
 import {
   readJsonFileOptional,
-  sparkWorkspaceStatePath,
   writeJsonFileAtomic,
-  type EvidenceRef,
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 import {
   matchesAutonomousAskInteractionRequestId,
   sparkEvidenceAnswerEventSchema,

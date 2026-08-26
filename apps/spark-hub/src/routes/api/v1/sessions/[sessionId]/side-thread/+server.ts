@@ -81,13 +81,13 @@ function sideThreadActionErrorResponse(error: unknown): Response {
 }
 
 /** The parent session remains the authorization boundary for the daemon projection. */
-export const GET: RequestHandler = async ({ locals, params, url }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
   try {
     // Side Thread content can include parent context. Authorize against the
     // daemon's current session record instead of a possibly stale projection.
     const session = await getLiveManagedSessionForHub(params.sessionId);
     const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-    if (!session || !workspaceId || (locals?.workspaceId && locals.workspaceId !== workspaceId)) {
+    if (!session || !workspaceId) {
       return json({ error: "session_not_found" }, { status: 404 });
     }
     const beforeExchangeId = url.searchParams.get("before")?.trim() || undefined;
@@ -110,11 +110,11 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
  * Every action has the same request shape and generation/head admission rules
  * as TUI; this route neither persists state nor reconstructs lifecycle logic.
  */
-export const POST: RequestHandler = async ({ locals, params, request }) => {
+export const POST: RequestHandler = async ({ params, request }) => {
   try {
     const session = await getLiveManagedSessionForHub(params.sessionId);
     const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-    if (!session || !workspaceId || (locals?.workspaceId && locals.workspaceId !== workspaceId)) {
+    if (!session || !workspaceId) {
       return json({ error: "session_not_found" }, { status: 404 });
     }
     const body: unknown = await request.json().catch(() => null);

@@ -1,8 +1,13 @@
 import { Type } from "typebox";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import { nowIso, type EvidenceRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
-import { sparkStateCwd } from "@zendev-lab/spark-loop";
+import {
+  nowIso,
+  type EvidenceRef,
+  type JsonValue,
+  type RoleRef,
+} from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-driver";
 import { currentSparkProject, loadSparkGraph, sparkSessionKey } from "./session-state.ts";
 import {
   requestGoalCompletionReview,
@@ -69,7 +74,6 @@ export function registerSparkGoalTool(
       effect: "local_write",
       executionMode: "sequential",
       domains: ["goals"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     resolvePolicy(args) {
@@ -78,7 +82,6 @@ export function registerSparkGoalTool(
         effect: status ? "read" : "local_write",
         executionMode: status ? "parallel" : "sequential",
         domains: ["goals"],
-        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
         approval: "none",
       };
     },

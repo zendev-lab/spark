@@ -5,14 +5,14 @@ import type {
   RoleRef,
   RunRef,
   TaskRef,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import type { TaskStatus } from "@zendev-lab/spark-tasks";
 import type {
   RoleRunEvidencePreview,
   RoleRunJsonEventsTail,
   RoleRunTextTail,
   SparkRoleRunInputControl,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { WorkflowRunStatus } from "@zendev-lab/spark-workflows";
 
 export type SparkBackgroundChildStatus =

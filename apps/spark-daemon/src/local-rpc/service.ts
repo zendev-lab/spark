@@ -6,7 +6,7 @@ import {
   type SparkLocalRpcOutput,
   type SparkLocalRpcParsedInput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   ensureSparkDaemonRegistrationForWorkspace,
   unbindSparkDaemonWorkspaceFromHub,
@@ -52,7 +52,15 @@ export interface LocalRpcServiceOptions {
  * occur in one group; the service test also rejects duplicates.
  */
 export const localRpcServiceHandlerMethodGroups = {
-  daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
+  daemon: [
+    "daemon.status",
+    "daemon.stop",
+    "daemon.restart",
+    "daemon.access.create",
+    "daemon.access.list",
+    "daemon.access.revoke",
+    "daemon.access.verify",
+  ],
   workbench: ["search.global", "session.search", "session.export"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],
   artifact: ["artifact.list", "artifact.read"],
@@ -124,7 +132,6 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.mail.read",
     "session.mail.ack",
     "session.model.set",
-    "session.mode.set",
     "session.thinking.set",
   ],
   sideThread: [

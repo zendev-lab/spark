@@ -1,6 +1,6 @@
-import { detectCopyLanguage, type CopyLanguage } from "@zendev-lab/spark-core";
-import type { ProjectRef } from "@zendev-lab/spark-core";
+import type { ProjectRef } from "@zendev-lab/spark-invocation";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
+import { detectCopyLanguage, type CopyLanguage } from "@zendev-lab/spark-text-rendering";
 import type { SparkEntryResolution } from "./spark-entry.ts";
 import { titleFromIdea, type SparkInitClarificationData } from "./spark-md-rendering.ts";
 import { initializeSparkIdea } from "./spark-initialization.ts";
@@ -44,7 +44,10 @@ export async function applySparkEntryResolution(
       return;
     case "enter_mode": {
       if (!graph) {
-        ctx.ui?.notify?.("Spark mode needs initialized Spark state.", "warning");
+        ctx.ui?.notify?.(
+          "Spark /plan, /execute, and /fleet need initialized Spark state.",
+          "warning",
+        );
         return;
       }
       if (resolution.mode === "plan")

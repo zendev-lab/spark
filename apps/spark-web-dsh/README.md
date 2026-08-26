@@ -4,10 +4,22 @@ Spark-owned **DSH-hosted web application**. `spark web-dsh` /
 `spark-web-dsh` boot the installed
 DeepSeek Harness web profile with Cue, LLM, Role-bound subagent providers, and
 provider-onboarding plugins.
-Search/fetch tools live in `@zendev-lab/spark-tool-web`.
-This application owns the managed `spark-standard` / `spark-code` presets and
-mounts the canonical [`cue` Skill](https://github.com/zendev-lab/cue/tree/main/skills/cue)
-directly from its exact `@zendev-lab/cue` dependency.
+Search/fetch tools live in `@zendev-lab/dsh-tool-web`: the per-agent plugin
+uses the official `ctx.web` seam, while its host-level provider entry registers
+Brave search and safe local HTTP fetch without requiring a DeepSeek search
+service. `get_search_content` recovers complete Agent-lifetime cached results by
+response ID without writing Spark runtime state.
+This application owns the managed `spark-standard` / `spark-ptc` presets —
+static compositions versioned under `presets/agent-presets/` and installed
+into the DSH user preset root at boot — and mounts the canonical
+[`cue` Skill](https://github.com/zendev-lab/cue/tree/main/skills/cue)
+directly from its exact `@zendev-lab/cue` dependency. The supported DSH
+release always discovers its own shipped presets (its boot fixes the
+discovery roots), so the Spark presets keep their `spark-` prefix and the
+patch overlay sets only the roster default. Boot retires a provably
+untouched legacy `spark-code` install; unmarked or user-edited preset
+directories are never touched, and Sessions recorded with a removed preset
+surface DSH's native unknown-preset error.
 
 The Spark LLM plugin replaces stock `llm-pi-ai` and exposes Spark's configured
 `baidu-oneapi`, `kimi-coding`, and `openai-codex` routes. API-key providers
@@ -17,7 +29,7 @@ Spark's `high` default effort unless the Session selects another level.
 The DSH Models page asks directly for the API key when adding Baidu OneAPI or
 Kimi For Coding. Kimi is API-key-only; it does not offer an OAuth flow.
 
-The managed `spark-standard` and `spark-code` presets use Spark's versioned
+The managed `spark-standard` and `spark-ptc` presets use Spark's versioned
 `read`/`write`/`edit` adapter over DSH `ctx.fs`. Writes retain DSH sandbox
 confinement and require the opaque version returned by `read` (or `missing` for
 create-only); impossible sandbox-escalation arguments are absent from both
@@ -25,12 +37,34 @@ Native and Code Mode schemas. Upstream `read_image` remains available.
 
 ```sh
 spark web-dsh
-spark web-dsh --host 0.0.0.0 --trusted-host workstation.example:3080
+spark web-dsh --host 0.0.0.0 --port 3080
 ```
+
+The DSH compatibility server itself stays pinned to loopback whenever Spark
+exposes a non-loopback listener. Spark's outer access proxy owns the actual
+network boundary. Requests from an actual loopback peer remain tokenless even
+when the listener binds `0.0.0.0`; local non-loopback IPv4 authorities are
+discovered automatically, and remote peers require the daemon-owned
+`daemon-user` token family.
+
+Remote document navigation opens the same Spark Access page as native
+`spark web`. Generate a token with `spark daemon access create`, enter it on the
+page, and Spark verifies it through the daemon before storing an HttpOnly,
+SameSite=Strict cookie. `?token=…`, `x-spark-web-token`, and the
+`spark_web_token` cookie remain supported carrier forms for compatibility and
+automation. API and WebSocket requests do not receive an HTML login page: they
+retain carrier-level 401/503 responses.
+
+Host, Origin, and Fetch Metadata checks run before token verification. Direct
+access accepts loopback and local interface IP literals only; arbitrary DNS
+names are not a second trust configuration path. Use the Hub for formal
+multi-daemon or DNS-based remote access. Missing, wrong, expired, and revoked
+tokens are rejected without exposing token-state detail, and verification
+fails closed while the daemon is unreachable.
 
 Initialize the DSH profile once with `dsh web` before the first Spark boot.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the
-host, client, Cue, LLM, and spark-session-subagent bundles under ignored `lib/`;
+host, client, Cue, Web, LLM, and spark-session-subagent bundles under ignored `lib/`;
 release build and smoke generate them instead of relying on tracked output. The
 same Spark-owned spawn/fork providers are registered on the daemon Cordis root.
 The overlay disables stock `llm-pi-ai` and the in-process spawn/fork backends;

@@ -14,7 +14,7 @@ import {
   type ServerCommandEnvelope,
   type SparkAssignment,
 } from "@zendev-lab/spark-protocol";
-import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   handleCommand,
@@ -39,7 +39,7 @@ import {
   runRuntimeSessionControlCommand,
   runtimeSessionRouteForRuntime,
 } from "@zendev-lab/spark-hub-coordination/runtime-session-control";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createHubRuntimeSessionClient } from "./hub-runtime-session-client.ts";
 import { listProjectedManagedSessionsForHub } from "./managed-sessions.ts";
 

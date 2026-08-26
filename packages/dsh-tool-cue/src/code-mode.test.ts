@@ -5,7 +5,7 @@ import { CallId } from "@deepseek-ai/dsh-llm";
 import { apply as ShellEnv } from "@deepseek-ai/dsh-shell-env";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, { RUN_CODE_NAME } from "@deepseek-ai/dsh-tools";
-import type { CueToolRuntime } from "@zendev-lab/spark-cue/operations";
+import type { CueToolRuntime } from "@zendev-lab/dsh-cue/operations";
 import { describe, expect, it, vi } from "vitest";
 import { registerCueToolDefinitions } from "./index.ts";
 

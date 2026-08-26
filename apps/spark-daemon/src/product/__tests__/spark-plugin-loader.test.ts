@@ -18,11 +18,10 @@ test("Spark product composition has a fixed capability set", () => {
       "@zendev-lab/spark-ask",
       "@zendev-lab/spark-artifacts",
       "@zendev-lab/spark-files",
-      "@zendev-lab/spark-llm",
+      "@zendev-lab/spark-llm-providers",
       "@zendev-lab/spark-memory",
       "@zendev-lab/spark-roles",
       "@zendev-lab/spark-session",
-      "@zendev-lab/spark-tool-web",
       "spark",
     ],
   );
@@ -35,7 +34,7 @@ test("Spark product composition registers capabilities and its DSH agent plugins
 
   assert.deepEqual(
     loadSparkProductAgentPlugins().map((plugin) => plugin.name),
-    ["dsh-tool-cue", "dsh-tool-fusion"],
+    ["dsh-tool-cue", "dsh-tool-fusion", "dsh-tool-web"],
   );
   assert.equal(host.getAllTools().length > 0, true);
   assert.equal(
@@ -73,6 +72,9 @@ test("Spark product DSH tools carry policy metadata", async () => {
       "cue_scope",
       "cue_history",
       "fusion",
+      "web_search",
+      "web_fetch",
+      "get_search_content",
     ],
   );
   assert.equal(
@@ -121,9 +123,9 @@ test("loadProviderPlugins resolves bundled providers without installed workspace
   const result = await loadProviderPlugins({
     providerApi: registry,
     providers: [
-      "@zendev-lab/spark-llm/baidu-oneapi-provider",
-      "@zendev-lab/spark-llm/openai-codex-provider",
-      "@zendev-lab/spark-llm/kimi-coding-provider",
+      "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm-providers/openai-codex-provider",
+      "@zendev-lab/spark-llm-providers/kimi-coding-provider",
     ],
   });
 

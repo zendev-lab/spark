@@ -9,7 +9,7 @@ import {
   defaultDatabasePath,
   readHubInstanceId,
   restoreHubSnapshot,
-} from "@zendev-lab/spark-hub-db";
+} from "@zendev-lab/spark-hub-storage-sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOwnerSession, getCurrentUserId } from "./auth";
 import {
@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("Hub database lifecycle", () => {
   it("holds one process lock while pinned and preserves instance identity", () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-hub-db-lifecycle-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-hub-storage-sqlite-lifecycle-"));
     roots.push(root);
     process.env = { ...originalEnv, SPARK_HOME: root };
     const databasePath = defaultDatabasePath();
@@ -66,7 +66,7 @@ describe("Hub database lifecycle", () => {
   });
 
   it("throws from getDatabase when the DB is closed", () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-hub-db-closed-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-hub-storage-sqlite-closed-"));
     roots.push(root);
     process.env = { ...originalEnv, SPARK_HOME: root };
     expect(() => getDatabase()).toThrow(/Hub database is closed/);
@@ -74,7 +74,7 @@ describe("Hub database lifecycle", () => {
 
   it("closes after idle grace and lets another process acquire the lock", () => {
     vi.useFakeTimers();
-    const root = mkdtempSync(join(tmpdir(), "spark-hub-db-idle-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-hub-storage-sqlite-idle-"));
     roots.push(root);
     process.env = { ...originalEnv, SPARK_HOME: root };
     const databasePath = defaultDatabasePath();
@@ -100,7 +100,7 @@ describe("Hub database lifecycle", () => {
 
   it("cancels idle close when pinned again", () => {
     vi.useFakeTimers();
-    const root = mkdtempSync(join(tmpdir(), "spark-hub-db-repin-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-hub-storage-sqlite-repin-"));
     roots.push(root);
     process.env = { ...originalEnv, SPARK_HOME: root };
     const lockPath = hubDatabaseLockPath(defaultDatabasePath());
@@ -118,7 +118,7 @@ describe("Hub database lifecycle", () => {
   });
 
   it("nests pins via withDatabase", async () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-hub-db-with-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-hub-storage-sqlite-with-"));
     roots.push(root);
     process.env = { ...originalEnv, SPARK_HOME: root };
 
@@ -135,7 +135,7 @@ describe("Hub database lifecycle", () => {
   });
 
   it("invalidates a real browser session after restore", async () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-hub-db-restore-"));
+    const root = mkdtempSync(join(tmpdir(), "spark-hub-storage-sqlite-restore-"));
     roots.push(root);
     process.env = { ...originalEnv, SPARK_HOME: root };
     const databasePath = defaultDatabasePath();

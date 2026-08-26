@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { resolveSparkHome } from "@zendev-lab/spark-system";
+import { resolveSparkHome } from "@zendev-lab/spark-platform-node";
 
 import {
   decodeSparkDshSessionJsonl,

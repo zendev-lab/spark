@@ -4,7 +4,7 @@ import {
   runtimeProtocolVersion,
   type RuntimeRegistrationRequest,
 } from "@zendev-lab/spark-protocol";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import {
   isReservedWorkbenchPathSegment,
   loadArtifactDetailPage,
@@ -136,7 +136,7 @@ describe("loadWorkbenchLayout", () => {
     db.close();
   });
 
-  it("shows only the workspace granted to a remote browser session", () => {
+  it("shows only the workspaces behind a remote member's daemon grants", () => {
     const { db, workspace } = setupWorkspace("spore");
     const runtimeId = createId("rt");
     const bindingId = createId("rtwb");
@@ -160,7 +160,7 @@ describe("loadWorkbenchLayout", () => {
 
     const layout = loadWorkbenchLayout(db, "/other/sessions", {
       preferredWorkspaceSlug: "other",
-      authorizedWorkspaceId: workspace.id,
+      authorizedWorkspaceIds: [workspace.id],
     });
     expect(layout.workspaces.map((item) => item.slug)).toEqual(["spore"]);
     expect(layout.activeWorkspace?.id).toBe(workspace.id);

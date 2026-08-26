@@ -1,18 +1,14 @@
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { nowIso, stableId, type ProjectRef, type TaskRef } from "@zendev-lab/spark-invocation";
+import { readJsonFileOptional } from "@zendev-lab/spark-platform-node/json-files";
 import {
-  nowIso,
-  readJsonFileOptional,
   sparkWorkspaceStatePath,
-  stableId,
-  type ProjectRef,
   type SparkStateRootContext,
-  type TaskRef,
-  type TaskTodo,
-  type TaskTodoStatus,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
+import { type TaskTodo, type TaskTodoStatus } from "./types.ts";
 import { TaskGraph } from "./graph.ts";
 import type {
   LoadableTaskTodoStoreSnapshot,

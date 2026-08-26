@@ -1,4 +1,4 @@
-import { createSparkProviderImporter } from "@zendev-lab/spark-llm/control";
+import { createSparkProviderImporter } from "@zendev-lab/spark-llm-providers/control";
 
 import type { ProviderRegistrationAPI } from "./provider-registry.ts";
 

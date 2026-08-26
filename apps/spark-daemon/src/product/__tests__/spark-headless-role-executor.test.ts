@@ -6,12 +6,12 @@ import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
   type ToolConfig,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   loadSparkHeadlessSessionModule,
   type SparkHeadlessTokenUsageObservation,
-} from "@zendev-lab/spark-host/headless-loader";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+} from "../host/headless-loader.ts";
+import { SparkHostRuntime } from "../host/runtime.ts";
 import {
   preloadSparkHeadlessSessionRuntime,
   runSparkHeadlessRoleInstruction,
@@ -64,6 +64,9 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     sessionLease: undefined,
     channelBinding: undefined,
     invocationId: undefined,
+    invocationAttempt: undefined,
+    invocationRole: undefined,
+    driverAuthority: undefined,
     taskExecutionScope: undefined,
     tokenUsage: undefined,
     loop: undefined,
@@ -71,7 +74,6 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     allowedTools: undefined,
     roleRunner: undefined,
     allowedToolEffects: undefined,
-    sessionMode: undefined,
     hasUI: false,
     streamTimeoutMs: 0,
     approvalMethod: "human",
@@ -892,20 +894,17 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
       expectedStatus: "failed" as const,
     },
   ]) {
-    let sessionMode: "plan" | "execute" | "fleet" | undefined;
     const services = headlessRoleServices(async (tools) => {
       await executeRoleOutcomeTool(tools, expected);
       return successfulOutcome("structured outcome recorded");
     });
 
     const result = await runSparkHeadlessRoleInstruction(roleInstructionInput(expected.kind), {
-      createServices: async (options) => {
-        sessionMode = options?.sessionMode;
+      createServices: async () => {
         return services as never;
       },
     });
 
-    assert.equal(sessionMode, "execute");
     assert.deepEqual(result.outcome, {
       kind: expected.kind,
       code: expected.code,
@@ -916,8 +915,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
   }
 });
 
-test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mode", async () => {
-  let sessionMode: "plan" | "execute" | "fleet" | undefined;
+test("runSparkHeadlessSession keeps supervised Role outcome tools available", async () => {
   let allowedTools: readonly string[] | undefined;
   let allowedToolEffects: readonly string[] | undefined;
   const services = headlessRoleServices(async (tools) => {
@@ -940,7 +938,6 @@ test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mod
     },
     {
       createServices: async (options) => {
-        sessionMode = options?.sessionMode;
         allowedTools = options?.allowedTools;
         allowedToolEffects = options?.allowedToolEffects;
         return services as never;
@@ -948,7 +945,6 @@ test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mod
     },
   );
 
-  assert.equal(sessionMode, "execute");
   assert.deepEqual(allowedTools, ["read", "role_report_outcome"]);
   assert.deepEqual(allowedToolEffects, ["read", "network_read", "control"]);
 });
@@ -1113,7 +1109,6 @@ function roleInstructionInput(suffix: string): SparkHeadlessRoleInstructionInput
     },
     cwd: process.cwd(),
     timeoutMs: 1_000,
-    mode: "execute",
     requireStructuredOutcome: true,
   };
 }

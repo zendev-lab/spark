@@ -2,7 +2,13 @@
 
 Generic project/task/plan/run capability plus a session-bound TODO tool for Spark capability hosts.
 
-`@zendev-lab/spark-tasks` owns task graph contracts, readiness, claims, task plan-item persistence, task-run records, and the canonical `task_read`, `task_write`, `assign`, and `todo` tools. Prefer constructing `TaskGraphStore` and `TaskTodoStore` with explicit host-owned paths. The exported default stores read `.spark/projects.json` and `.spark/todos/*`.
+`@zendev-lab/spark-tasks` directly owns the Project, roadmap, Task, TaskRun,
+review, task graph, readiness, claim, plan-item, and resource contracts plus
+the canonical `task_read`, `task_write`, `assign`, and `todo` tools. These
+domain types are not re-exported through the Invocation boundary. Prefer
+constructing `TaskGraphStore` and `TaskTodoStore` with explicit host-owned
+paths. The exported default stores read `.spark/projects.json` and
+`.spark/todos/*`.
 
 The public task surface is split by capability: `task_read` is read-only inspection, `task_write` mutates project/task graph state through action-discriminated branches (including `action: "plan_update"` for the claimed task's plan items), and `assign` is an explicit spawn request whose scheduler policy remains host-owned. Model-visible selectors use canonical `projectRef`/`taskRef`; legacy `project`/`task` spellings remain bounded decoder inputs only. WorkflowRun mutations live on `workflow({ action: "runs" })`, never `task_read`. `task_write({ action: "replace_dependencies", taskRef, dependsOn })` atomically replaces one existing Task's complete dependency set while preserving its reviewed plan and plan items. It retains all dependency safety checks, rejects mixed mutations and blank selectors, and leaves the graph unchanged on failure. The normative contract lives in [`.agents/notes/contracts/tools.md`](../../.agents/notes/contracts/tools.md#task-and-assignment-invariants).
 

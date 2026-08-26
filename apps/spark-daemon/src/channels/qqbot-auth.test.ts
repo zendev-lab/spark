@@ -1,4 +1,4 @@
-import type { QqbotQrAuthCallbacks } from "@zendev-lab/dsh-channels/qqbot-auth";
+import type { QqbotQrAuthCallbacks } from "@zendev-lab/dsh-channel-transports/qqbot-auth";
 import { describe, expect, it, vi } from "vitest";
 import { createDaemonQqbotQrAuthManager, mergeQqbotQrCredentials } from "./qqbot-auth.ts";
 

@@ -2,9 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
-import { loadSparkSessionWorkspaceState } from "@zendev-lab/spark-loop";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   sparkSessionSnapshotPageSchema,
   type SparkSessionSnapshotPage,
@@ -529,47 +528,6 @@ describe("daemon session control admission", () => {
         },
         lifecycle: "open",
       });
-    } finally {
-      db.close();
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("persists typed Fleet mode for the owning workspace Session", async () => {
-    const root = mkdtempSync(join(tmpdir(), "spark-session-mode-"));
-    const db = openMemoryDatabase();
-    migrateSparkDaemonDatabase(db);
-    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
-    const workspace = registerWorkspace(db, {
-      serverUrl: "https://hub.example",
-      serverBindingId: "workspace-mode",
-      workspaceName: "mode",
-      localPath: root,
-    });
-    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
-      daemonId: "mode-test",
-      daemonCwd: root,
-    });
-    await createDaemonWorkspaceSession(sessionRegistry, {
-      sessionId: "session-mode",
-      workspaceId: workspace.id,
-      cwd: root,
-    });
-    try {
-      await expect(
-        executeSparkDaemonSessionControl(
-          { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
-          {
-            kind: "session.mode.set.request",
-            scope: "any",
-            sessionId: "session-mode",
-            payload: { sessionId: "session-mode", mode: "fleet" },
-          },
-        ),
-      ).resolves.toEqual({ result: { sessionId: "session-mode", mode: "fleet" } });
-      await expect(
-        loadSparkSessionWorkspaceState(root, { sessionId: "session-mode" }),
-      ).resolves.toMatchObject({ version: 4, mode: "fleet" });
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

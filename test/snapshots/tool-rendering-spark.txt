@@ -12,6 +12,3 @@ assign dispatch
 
 # goal
 goal action=status
-
-# mode
-mode action=plan focus=tighten tasks

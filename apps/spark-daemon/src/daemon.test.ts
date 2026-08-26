@@ -13,7 +13,7 @@ import {
   serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
 import { defaultSparkSessionRegistryRoot, SparkSessionRegistry } from "@zendev-lab/spark-session";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createDaemonHumanWait,
   handleCommand,

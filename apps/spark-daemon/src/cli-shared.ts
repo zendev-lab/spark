@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { ensureSparkPathDirs, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { ensureSparkPathDirs, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   formatSparkCliError,
   sparkDaemonCliStrings,
@@ -272,6 +272,7 @@ Commands:
   sync [--no-wait]
   logs
   auth <status|login|logout|import> [args...]
+  access <create|list|revoke> [--label <note>] [--expires-at <iso>] [--json]
   model <list|status|set> [args...]
   session <list|show|create|bind|unbind|archive|inbox> [args...]
   spark daemon session show <session-id>
@@ -283,8 +284,8 @@ Commands:
   spark daemon run cancel <run-id>
   events watch [--json]
 
-Workspace registration may print a one-time browser key. Mint additional keys on the
-Hub host with spark hub workspace access create --workspace <id>.
+Hub members sign in at /login with a one-time key minted on the Hub host:
+  spark hub access create --daemon <runtime-id> [--daemon <runtime-id> ...]
 Workspace markers use id; name is display-only.
 
 Example:
@@ -310,9 +311,9 @@ Commands:
   move <id> <path> [--workspace <id>] [--to <path>] [--dry-run] [--yes] [--json]
   merge [source ...] --into <target> [--path <parent>] [--all-nested] [--dry-run] [--yes] [--json]
 
-Registration may print a one-time browser key for /{slug}/login.
-Mint additional keys on the Hub host (workspace id is the marker):
-  spark hub workspace access create|list|revoke --workspace <id>
+Registration attaches the workspace under this daemon's identity; Hub members
+reach it once an owner grants their user that daemon (spark hub access create
+--daemon <runtime-id> mints a one-time member key).
 Name is display-only; prefer --workspace <id> for commands.
 
 Example:

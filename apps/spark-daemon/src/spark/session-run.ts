@@ -23,8 +23,8 @@ import type {
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   SparkTaskExecutionScope,
-} from "@zendev-lab/spark-core";
-import { contentHash } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { contentHash } from "@zendev-lab/spark-invocation";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   createDefaultRoleRegistry,
@@ -34,21 +34,22 @@ import {
   resolveRoleModelSetting,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
-import { validateChannelSessionWorkspace, type SparkPaths } from "@zendev-lab/spark-system";
+import { validateChannelSessionWorkspace, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   loadSparkHeadlessSessionModule,
   type CreateSparkHeadlessSessionCompactorFn,
   type CreateSparkHeadlessSessionExecutorFn,
   type SparkHeadlessSessionCompactor,
   type SparkHeadlessSessionExecutor,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
   renderSparkChannelSurfacePrompt,
+  composeSparkSystemPrompt,
 } from "../product/system-prompt.ts";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+
 import {
   refreshSparkSessionSnapshotIndex,
   SparkSessionRegistryError,
@@ -57,7 +58,7 @@ import {
   isSparkTurnRestartYieldError,
   type SparkDshTurnRuntime,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import {
   channelDeliveryFailureOutcome,
   channelDeliveryOutcomeUnknown,
@@ -67,8 +68,8 @@ import {
   resolveInfoflowCustomSystemPrompt,
   type ChannelReplyStream,
   type ChannelReplyTarget,
-} from "@zendev-lab/dsh-channels";
-import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
+import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channel-transports";
 import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
 import { loadDaemonGlobalChannelsConfig } from "../channels/config-migration.ts";
 import type {
@@ -1414,7 +1415,6 @@ function sessionExecutionPolicy(
       ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(sessionContext.taskSession ? { mode: "execute" as const } : {}),
     ...(taskExecutionScope?.isolation === "readonly"
       ? { allowedToolEffects: ["read"] as const }
       : {}),
@@ -1628,6 +1628,16 @@ export async function executeSparkDaemonSessionRunTask(
       ? { requireStructuredOutcome: task.requireStructuredOutcome }
       : {}),
     invocationId: context.invocationId,
+    invocationAttempt: context.invocationAttempt,
+    ...(sessionContext.role
+      ? {
+          invocationRole: {
+            ref: sessionContext.role.ref,
+            id: sessionContext.role.id,
+            revision: sessionContext.role.revision,
+          },
+        }
+      : {}),
     ...(context.recordTokenUsage
       ? {
           tokenUsage: {
@@ -2071,7 +2081,7 @@ async function systemPromptForChannelSession(
   if (sessionSurface !== "channel") return undefined;
   const reply = task.channelReply;
   if (!reply) {
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
     ]);
@@ -2091,7 +2101,7 @@ async function systemPromptForChannelSession(
 
   if (reply.adapter === "infoflow") {
     const infoflow = await loadInfoflowAdapterConfig(options, reply.adapterAccountIdentity);
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderInfoflowInternalSystemPrompt({
         ...(infoflow ? { config: infoflow } : {}),
@@ -2107,7 +2117,7 @@ async function systemPromptForChannelSession(
   if (reply.adapter === "qqbot") {
     const qqbot = await loadQqbotAdapterConfig(options, reply.adapterAccountIdentity);
     const custom = qqbot?.system_prompt?.trim();
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderSparkChannelSurfacePrompt({
         adapter: "qqbot",
@@ -2119,7 +2129,7 @@ async function systemPromptForChannelSession(
     ]);
   }
 
-  return composeAgentSystemPrompt([
+  return composeSparkSystemPrompt([
     DEFAULT_SPARK_IDENTITY_PROMPT,
     renderSparkChannelSurfacePrompt({
       adapter: reply.adapter ?? failIncompleteChannelBinding(),
@@ -2143,9 +2153,9 @@ async function systemPromptForSession(
   const channelPrompt = await systemPromptForChannelSession(task, options, sessionSurface);
   const rolePrompt = role?.systemPrompt;
   const sideThreadPrompt = sideThread ? SPARK_SIDE_THREAD_EXECUTION_PROMPT : undefined;
-  if (channelPrompt) return composeAgentSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
+  if (channelPrompt) return composeSparkSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
   if (rolePrompt || sideThreadPrompt) {
-    return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
+    return composeSparkSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
   }
   return undefined;
 }

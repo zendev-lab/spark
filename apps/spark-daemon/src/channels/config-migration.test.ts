@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { migrateDaemonChannelsConfig } from "./config-migration.ts";
 
 const roots: string[] = [];

@@ -32,7 +32,7 @@ import {
   type ChannelsConfig,
   type IncomingMessage,
   type RoutedChannelInteractionEvent,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import {
   parseSparkAssignment,
   type SparkAssignment,
@@ -41,7 +41,7 @@ import {
   type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
-import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelConfigPath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { createHash, randomUUID } from "node:crypto";
 
 import { readFile } from "node:fs/promises";
@@ -271,7 +271,7 @@ export function createChannelIngressController(input: {
     const tracked = operation.then(
       () => undefined,
       (error) => {
-        console.error(`[dsh-channels] ${label} failed`, error);
+        console.error(`[dsh-channel-transports] ${label} failed`, error);
       },
     );
     activeHandlers.add(tracked);
@@ -417,7 +417,7 @@ export function createChannelIngressController(input: {
         }
         return;
       } catch (replyError) {
-        console.error("[dsh-channels] failed to report rejected inbound", replyError);
+        console.error("[dsh-channel-transports] failed to report rejected inbound", replyError);
       }
       throw error;
     }
@@ -431,7 +431,7 @@ export function createChannelIngressController(input: {
       try {
         await sessionRegistry.recordTurnQueued?.(session.sessionId);
       } catch (error) {
-        console.error("[dsh-channels] failed to mark admitted inbound as queued", error);
+        console.error("[dsh-channel-transports] failed to mark admitted inbound as queued", error);
       }
     }
   }

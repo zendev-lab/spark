@@ -1,11 +1,11 @@
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { newRef, nowIso } from "@zendev-lab/spark-core";
+import { newRef, nowIso } from "@zendev-lab/spark-invocation";
 import {
   createRoleRunClaimId,
   findResumableBackgroundRoleRunTasks,
   killActiveSparkRoleRunProcesses,
   runSparkTask,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   loadSparkGraph,

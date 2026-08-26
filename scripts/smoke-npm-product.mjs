@@ -45,7 +45,6 @@ function suppliedTarballs() {
     web: argumentValue("--web-tarball"),
     "web-dsh": argumentValue("--web-dsh-tarball"),
     "native-darwin-arm64": argumentValue("--native-darwin-arm64-tarball"),
-    "native-darwin-x64": argumentValue("--native-darwin-x64-tarball"),
     "native-linux-arm64": argumentValue("--native-linux-arm64-tarball"),
     "native-linux-x64": argumentValue("--native-linux-x64-tarball"),
   };
@@ -58,10 +57,9 @@ function suppliedTarballs() {
 }
 
 function cleanPath(extra = []) {
-  const repoPrefix = `${root.replaceAll("\\", "/")}/`;
+  const repoPrefix = `${root}/`;
   const pathEntries = (process.env.PATH ?? "").split(delimiter).filter((entry) => {
-    const portable = entry.replaceAll("\\", "/");
-    const normalized = portable.endsWith("/") ? portable : `${portable}/`;
+    const normalized = entry.endsWith("/") ? entry : `${entry}/`;
     return !normalized.startsWith(repoPrefix) && !normalized.includes("/node_modules/.bin/");
   });
   return [
@@ -183,7 +181,7 @@ async function probeHubRoute(url, child, output) {
 
 function terminateProcessTree(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (child.pid !== undefined) {
     try {
       process.kill(-child.pid, "SIGTERM");
       return;
@@ -257,7 +255,7 @@ if (
 }
 const diagnostics = String(result.stderr ?? "") + "\\n" + String(result.outcome.reason ?? "");
 if (
-  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm'") ||
+  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm-providers'") ||
   diagnostics.includes("defaultSparkConfigPath") ||
   diagnostics.includes("Dynamic require of")
 ) {
@@ -565,7 +563,7 @@ try {
       PORT: String(port),
       ORIGIN: `http://127.0.0.1:${port}`,
     },
-    detached: process.platform !== "win32",
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const hubOutput = { stderr: "" };

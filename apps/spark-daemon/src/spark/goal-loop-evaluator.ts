@@ -5,9 +5,9 @@ import {
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
-} from "@zendev-lab/spark-core";
-import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
-import { loadSessionGoal } from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-invocation";
+import { loadSparkHeadlessSessionModule } from "../product/host/headless-loader.ts";
+import { loadSessionGoal } from "@zendev-lab/spark-driver";
 import {
   createSparkRoleRegistry,
   SparkRolesReviewerRunner,
@@ -20,7 +20,7 @@ import {
   isUnfinishedTaskStatus,
   type TaskGraph,
 } from "@zendev-lab/spark-tasks";
-import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+import type { SparkDshTurnRuntime } from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkLoopEvaluationContext,
   SparkTrustedLoopEvaluator,

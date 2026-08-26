@@ -5,8 +5,8 @@ import type {
   ExtensionInteractionResponse,
   ExtensionEvidenceRequestBinding,
   SparkHostContext,
-} from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+} from "@zendev-lab/spark-invocation";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   SPARK_PROTOCOL_VERSION,
   createId,

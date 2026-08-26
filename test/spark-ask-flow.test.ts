@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { visibleWidth } from "@zendev-lab/spark-text";
+import { visibleWidth } from "@zendev-lab/spark-text-rendering";
 import { test } from "vitest";
 
 import {

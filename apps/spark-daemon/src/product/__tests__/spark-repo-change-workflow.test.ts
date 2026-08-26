@@ -154,7 +154,7 @@ test("repo-change workflow rejects accepted narration when command evidence is m
         return {
           status: "completed",
           summary: "changed helper",
-          changedFiles: ["packages/spark-runtime/src/index.ts"],
+          changedFiles: ["packages/spark-task-runtime/src/index.ts"],
           validationEvidence: [],
         };
       }

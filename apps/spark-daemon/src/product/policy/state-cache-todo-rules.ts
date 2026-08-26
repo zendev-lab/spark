@@ -1,4 +1,5 @@
-import type { Task, TaskRef } from "@zendev-lab/spark-core";
+import type { TaskRef } from "@zendev-lab/spark-invocation";
+import type { Task } from "@zendev-lab/spark-tasks";
 import { isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 
 export function todoStatus(todo: unknown): string | undefined {

@@ -4,13 +4,8 @@ import {
   formatSparkTaskSummaryStatusLine,
   isUnfinishedTaskStatus,
 } from "@zendev-lab/spark-tasks";
-import type {
-  ProjectRef,
-  TaskRef,
-  TaskRun,
-  TaskRunCompletionSummary,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
+import type { ProjectRef, TaskRef } from "@zendev-lab/spark-invocation";
+import type { TaskRun, TaskRunCompletionSummary, TaskStatus } from "@zendev-lab/spark-tasks";
 import type { WorkflowRunControl, WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
 import { renderSparkProjectKindDisplay } from "./project-kind-registry.ts";
 import { appendRecentRoleRunCompletionLines } from "./role-run-completions.ts";

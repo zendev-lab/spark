@@ -5,21 +5,23 @@ import {
   nowIso,
   type ArtifactRef,
   type EvidenceRef,
-  type Project,
   type ProjectRef,
+  type RoleRef,
+  type TaskRef,
+} from "@zendev-lab/spark-invocation";
+import {
+  type Project,
   type ProjectRoadmap,
   type RoadmapItem,
   type RoadmapItemRef,
-  type RoleRef,
   type Task,
   type TaskClaim,
   type TaskDependency,
   type TaskPlanReadiness,
   type TaskProposal,
-  type TaskRef,
   type TaskRun,
   type TaskTodo,
-} from "@zendev-lab/spark-core";
+} from "./types.ts";
 import { createDefaultProjectRoadmap, normalizeProjectRoadmap, uniqueTaskRefs } from "./roadmap.ts";
 import type {
   ClaimTaskInput,

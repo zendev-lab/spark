@@ -4,17 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkProductEvents } from "../policy/spark-product-events.ts";
 import type { SparkModeMessageApi } from "../policy/spark-mode-entry.ts";
 import { saveIndependentTodos } from "../policy/session-todos.ts";
-import {
-  currentSparkProject,
-  loadSparkGraph,
-  loadSparkMode,
-  saveCurrentProjectRef,
-  saveSparkMode,
-} from "../policy/session-state.ts";
 import { createSparkAgentEndReconciliationController } from "../policy/spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "../policy/spark-tool-registration.ts";
 
@@ -69,117 +61,6 @@ test("agent-end TODO reconciliation queues one guarded follow-up per input cycle
     controller.reset(ctx);
     assert.equal(await controller.reconcile(ctx), true);
     assert.equal(sent.length, 2, "a new user input cycle may remind again");
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test("agent-end reconciliation continues an implement ready frontier without a daemon tick", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "spark-implement-reconciliation-"));
-  const ctx: SparkToolContext = {
-    cwd,
-    sessionId: "implement-reconciliation",
-    sparkActiveMode: { mode: "execute" },
-  };
-  const sent: SentMessage[] = [];
-  const controller = createSparkAgentEndReconciliationController({
-    sendMessage(message, options) {
-      sent.push({ message, options });
-    },
-  });
-
-  try {
-    const graph = new TaskGraph();
-    const project = graph.createProject({
-      title: "Hook-owned implementation",
-      description: "Verify implement continuation at the agent lifecycle boundary.",
-    });
-    const task = graph.createTask({
-      projectRef: project.ref,
-      name: "ready-hook-task",
-      title: "Ready hook task",
-      description: "Continue this task without daemon scheduling.",
-      status: "ready",
-      plan: {
-        objective: "Verify implement continuation at the agent lifecycle boundary.",
-        contextRefs: [],
-        constraints: [],
-        nonGoals: [],
-        successCriteria: [
-          "pnpm test test/spark-agent-end-reconciliation.test.ts passes with exit code 0 and asserts one bounded follow-up for the ready task.",
-        ],
-        evidenceRequired: ["Unit assertions record the follow-up content and ready task ref."],
-        steps: ["Run the focused reconciliation test and inspect its assertions."],
-        riskLevel: "normal",
-        openQuestions: [],
-        askRefs: [],
-      },
-    });
-    await defaultTaskGraphStore(cwd).save(graph);
-    await saveCurrentProjectRef(cwd, ctx, project.ref);
-    await saveSparkMode(cwd, ctx, { mode: "execute", projectRef: project.ref });
-    const loadedGraph = await loadSparkGraph(cwd, ctx);
-    assert.ok(loadedGraph);
-    assert.equal((await loadSparkMode(cwd, ctx)).mode, "execute");
-    assert.equal((await currentSparkProject(cwd, ctx, loadedGraph))?.ref, project.ref);
-    const readiness = loadedGraph.taskPlanReadiness(task.ref);
-    assert.equal(readiness.ready, true, JSON.stringify(readiness.issues));
-    assert.deepEqual(
-      loadedGraph.readyTasks(project.ref).map((candidate) => candidate.ref),
-      [task.ref],
-    );
-
-    assert.equal(await controller.reconcile(ctx), true);
-    assert.equal(sent.length, 1);
-    assert.match(sent[0]?.message.content ?? "", /Implementation phase check/u);
-    assert.match(sent[0]?.message.content ?? "", /@ready-hook-task/u);
-    assert.deepEqual(sent[0]?.message.details?.readyImplementTaskRefs, [task.ref]);
-    assert.equal(await controller.reconcile(ctx), false, "the follow-up must remain bounded");
-
-    await saveSparkMode(cwd, ctx, { mode: "plan", projectRef: project.ref });
-    ctx.sparkActiveMode = { mode: "plan" };
-    controller.reset(ctx);
-    assert.equal(await controller.reconcile(ctx), false, "plan phase must not auto-implement");
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test("agent-end reconciliation leaves Repro checkpoint advancement to the daemon owner", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "spark-repro-reconciliation-"));
-  const ctx: SparkToolContext = {
-    cwd,
-    sessionId: "repro-lane",
-    sparkActiveMode: { mode: "execute" },
-  };
-  const sent: SentMessage[] = [];
-  const controller = createSparkAgentEndReconciliationController({
-    sendMessage(message, options) {
-      sent.push({ message, options });
-    },
-  });
-
-  try {
-    const graph = new TaskGraph();
-    const project = graph.createProject({
-      title: "Daemon-owned Repro",
-      description: "Only the Repro owner advances lane checkpoints.",
-      kind: "repro",
-      kindState: { reproId: "repro:test", version: 10 },
-    });
-    graph.createTask({
-      projectRef: project.ref,
-      name: "exactness-checkpoint",
-      title: "Exactness checkpoint",
-      description: "A ready sibling lane must not be claimed by the current lane Session.",
-      status: "ready",
-    });
-    await defaultTaskGraphStore(cwd).save(graph);
-    await saveCurrentProjectRef(cwd, ctx, project.ref);
-    await saveSparkMode(cwd, ctx, { mode: "execute", projectRef: project.ref });
-
-    assert.equal(await controller.reconcile(ctx), false);
-    assert.deepEqual(sent, []);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

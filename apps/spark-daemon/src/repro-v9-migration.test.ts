@@ -2,9 +2,9 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
-import { sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
+import { sessionReproStorePathV2 } from "@zendev-lab/spark-driver";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { migrateLegacyReproV9Snapshots } from "./repro-v9-migration.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";

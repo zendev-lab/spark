@@ -1,3 +1,26 @@
+/**
+ * Spark-managed DSH agent presets.
+ *
+ * The preset compositions are static files versioned with this package under
+ * `presets/agent-presets/<id>/` — no upstream snapshot digest, no runtime
+ * transform. Boot installs them into the DSH user preset root
+ * (`$DSH_HOME/.agent-presets`) with exactly one machine-local substitution:
+ * the absolute path of the package-owned `cue` Skill directory, which only
+ * exists after the package manager lays down `@zendev-lab/cue`.
+ *
+ * Why the user root and not a package root: the supported DSH release's
+ * `composeProfile` force-appends `roots: [<dsh package>/config/agent-presets]`
+ * after every patch overlay, so an overlay can set `default` and
+ * `includeUserRoot` but never replace the discovery roots. The shipped root
+ * is shared with the `dsh` CLI profile and must not be mutated, and a
+ * user-root preset cannot shadow a shipped id (earlier root wins), which is
+ * why the Spark presets keep their `spark-` prefix.
+ *
+ * Installed presets carry a `.spark-managed.json` marker recording the owner,
+ * the DSH release, and the source/content digests. A directory without a
+ * valid marker, or whose content drifted from its marker, is user data: it is
+ * never overwritten or deleted, only reported.
+ */
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -9,23 +32,34 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const SPARK_CUE_PRESETS = ["spark-standard", "spark-code"] as const;
+export const MANAGED_CUE_PRESETS = ["spark-standard", "spark-ptc"] as const;
 
-type SparkCuePreset = (typeof SPARK_CUE_PRESETS)[number];
-type UpstreamPreset = "standard" | "code";
+/** Retired Spark-managed ids, removed from the user root once provably untouched. */
+export const LEGACY_MANAGED_CUE_PRESETS = ["spark-code"] as const;
 
-const UPSTREAM_FILES = {
-  "standard/agent.cordis.yml": "fa14feb98daef20b810fef30bb7239a89a786de3c45c602b37743f7100d9a5af",
-  "standard/preset.yml": "3c61b4ce68e5dd5cb2c099693fdcb30b91d5f22bbbef546e233321b0fa68f0e4",
-  "code/agent.cordis.yml": "bdecfe0b26a9d56a2ffcb79694fc123bc395247969e135c62945a1ec8fb92e87",
-  "code/preset.yml": "ec3e1d288532a96dc35fd96c16c08ea6fd92893323039018f71a37988fc72580",
-} as const;
+type ManagedCuePreset = (typeof MANAGED_CUE_PRESETS)[number];
 
 const MANAGED_MARKER = ".spark-managed.json";
 const MANAGED_OWNER = "@zendev-lab/spark-web-dsh";
 const LEGACY_MANAGED_OWNER = "@zendev-lab/dsh-tool-cue";
+
+/** The one machine-local value substituted at install time. */
+const SKILL_DIR_PLACEHOLDER = 'bundledSkillDir: ""';
+
+/** Display names the packaged metadata must publish, keyed by preset id. */
+const EXPECTED_PRESET_NAMES: Record<ManagedCuePreset, string> = {
+  "spark-standard": "Spark Standard",
+  "spark-ptc": "Spark PTC",
+};
+
+/** Rows the Cue-first compositions must never carry. */
+const FORBIDDEN_ROWS = ["id: tool-bash", "id: tool-pwsh", "id: tool-jobs"] as const;
+
+/** The Spark file-tool adapter the preset's tool-fs row must name. */
+const TOOL_FS_SPECIFIER = "../../profiles/web/plugins/spark-files/index.mjs";
 
 interface ManagedMarker {
   owner: typeof MANAGED_OWNER | typeof LEGACY_MANAGED_OWNER;
@@ -35,19 +69,23 @@ interface ManagedMarker {
 }
 
 export interface ManagedPresetResult {
-  id: SparkCuePreset;
+  id: ManagedCuePreset;
   path: string;
   updated: boolean;
   contentDigest: string;
 }
 
-export interface ManagedCuePresetOptions {
-  /** Relative or absolute plugin specifier replacing the upstream file-tool row. */
-  toolFsPluginSpecifier?: string;
+export interface RetiredPresetResult {
+  id: string;
+  path: string;
+  removed: boolean;
+  /** Why a surviving directory was left alone. */
+  reason?: "unmarked" | "modified" | "not-a-directory";
 }
 
-function sha256(value: string | Buffer): string {
-  return createHash("sha256").update(value).digest("hex");
+/** The packaged preset source root versioned with this package. */
+export function sparkPresetSourceRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "presets", "agent-presets");
 }
 
 function digestFiles(files: Readonly<Record<string, string>>): string {
@@ -82,124 +120,44 @@ export function readDshPackageVersion(dshPackageDir: string): string {
   return record.version;
 }
 
-function readVerifiedUpstream(dshPackageDir: string): Record<keyof typeof UPSTREAM_FILES, string> {
-  const result = {} as Record<keyof typeof UPSTREAM_FILES, string>;
-  for (const [relative, expected] of Object.entries(UPSTREAM_FILES)) {
-    const path = join(dshPackageDir, "config", "agent-presets", relative);
-    const content = readFileSync(path, "utf8");
-    const actual = sha256(content);
-    if (actual !== expected) {
-      throw new Error(
-        `spark web: supported DSH preset source drift at ${path}; expected sha256 ${expected}, got ${actual}. Run the spark-web-dsh preset update workflow before continuing.`,
-      );
-    }
-    result[relative as keyof typeof UPSTREAM_FILES] = content;
-  }
-  return result;
-}
-
-export function removeDshShellAndJobsRows(source: string): string {
-  const lines = source.split("\n");
-  const result: string[] = [];
-  let skipping = false;
-  for (const line of lines) {
-    const row = /^- id: (tool-bash|tool-pwsh|tool-jobs)$/u.exec(line);
-    if (row) {
-      skipping = true;
-      continue;
-    }
-    if (skipping && /^- id: /u.test(line)) skipping = false;
-    if (!skipping) result.push(line);
-  }
-  return result.join("\n");
-}
-
-export function addCueSkillProvider(source: string, skillDir: string): string {
-  const row = "- id: skill-filesystem\n  name: '@deepseek-ai/dsh-skill-filesystem'";
-  const matches = source.split(row).length - 1;
-  if (matches !== 1) {
-    throw new Error(
-      `spark web: expected one DSH skill-filesystem row while mounting ${skillDir}; found ${matches}`,
-    );
-  }
-  return source.replace(
-    row,
-    [
-      row,
-      "",
-      "- id: cue-skill",
-      "  name: '@deepseek-ai/dsh-skill-filesystem'",
-      "  config:",
-      "    providerName: spark-web-dsh",
-      "    includeDefaultRoots: false",
-      `    bundledSkillDir: ${JSON.stringify(skillDir)}`,
-      "    watch: false",
-    ].join("\n"),
-  );
-}
-
-export function replaceDshToolFsRow(source: string, specifier: string): string {
-  if (specifier.trim() === "") throw new Error("spark web: file tool plugin specifier is empty");
-  const row = "  name: '@deepseek-ai/dsh-tool-fs'";
-  const occurrences = source.split(row).length - 1;
-  if (occurrences !== 1) {
-    throw new Error(
-      `spark web: expected one upstream dsh-tool-fs row, found ${occurrences}; update the managed preset transform`,
-    );
-  }
-  return source.replace(row, `  name: ${JSON.stringify(specifier)}`);
-}
-
-export function mapSubagentDelegationToOneShot(source: string): string {
-  return source
-    .replace(
-      "        toolName: subagent\n        backgroundMode: continuable",
-      "        toolName: subagent\n        backgroundMode: one-shot",
-    )
-    .replace(
-      "        toolName: subagent_fork\n        backgroundMode: continuable",
-      "        toolName: subagent_fork\n        backgroundMode: one-shot",
-    );
-}
-
-function managedMetadata(source: string, id: SparkCuePreset): string {
-  const mode = id === "spark-standard" ? "标准" : "PTC";
-  const description =
-    id === "spark-standard"
-      ? "Spark Cue-first 编码 Agent；命令、脚本和后台作业由 Cue 工具提供，不挂载 DSH Bash、Pwsh 或 Jobs 工具。"
-      : "Spark Cue-first Code Mode Agent；通过生成的 SDK 使用 Cue 工具，不挂载 DSH Bash、Pwsh 或 Jobs 工具。";
-  return source
-    .replace(/^name:.*$/mu, `name: Spark ${mode}模式`)
-    .replace(/^description:.*$/mu, `description: ${description}`);
-}
-
-function generatePreset(
-  upstream: Record<keyof typeof UPSTREAM_FILES, string>,
-  id: SparkCuePreset,
+/** Read one packaged preset, filling in the machine-local cue Skill directory. */
+function readPackagedPreset(
+  root: string,
+  id: ManagedCuePreset,
   skillDir: string,
-  options: ManagedCuePresetOptions,
-): Record<"agent.cordis.yml" | "preset.yml", string> {
-  const base: UpstreamPreset = id === "spark-standard" ? "standard" : "code";
-  let composition = mapSubagentDelegationToOneShot(
-    addCueSkillProvider(removeDshShellAndJobsRows(upstream[`${base}/agent.cordis.yml`]), skillDir),
-  );
-  if (options.toolFsPluginSpecifier !== undefined) {
-    composition = replaceDshToolFsRow(composition, options.toolFsPluginSpecifier);
+): { files: Record<"agent.cordis.yml" | "preset.yml", string>; sourceDigest: string } {
+  const dir = join(root, id);
+  let composition: string;
+  let metadata: string;
+  try {
+    composition = readFileSync(join(dir, "agent.cordis.yml"), "utf8");
+    metadata = readFileSync(join(dir, "preset.yml"), "utf8");
+  } catch (error) {
+    throw new Error(`spark web: packaged preset ${id} is incomplete under ${dir}`, {
+      cause: error,
+    });
   }
-  for (const forbidden of ["id: tool-bash", "id: tool-pwsh", "id: tool-jobs"]) {
-    if (composition.includes(forbidden)) {
-      throw new Error(`spark web: preset transformation failed to remove ${forbidden}`);
-    }
+  const placeholders = composition.split(SKILL_DIR_PLACEHOLDER).length - 1;
+  if (placeholders !== 1) {
+    throw new Error(
+      `spark web: expected one cue Skill placeholder in ${dir}/agent.cordis.yml; found ${placeholders}`,
+    );
   }
-  if (
-    composition.includes("toolName: subagent\n        backgroundMode: continuable") ||
-    composition.includes("toolName: subagent_fork\n        backgroundMode: continuable")
-  ) {
-    throw new Error("spark web: preset transformation failed to map subagent tools to one-shot");
-  }
-  return {
+  // The source digest identifies the package revision alone; the installed
+  // content additionally carries the machine-local Skill directory.
+  const sourceDigest = digestFiles({
     "agent.cordis.yml": composition,
-    "preset.yml": managedMetadata(upstream[`${base}/preset.yml`], id),
+    "preset.yml": metadata,
+  });
+  return {
+    files: {
+      "agent.cordis.yml": composition.replace(
+        SKILL_DIR_PLACEHOLDER,
+        `bundledSkillDir: ${JSON.stringify(skillDir)}`,
+      ),
+      "preset.yml": metadata,
+    },
+    sourceDigest,
   };
 }
 
@@ -238,38 +196,47 @@ function installedContent(path: string): Record<string, string> {
   };
 }
 
+/**
+ * The marker-owned-and-unmodified verdict shared by install and retirement.
+ * Returns the marker when the directory is a provably untouched Spark-managed
+ * install, and `undefined` for anything that could be user data.
+ */
+function untouchedManagedMarker(target: string): ManagedMarker | undefined {
+  if (!existsSync(target)) return undefined;
+  const targetStats = lstatSync(target);
+  if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) return undefined;
+  const marker = readMarker(join(target, MANAGED_MARKER));
+  if (marker === undefined) return undefined;
+  let actual: string;
+  try {
+    actual = digestFiles(installedContent(target));
+  } catch {
+    return undefined;
+  }
+  return actual === marker.contentDigest ? marker : undefined;
+}
+
 function assertManagedTargetSafe(target: string): ManagedMarker | undefined {
   if (!existsSync(target)) return undefined;
+  const marker = untouchedManagedMarker(target);
+  if (marker !== undefined) return marker;
   const targetStats = lstatSync(target);
   if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) {
     throw new Error(`spark web: refusing to overwrite non-directory preset ${target}`);
   }
-  const marker = readMarker(join(target, MANAGED_MARKER));
-  if (marker === undefined) {
+  if (readMarker(join(target, MANAGED_MARKER)) === undefined) {
     throw new Error(
       `spark web: refusing to overwrite unmarked preset ${target}; move it aside or migrate it to a different preset id`,
     );
   }
-  let actual: string;
-  try {
-    actual = digestFiles(installedContent(target));
-  } catch (error) {
-    throw new Error(
-      `spark web: refusing to overwrite user-modified managed preset ${target}; move or rename it, then retry`,
-      { cause: error },
-    );
-  }
-  if (actual !== marker.contentDigest) {
-    throw new Error(
-      `spark web: refusing to overwrite user-modified managed preset ${target}; move or rename it, then retry`,
-    );
-  }
-  return marker;
+  throw new Error(
+    `spark web: refusing to overwrite user-modified managed preset ${target}; move or rename it, then retry`,
+  );
 }
 
 function installOne(
   root: string,
-  id: SparkCuePreset,
+  id: ManagedCuePreset,
   files: Record<"agent.cordis.yml" | "preset.yml", string>,
   dshVersion: string,
   sourceDigest: string,
@@ -322,7 +289,6 @@ export function installManagedCuePresets(
   dshHome: string,
   dshPackageDir: string,
   skillDir: string,
-  options: ManagedCuePresetOptions = {},
 ): ManagedPresetResult[] {
   const dshVersion = readDshPackageVersion(dshPackageDir);
   const skillPath = join(skillDir, "cue", "SKILL.md");
@@ -330,19 +296,126 @@ export function installManagedCuePresets(
   if (skillStats === undefined || !skillStats.isFile() || skillStats.isSymbolicLink()) {
     throw new Error(`spark web: bundled cue Skill is not a regular file at ${skillPath}`);
   }
-  const upstream = readVerifiedUpstream(dshPackageDir);
-  const sourceDigest = digestFiles(upstream);
-  const generated = SPARK_CUE_PRESETS.map((id) => ({
+  const sourceRoot = sparkPresetSourceRoot();
+  const generated = MANAGED_CUE_PRESETS.map((id) => ({
     id,
-    files: generatePreset(upstream, id, skillDir, options),
+    ...readPackagedPreset(sourceRoot, id, skillDir),
   }));
   const root = join(dshHome, ".agent-presets");
   // Validate both targets before changing either one.
   for (const { id } of generated) assertManagedTargetSafe(join(root, id));
-  return generated.map(({ id, files }) => installOne(root, id, files, dshVersion, sourceDigest));
+  return generated.map(({ id, files, sourceDigest }) =>
+    installOne(root, id, files, dshVersion, sourceDigest),
+  );
 }
 
-export function verifyDshPresetSources(dshPackageDir: string): string {
-  readDshPackageVersion(dshPackageDir);
-  return digestFiles(readVerifiedUpstream(dshPackageDir));
+/**
+ * Remove generated preset ids retired by Spark. Only a directory carrying a
+ * valid Spark marker AND byte-identical content is deleted; an unmarked,
+ * modified, or non-directory entry is user data and is reported, not touched.
+ * Session logs are separate state and are never read here.
+ */
+export function retireLegacyManagedCuePresets(dshHome: string): RetiredPresetResult[] {
+  const root = join(dshHome, ".agent-presets");
+  const results: RetiredPresetResult[] = [];
+  for (const id of LEGACY_MANAGED_CUE_PRESETS) {
+    const path = join(root, id);
+    if (!existsSync(path)) continue;
+    const stats = lstatSync(path);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      results.push({ id, path, removed: false, reason: "not-a-directory" });
+      continue;
+    }
+    if (readMarker(join(path, MANAGED_MARKER)) === undefined) {
+      results.push({ id, path, removed: false, reason: "unmarked" });
+      continue;
+    }
+    if (untouchedManagedMarker(path) === undefined) {
+      results.push({ id, path, removed: false, reason: "modified" });
+      continue;
+    }
+    rmSync(path, { recursive: true });
+    results.push({ id, path, removed: true });
+  }
+  return results;
+}
+
+/**
+ * Structurally verify the packaged preset sources: both managed ids are
+ * present with complete metadata, the compositions carry the Cue-first deltas
+ * (no DSH shell or job rows, one-shot delegation, the Spark file-tool row,
+ * exactly one cue Skill placeholder), and every referenced `@deepseek-ai/*`
+ * plugin also appears in the packaged upstream fixture for the supported DSH
+ * release. Returns the source digest for logging.
+ */
+export function verifySparkPresetSources(root: string = sparkPresetSourceRoot()): string {
+  const actual = existsSync(root)
+    ? readdirSync(root).filter((name) => {
+        const stats = lstatSync(join(root, name));
+        return stats.isDirectory() && !stats.isSymbolicLink();
+      })
+    : [];
+  const expected = [...MANAGED_CUE_PRESETS].sort();
+  if (actual.sort().join(",") !== expected.join(",")) {
+    throw new Error(
+      `spark web: packaged preset root ${root} must hold exactly ${expected.join(", ")}; found ${actual.join(", ") || "none"}`,
+    );
+  }
+  const fixtureNames = new Set<string>();
+  const fixtureRoot = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "presets",
+    "upstream-package",
+    "config",
+    "agent-presets",
+  );
+  for (const fixture of readdirSync(fixtureRoot)) {
+    const composition = readFileSync(join(fixtureRoot, fixture, "agent.cordis.yml"), "utf8");
+    for (const match of composition.matchAll(/name: ["'](@deepseek-ai\/[^"']+)["']/gu)) {
+      fixtureNames.add(match[1]!);
+    }
+  }
+  const sources: Record<string, string> = {};
+  for (const id of MANAGED_CUE_PRESETS) {
+    const dir = join(root, id);
+    const composition = readFileSync(join(dir, "agent.cordis.yml"), "utf8");
+    const metadata = readFileSync(join(dir, "preset.yml"), "utf8");
+    if (!new RegExp(`^name: ${EXPECTED_PRESET_NAMES[id]}$`, "mu").test(metadata)) {
+      throw new Error(`spark web: preset ${id} must publish name "${EXPECTED_PRESET_NAMES[id]}"`);
+    }
+    if (!/^description: .+$/mu.test(metadata)) {
+      throw new Error(`spark web: preset ${id} must publish a description`);
+    }
+    for (const forbidden of FORBIDDEN_ROWS) {
+      if (composition.includes(forbidden)) {
+        throw new Error(`spark web: preset ${id} must not mount ${forbidden}`);
+      }
+    }
+    if (composition.includes("backgroundMode: continuable")) {
+      throw new Error(`spark web: preset ${id} must map delegation tools to one-shot`);
+    }
+    if (!composition.includes(`name: "${TOOL_FS_SPECIFIER}"`)) {
+      throw new Error(`spark web: preset ${id} must name the Spark file-tool adapter`);
+    }
+    const placeholders = composition.split(SKILL_DIR_PLACEHOLDER).length - 1;
+    if (placeholders !== 1) {
+      throw new Error(
+        `spark web: preset ${id} must carry exactly one cue Skill placeholder; found ${placeholders}`,
+      );
+    }
+    if (!composition.includes("providerName: spark-web-dsh")) {
+      throw new Error(`spark web: preset ${id} must mount the package-owned cue Skill`);
+    }
+    for (const match of composition.matchAll(/name: ["'](@deepseek-ai\/[^"']+)["']/gu)) {
+      if (!fixtureNames.has(match[1]!)) {
+        throw new Error(
+          `spark web: preset ${id} references ${match[1]}, which the supported DSH release's presets never reference; verify the plugin exists in the installed DSH package`,
+        );
+      }
+    }
+    sources[`${id}/agent.cordis.yml`] = composition;
+    sources[`${id}/preset.yml`] = metadata;
+  }
+  return digestFiles(sources);
 }

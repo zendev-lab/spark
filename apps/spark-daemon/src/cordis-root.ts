@@ -27,13 +27,16 @@ import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
+import WebRuntime from "@deepseek-ai/dsh-web";
 import { cueSkillsRoot } from "@zendev-lab/cue";
+import DshWebProvider from "@zendev-lab/dsh-tool-web/provider";
+import * as DshCueService from "@zendev-lab/dsh-cue/plugin";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
+import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-invocation";
 import sparkSessionSubagentPlugin, {
   type SparkSubagentHost,
 } from "@zendev-lab/spark-session/subagent";
-import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "@zendev-lab/spark-turn";
+import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "./product/host/agent-runtime/agent-loop.ts";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
 import { SparkDaemonInvocationRegistry } from "./core/index.ts";
@@ -99,7 +102,6 @@ const SPARK_SKILL_TOOL_POLICY = Object.freeze({
   effect: "read",
   executionMode: "sequential",
   domains: ["skills"],
-  modes: ["plan", "execute"],
   approval: "none",
   reconcile: "none",
 } as const satisfies SparkDshToolPolicyMetadata);
@@ -211,6 +213,9 @@ async function mountSparkDshRuntime(
   await ctx.plugin(LlmRuntime);
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
+  await ctx.plugin(WebRuntime);
+  await ctx.plugin(DshWebProvider, {});
+  await ctx.plugin(DshCueService);
   await ctx.plugin(SandboxPolicy, {
     mode: "danger-full-access",
     workspaceRoot: process.cwd(),

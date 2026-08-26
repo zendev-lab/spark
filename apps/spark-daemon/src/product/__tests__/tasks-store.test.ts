@@ -20,10 +20,9 @@ import {
   type RoleRef,
   type RoleRunCompletionOutcome,
   type RunRef,
-  type TaskPlan,
   type TaskRef,
-  type TaskRun,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type TaskPlan, type TaskRun } from "@zendev-lab/spark-tasks";
 import {
   WorkflowRunStoreFormatError,
   defaultWorkflowRunStore,
@@ -43,7 +42,7 @@ import {
   sweepExpiredTaskClaims,
   type SparkRoleInstructionExecutorInput,
   type SparkRoleRunResult,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   TaskGraph,
   TaskGraphStore,

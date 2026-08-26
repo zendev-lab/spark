@@ -20,8 +20,6 @@ import {
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
   sparkSessionMediaReadResultSchema,
-  sparkSessionModeResultSchema,
-  sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotRequestSchema,
   sparkSideThreadConfigureRequestSchema,
   sparkSideThreadEnsureRequestSchema,
@@ -43,8 +41,6 @@ import {
   type SparkSessionListRequest,
   type SparkSessionMediaReadRequest,
   type SparkSessionMediaReadResult,
-  type SparkSessionMode,
-  type SparkSessionModeResult,
   type SparkSessionProjection,
   type SparkSessionSnapshotRequest,
   type SparkSideThreadSnapshot,
@@ -150,7 +146,6 @@ export interface HubRuntimeSessionClient {
   bind(input: SparkSessionBindRequest): Promise<SparkSessionProjection>;
   unbind(input: SparkSessionBindRequest): Promise<SparkSessionProjection>;
   archive(sessionId: string): Promise<SparkSessionProjection>;
-  setMode(input: { sessionId: string; mode: SparkSessionMode }): Promise<SparkSessionModeResult>;
   close(sessionId: string): Promise<SparkSessionProjection>;
   submit(input: {
     sessionId: string;
@@ -213,7 +208,6 @@ export function createHubRuntimeSessionClient(
     bind: async (input) => await bindSession(database(), input),
     unbind: async (input) => await unbindSession(database(), input),
     archive: async (sessionId) => await archiveSession(database(), sessionId),
-    setMode: async (input) => await setSessionMode(database(), input),
     close: async (sessionId) => await closeSession(database(), sessionId),
     submit: async (input) => await submitTurn(database(), input),
     cancel: async (input) => await cancelTurn(database(), input),
@@ -695,20 +689,6 @@ async function archiveSession(
   sessionId: string,
 ): Promise<SparkSessionProjection> {
   return await mutateSession(db, "session.archive.request", { sessionId });
-}
-
-async function setSessionMode(
-  db: DatabaseSync,
-  input: { sessionId: string; mode: SparkSessionMode },
-): Promise<SparkSessionModeResult> {
-  const parsed = sparkSessionSetModeRequestSchema.parse(input);
-  const route = requireOnlineRoute(db, runtimeSessionRouteForSession(db, parsed.sessionId));
-  const result = await runRuntimeSessionControlCommand(db, {
-    route,
-    sessionId: parsed.sessionId,
-    payload: { kind: "session.mode.set.request", payload: publicJsonObject(parsed) },
-  });
-  return sparkSessionModeResultSchema.parse(result);
 }
 
 async function closeSession(db: DatabaseSync, sessionId: string): Promise<SparkSessionProjection> {

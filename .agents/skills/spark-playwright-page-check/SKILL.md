@@ -74,6 +74,6 @@ await browser.close();
 - Report `PAGE_STATUS`, `CONSOLE_ERRORS`, `PAGE_ERRORS`, `FAILED_REQUESTS`, and the body snippet verbatim.
 - Do not claim "page works" from a 200 alone — a 200 page can still fail client-plugin boot (loader errors only appear in `CONSOLE_ERRORS`/`PAGE_ERRORS`).
 - Do not read screenshots as evidence unless the model can view images; the structured fields above are the evidence.
-- The URL is not trusted on the service side: a browser check does not replace `--trusted-host` setup for real LAN access from other machines.
+- A browser check does not replace the service trust boundary: direct LAN access accepts only loopback or the host's automatically discovered local interface IP literals, and remote peers still need daemon-user authentication.
 
 Return `pageStatus`, `consoleErrors`, `pageErrors`, `failedRequests`, `bodyEvidence`, `verdict`, and `blockingReasons`.

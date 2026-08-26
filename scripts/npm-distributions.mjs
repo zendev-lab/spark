@@ -19,13 +19,6 @@ export const nativeNpmDistributions = [
     cpu: "arm64",
   },
   {
-    id: "native-darwin-x64",
-    target: "x86_64-apple-darwin",
-    suffix: "darwin-x64",
-    os: "darwin",
-    cpu: "x64",
-  },
-  {
     id: "native-linux-arm64",
     target: "aarch64-unknown-linux-musl",
     suffix: "linux-arm64",
@@ -155,7 +148,7 @@ export const npmDistributions = [
     files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-hub" },
-    migrationSource: resolve(root, "packages/spark-hub-db/src/migrations"),
+    migrationSource: resolve(root, "packages/spark-hub-storage-sqlite/src/migrations"),
   },
   {
     id: "web",
@@ -183,7 +176,7 @@ export const npmDistributions = [
     bundles: {
       "spark-web-dsh.js": "apps/spark-web-dsh/src/cli-entry.ts",
     },
-    files: ["bin", "dist", "lib", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    files: ["bin", "dist", "lib", "presets", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-web-dsh" },
   },

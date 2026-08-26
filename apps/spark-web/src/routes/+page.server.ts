@@ -1,11 +1,10 @@
 import { invokeSparkWebRpc } from "$lib/server/rpc";
 import { isUnregisteredWorkspaceError } from "$lib/daemon-surface";
-import { listSparkWebSessions } from "$lib/server/session-list";
+import { loadSparkWebDashboard } from "$lib/server/dashboard";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async () => {
-  const listed = await invokeSparkWebRpc("workspace.list", {});
-  const sessions = await listSparkWebSessions();
+  const dashboard = await loadSparkWebDashboard();
   const launchCwd = process.cwd();
   let cwdWorkspaceId: string | null = null;
   try {
@@ -17,8 +16,7 @@ export const load: PageServerLoad = async () => {
     if (!isUnregisteredWorkspaceError(error)) throw error;
   }
   return {
-    workspaces: listed.workspaces,
-    sessions,
+    ...dashboard,
     cwdWorkspaceId,
     launchCwd,
   };

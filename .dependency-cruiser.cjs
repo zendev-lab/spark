@@ -35,11 +35,10 @@ module.exports = {
     {
       name: "no-direct-cordis",
       comment:
-        "Cordis is the composition root for dsh-llm, daemon store services, and the spark-turn agent-loop driver.",
+        "Cordis is the composition root for dsh-llm, daemon store services, and the daemon agent-loop driver.",
       severity: "error",
       from: {
-        pathNot:
-          "^(packages/spark-llm/|packages/spark-turn/|packages/spark-session/|apps/spark-daemon/)",
+        pathNot: "^(packages/spark-llm-providers/|packages/spark-session/|apps/spark-daemon/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
@@ -47,11 +46,10 @@ module.exports = {
     },
     {
       name: "no-direct-dsh-llm",
-      comment:
-        "dsh-llm is limited to the daemon composition root, the provider adapter family, and the transitional turn-loop driver.",
+      comment: "dsh-llm is limited to the daemon composition root and the provider adapter family.",
       severity: "error",
       from: {
-        pathNot: "^(apps/spark-daemon/|packages/spark-llm/|packages/spark-turn/)",
+        pathNot: "^(apps/spark-daemon/|packages/spark-llm-providers/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-llm(?:/|$)|/node_modules/@deepseek-ai/dsh-llm(?:/|$)|^@deepseek-ai/dsh-llm(?:/|$)",
@@ -60,10 +58,10 @@ module.exports = {
     {
       name: "no-direct-dsh-session",
       comment:
-        "dsh-session and dsh-session-persistence are limited to the daemon Cordis root and the spark-turn agent-loop driver.",
+        "dsh-session and dsh-session-persistence are limited to the daemon composition root and the Session owner.",
       severity: "error",
       from: {
-        pathNot: "^(apps/spark-daemon/|packages/spark-turn/|packages/spark-session/)",
+        pathNot: "^(apps/spark-daemon/|packages/spark-session/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|/node_modules/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|^@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)",
@@ -187,26 +185,7 @@ module.exports = {
       },
     },
 
-    // --- spark foundation packages (exclude Hub-private spark-hub-* packages) ---
-    {
-      name: "spark-fusion-foundation-only",
-      comment:
-        "spark-fusion is a host-neutral leaf orchestration capability and may depend only on " +
-        "spark-core among workspace packages.",
-      severity: "error",
-      from: {
-        path: "^packages/spark-fusion/",
-      },
-      to: {
-        path: [
-          "^apps/",
-          "^packages/(?!spark-(?:core|fusion)(?:/|$))",
-          "node_modules/.*/@zendev-lab/(?!spark-(?:core|fusion)(?:/|$))",
-          "/node_modules/@zendev-lab/(?!spark-(?:core|fusion)(?:/|$))",
-          "^@zendev-lab/(?!spark-(?:core|fusion)(?:/|$))",
-        ].join("|"),
-      },
-    },
+    // --- Spark shared packages (exclude Hub-private spark-hub-* packages) ---
     {
       name: "spark-repro-no-host-or-product",
       comment:
@@ -220,13 +199,13 @@ module.exports = {
         path: [
           "^apps/",
           "^packages/pi-",
-          "^packages/spark-(?:fusion|host|llm|runtime|turn|workflows)(?:/|$)",
+          "^packages/(?:dsh-tool-fusion|spark-(?:llm-providers|task-runtime|workflows))(?:/|$)",
           "node_modules/.*/@zendev-lab/pi-",
           "/node_modules/@zendev-lab/pi-",
           "^@zendev-lab/pi-",
-          "node_modules/.*/@zendev-lab/spark-(?:cli|hub|daemon|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
-          "/node_modules/@zendev-lab/spark-(?:cli|hub|daemon|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
-          "^@zendev-lab/spark-(?:cli|hub|daemon|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
+          "node_modules/.*/@zendev-lab/(?:dsh-tool-fusion|spark-(?:cli|hub|daemon|llm-providers|task-runtime|workflows))(?:/|$)",
+          "/node_modules/@zendev-lab/(?:dsh-tool-fusion|spark-(?:cli|hub|daemon|llm-providers|task-runtime|workflows))(?:/|$)",
+          "^@zendev-lab/(?:dsh-tool-fusion|spark-(?:cli|hub|daemon|llm-providers|task-runtime|workflows))(?:/|$)",
           "node_modules/.*/@earendil-works/pi-",
           "/node_modules/@earendil-works/pi-",
           "^@earendil-works/pi-",
@@ -245,9 +224,9 @@ module.exports = {
       },
     },
     {
-      name: "spark-core-no-product-adapters",
+      name: "spark-shared-no-product-adapters",
       comment:
-        "Spark core/runtime packages must not depend on product coordination or app adapter packages.",
+        "Spark shared packages must not depend on product coordination or app adapter packages.",
       severity: "error",
       from: {
         // Hub-private packages are excluded from shared-package restrictions.
@@ -258,7 +237,7 @@ module.exports = {
       },
     },
     {
-      name: "spark-core-no-app-internals",
+      name: "spark-shared-no-app-internals",
       comment: "Spark shared packages must not import Spark app host internals.",
       severity: "error",
       from: {
@@ -269,14 +248,14 @@ module.exports = {
       },
     },
 
-    // --- foundation contract packages (protocol + core) ---
+    // --- foundation contract packages (protocol + invocation) ---
     {
       name: "foundation-contract-no-product-or-app",
       comment:
         "foundation contract packages must not depend on product coordination or app adapters.",
       severity: "error",
       from: {
-        path: "^packages/spark-(protocol|core)/",
+        path: "^packages/spark-(protocol|invocation)/",
       },
       to: {
         path: `(${productAdapterResolvedPathPattern()})|(${sparkAppInternalResolvedPathPattern()})`,
@@ -287,7 +266,7 @@ module.exports = {
     {
       name: "execution-worker-import-boundary",
       comment:
-        "Daemon-private execution worker modules may import only their wire contract and the host, protocol, and turn boundaries.",
+        "Daemon-private execution worker modules may import only their wire contract, daemon agent runtime, Invocation, and protocol boundaries.",
       severity: "error",
       from: {
         path: "^apps/spark-daemon/src/execution/(?:contract[.]ts|worker-entry[.]ts|worker/)",
@@ -295,7 +274,8 @@ module.exports = {
       to: {
         pathNot: [
           "^apps/spark-daemon/src/execution/(?:contract[.]ts|worker/)",
-          "^packages/spark-(?:host|protocol|turn)/",
+          "^apps/spark-daemon/src/product/host/",
+          "^packages/spark-(?:invocation|protocol)/",
         ].join("|"),
       },
     },
@@ -339,7 +319,7 @@ module.exports = {
         "coverage",
         "\\.git",
         // Prebuilt DSH runtime bundles intentionally preserve host-resolved
-        // externals. Their source ownership is checked in packages/spark-llm;
+        // externals. Their source ownership is checked in packages/spark-llm-providers;
         // cruising generated imports would report the app as a second owner.
         "^apps/spark-web-dsh/lib/",
         // package-internal relative imports into own src are fine; deep-link rule
@@ -379,14 +359,13 @@ function productAdapterResolvedPathPattern() {
 function piAllowedSparkFoundationDirs() {
   return [
     "spark-artifacts",
-    "spark-core",
-    "spark-host",
-    "spark-loop",
-    "spark-phases",
+    "spark-invocation",
+    "spark-driver",
+    "spark-roles",
+    "spark-task-runtime",
     "spark-tasks",
-    "spark-turn",
     "spark-workflows",
-    "spark-text",
+    "spark-text-rendering",
   ];
 }
 

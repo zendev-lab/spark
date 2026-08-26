@@ -7,7 +7,6 @@ import {
   type ExecutorClientProjection,
   type RuntimeWorkspaceBindingAssignment,
   type RuntimeWorkspaceBindingSummary,
-  type RuntimeRegistrationResponse,
   type WorkspaceBorrowedState,
   type WorkspaceClientKind,
   type WorkspaceClientProjection,
@@ -15,7 +14,7 @@ import {
   type WorkspaceSessionSurface,
 } from "@zendev-lab/spark-protocol";
 import type { SparkTaskClaimLeaseIdentity } from "@zendev-lab/spark-protocol/task-claim";
-import { asciiSlug } from "@zendev-lab/spark-system";
+import { asciiSlug } from "@zendev-lab/spark-platform-node";
 import { SparkDaemonControlError } from "../control-error.ts";
 
 export interface WorkspaceProfileRegistration {
@@ -30,8 +29,6 @@ export interface SparkDaemonWorkspace {
   serverWorkspaceId?: string;
   serverBindingId?: string;
   hubBindingState?: RuntimeWorkspaceBindingAssignment["state"];
-  /** Returned once by workspace registration; never persisted or listed later. */
-  workspaceAuthorization?: NonNullable<RuntimeRegistrationResponse["workspaceAuthorization"]>;
   serverUrl: string;
   localWorkspaceKey: string;
   displayName: string;

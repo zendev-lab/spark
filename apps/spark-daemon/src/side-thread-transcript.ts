@@ -23,7 +23,7 @@ import {
   sparkSessionSnapshotIndexPath,
   SparkSessionRegistryError,
 } from "@zendev-lab/spark-session";
-import { formatSparkSideThreadHandoff } from "@zendev-lab/spark-turn/side-thread";
+import { formatSparkSideThreadHandoff } from "./product/host/agent-runtime/side-thread.ts";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { SparkDaemonSessionControlOptions } from "./session-control.ts";
