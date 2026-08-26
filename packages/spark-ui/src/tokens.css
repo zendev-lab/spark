@@ -1,7 +1,7 @@
 /*
- * Spark Hub design tokens.
+ * Spark product design tokens.
  *
- * This file is the source of truth for Hub design tokens. Keep token changes
+ * This file is the source of truth for shared Spark design tokens. Keep token changes
  * here so documentation cannot drift from the executable representation.
  *
  * Naming conventions follow the W3C Design Tokens / Tailwind v4 CSS variable
@@ -163,6 +163,11 @@
   --shell-sidebar-width-compact: 240px;
   --layout-sidebar-width: var(--shell-sidebar-width-compact);
   --layout-top-bar-height: var(--shell-topbar-height);
+  --layout-content-max: 1120px;
+  --layout-wide-max: 1280px;
+  --layout-compact-max: 760px;
+  --layout-page-padding-inline: var(--spacing-xxl);
+  --layout-page-padding-block: var(--spacing-xl);
 
   /* ----- Controls and motion --------------------------------------------- */
 

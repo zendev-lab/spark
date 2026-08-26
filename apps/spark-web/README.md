@@ -50,5 +50,11 @@ Shared presentation lives in `@zendev-lab/spark-ui`. cwd is only a launch
 context; an unregistered cwd still starts the workbench and can be registered
 from the home page.
 
+Native Web composes its cross-route page, form, action, status, dialog, theme,
+and responsive language from the shared Spark visual system. Route-local CSS
+arranges domain content without creating a competing control or semantic-color
+system. The hidden browser file input remains the sole specialized native form
+control in route code; its visible trigger is tokenized with the composer.
+
 See [`PARITY.md`](./PARITY.md) for the capability-to-owner/test/runtime-evidence
 index. Rows without real runtime evidence are intentionally not marked complete.

@@ -4,6 +4,20 @@
     SparkModelControlSnapshot,
     SparkModelRef,
   } from "@zendev-lab/spark-protocol";
+  import {
+    Button,
+    Checkbox,
+    ConfirmDialog,
+    Field,
+    Input,
+    Notice,
+    PageHeader,
+    PageLayout,
+    Panel,
+    Select,
+    StatusPill,
+    type SelectGroup,
+  } from "@zendev-lab/spark-ui";
   import { oauthHref } from "$lib/provider-auth";
   import { webRpc } from "$lib/web-rpc";
 
@@ -22,12 +36,26 @@
   let busy = $state("");
   let status = $state<{ tone: "status" | "error"; message: string } | null>(null);
   let notificationPermission = $state<NotificationPermission | "unsupported">("unsupported");
+  let restartOpen = $state(false);
 
   onMount(() => {
     notificationPermission = "Notification" in globalThis ? Notification.permission : "unsupported";
   });
 
   const allModels = $derived(catalog.providers.flatMap((provider) => provider.models));
+  let modelGroups = $derived<SelectGroup[]>([
+    {
+      id: "models",
+      options: [
+        { value: "", label: copy.chooseDefault },
+        ...allModels.map((entry) => ({
+          value: modelValue(entry.model),
+          label: `${entry.model.modelLabel ?? entry.model.modelId} · ${entry.model.providerLabel ?? entry.model.providerName}`,
+          disabled: !entry.available,
+        })),
+      ],
+    },
+  ]);
 
   $effect(() => {
     if (modelPolicyInitialized) return;
@@ -117,11 +145,17 @@
   }
 
   async function restartDaemon() {
-    if (typeof globalThis.confirm === "function" && !globalThis.confirm(copy.restartConfirm)) return;
     await run("Daemon restart", async () => {
       const result = await webRpc("daemon.restart", {});
+      restartOpen = false;
       return `Daemon restart ${result.restartId} accepted; active work is draining.`;
     });
+  }
+
+  function toggleEnabledModel(value: string, checked: boolean) {
+    enabledValues = checked
+      ? [...enabledValues, value]
+      : enabledValues.filter((candidate) => candidate !== value);
   }
 
   async function enableNotifications() {
@@ -130,112 +164,114 @@
   }
 </script>
 
-<section class="page">
-  <header>
-    <h1>{copy.title}</h1>
-    <p>{copy.lede}</p>
-  </header>
+<PageLayout width="content">
+  <PageHeader title={copy.title} lede={copy.lede} />
   {#if status}
-    <p class:error={status.tone === "error"} class="status" role={status.tone === "error" ? "alert" : "status"}>{status.message}</p>
+    <Notice tone={status.tone === "error" ? "danger" : "success"} message={status.message} />
   {/if}
 
-  <section class="settings-card" aria-labelledby="model-policy-heading">
-    <h2 id="model-policy-heading">{copy.modelPolicy}</h2>
-    <label>{copy.defaultModel}
-      <select bind:value={defaultValue}>
-        <option value="">{copy.chooseDefault}</option>
-        {#each allModels as entry (modelValue(entry.model))}
-          <option value={modelValue(entry.model)} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {entry.model.providerLabel ?? entry.model.providerName}</option>
-        {/each}
-      </select>
-    </label>
-    <button type="button" disabled={!defaultValue || Boolean(busy)} onclick={() => void saveDefaultModel()}>{copy.saveDefault}</button>
+  <Panel title={copy.modelPolicy} id="model-policy-heading">
+    <div class="policy-row">
+      <Field id="default-model" label={copy.defaultModel} reserveMeta={false}>
+        <Select id="default-model" bind:value={defaultValue} groups={modelGroups} label={copy.defaultModel} />
+      </Field>
+      <Button disabled={!defaultValue || Boolean(busy)} onclick={() => void saveDefaultModel()}>{copy.saveDefault}</Button>
+    </div>
     <fieldset>
       <legend>{copy.enabledModels}</legend>
       <div class="model-grid">
         {#each allModels as entry (modelValue(entry.model))}
-          <label class="checkbox"><input type="checkbox" bind:group={enabledValues} value={modelValue(entry.model)} disabled={!entry.available} /><span>{entry.model.modelLabel ?? entry.model.modelId}<small>{entry.model.providerLabel ?? entry.model.providerName}</small></span></label>
+          {@const value = modelValue(entry.model)}
+          <Checkbox
+            id={`enabled-model-${value.replaceAll(/[^a-zA-Z0-9_-]/g, "-")}`}
+            label={entry.model.modelLabel ?? entry.model.modelId}
+            description={entry.model.providerLabel ?? entry.model.providerName}
+            checked={enabledValues.includes(value)}
+            disabled={!entry.available}
+            onchange={(event) => toggleEnabledModel(value, event.currentTarget.checked)}
+          />
         {/each}
       </div>
     </fieldset>
-    <button type="button" disabled={Boolean(busy)} onclick={() => void saveEnabledModels()}>{copy.saveEnabledModels}</button>
+    <Button class="panel-action" disabled={Boolean(busy)} onclick={() => void saveEnabledModels()}>{copy.saveEnabledModels}</Button>
     {#if catalog.diagnostics.length > 0}<ul class="diagnostics">{#each catalog.diagnostics as diagnostic}<li>{diagnostic}</li>{/each}</ul>{/if}
-  </section>
+  </Panel>
 
-  <section aria-labelledby="providers-heading">
-    <h2 id="providers-heading">{copy.providers}</h2>
+  <Panel title={copy.providers} id="providers-heading">
     <div class="provider-grid">
       {#each catalog.providers as provider (provider.providerName)}
         <article>
-          <header><div><h3>{provider.label}</h3><code>{provider.providerName}</code></div><span>{provider.auth.configured ? copy.configured : copy.notConfigured}</span></header>
+          <header><div><h3>{provider.label}</h3><code>{provider.providerName}</code></div><StatusPill label={provider.auth.configured ? copy.configured : copy.notConfigured} tone={provider.auth.configured ? "success" : "neutral"} /></header>
           {#if provider.auth.reference}<p>{copy.source}: {provider.auth.reference}</p>{/if}
           {#if provider.auth.kind === "api_key"}
             <form onsubmit={(event) => { event.preventDefault(); void saveKey(provider.providerName); }}>
-              <label>{copy.apiKey}<input type="password" autocomplete="new-password" bind:value={keyByProvider[provider.providerName]} /></label>
-              <button type="submit" disabled={Boolean(busy)}>{copy.saveKey}</button>
+              <Field id={`api-key-${provider.providerName}`} label={copy.apiKey} reserveMeta={false}>
+                <Input id={`api-key-${provider.providerName}`} type="password" autocomplete="new-password" bind:value={keyByProvider[provider.providerName]} />
+              </Field>
+              <Button type="submit" disabled={Boolean(busy)}>{copy.saveKey}</Button>
             </form>
           {:else if provider.auth.kind === "oauth"}
-            <a class="button" href={oauthHref(provider.providerName)}>{copy.startOAuth}</a>
+            <Button href={oauthHref(provider.providerName)}>{copy.startOAuth}</Button>
           {/if}
-          {#if provider.auth.configured}<button type="button" class="secondary danger" disabled={Boolean(busy)} onclick={() => void logout(provider.providerName)}>{copy.logout}</button>{/if}
+          {#if provider.auth.configured}<Button variant="danger" disabled={Boolean(busy)} onclick={() => void logout(provider.providerName)}>{copy.logout}</Button>{/if}
         </article>
       {/each}
     </div>
-  </section>
+  </Panel>
 
-  <section class="settings-card" aria-labelledby="pi-import-heading">
-    <h2 id="pi-import-heading">{copy.importPi}</h2>
-    <p>{copy.importPiHint}</p>
+  <Panel title={copy.importPi} note={copy.importPiHint} id="pi-import-heading">
     <form onsubmit={(event) => { event.preventDefault(); void importPiAuth(); }}>
-      <label>{copy.sourcePath}<input type="text" autocomplete="off" bind:value={piSourcePath} required /></label>
-      <label class="checkbox"><input type="checkbox" bind:checked={piOverwrite} />{copy.overwriteCredentials}</label>
-      <button type="submit" disabled={Boolean(busy)}>{copy.import}</button>
+      <Field id="pi-source-path" label={copy.sourcePath} required reserveMeta={false}>
+        <Input id="pi-source-path" type="text" autocomplete="off" bind:value={piSourcePath} required />
+      </Field>
+      <Checkbox id="pi-overwrite" label={copy.overwriteCredentials} bind:checked={piOverwrite} />
+      <Button type="submit" disabled={Boolean(busy)}>{copy.import}</Button>
     </form>
-  </section>
+  </Panel>
 
-  <section class="settings-card" aria-labelledby="daemon-heading">
-    <h2 id="daemon-heading">{copy.daemon}</h2>
+  <Panel title={copy.daemon} id="daemon-heading">
     <dl><div><dt>{copy.lifecycle}</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>{copy.build}</dt><dd>{daemon.buildFingerprint ?? copy.unavailable}</dd></div><div><dt>{copy.invocations}</dt><dd>{daemon.invocations.running} {copy.running} · {daemon.invocations.queued} {copy.queued} · {daemon.invocations.failed} {copy.failed}</dd></div><div><dt>{copy.observed}</dt><dd>{daemon.observedAt}</dd></div></dl>
-    <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>{copy.refresh}</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>{copy.restart}</button></div>
-  </section>
+    <div class="row"><Button variant="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>{copy.refresh}</Button><Button variant="danger" disabled={Boolean(busy)} onclick={() => (restartOpen = true)}>{copy.restart}</Button></div>
+  </Panel>
 
-  <section class="settings-card" aria-labelledby="notification-heading">
-    <h2 id="notification-heading">{copy.notifications}</h2>
-    <p>{copy.notificationsHint}</p>
-    <div class="row"><button type="button" class="secondary" disabled={notificationPermission === "unsupported" || notificationPermission === "granted"} onclick={() => void enableNotifications()}>{notificationPermission === "granted" ? copy.notificationsEnabled : notificationPermission === "unsupported" ? copy.notificationsUnavailable : copy.enableNotifications}</button><span>{notificationPermission}</span></div>
-  </section>
-</section>
+  <Panel title={copy.notifications} note={copy.notificationsHint} id="notification-heading">
+    <div class="row"><Button variant="secondary" disabled={notificationPermission === "unsupported" || notificationPermission === "granted"} onclick={() => void enableNotifications()}>{notificationPermission === "granted" ? copy.notificationsEnabled : notificationPermission === "unsupported" ? copy.notificationsUnavailable : copy.enableNotifications}</Button><StatusPill label={notificationPermission} status={notificationPermission} /></div>
+  </Panel>
+</PageLayout>
+
+<ConfirmDialog
+  bind:open={restartOpen}
+  title={copy.restart}
+  description={copy.restartConfirm}
+  confirmLabel={copy.restart}
+  cancelLabel={copy.cancel}
+  danger
+  loading={busy === "Daemon restart"}
+  onConfirm={() => void restartDaemon()}
+/>
 
 <style>
-  .page { display: grid; gap: 20px; margin: 0 auto; max-width: 1120px; padding: 24px; }
-  h1, h2, h3, p { margin: 0; }
-  .page > header, .settings-card, article, form, label { display: grid; gap: 8px; }
-  .page > header p, article p, .settings-card > p { color: var(--color-ink-muted); }
-  .settings-card, article { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; }
-  .provider-grid, .model-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+  h3, p { margin: 0; }
+  article, form { display: grid; gap: var(--spacing-sm); }
+  article p { color: var(--color-ink-muted); }
+  .provider-grid { display: grid; gap: var(--spacing-md); grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+  .model-grid { display: grid; gap: var(--spacing-md); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .policy-row { align-items: end; display: grid; gap: var(--spacing-sm); grid-template-columns: minmax(0, 1fr) auto; }
+  .policy-row > :global(.ui-button),
+  :global(.panel-action),
+  form > :global(.ui-button),
+  article > :global(.ui-button) { justify-self: start; }
+  article { background: var(--color-surface-soft); border: 1px solid var(--color-border); border-radius: var(--rounded-lg); padding: var(--spacing-lg); }
   article > header { align-items: start; display: flex; justify-content: space-between; }
   article > header div { display: grid; gap: 3px; }
-  article > header span { color: var(--color-ink-muted); font-size: 12px; }
-  input, select { background: var(--color-canvas); border: 1px solid var(--color-border); border-radius: 7px; box-sizing: border-box; color: var(--color-ink); min-width: 0; padding: 8px; width: 100%; }
-  button, .button { background: var(--color-primary); border: 1px solid transparent; border-radius: 8px; color: var(--color-on-primary); cursor: pointer; justify-self: start; padding: 8px 12px; text-decoration: none; }
-  button.secondary { background: transparent; border-color: var(--color-border); color: var(--color-ink); }
-  button.danger { background: var(--color-danger); color: white; }
-  button.secondary.danger { background: transparent; border-color: var(--color-danger); color: var(--color-danger); }
-  button:disabled { cursor: not-allowed; opacity: 0.55; }
-  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { box-shadow: var(--shadow-focus); outline: none; }
-  .checkbox { align-items: start; display: grid; grid-template-columns: auto minmax(0, 1fr); }
-  .checkbox input { margin-top: 2px; width: auto; }
-  .checkbox span { display: grid; }
-  .checkbox small { color: var(--color-ink-muted); }
   fieldset { border: 0; margin: 0; padding: 0; }
-  legend { font-weight: 650; margin-bottom: 8px; }
+  legend { font-weight: var(--weight-card-title); margin-bottom: var(--spacing-sm); }
   .row { display: flex; flex-wrap: wrap; gap: 8px; }
-  .status { background: var(--color-success-soft); border-radius: 8px; color: var(--color-success-strong); padding: 10px; }
-  .status.error, .error { background: var(--color-danger-soft); color: var(--color-danger-strong); }
   .diagnostics { color: var(--color-warning-strong); }
   dl { display: grid; gap: 5px; margin: 0; }
   dl div { display: grid; gap: 8px; grid-template-columns: 110px minmax(0, 1fr); }
   dt { color: var(--color-ink-muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
-  @media (max-width: 640px) { .page { padding: 14px; } .provider-grid, .model-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .provider-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .model-grid, .policy-row { grid-template-columns: 1fr; } }
 </style>

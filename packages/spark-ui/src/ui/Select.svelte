@@ -15,6 +15,7 @@
     disabled = false,
     required = false,
     compact = false,
+    fit = false,
     onValueChange,
   }: {
     id: string;
@@ -26,6 +27,7 @@
     disabled?: boolean;
     required?: boolean;
     compact?: boolean;
+    fit?: boolean;
     onValueChange?: (value: string) => void;
   } = $props();
 
@@ -48,7 +50,7 @@
 >
   <Select.Trigger
     {id}
-    class="ui-select-trigger {compact ? 'compact' : ''}"
+    class="ui-select-trigger {compact ? 'compact' : ''} {fit ? 'fit' : ''}"
     aria-label={label}
     aria-describedby={describedBy}
     aria-invalid={invalid}
@@ -108,6 +110,11 @@
     min-height: 32px;
     min-width: 140px;
     padding-block: 4px;
+  }
+
+  :global(.ui-select-trigger.fit) {
+    min-width: 0;
+    width: auto;
   }
 
   :global(.ui-select-trigger > span) {

@@ -1,7 +1,17 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { goto } from "$app/navigation";
-  import { Button, Icon, Select, type SelectGroup } from "@zendev-lab/spark-ui";
+  import {
+    Button,
+    ConfirmDialog,
+    Dialog,
+    Icon,
+    Input,
+    Notice,
+    Select,
+    type SelectGroup,
+  } from "@zendev-lab/spark-ui";
+  import { DialogClose, DialogTitle } from "@zendev-lab/spark-ui/headless";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
     ApprovalPart,
@@ -76,6 +86,8 @@
       : data.sessions,
   );
   let busySessionId = $state<string | undefined>();
+  let closeSessionOpen = $state(false);
+  let pendingCloseSession = $state<SparkSessionProjection | null>(null);
   let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
   let prompt = $state("");
@@ -97,7 +109,7 @@
     format: string;
     content: string;
   } | null>(null);
-  let artifactPreviewElement = $state<HTMLElement>();
+  let artifactPreviewOpen = $state(false);
   let artifactPreviewReturnFocus: HTMLElement | null = null;
   let askError = $state<string | null>(null);
   let askWaits = $state<PendingHumanInteraction[]>([]);
@@ -269,6 +281,8 @@
     windowOverride = null;
     treeSessionsOverride = null;
     busySessionId = undefined;
+    closeSessionOpen = false;
+    pendingCloseSession = null;
     treeError = null;
     loadingEarlier = false;
     historyError = null;
@@ -278,6 +292,7 @@
     submitting = false;
     actionFeedback = null;
     artifactPreview = null;
+    artifactPreviewOpen = false;
     artifactPreviewRequestToken += 1;
     searchOpen = false;
     searchQuery = "";
@@ -320,10 +335,7 @@
   $effect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (artifactPreview) {
-        event.preventDefault();
-        void closeArtifactPreview();
-      } else if (searchOpen) {
+      if (searchOpen) {
         searchOpen = false;
       }
     };
@@ -931,13 +943,6 @@
   ) {
     if (busySessionId) return;
     const ownerSessionId = snapshot.sessionId;
-    if (
-      action === "close" &&
-      typeof globalThis.confirm === "function" &&
-      !globalThis.confirm(`Close ${session.name ?? session.sessionId}?`)
-    ) {
-      return;
-    }
     busySessionId = session.sessionId;
     treeError = null;
     try {
@@ -971,6 +976,17 @@
         busySessionId = undefined;
       }
     }
+  }
+
+  function requestSessionClose(session: SparkSessionProjection) {
+    pendingCloseSession = session;
+    closeSessionOpen = true;
+  }
+
+  function confirmSessionClose() {
+    if (!pendingCloseSession) return;
+    closeSessionOpen = false;
+    void mutateSessionTree(pendingCloseSession, "close");
   }
 
   async function answerAsk(
@@ -1026,8 +1042,7 @@
         format: artifact?.format ?? "text",
         content,
       };
-      await tick();
-      artifactPreviewElement?.focus();
+      artifactPreviewOpen = true;
     } catch (error) {
       if (
         requestToken !== artifactPreviewRequestToken ||
@@ -1041,10 +1056,10 @@
     }
   }
 
-  async function closeArtifactPreview() {
+  function completeArtifactPreview(open: boolean) {
+    if (open) return;
     artifactPreview = null;
-    await tick();
-    artifactPreviewReturnFocus?.focus();
+    requestAnimationFrame(() => artifactPreviewReturnFocus?.focus());
   }
 
   function mediaHref(item: ConversationMessageView, contentIndex: number): string {
@@ -1065,9 +1080,9 @@
 </script>
 
 {#snippet queueActions(item: { id: string })}
-  <button type="button" class="queue-remove" onclick={() => void cancelQueuedTurn(item.id)}>
+  <Button variant="ghost" size="compact" onclick={() => void cancelQueuedTurn(item.id)}>
     {copy.removeQueued}
-  </button>
+  </Button>
 {/snippet}
 
 <div class="workbench-shell">
@@ -1081,13 +1096,13 @@
       hrefFor={(sessionId) => `/sessions/${sessionId}`}
       onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
       onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
-      onClose={(session) => mutateSessionTree(session as SparkSessionProjection, "close")}
+      onClose={(session) => requestSessionClose(session as SparkSessionProjection)}
     />
     {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
   </aside>
   <section class="workbench">
   <div class="session-actions" aria-label={copy.actions}>
-    <button type="button" onclick={() => (searchOpen = !searchOpen)}>{copy.searchHistory}</button>
+    <Button variant="secondary" size="compact" onclick={() => (searchOpen = !searchOpen)}><Icon name="search" size={14} />{copy.searchHistory}</Button>
     <details>
       <summary>{copy.export}</summary>
       <div class="export-menu">
@@ -1096,22 +1111,23 @@
         {/each}
       </div>
     </details>
-    <button type="button" onclick={() => void createLocalShare()} disabled={sharing}>
+    <Button variant="secondary" size="compact" onclick={() => void createLocalShare()} disabled={sharing}>
+      <Icon name="share" size={14} />
       {sharing ? copy.sharing : copy.localShare}
-    </button>
-    {#if shareHref}<a href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</a>{/if}
+    </Button>
+    {#if shareHref}<Button variant="ghost" size="compact" href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</Button>{/if}
   </div>
   {#if searchOpen}
     <section class="history-search" aria-label={copy.historySearchRegion}>
       <form onsubmit={(event) => void searchHistory(event)}>
         <label for="session-history-search">{copy.historySearchLabel}</label>
-        <div><input id="session-history-search" type="search" bind:value={searchQuery} required /><button type="submit" disabled={searching}>{searching ? data.messages.web.shell.searching : data.messages.web.shell.search}</button></div>
+        <div><Input id="session-history-search" type="search" bind:value={searchQuery} required /><Button type="submit" disabled={searching}>{searching ? data.messages.web.shell.searching : data.messages.web.shell.search}</Button></div>
       </form>
       {#if searchError}<p role="alert">{searchError}</p>{/if}
       {#if searchResults.length > 0}
         <ul>
           {#each searchResults as result (result.ref)}
-            <li><button type="button" onclick={() => void revealSearchMatch(result.messageId)}><strong>{result.role}</strong><span>{result.excerpt}</span></button></li>
+            <li><Button variant="ghost" onclick={() => void revealSearchMatch(result.messageId)}><strong>{result.role}</strong><span>{result.excerpt}</span></Button></li>
           {/each}
         </ul>
       {:else if searchQuery && !searching}
@@ -1121,9 +1137,9 @@
   {/if}
   {#if window.history.hasEarlierMessages}
     <div class="history-controls">
-      <button type="button" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
+      <Button variant="secondary" size="compact" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
         {loadingEarlier ? copy.loadingEarlier : `${copy.loadEarlier} (${window.history.earlierMessages})`}
-      </button>
+      </Button>
       {#if historyError}<span role="alert">{historyError}</span>{/if}
     </div>
   {/if}
@@ -1217,8 +1233,8 @@
           <div class="memory-feedback">
             {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
               <code>{memoryRef}</code>
-              <button type="button" aria-label={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}>👍</button>
-              <button type="button" aria-label={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}>👎</button>
+              <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}><Icon name="thumbs-up" size={14} /></Button>
+              <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}><Icon name="thumbs-down" size={14} /></Button>
             {/each}
           </div>
         {/if}
@@ -1233,7 +1249,7 @@
     actions={queueActions}
   />
 
-  {#if askError}<p class="error" role="alert">{askError}</p>{/if}
+  {#if askError}<Notice tone="danger" message={askError} />{/if}
   {#if askWaits.length > 0}
     <section class="asks">
       {#each askWaits as wait (wait.interactionRequestId)}
@@ -1265,7 +1281,7 @@
           {#each pendingAttachments as attachment, index (`${attachment.name}:${attachment.size}:${index}`)}
             <span>
               {attachment.name} · {Math.ceil(attachment.size / 1024)} KiB
-              <button type="button" aria-label={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <Button variant="ghost" size="compact" ariaLabel={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}><Icon name="close" size={13} /></Button>
             </span>
           {/each}
           {#if attachmentError}<span class="attachment-error" role="alert">{attachmentError}</span>{/if}
@@ -1273,6 +1289,7 @@
       {/snippet}
       {#snippet actions()}
         <label class="attach-button">
+          <Icon name="file" size={14} />
           <span>{copy.addFiles}</span>
           <input type="file" multiple onchange={(event) => void addAttachments(event)} />
         </label>
@@ -1347,9 +1364,7 @@
     </Composer>
   </form>
   {#if actionFeedback}
-    <p class:action-error={actionFeedback.tone === "error"} class="action-feedback" role={actionFeedback.tone === "error" ? "alert" : "status"}>
-      {actionFeedback.message}
-    </p>
+    <Notice tone={actionFeedback.tone === "error" ? "danger" : "success"} message={actionFeedback.message} />
   {/if}
 
   <SessionStatusBar
@@ -1367,21 +1382,34 @@
   />
 </div>
 
-{#if artifactPreview}
-  <div class="preview-backdrop" role="presentation">
-    <div bind:this={artifactPreviewElement} class="artifact-preview" role="dialog" aria-modal="true" tabindex="-1" aria-label={`Artifact preview: ${artifactPreview.title}`}>
+<ConfirmDialog
+  bind:open={closeSessionOpen}
+  title={copy.closeSessionTitle}
+  description={copy.closeSessionDescription.replace(
+    "{name}",
+    pendingCloseSession?.name ?? pendingCloseSession?.sessionId ?? copy.tree.untitled,
+  )}
+  confirmLabel={copy.confirmCloseSession}
+  cancelLabel={copy.cancelCloseSession}
+  danger
+  onConfirm={confirmSessionClose}
+/>
+
+<Dialog bind:open={artifactPreviewOpen} width="min(900px, calc(100vw - 32px))" maxHeight="min(820px, calc(100dvh - 32px))" layout="grid" overflow="hidden" mobile="sheet" onOpenChangeComplete={completeArtifactPreview}>
+  {#if artifactPreview}
+    <section class="artifact-preview" aria-label={`Artifact preview: ${artifactPreview.title}`}>
       <header>
-        <div><strong>{artifactPreview.title}</strong><code>{artifactPreview.ref}</code></div>
-        <button type="button" onclick={() => void closeArtifactPreview()}>{copy.close}</button>
+        <div><DialogTitle class="artifact-title">{artifactPreview.title}</DialogTitle><code>{artifactPreview.ref}</code></div>
+        <DialogClose class="artifact-close" aria-label={copy.close}><Icon name="close" size={17} /></DialogClose>
       </header>
       {#if artifactPreview.format === "markdown"}
         <SafeMarkdown source={artifactPreview.content} />
       {:else}
         <pre>{artifactPreview.content}</pre>
       {/if}
-    </div>
-  </div>
-{/if}
+    </section>
+  {/if}
+</Dialog>
 
 <style>
   .workbench-shell {
@@ -1414,17 +1442,17 @@
     flex-wrap: wrap;
     gap: 8px;
   }
-  .session-actions button,
   .session-actions summary,
-  .session-actions a,
-  .queue-remove,
   .attach-button {
+    align-items: center;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--rounded-sm);
     color: var(--color-ink);
     cursor: pointer;
+    display: inline-flex;
     font: inherit;
+    gap: 6px;
     padding: 5px 8px;
     text-decoration: none;
   }
@@ -1463,10 +1491,6 @@
   .history-search form {
     flex-direction: column;
   }
-  .history-search input {
-    flex: 1;
-    min-width: 0;
-  }
   .history-search ul {
     display: grid;
     gap: 4px;
@@ -1474,14 +1498,10 @@
     margin: 0;
     padding: 0;
   }
-  .history-search li button {
-    background: transparent;
-    border: 0;
-    color: var(--color-ink);
-    cursor: pointer;
+  .history-search li :global(.ui-button) {
     display: grid;
     gap: 2px;
-    padding: 6px;
+    justify-content: stretch;
     text-align: start;
     width: 100%;
   }
@@ -1500,17 +1520,6 @@
   }
   .memory-feedback code {
     font-size: 11px;
-  }
-  .memory-feedback button {
-    background: transparent;
-    border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
-    cursor: pointer;
-    padding: 3px 5px;
-  }
-  .memory-feedback button:disabled {
-    cursor: wait;
-    opacity: 0.55;
   }
   @media (max-width: 760px) {
     .workbench-shell {
@@ -1556,12 +1565,6 @@
     gap: 4px;
     padding: 3px 8px;
   }
-  .attachment-list button {
-    background: transparent;
-    border: 0;
-    color: inherit;
-    cursor: pointer;
-  }
   .attachment-error {
     color: var(--color-danger);
   }
@@ -1571,18 +1574,11 @@
     opacity: 0;
     position: absolute;
   }
-  .action-feedback {
-    color: var(--color-ink-muted);
-    font-size: var(--text-caption);
-    margin: 0;
-  }
-  .action-feedback.action-error {
-    color: var(--color-danger);
-  }
-  .preview-backdrop { align-items: center; background: color-mix(in srgb, var(--color-canvas) 72%, transparent); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 20; }
-  .artifact-preview { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--rounded-lg); box-shadow: var(--shadow-lg); display: grid; gap: 12px; max-height: min(80vh, 760px); max-width: min(900px, 92vw); overflow: auto; padding: 16px; width: 100%; }
-  .artifact-preview header { align-items: start; display: flex; justify-content: space-between; }
+  .artifact-preview { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 320px; }
+  .artifact-preview header { align-items: start; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; padding: var(--spacing-lg) var(--spacing-xl); }
   .artifact-preview header div { display: grid; gap: 3px; }
-  .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; white-space: pre-wrap; }
-  .artifact-preview button { background: transparent; border: 1px solid var(--color-border); border-radius: var(--rounded-sm); color: var(--color-ink); cursor: pointer; padding: 5px 8px; }
+  :global(.artifact-title) { font-size: var(--text-section-title); font-weight: var(--weight-section-title); margin: 0; }
+  .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; padding: var(--spacing-lg) var(--spacing-xl); white-space: pre-wrap; }
+  :global(.artifact-close) { align-items: center; background: transparent; border: 0; border-radius: var(--rounded-md); color: var(--color-ink-muted); cursor: pointer; display: inline-flex; height: 32px; justify-content: center; width: 32px; }
+  :global(.artifact-close:hover) { background: var(--color-surface-soft); }
 </style>
