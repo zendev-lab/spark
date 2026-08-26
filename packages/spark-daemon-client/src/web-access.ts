@@ -61,6 +61,32 @@ export function resolveSparkWebLanAddresses(): string[] {
     .map((iface) => iface.address);
 }
 
+/** Format one directly reachable browser authority, including IPv6 brackets. */
+export function sparkWebBrowserAuthority(host: string, port: number): string {
+  const trimmed = host.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${trimmed}`);
+  } catch {
+    parsed = new URL(`http://[${trimmed}]`);
+  }
+  const hostname =
+    parsed.hostname.startsWith("[") || !parsed.hostname.includes(":")
+      ? parsed.hostname
+      : `[${parsed.hostname}]`;
+  return parsed.port ? parsed.host : `${hostname}:${port}`;
+}
+
+/** Expand a wildcard listener into URLs a browser can actually open. */
+export function sparkWebReachableHosts(
+  host: string,
+  lanAddresses: readonly string[] = resolveSparkWebLanAddresses(),
+): string[] {
+  if (isSparkWebLoopbackClientAddress(host)) return [host];
+  if (host.trim() === "0.0.0.0") return ["127.0.0.1", ...lanAddresses];
+  return [host];
+}
+
 export function isSparkWebHtmlNavigation(input: {
   method?: string | null;
   accept?: string | null;
@@ -242,7 +268,7 @@ export function renderSparkWebAccessPage(
       <input id="spark-access-token" name="token" type="password" required autofocus spellcheck="false" autocomplete="off" placeholder="sdu_…" />
       <button type="submit">Continue</button>
     </form>
-    <p class="hint">Generate a token on the host with <code>spark daemon access create</code>.</p>
+    <p class="hint">Use the token printed when the Web process started, or create a managed token with <code>spark daemon access create</code>.</p>
   </main>
 </body>
 </html>`;

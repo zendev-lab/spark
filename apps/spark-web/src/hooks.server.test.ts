@@ -80,6 +80,7 @@ test("access form verifies with the daemon, sets the HttpOnly carrier cookie, an
   );
   assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
   assert.equal(cookieSet.mock.calls[0]?.[2]?.httpOnly, true);
+  assert.equal(cookieSet.mock.calls[0]?.[2]?.secure, false);
 });
 
 test("invalid and unavailable access tokens stay on the shared access page", async () => {

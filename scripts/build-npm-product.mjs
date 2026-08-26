@@ -115,6 +115,7 @@ async function writeProductManifest(distribution, dependencies) {
         }
       : {}),
     ...(Object.keys(distribution.exports).length > 0 ? { exports: distribution.exports } : {}),
+    ...(distribution.dsh ? { dsh: distribution.dsh } : {}),
     files: distribution.files,
     engines: { node: rootManifest.engines.node },
     publishConfig: {

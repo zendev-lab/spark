@@ -77,9 +77,19 @@ import { dirname, join, resolve } from "node:path";
 import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { cueSkillsRoot } from "@zendev-lab/cue";
+import {
+  createSparkWebStartupAccessToken,
+  ensureSparkDaemonRunning,
+  sparkWebBrowserAuthority,
+  sparkWebReachableHosts,
+  type SparkWebStartupAccessToken,
+} from "@zendev-lab/spark-daemon-client";
 import { startSparkWebDshAuthProxy } from "./auth-proxy.ts";
 import { installManagedCuePresets, retireLegacyManagedCuePresets } from "./cue-presets.ts";
-import { SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY } from "./private-webserver.ts";
+import {
+  SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY,
+  SPARK_WEB_DSH_PROXY_HEADER,
+} from "./private-webserver.ts";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -292,30 +302,35 @@ export interface DshPluginBundleResult {
   rebuilt: boolean;
 }
 
-/** Build the credential-gated DSH WebServer adapter into the active profile. */
-export async function ensureSparkPrivateWebServerBundle(profileDir: string): Promise<string> {
-  const packageDir = resolveSparkWebDshPackageDir();
+/** Install the credential-gated DSH WebServer adapter into the active profile. */
+export async function ensureSparkPrivateWebServerBundle(
+  profileDir: string,
+  packageDir = resolveSparkWebDshPackageDir(),
+): Promise<string> {
   const bundle = join(profileDir, "plugins", "spark-private-webserver", "index.mjs");
   mkdirSync(dirname(bundle), { recursive: true });
-  await build({
-    stdin: {
-      contents: [
-        'import WebServer from "@deepseek-ai/dsh-host-webserver";',
-        'import { createSparkPrivateWebServerClass, takeSparkWebDshProxyCredential } from "./src/private-webserver.ts";',
-        "export default createSparkPrivateWebServerClass(WebServer, takeSparkWebDshProxyCredential());",
-      ].join("\n"),
-      resolveDir: packageDir,
-      sourcefile: "spark-private-webserver-entry.ts",
-    },
-    bundle: true,
-    format: "esm",
-    platform: "node",
-    target: "node22",
-    outfile: bundle,
-    external: ["@deepseek-ai/*"],
-    logLevel: "silent",
-  });
-  return bundle;
+  const sourceEntry = join(packageDir, "src", "private-webserver-entry.mjs");
+  if (existsSync(sourceEntry)) {
+    await build({
+      entryPoints: [sourceEntry],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      outfile: bundle,
+      external: ["@deepseek-ai/*"],
+      logLevel: "silent",
+    });
+    return bundle;
+  }
+  const packagedEntry = join(packageDir, "lib", "spark-private-webserver.mjs");
+  if (existsSync(packagedEntry)) {
+    writeFileSync(bundle, readFileSync(packagedEntry));
+    return bundle;
+  }
+  throw new Error(
+    `spark web: private WebServer entry not found at ${sourceEntry} or ${packagedEntry}`,
+  );
 }
 
 interface DshToolBundleOptions {
@@ -1118,24 +1133,93 @@ export async function prepareSparkWebDispatch(
 /** Boot the DSH web profile through the dispatcher launcher. */
 export async function runSparkWeb(args: SparkWebArgs): Promise<number> {
   const prepared = await prepareSparkWebDispatch(args);
+  await ensureSparkDaemonRunning();
   const proxy = await startSparkWebDshAuthProxy({
     host: prepared.proxy.host,
     port: prepared.proxy.port,
     targetPort: prepared.proxy.targetPort,
     proxyCredential: prepared.proxy.credential,
   });
-  const displayHost = prepared.proxy.host.includes(":")
-    ? `[${prepared.proxy.host}]`
-    : prepared.proxy.host;
-  process.stdout.write(`spark web-dsh: http://${displayHost}:${prepared.proxy.port}/\n`);
+  let startupAccess: SparkWebStartupAccessToken | undefined;
+  let stopPromise: Promise<void> | undefined;
+  const stop = () =>
+    (stopPromise ??= Promise.all([
+      startupAccess?.revoke().catch(() => undefined) ?? Promise.resolve(),
+      proxy.close().catch(() => undefined),
+    ]).then(() => undefined));
+  const interrupt = () => {
+    void stop().then(() => process.exit(0));
+  };
+  const terminate = () => {
+    void stop().then(() => process.exit(0));
+  };
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", terminate);
   try {
-    return await runSparkWebDirect(
+    startupAccess = await createSparkWebStartupAccessToken("spark web-dsh");
+    const readinessController = new AbortController();
+    const directRun = runSparkWebDirect(
       prepared.profileDir,
       prepared.patches,
       prepared.webArgs,
       prepared.proxy.credential,
     );
+    const startup = await Promise.race([
+      directRun.then((code) => ({ outcome: "exit" as const, code })),
+      waitForSparkWebDshReady(
+        prepared.proxy.targetPort,
+        prepared.proxy.credential,
+        readinessController.signal,
+      ).then(() => ({ outcome: "ready" as const })),
+    ]);
+    if (startup.outcome === "exit") {
+      readinessController.abort();
+      return startup.code;
+    }
+    process.stdout.write(
+      sparkWebDshListeningText(sparkWebDshBrowserUrls(prepared.proxy), startupAccess.token),
+    );
+    return await directRun;
   } finally {
-    await proxy.close();
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+    await stop();
   }
+}
+
+/** Wait until the credential-guarded private DSH page is actually servable. */
+export async function waitForSparkWebDshReady(
+  port: number,
+  proxyCredential: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  while (!signal?.aborted) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { [SPARK_WEB_DSH_PROXY_HEADER]: proxyCredential },
+        signal: AbortSignal.timeout(500),
+      });
+      await response.body?.cancel();
+      if (response.ok) return;
+    } catch {
+      // The child has not bound the private listener yet.
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+}
+
+export function sparkWebDshBrowserUrls(
+  proxy: Pick<SparkWebDispatch["proxy"], "host" | "port">,
+  lanAddresses?: readonly string[],
+): string[] {
+  return sparkWebReachableHosts(proxy.host, lanAddresses).map(
+    (host) => `http://${sparkWebBrowserAuthority(host, proxy.port)}/`,
+  );
+}
+
+export function sparkWebDshListeningText(urls: readonly string[], accessToken: string): string {
+  return (
+    `Spark web-dsh listening:\n${urls.map((url) => `  ${url}`).join("\n")}\n` +
+    `Startup access token:\n  ${accessToken}\nSpark revokes this token during normal shutdown.\n`
+  );
 }

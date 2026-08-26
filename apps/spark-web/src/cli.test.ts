@@ -4,13 +4,47 @@ import { test } from "vitest";
 import { SparkDaemonStartupError } from "@zendev-lab/spark-daemon-client";
 import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
 
-import { runSparkWebCli, sparkWebHelpText } from "./cli.ts";
+import {
+  configureSparkWebPlainHttpProtocol,
+  markSparkWebPlainHttpRequest,
+  runSparkWebCli,
+  sparkWebHelpText,
+  sparkWebListeningText,
+} from "./cli.ts";
 
 test("spark web help documents direct LAN access without trusted-host", () => {
   assert.match(sparkWebHelpText(), /\[--hmr\]/u);
   assert.match(sparkWebHelpText(), /local IPv4 interfaces automatically/u);
   assert.doesNotMatch(sparkWebHelpText(), /--trusted-host/u);
   assert.match(sparkWebHelpText(), /Vite development server/u);
+  assert.match(sparkWebHelpText(), /Every startup also\s+prints a daemon access token/u);
+});
+
+test("spark web prints reachable URLs and its daemon-issued startup token", () => {
+  assert.equal(
+    sparkWebListeningText(
+      ["http://127.0.0.1:4310/", "http://192.168.1.5:4310/"],
+      "sdu_abcdefghijklmnopqrstuvwxyz123456",
+    ),
+    `Spark web listening:
+  http://127.0.0.1:4310/
+  http://192.168.1.5:4310/
+Startup access token:
+  sdu_abcdefghijklmnopqrstuvwxyz123456
+Spark revokes this token during normal shutdown.
+`,
+  );
+});
+
+test("embedded Adapter Node receives the direct listener's real HTTP protocol", () => {
+  const env: NodeJS.ProcessEnv = { PROTOCOL_HEADER: "x-untrusted-forwarded-proto" };
+  const request = {
+    headers: { "x-spark-web-proto": "https", "x-untrusted-forwarded-proto": "https" },
+  };
+  configureSparkWebPlainHttpProtocol(env);
+  markSparkWebPlainHttpRequest(request);
+  assert.equal(env.PROTOCOL_HEADER, "x-spark-web-proto");
+  assert.equal(request.headers["x-spark-web-proto"], "http");
 });
 
 test("spark web rejects removed trusted-host configuration", async () => {

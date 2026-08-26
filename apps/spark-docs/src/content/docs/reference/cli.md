@@ -80,10 +80,14 @@ spark web --port 4310
 spark web --host 0.0.0.0 --port 4310
 ```
 
-The command prints the reachable workbench URLs without opening a browser.
+The command prints the reachable workbench URLs without opening a browser. It
+also prints a daemon-issued process token after every startup and revokes that
+token during normal shutdown. Actual loopback peers remain tokenless; the
+printed token is a fallback when runtime address classification disagrees.
 
-Daemon access tokens are owned by the daemon, which stores only hashes. Create
-a token (the plaintext prints exactly once), list the metadata, or revoke:
+Daemon access tokens are owned by the daemon, which stores only hashes. Use the
+following commands for separately managed tokens, to inspect metadata after an
+unclean launcher exit, or to revoke a token:
 
 ```text
 spark daemon access create [--label <note>] [--expires-at <iso>] [--json]
@@ -109,7 +113,9 @@ rule, local-IP trust semantics, and Spark Access page as native Web:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-This command also prints its server URL without opening a browser.
+This command also expands wildcard binds into reachable local URLs without
+opening a browser. Every launch starts or reconnects the daemon and prints the
+same kind of process token as native Web.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.

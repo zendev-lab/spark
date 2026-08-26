@@ -48,9 +48,14 @@ authorities are discovered automatically, and remote peers require the
 daemon-owned `daemon-user` token family.
 
 Remote document navigation opens the same Spark Access page as native
-`spark web`. Generate a token with `spark daemon access create`, enter it on the
-page, and Spark verifies it through the daemon before storing an HttpOnly,
-SameSite=Strict cookie. `?token=…`, `x-spark-web-token`, and the
+`spark web`. Every launch starts or reconnects the daemon, expands a wildcard
+bind into reachable local URLs, prints a daemon-issued process token, and
+revokes it during normal shutdown. Actual loopback peers do not need the token,
+but it remains a usable fallback if runtime address classification disagrees.
+Enter the token on the page; Spark
+verifies it through the daemon before storing an HttpOnly, SameSite=Strict
+cookie. Use `spark daemon access create` for a separately managed token.
+`?token=…`, `x-spark-web-token`, and the
 `spark_web_token` cookie remain supported carrier forms for compatibility and
 automation. API and WebSocket requests do not receive an HTML login page: they
 retain carrier-level 401/503 responses.

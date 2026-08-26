@@ -11,7 +11,8 @@ spark web
 
 `spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出工作台 URL（例如
 `http://127.0.0.1:4310/`），但不会自动打开浏览器。真正从回环 peer 到达的请求免
-token。
+token。每次启动仍会打印一个 daemon 签发的进程 token；若 runtime 无法把本机 peer
+识别为回环，它可作为可用 fallback。
 
 需要通过本机局域网 IPv4 访问时，直接绑定 `0.0.0.0`。Spark 会自动发现本机非回环
 IPv4，不再维护单独的 trusted-host allowlist。Direct Web 只接受回环地址与本机接口
@@ -22,10 +23,12 @@ IP literal；Host、Origin/Fetch Metadata 与 mutation 来源检查先于认证�
 spark web --host 0.0.0.0 --port 4310
 ```
 
-远端 peer 必须持有 daemon 访问 token。`daemon-user` token family 由 daemon 拥有：
-只存哈希，并负责校验每个携带的 token。用 `spark daemon access create` 创建（明文只
-打印一次），用 `spark daemon access list` 查看元数据，用
-`spark daemon access revoke` 吊销。
+远端 peer 必须持有 daemon 访问 token。每次启动 `spark web` 都会要求 daemon 创建一个
+当前进程使用的 token；listener ready 后，终端会同时打印 token 明文和
+所有可访问的本机 URL，并在正常退出时吊销这个 token。`daemon-user` token family 仍只
+由 daemon 拥有、只存哈希并负责校验。需要独立管理的 token 时继续使用
+`spark daemon access create`，用 `spark daemon access list` 查看元数据；launcher
+异常退出后或不再需要长期 token 时，用 `spark daemon access revoke` 吊销。
 
 远端浏览器进行页面导航时会进入统一的 Spark Access 页面。输入 token 后，Spark 通过
 daemon 校验，并写入 HttpOnly、SameSite=Strict cookie，再返回原页面。`?token=…` 继续
@@ -60,7 +63,7 @@ Session Action Bar 中的 `/plan`、`/execute` 和 `/fleet` 是经由普通 turn
 
 `spark web-dsh` 启动独立打包、基于 DeepSeek Harness 宿主的 Spark 产品界面；
 它不会替代或修改 `spark web`。在原生 Spark Web 通过替代门槛前，这个界面仍然
-保留。命令只输出服务 URL，不会自动打开浏览器：
+保留。命令输出可访问的本机 URL，但不会自动打开浏览器：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
@@ -69,7 +72,9 @@ spark web-dsh --host 0.0.0.0 --port 8888
 DSH server 本身始终锁定在随机回环端口，并由一次性进程凭据保护；所有监听地址都由
 Spark 外层 access proxy 提供服务。该 proxy 与 native Web 使用相同的 peer-based 规则和
 Spark Access 页面：实际回环 peer 免 token，本机接口 IPv4 自动发现，远端 peer 使用同一套
-daemon-owned access token。Host、Origin 与 Fetch Metadata 检查仍先于 token 校验；API
+daemon-owned access token。每次启动 `spark web-dsh` 都会启动或重连 daemon，
+在 URL 后打印新创建的进程 token，并像 native Web 一样在正常退出时吊销。Host、Origin
+与 Fetch Metadata 检查仍先于 token 校验；API
 与 WebSocket 保持 transport-level 认证错误，daemon 不可达时 fail closed。
 
 DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 `cue` Skill 快照挂入

@@ -26,7 +26,11 @@ Spark discovers those interface addresses automatically; there is no separate
 trusted-host configuration. Requests that actually arrive through loopback
 remain tokenless, while remote peers require a daemon access token. The daemon
 owns the `daemon-user` token family (hashed storage, optional expiry, immediate
-revocation); mint one with `spark daemon access create`. Remote document
+revocation). Every launch prints a daemon-issued process token after the
+listener is ready and revokes it during normal shutdown. Loopback peers do not
+need it, but it remains a usable fallback if the runtime cannot classify a
+local peer as loopback; use
+`spark daemon access create` for a separately managed token. Remote document
 navigation opens the Spark Access page, which verifies the token through the
 daemon and stores it in an HttpOnly cookie. The `?token=…` navigation carrier
 remains available for automation/deep links but is not the primary user flow.

@@ -75,10 +75,11 @@ spark web --port 4310
 spark web --host 0.0.0.0 --port 4310
 ```
 
-命令只输出可访问的工作台 URL，不会自动打开浏览器。
+命令输出可访问的工作台 URL，但不会自动打开浏览器。对于非回环 listener，它还会在
+listener ready 后打印 daemon 创建的进程 token，并在正常退出时吊销。
 
-daemon 访问 token 由 daemon 持有，只存储哈希。创建（明文只打印一次）、
-列出元数据或吊销：
+daemon 访问 token 由 daemon 持有，只存储哈希。需要单独管理 token、在 launcher
+异常退出后检查元数据或手工吊销时，使用：
 
 ```text
 spark daemon access create [--label <备注>] [--expires-at <iso>] [--json]
@@ -101,7 +102,8 @@ token 规则、本机 IP trust 语义和 Spark Access 页面：
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-该命令同样只输出服务 URL，不会自动打开浏览器。
+该命令同样不会自动打开浏览器，并会把 wildcard bind 展开成可访问的本机 URL。
+每次启动都会启动或重连 daemon，并打印与 native Web 相同类型的进程 token。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读
