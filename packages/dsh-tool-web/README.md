@@ -40,6 +40,9 @@ The tool plugin keeps at most 64 complete responses in Agent-lifetime memory.
 `dsh-tool-*` consumer a persistent state owner. The old
 `.spark/web/content.json` file is neither read nor deleted by this hard cut.
 
-All model-facing text is capped at 32,000 characters. URL fetches reject local,
-private, metadata, and non-HTTP(S) targets by default, and retrieved text is
-wrapped as untrusted Web content before it reaches the model.
+All model-facing text is capped at 32,000 characters. URL response bodies are
+read incrementally and cancelled at the configured byte limit, so truncation is
+also a retrieval memory boundary rather than a post-read presentation step.
+URL fetches reject local, private, metadata, and non-HTTP(S) targets by default,
+and retrieved text is wrapped as untrusted Web content before it reaches the
+model.

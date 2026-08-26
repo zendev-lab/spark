@@ -133,7 +133,7 @@ test("web_fetch covers GitHub raw URLs, Jina URLs, PDF placeholders, and bounded
       allowPrivateHosts: true,
       maxBytes: 100,
     });
-    assert.match(long.content, /truncated 1100 chars/u);
+    assert.match(long.content, /truncated after 100 bytes/u);
     assert.equal((await store.list()).length, 4);
   } finally {
     await rm(dir, { recursive: true, force: true });

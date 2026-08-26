@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { zstdCompressSync } from "node:zlib";
 import { test } from "vitest";
 
 import {
@@ -66,6 +67,18 @@ async function temporaryArtifact(
   const directory = await mkdtemp(join(tmpdir(), "spark-web-dsh-history-"));
   const path = join(directory, "session.jsonl.zstd");
   await writeFile(path, Buffer.alloc(bytes));
+  return {
+    path,
+    dispose: () => rm(directory, { recursive: true, force: true }),
+  };
+}
+
+async function temporaryZstdArtifact(
+  frames: Buffer[],
+): Promise<{ path: string; dispose(): Promise<void> }> {
+  const directory = await mkdtemp(join(tmpdir(), "spark-web-dsh-history-zstd-"));
+  const path = join(directory, "session.jsonl.zstd");
+  await writeFile(path, Buffer.concat(frames.map((frame) => zstdCompressSync(frame))));
   return {
     path,
     dispose: () => rm(directory, { recursive: true, force: true }),
@@ -249,6 +262,51 @@ test.sequential("cold artifacts over the physical fence are refused before histo
         })) as { result: { ok: boolean; error: { message: string } } };
         assert.equal(response.result.ok, false);
         assert.match(response.result.error.message, /too large to open safely/);
+        assert.equal(calls, 0);
+      },
+    );
+  } finally {
+    await artifact.dispose();
+  }
+});
+
+test.sequential("high-compression cold artifacts are refused before history loading", async () => {
+  const artifact = await temporaryZstdArtifact([
+    Buffer.from("header\n"),
+    Buffer.alloc(4_096, 0x61),
+    Buffer.alloc(4_096, 0x62),
+  ]);
+  try {
+    await withEnvironment(
+      {
+        SPARK_WEB_MAX_COLD_HISTORY_ARTIFACT_BYTES: "5000",
+        SPARK_WEB_MAX_HISTORY_RESPONSE_BYTES: "1024",
+      },
+      async () => {
+        let calls = 0;
+        const ctx = {
+          apiProxy: {
+            sessions: {
+              history: async (request: Request) => {
+                calls += 1;
+                return successfulResponse(request);
+              },
+            },
+          },
+          fs: inertFileSystem(),
+          sessions: { get: () => undefined },
+          sessionPersistence: {
+            list: async () => [{ id: "cold" }],
+            locate: () => ({ path: artifact.path }),
+          },
+        };
+        apply(ctx);
+        const response = (await ctx.apiProxy.sessions.history({
+          rpcId: "rpc",
+          payload: { sessionId: "cold", maxMessages: 50 },
+        })) as { result: { ok: boolean; error: { message: string } } };
+        assert.equal(response.result.ok, false);
+        assert.match(response.result.error.message, /decoded bytes/);
         assert.equal(calls, 0);
       },
     );
