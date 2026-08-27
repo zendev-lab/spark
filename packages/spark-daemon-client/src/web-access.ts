@@ -61,6 +61,32 @@ export function resolveSparkWebLanAddresses(): string[] {
     .map((iface) => iface.address);
 }
 
+/** Format one directly reachable browser authority, including IPv6 brackets. */
+export function sparkWebBrowserAuthority(host: string, port: number): string {
+  const trimmed = host.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${trimmed}`);
+  } catch {
+    parsed = new URL(`http://[${trimmed}]`);
+  }
+  const hostname =
+    parsed.hostname.startsWith("[") || !parsed.hostname.includes(":")
+      ? parsed.hostname
+      : `[${parsed.hostname}]`;
+  return parsed.port ? parsed.host : `${hostname}:${port}`;
+}
+
+/** Expand a wildcard listener into URLs a browser can actually open. */
+export function sparkWebReachableHosts(
+  host: string,
+  lanAddresses: readonly string[] = resolveSparkWebLanAddresses(),
+): string[] {
+  if (isSparkWebLoopbackClientAddress(host)) return [host];
+  if (host.trim() === "0.0.0.0") return ["127.0.0.1", ...lanAddresses];
+  return [host];
+}
+
 export function isSparkWebHtmlNavigation(input: {
   method?: string | null;
   accept?: string | null;
@@ -71,8 +97,8 @@ export function isSparkWebHtmlNavigation(input: {
 
 /**
  * Shared Host, Origin, Fetch Metadata, and mutation-source boundary for direct
- * Native Web and Web DSH access. Tokenless loopback changes authentication,
- * never request provenance.
+ * Native Web and Web DSH access. Authentication and request provenance remain
+ * independent boundaries for every TCP peer.
  */
 export function resolveSparkWebRequestTrustFailure(input: {
   method?: string | null;
@@ -155,7 +181,6 @@ export function sparkWebAccessSetCookie(token: string, secure = false): string {
 
 export async function resolveSparkWebAccessRequest(input: {
   method?: string | null;
-  tokenRequired: boolean;
   returnTo?: string | null;
   token?: string | null;
   verify: (token: string) => Promise<SparkWebTokenVerification>;
@@ -163,12 +188,9 @@ export async function resolveSparkWebAccessRequest(input: {
   const returnTo = sanitizeSparkWebReturnTo(input.returnTo);
   const method = (input.method ?? "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") {
-    return input.tokenRequired
-      ? { type: "page", status: 200, state: "prompt", returnTo }
-      : { type: "redirect", location: returnTo };
+    return { type: "page", status: 200, state: "prompt", returnTo };
   }
   if (method !== "POST") return { type: "methodNotAllowed" };
-  if (!input.tokenRequired) return { type: "redirect", location: returnTo };
   const token = input.token?.trim() ?? "";
   if (!token) return { type: "page", status: 401, state: "invalid", returnTo };
   const verification = await input.verify(token);
@@ -242,7 +264,7 @@ export function renderSparkWebAccessPage(
       <input id="spark-access-token" name="token" type="password" required autofocus spellcheck="false" autocomplete="off" placeholder="sdu_…" />
       <button type="submit">Continue</button>
     </form>
-    <p class="hint">Generate a token on the host with <code>spark daemon access create</code>.</p>
+    <p class="hint">Use the token printed when the Web process started, or create a managed token with <code>spark daemon access create</code>.</p>
   </main>
 </body>
 </html>`;

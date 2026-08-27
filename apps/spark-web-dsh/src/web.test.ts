@@ -11,6 +11,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +46,9 @@ import {
   sparkWebBootErrorLines,
   sparkWebBootNodeArgs,
   sparkWebBootScript,
+  sparkWebDshBrowserUrls,
+  sparkWebDshListeningText,
+  waitForSparkWebDshReady,
 } from "./web.ts";
 
 test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest", () => {
@@ -86,6 +90,42 @@ test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest",
   assert.throws(() => parseSparkWebArgs(["--port", "abc"]), /must be a number/);
   assert.throws(() => parseSparkWebArgs(["--port=65536"]), /between 1 and 65535/u);
   assert.throws(() => parseSparkWebArgs(["--host"]), /requires a value/);
+});
+
+test("web-dsh prints reachable wildcard URLs and its daemon-issued startup token", () => {
+  const urls = sparkWebDshBrowserUrls({ host: "0.0.0.0", port: 3080 }, ["192.168.1.5"]);
+  assert.deepEqual(urls, ["http://127.0.0.1:3080/", "http://192.168.1.5:3080/"]);
+  assert.equal(
+    sparkWebDshListeningText(urls, "sdu_abcdefghijklmnopqrstuvwxyz123456"),
+    `Spark web-dsh listening:
+  http://127.0.0.1:3080/
+  http://192.168.1.5:3080/
+Startup access token:
+  sdu_abcdefghijklmnopqrstuvwxyz123456
+Spark revokes this token during normal shutdown.
+`,
+  );
+});
+
+test("web-dsh waits for the credential-guarded private page before announcing readiness", async () => {
+  const credential = "private-test-credential";
+  const server = createHttpServer((request, response) => {
+    if (request.headers["x-spark-web-dsh-proxy"] !== credential) {
+      response.writeHead(403).end();
+      return;
+    }
+    response.writeHead(200).end("ready");
+  });
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    await waitForSparkWebDshReady(address.port, credential);
+  } finally {
+    await new Promise<void>((resolveClose, rejectClose) =>
+      server.close((error) => (error ? rejectClose(error) : resolveClose())),
+    );
+  }
 });
 
 test("composeSparkWebPatch replaces stock providers, mounts Spark DSH plugins, and bounds the long-lived web server", () => {
@@ -142,6 +182,21 @@ test("private WebServer bundle extends the installed DSH service with credential
     const source = readFileSync(bundle, "utf8");
     assert.match(source, /@deepseek-ai\/dsh-host-webserver/u);
     assert.match(source, /x-spark-web-dsh-proxy/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("private WebServer bundle installs from a packaged entry without source files", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-private-webserver-package-"));
+  const profile = join(dir, "profile");
+  const packageDir = join(dir, "package");
+  const packagedEntry = join(packageDir, "lib", "spark-private-webserver.mjs");
+  try {
+    mkdirSync(dirname(packagedEntry), { recursive: true });
+    writeFileSync(packagedEntry, 'export default "packaged-private-webserver";\n');
+    const bundle = await ensureSparkPrivateWebServerBundle(profile, packageDir);
+    assert.equal(readFileSync(bundle, "utf8"), readFileSync(packagedEntry, "utf8"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

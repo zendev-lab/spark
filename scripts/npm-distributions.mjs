@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+const webDshManifest = JSON.parse(
+  await readFile(resolve(root, "apps/spark-web-dsh/package.json"), "utf8"),
+);
 
 export const releaseVersion = rootManifest.version;
 export const npmTag = releaseVersion.includes("-") ? "next" : "latest";
@@ -178,7 +181,13 @@ export const npmDistributions = [
     },
     files: ["bin", "dist", "lib", "presets", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
-    exports: { "./executable": "./bin/spark-web-dsh" },
+    dsh: webDshManifest.dsh,
+    exports: {
+      ".": "./lib/index.js",
+      "./client": "./lib/client.js",
+      "./executable": "./bin/spark-web-dsh",
+      "./package.json": "./package.json",
+    },
   },
 ];
 

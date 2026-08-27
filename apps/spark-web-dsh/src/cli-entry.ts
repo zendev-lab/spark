@@ -20,10 +20,11 @@ Usage:
   spark-web-dsh [--host <host>] [--port <port>] [args...]
 
 The DSH profile must already exist. Spark's access proxy owns every listener;
-the DSH server itself stays on a private loopback port. Requests from an actual
-loopback peer are tokenless. Local interface IPs are trusted automatically and
-remote peers enter the Spark Access page backed by daemon-user tokens
-(spark daemon access create). The server prints its URL without opening a browser.
+the DSH server itself stays on a private loopback port. Every normal request,
+including one from a loopback peer, requires a daemon access token. Every
+startup prints a usable token and reachable local URLs after the listener is ready.
+Manually managed tokens remain available through spark daemon access create.
+The server does not open a browser.
 `);
     return 0;
   }

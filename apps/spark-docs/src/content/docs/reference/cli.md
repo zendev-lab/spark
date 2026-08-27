@@ -67,7 +67,7 @@ spark hub --help
 
 `spark web` starts the local browser workbench for every workspace bound to the
 same daemon. It binds loopback by default and talks to the Spark daemon through
-`spark-daemon-client`. Requests from an actual loopback peer are tokenless.
+`spark-daemon-client`. Every normal request requires a daemon access token.
 Binding `0.0.0.0` automatically exposes the host's local IPv4 interface
 addresses; there is no separate trusted-host configuration. Direct Web accepts
 loopback and local interface IP literals only and validates Host, Origin, Fetch
@@ -80,10 +80,14 @@ spark web --port 4310
 spark web --host 0.0.0.0 --port 4310
 ```
 
-The command prints the reachable workbench URLs without opening a browser.
+The command prints the reachable workbench URLs without opening a browser. It
+also prints a daemon-issued process token after every startup and revokes that
+token during normal shutdown. The printed token is immediately usable for
+loopback and LAN access.
 
-Daemon access tokens are owned by the daemon, which stores only hashes. Create
-a token (the plaintext prints exactly once), list the metadata, or revoke:
+Daemon access tokens are owned by the daemon, which stores only hashes. Use the
+following commands for separately managed tokens, to inspect metadata after an
+unclean launcher exit, or to revoke a token:
 
 ```text
 spark daemon access create [--label <note>] [--expires-at <iso>] [--json]
@@ -91,7 +95,7 @@ spark daemon access list [--json]
 spark daemon access revoke <token-id> [--json]
 ```
 
-Remote document navigation opens the Spark Access page. Enter the token there;
+Document navigation without a valid token opens the Spark Access page. Enter the token there;
 it is verified by the daemon and stored in an HttpOnly, SameSite=Strict cookie.
 The `?token=…` navigation carrier and `x-spark-web-token` header remain available
 for automation/compatibility. API and WebSocket requests retain carrier-level
@@ -102,14 +106,16 @@ while the daemon is unreachable.
 The additional `spark web-dsh` command starts the separately packaged
 DSH-hosted Spark product app without changing `spark web`. It remains available
 until the native Spark Web replacement gate has passed. Its DSH server stays on
-loopback behind Spark's access proxy. That proxy uses the same peer-based token
+loopback behind Spark's access proxy. That proxy uses the same all-peer token
 rule, local-IP trust semantics, and Spark Access page as native Web:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-This command also prints its server URL without opening a browser.
+This command also expands wildcard binds into reachable local URLs without
+opening a browser. Every launch starts or reconnects the daemon and prints the
+same kind of process token as native Web.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.

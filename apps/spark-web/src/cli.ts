@@ -3,12 +3,16 @@ import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ensureSparkDaemonRunning, SparkDaemonStartupError } from "@zendev-lab/spark-daemon-client";
+import {
+  createSparkWebStartupAccessToken,
+  ensureSparkDaemonRunning,
+  SparkDaemonStartupError,
+  type SparkWebStartupAccessToken,
+} from "@zendev-lab/spark-daemon-client";
 import { formatSparkCliError, SparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
 
 import { SPARK_WEB_BIND_HOST_ENV, SPARK_WEB_BIND_PORT_ENV } from "./lib/server/auth.ts";
 import {
-  isSparkWebLoopbackHost,
   parseSparkWebBindArgs,
   sparkWebBrowserAuthority,
   sparkWebReachableHosts,
@@ -20,6 +24,7 @@ import {
 } from "./lib/server/lease.ts";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SPARK_WEB_PROTOCOL_HEADER = "x-spark-web-proto";
 
 export interface SparkWebDevelopmentServerOptions {
   appDir: string;
@@ -71,56 +76,99 @@ export async function runSparkWebCli(
     void heartbeatSparkWebLease(lease).catch(() => undefined);
   }, 15_000);
   heartbeat.unref();
-
-  const urls = sparkWebBrowserUrls(bind);
-
+  let startupAccess: SparkWebStartupAccessToken | undefined;
   const stop = async () => {
     clearInterval(heartbeat);
-    if (lease) await releaseSparkWebLease(lease).catch(() => undefined);
+    await Promise.all([
+      lease ? releaseSparkWebLease(lease).catch(() => undefined) : Promise.resolve(),
+      revokeStartupAccess(startupAccess),
+    ]);
   };
-  process.once("SIGINT", () => {
+  const interrupt = () => {
     void stop().then(() => process.exit(0));
-  });
-  process.once("SIGTERM", () => {
+  };
+  const terminate = () => {
     void stop().then(() => process.exit(0));
-  });
+  };
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", terminate);
 
-  const handlerPath = join(appDir, "build", "handler.js");
-  if (!bind.hmr && existsSync(handlerPath)) {
-    const { handler } = (await import(handlerPath)) as {
-      handler: (
-        request: import("node:http").IncomingMessage,
-        response: import("node:http").ServerResponse,
-      ) => void;
-    };
-    await new Promise<void>((resolveListen, reject) => {
-      const server = createServer(handler);
-      server.on("error", (error) => reject(sparkWebListenError(error, bind)));
-      server.listen(bind.port, bind.host, () => resolveListen());
-    });
-  } else if (options.startDevelopmentServer) {
-    await options.startDevelopmentServer({
-      appDir,
-      host: bind.host,
-      port: bind.port,
-      hmr: bind.hmr,
-    });
-  } else {
-    throw new SparkCliError({
-      code: "WEB_BUILD_MISSING",
-      title: "Spark web build is missing",
-      description: `The server handler was not found at ${handlerPath}.`,
-      hints: ["Build the Spark web app through its package script, then retry."],
-    });
+  try {
+    startupAccess = await createSparkWebStartupAccessToken("spark web");
+
+    const handlerPath = join(appDir, "build", "handler.js");
+    if (!bind.hmr && existsSync(handlerPath)) {
+      configureSparkWebPlainHttpProtocol();
+      const { handler } = (await import(handlerPath)) as {
+        handler: (
+          request: import("node:http").IncomingMessage,
+          response: import("node:http").ServerResponse,
+        ) => void;
+      };
+      await new Promise<void>((resolveListen, reject) => {
+        const server = createServer((request, response) => {
+          markSparkWebPlainHttpRequest(request);
+          handler(request, response);
+        });
+        server.on("error", (error) => reject(sparkWebListenError(error, bind)));
+        server.listen(bind.port, bind.host, () => resolveListen());
+      });
+    } else if (options.startDevelopmentServer) {
+      await options.startDevelopmentServer({
+        appDir,
+        host: bind.host,
+        port: bind.port,
+        hmr: bind.hmr,
+      });
+    } else {
+      throw new SparkCliError({
+        code: "WEB_BUILD_MISSING",
+        title: "Spark web build is missing",
+        description: `The server handler was not found at ${handlerPath}.`,
+        hints: ["Build the Spark web app through its package script, then retry."],
+      });
+    }
+  } catch (error) {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+    await stop();
+    throw error;
   }
 
-  process.stdout.write(`Spark web listening:\n${urls.map((url) => `  ${url}`).join("\n")}\n`);
-  if (!isSparkWebLoopbackHost(bind.host)) {
-    process.stdout.write(
-      "Remote peers require a daemon access token: spark daemon access create\n",
+  const urls = sparkWebBrowserUrls(bind);
+  process.stdout.write(sparkWebListeningText(urls, startupAccess.token));
+  return await new Promise<number>(() => undefined);
+}
+
+async function revokeStartupAccess(access: SparkWebStartupAccessToken | undefined): Promise<void> {
+  if (!access) return;
+  try {
+    await access.revoke();
+  } catch (error) {
+    process.stderr.write(
+      `spark web: could not revoke startup access token ${access.recordId}; ` +
+        `run "spark daemon access revoke ${access.recordId}". ${errorMessage(error)}\n`,
     );
   }
-  return await new Promise<number>(() => undefined);
+}
+
+/** Adapter Node otherwise assumes HTTPS when its handler is embedded directly. */
+export function configureSparkWebPlainHttpProtocol(env = process.env): void {
+  env.PROTOCOL_HEADER = SPARK_WEB_PROTOCOL_HEADER;
+}
+
+/** Never trust a client-supplied forwarding header for the direct HTTP listener. */
+export function markSparkWebPlainHttpRequest(request: {
+  headers: Record<string, string | string[] | undefined>;
+}): void {
+  request.headers[SPARK_WEB_PROTOCOL_HEADER] = "http";
+}
+
+export function sparkWebListeningText(urls: readonly string[], accessToken: string): string {
+  return (
+    `Spark web listening:\n${urls.map((url) => `  ${url}`).join("\n")}\n` +
+    `Startup access token:\n  ${accessToken}\nSpark revokes this token during normal shutdown.\n`
+  );
 }
 
 export function sparkWebBrowserUrls(
@@ -220,10 +268,12 @@ Usage:
 
 Binds to 127.0.0.1 by default. Binding 0.0.0.0 exposes the workbench on this
 host's local IPv4 interfaces automatically; no trusted-host configuration is
-needed. Requests from an actual loopback peer are tokenless. Remote peers need
-a daemon access token (spark daemon access create). Host, same-origin metadata,
-and mutation provenance are still checked for every bind.
-Prints the reachable workbench URLs without opening a browser.
+needed. Every normal request requires a daemon access token, including requests
+from an actual loopback peer. Every startup prints a usable token after the
+listener is ready. Manually managed tokens remain available through
+spark daemon access create. Host, same-origin
+metadata, and mutation provenance are still checked for every bind. Prints the
+reachable workbench URLs without opening a browser.
 Pass --hmr to use the Vite development server;
 the default serves the prebuilt handler without HMR for long-lived use.
 Opens on the daemon-wide Session and Invocation view. Workspace remains

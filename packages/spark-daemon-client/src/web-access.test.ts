@@ -13,6 +13,8 @@ import {
   sanitizeSparkWebReturnTo,
   SPARK_WEB_ACCESS_PATH,
   sparkWebAccessSetCookie,
+  sparkWebBrowserAuthority,
+  sparkWebReachableHosts,
   sparkWebRequestReturnTo,
   sparkWebTokenFromCarriers,
 } from "./web-access.ts";
@@ -52,6 +54,17 @@ test("LAN discovery returns local IPv4 literals, never loopback", () => {
     assert.equal(isIPv4(address), true, address);
     assert.equal(address.startsWith("127."), false, address);
   }
+});
+
+test("browser URLs expand wildcard listeners into reachable local authorities", () => {
+  assert.deepEqual(sparkWebReachableHosts("127.0.0.1", ["192.168.1.5"]), ["127.0.0.1"]);
+  assert.deepEqual(sparkWebReachableHosts("0.0.0.0", ["192.168.1.5"]), [
+    "127.0.0.1",
+    "192.168.1.5",
+  ]);
+  assert.deepEqual(sparkWebReachableHosts("192.168.1.5", ["10.0.0.2"]), ["192.168.1.5"]);
+  assert.equal(sparkWebBrowserAuthority("192.168.1.5", 4310), "192.168.1.5:4310");
+  assert.equal(sparkWebBrowserAuthority("::1", 4310), "[::1]:4310");
 });
 
 test("direct Web trust is shared across loopback and LAN adapters", () => {
@@ -183,16 +196,14 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "GET",
-      tokenRequired: false,
       returnTo: "/sessions/sess_1",
       verify,
     }),
-    { type: "redirect", location: "/sessions/sess_1" },
+    { type: "page", status: 200, state: "prompt", returnTo: "/sessions/sess_1" },
   );
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "HEAD",
-      tokenRequired: true,
       returnTo: "/sessions/sess_1",
       verify,
     }),
@@ -201,7 +212,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "POST",
-      tokenRequired: true,
       returnTo: "/sessions/sess_1",
       token: "sdu_good",
       verify,
@@ -211,7 +221,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "POST",
-      tokenRequired: true,
       returnTo: "/",
       token: "sdu_bad",
       verify,
@@ -221,7 +230,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "POST",
-      tokenRequired: true,
       returnTo: "/",
       token: "sdu_down",
       verify,
@@ -231,7 +239,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "PUT",
-      tokenRequired: true,
       verify,
     }),
     { type: "methodNotAllowed" },
@@ -271,6 +278,7 @@ test("access page is framework-neutral and escapes dynamic values", () => {
   });
   assert.match(html, new RegExp(`action="${SPARK_WEB_ACCESS_PATH}"`, "u"));
   assert.match(html, /Invalid access token/u);
+  assert.match(html, /token printed when the Web process started/u);
   assert.match(html, /spark daemon access create/u);
   assert.doesNotMatch(html, /<script>/u);
   assert.match(html, /&lt;Spark &amp; &quot;DSH&quot;&gt;/u);

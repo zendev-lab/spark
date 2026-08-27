@@ -1,7 +1,7 @@
 # Spark Web
 
-Local daemon browser workbench. It binds loopback by default, serves requests
-from an actual loopback peer without a token, and talks to the Spark daemon
+Local daemon browser workbench. It binds loopback by default, requires a daemon
+access token for normal workbench requests, and talks to the Spark daemon
 through `spark-daemon-client`. Its home route is a daemon-wide Session and
 Invocation view with pending waits and recent Artifacts. Workspace is
 repository/cwd context and an optional grouping axis, not the product root.
@@ -23,13 +23,16 @@ spark web
 
 Binding `0.0.0.0` exposes the workbench on this host's local IPv4 interfaces.
 Spark discovers those interface addresses automatically; there is no separate
-trusted-host configuration. Requests that actually arrive through loopback
-remain tokenless, while remote peers require a daemon access token. The daemon
-owns the `daemon-user` token family (hashed storage, optional expiry, immediate
-revocation); mint one with `spark daemon access create`. Remote document
-navigation opens the Spark Access page, which verifies the token through the
-daemon and stores it in an HttpOnly cookie. The `?token=…` navigation carrier
-remains available for automation/deep links but is not the primary user flow.
+trusted-host configuration. Every normal request requires a daemon access token,
+including requests arriving through loopback. The daemon owns the `daemon-user`
+token family (hashed storage, optional expiry, immediate revocation). Every
+launch prints a usable daemon-issued process token after the listener is ready
+and revokes it during normal shutdown; use `spark daemon access create` for a
+separately managed token. Document navigation without a valid token opens the
+Spark Access page, which verifies the token through the daemon and stores it in
+an HttpOnly cookie. The `?token=…` navigation carrier remains available for
+automation/deep links but is not the primary user flow. Random read-only Local
+Share URLs remain capability links and do not grant workbench access.
 
 The server validates Host, Origin/Fetch Metadata, and mutation provenance before
 authentication. Only loopback and local interface IP literals are accepted as

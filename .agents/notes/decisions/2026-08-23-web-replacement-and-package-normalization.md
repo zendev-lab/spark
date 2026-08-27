@@ -97,12 +97,14 @@ monkey patch and no compatibility layer for legacy presets.
   only token hashes, issues plaintext exactly once at creation, supports
   optional expiry, and revokes immediately. Native Web and Web DSH are
   authentication adapters, not token owners — neither generates nor persists a
-  token. Loopback listeners are tokenless; every non-loopback listener
-  requires a daemon-verified token and fails closed while the daemon is
-  unreachable. Host, Origin/Fetch Metadata, and mutation provenance checks
-  still apply on every bind. Process-local read-only Share keeps its existing
-  unguessable URL capability and trust checks. A reverse proxy does not turn a
-  tokenless loopback listener into a supported remote surface. The
+  token. Every normal direct-Web request requires a daemon-verified token,
+  including requests arriving through loopback, and fails closed while the
+  daemon is unreachable. Host, Origin/Fetch Metadata, and mutation provenance
+  checks still apply on every bind. The pre-auth access page only exchanges a
+  presented token; process-local read-only Share keeps its existing unguessable
+  URL capability and trust checks. Last-hop loopback classification is never an
+  authentication credential, so a reverse proxy or tunnel cannot bypass this
+  boundary. The
   `hub-daemon` family (Hub↔Daemon registration/runtime credentials) and the
   `hub-user` family keep their own owners and are not reused for direct Web
   access.
@@ -132,8 +134,8 @@ follow-up authentication convergence changes.
 - `daemon-user` — a daemon to Native Web, Web DSH, and direct user clients.
   The daemon stores hashes and provides create/list/revoke/verify; both web
   surfaces are authentication adapters only and no longer own a
-  `SPARK_WEB_TOKEN`. Loopback listeners are token-free; every non-loopback
-  listener must authenticate.
+  `SPARK_WEB_TOKEN`. Every listener requires authentication for normal
+  direct-Web requests.
 - `hub-user` — the Hub to browser users. One Hub session family whose
   permissions are granted through `user ↔ daemon` grants; Workspace visibility
   is derived from the owning daemon. A `hub-user` token reaches a daemon only
@@ -156,11 +158,10 @@ daemon-local RPC procedures `daemon.access.create`, `daemon.access.list`,
 exactly once; list returns metadata only; revoke is immediate and
 idempotent; verify collapses missing, malformed, expired, and revoked
 tokens into one boolean so adapters cannot probe failure causes. Native
-Web verifies every non-loopback request through the daemon; Web DSH pins
+Web verifies every normal request through the daemon; Web DSH pins
 its DSH compatibility server to a randomized loopback port guarded by a
 per-process credential and exposes every listener through Spark's trust proxy.
-The proxy keeps loopback peers tokenless and verifies non-loopback peers
-through the daemon. Both adapters accept the
+The proxy verifies every peer through the daemon. Both adapters accept the
 token as a navigation-only `token` query parameter (promoted to an
 HttpOnly cookie), the `x-spark-web-token` header, or the
 `spark_web_token` cookie.

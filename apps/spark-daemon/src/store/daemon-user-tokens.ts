@@ -4,7 +4,7 @@ import { createId } from "@zendev-lab/spark-protocol";
 
 /**
  * Daemon-owned `daemon-user` access tokens for direct browser surfaces
- * (native Spark Web and Web DSH) bound to non-loopback listeners.
+ * (native Spark Web and Web DSH) on every listener.
  *
  * Only SHA-256 hashes are persisted; the plaintext token is returned exactly
  * once from `create`. Verification collapses unknown, malformed, expired, and

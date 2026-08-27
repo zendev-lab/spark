@@ -1,9 +1,11 @@
 import {
   isSparkWebLoopbackClientAddress,
   resolveSparkWebLanAddresses,
+  sparkWebBrowserAuthority,
+  sparkWebReachableHosts,
 } from "@zendev-lab/spark-daemon-client";
 
-export { resolveSparkWebLanAddresses };
+export { resolveSparkWebLanAddresses, sparkWebBrowserAuthority, sparkWebReachableHosts };
 
 export const SPARK_WEB_DEFAULT_HOST = "127.0.0.1";
 export const SPARK_WEB_DEFAULT_PORT = 4310;
@@ -11,29 +13,6 @@ export const SPARK_WEB_ALL_INTERFACES_HOST = "0.0.0.0";
 
 export function isSparkWebLoopbackHost(host: string): boolean {
   return isSparkWebLoopbackClientAddress(host);
-}
-
-export function sparkWebBrowserAuthority(host: string, port: number): string {
-  const trimmed = host.trim();
-  let parsed: URL;
-  try {
-    parsed = new URL(`http://${trimmed}`);
-  } catch {
-    parsed = new URL(`http://[${trimmed}]`);
-  }
-  const hostname =
-    parsed.hostname.startsWith("[") || !parsed.hostname.includes(":")
-      ? parsed.hostname
-      : `[${parsed.hostname}]`;
-  return parsed.port ? parsed.host : `${hostname}:${port}`;
-}
-
-export function sparkWebReachableHosts(host: string): string[] {
-  if (isSparkWebLoopbackHost(host)) return [host];
-  if (host.trim() === SPARK_WEB_ALL_INTERFACES_HOST) {
-    return ["127.0.0.1", ...resolveSparkWebLanAddresses()];
-  }
-  return [host];
 }
 
 export function parseSparkWebBindArgs(argv: readonly string[]): {

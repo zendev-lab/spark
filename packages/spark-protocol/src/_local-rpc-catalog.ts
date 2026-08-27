@@ -953,9 +953,9 @@ export const sparkLocalRpcDaemonRestartResultSchema = z.object({
 
 /**
  * Daemon-owned `daemon-user` access tokens authenticate direct browser
- * surfaces (native Spark Web and Web DSH) on non-loopback listeners. The
- * daemon stores only token hashes; the plaintext token is returned exactly
- * once at creation. Verification collapses missing, malformed, expired, and
+ * surfaces (native Spark Web and Web DSH) on every listener. The daemon stores
+ * only token hashes; the plaintext token is returned exactly once at creation.
+ * Verification collapses missing, malformed, expired, and
  * revoked tokens into one boolean so adapters cannot probe failure causes.
  */
 export const sparkLocalRpcDaemonAccessTokenMetadataSchema = z.object({

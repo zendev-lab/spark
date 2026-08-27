@@ -63,8 +63,8 @@ spark hub --help
 ## 本地 Web 工作台
 
 `spark web` 启动本地浏览器工作台，列出绑定到同一 daemon 的全部 workspace。
-它默认绑定回环地址，并通过 `spark-daemon-client` 连接 Spark daemon。真正从回环
-peer 到达的请求免 token。绑定 `0.0.0.0` 时，Spark 自动暴露本机局域网 IPv4 接口，
+它默认绑定回环地址，并通过 `spark-daemon-client` 连接 Spark daemon。每个正常请求都
+需要 daemon access token。绑定 `0.0.0.0` 时，Spark 自动暴露本机局域网 IPv4 接口，
 不再维护单独的 trusted-host 配置。Direct Web 只接受回环地址与本机接口 IP literal；
 Host、Origin、Fetch Metadata 与跨站 mutation 来源在认证前校验。Hub 仍是多 daemon
 代理与正式 DNS 远程访问的支持边界。
@@ -75,10 +75,11 @@ spark web --port 4310
 spark web --host 0.0.0.0 --port 4310
 ```
 
-命令只输出可访问的工作台 URL，不会自动打开浏览器。
+命令输出可访问的工作台 URL，但不会自动打开浏览器。每次启动都会在 listener ready 后
+打印 daemon 创建、可用于回环或 LAN 访问的进程 token，并在正常退出时吊销。
 
-daemon 访问 token 由 daemon 持有，只存储哈希。创建（明文只打印一次）、
-列出元数据或吊销：
+daemon 访问 token 由 daemon 持有，只存储哈希。需要单独管理 token、在 launcher
+异常退出后检查元数据或手工吊销时，使用：
 
 ```text
 spark daemon access create [--label <备注>] [--expires-at <iso>] [--json]
@@ -86,7 +87,7 @@ spark daemon access list [--json]
 spark daemon access revoke <token-id> [--json]
 ```
 
-远端页面导航会进入统一的 Spark Access 页面。输入 token 后由 daemon 校验，并写入
+没有有效 token 的页面导航会进入统一的 Spark Access 页面。输入 token 后由 daemon 校验，并写入
 HttpOnly、SameSite=Strict cookie。`?token=…` navigation carrier 与
 `x-spark-web-token` 请求头继续用于自动化/兼容路径。API 与 WebSocket 不返回 HTML
 登录页，未认证时仍保持 transport-level 401/503。缺失、错误、过期、已吊销 token
@@ -94,14 +95,15 @@ HttpOnly、SameSite=Strict cookie。`?token=…` navigation carrier 与
 
 额外的 `spark web-dsh` 命令会启动独立打包、基于 DSH 宿主的 Spark 产品应用，不会修改
 `spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留。DSH server 锁定在回环
-地址，由 Spark access proxy 对外暴露；该 proxy 与 native Web 复用相同的 peer-based
+地址，由 Spark access proxy 对外暴露；该 proxy 与 native Web 复用相同的全 peer
 token 规则、本机 IP trust 语义和 Spark Access 页面：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-该命令同样只输出服务 URL，不会自动打开浏览器。
+该命令同样不会自动打开浏览器，并会把 wildcard bind 展开成可访问的本机 URL。
+每次启动都会启动或重连 daemon，并打印与 native Web 相同类型的进程 token。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读
