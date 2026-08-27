@@ -9,15 +9,16 @@ description: 启动绑定本地 Spark daemon 的浏览器工作台。
 spark web
 ```
 
-`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出工作台 URL（例如
-`http://127.0.0.1:4310/`），但不会自动打开浏览器。包括回环 peer 在内的每个正常请求
-都需要 daemon access token。listener ready 后，每次启动都会打印一个可用的 daemon
-签发进程 token。
+`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出可直接访问的工作台 URL
+（例如 `http://127.0.0.1:4310/?token=…`），但不会自动打开浏览器。包括回环 peer 在内的
+每个正常请求都需要 daemon access token。
 
 需要通过本机局域网 IPv4 访问时，直接绑定 `0.0.0.0`。Spark 会自动发现本机非回环
 IPv4，不再维护单独的 trusted-host allowlist。Direct Web 只接受回环地址与本机接口
 IP literal；Host、Origin/Fetch Metadata 与 mutation 来源检查先于认证执行，因此它仍是
 受信任的单用户 LAN 界面，不是公网多用户控制面。
+为确保终端打印的链接可以直接点击，跨站顶层 GET 页面导航会被接受；跨站子资源与 mutation
+仍然拒绝。
 浏览器 cookie 按 host 而不是 port 隔离，因此同一 direct IP authority 上的所有 HTTP
 服务都必须视为同一受信任宿主；若这个前提不成立，应使用具有独立 HTTPS origin 的 Hub。
 
@@ -27,19 +28,20 @@ spark web --host 0.0.0.0 --port 4310
 
 每个 peer 都必须持有 daemon 访问 token。每次启动 `spark web` 都会要求 daemon 创建一个
 当前进程使用的 token；listener ready 后，终端会同时打印 token 明文和
-所有可访问的本机 URL，并在正常退出时吊销这个 token。`daemon-user` token family 仍只
+带该 token 的所有可访问本机 URL，并在正常退出时吊销这个 token。`daemon-user` token family 仍只
 由 daemon 拥有、只存哈希并负责校验。需要独立管理的 token 时继续使用
 `spark daemon access create`，用 `spark daemon access list` 查看元数据；launcher
 异常退出后或不再需要长期 token 时，用 `spark daemon access revoke` 吊销。
+启动 token 被吊销前，终端打印的 URL 属于 bearer secret；不要分享终端输出或尚未清理的链接。
 
-没有有效 token 的页面导航会进入统一的 Spark Access 页面。输入 token 后，Spark 通过
-daemon 校验，并写入 HttpOnly、SameSite=Strict cookie，再返回原页面。`?token=…` 继续
-作为自动化/deep link 的 navigation-only 兼容 carrier，并会提升为同一 cookie。API 与
-WebSocket 请求不会收到 HTML 登录页，未认证时仍返回 transport-level 401/503。缺失、
+打开终端打印的 URL 后，Spark 会通过 daemon 校验 token，写入 HttpOnly、SameSite=Lax
+cookie，从地址栏移除 token，再进入目标页面。没有有效 token 的页面导航会进入统一的
+Spark Access 页面供手工输入。`?token=…` 只用于页面导航；API 与 WebSocket 请求不会收到
+HTML 登录页，未认证时仍返回 transport-level 401/503。缺失、
 错误、过期和已吊销 token 不暴露具体 token 状态；daemon 不可达时 fail closed。
 
-本地开发需要监听源代码变化时，可传入 `--hmr` 使用 Vite 开发服务器；长期运行时
-默认关闭 HMR。首页直接展示 daemon 全局 Session tree、Invocation、待处理人工交互
+源码仓库中的启动始终使用 Vite，确保 `pnpm spark web` 服务当前源码；需要监听源码变化时
+可传入 `--hmr`。已安装产品使用预构建 handler。首页直接展示 daemon 全局 Session tree、Invocation、待处理人工交互
 与最近 Artifact；没有注册 Workspace 时也能打开，包括 daemon-scoped Channel
 Session。Workspace 只保留仓库、cwd 与 Artifact 上下文，可从折叠的上下文区注册
 本地目录；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。Hub 仍是多
@@ -75,7 +77,8 @@ DSH server 本身始终锁定在随机回环端口，并由一次性进程凭据
 Spark 外层 access proxy 提供服务。该 proxy 与 native Web 使用相同的认证规则和
 Spark Access 页面：回环与远端 peer 都使用同一套 daemon-owned access token，本机接口
 IPv4 自动发现。每次启动 `spark web-dsh` 都会启动或重连 daemon，
-在 URL 后打印新创建的进程 token，并像 native Web 一样在正常退出时吊销。Host、Origin
+打印带新建进程 token 的 URL，并像 native Web 一样在正常退出时吊销；打开链接后的 cookie
+提升与地址栏清理也和 native Web 相同。Host、Origin
 与 Fetch Metadata 检查仍先于 token 校验；API
 与 WebSocket 保持 transport-level 认证错误，daemon 不可达时 fail closed。
 

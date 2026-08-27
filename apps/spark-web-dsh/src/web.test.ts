@@ -98,8 +98,8 @@ test("web-dsh prints reachable wildcard URLs and its daemon-issued startup token
   assert.equal(
     sparkWebDshListeningText(urls, "sdu_abcdefghijklmnopqrstuvwxyz123456"),
     `Spark web-dsh listening:
-  http://127.0.0.1:3080/
-  http://192.168.1.5:3080/
+  http://127.0.0.1:3080/?token=sdu_abcdefghijklmnopqrstuvwxyz123456
+  http://192.168.1.5:3080/?token=sdu_abcdefghijklmnopqrstuvwxyz123456
 Startup access token:
   sdu_abcdefghijklmnopqrstuvwxyz123456
 Spark revokes this token during normal shutdown.

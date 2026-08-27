@@ -18,7 +18,7 @@ Artifact, or credential data.
 
 ```bash
 spark web
-# http://127.0.0.1:4310/
+# http://127.0.0.1:4310/?token=…
 ```
 
 Binding `0.0.0.0` exposes the workbench on this host's local IPv4 interfaces.
@@ -26,13 +26,14 @@ Spark discovers those interface addresses automatically; there is no separate
 trusted-host configuration. Every normal request requires a daemon access token,
 including requests arriving through loopback. The daemon owns the `daemon-user`
 token family (hashed storage, optional expiry, immediate revocation). Every
-launch prints a usable daemon-issued process token after the listener is ready
-and revokes it during normal shutdown; use `spark daemon access create` for a
-separately managed token. Document navigation without a valid token opens the
-Spark Access page, which verifies the token through the daemon and stores it in
-an HttpOnly cookie. The `?token=…` navigation carrier remains available for
-automation/deep links but is not the primary user flow. Random read-only Local
-Share URLs remain capability links and do not grant workbench access.
+launch prints immediately usable tokenized URLs after the listener is ready and
+revokes the process token during normal shutdown; use
+`spark daemon access create` for a separately managed token. Opening a printed
+URL verifies its token through the daemon, stores it in an HttpOnly,
+SameSite=Lax cookie, removes the token from the address bar, and continues to
+the requested page. Document navigation without a valid token opens the Spark
+Access page for manual entry. Random read-only Local Share URLs remain
+capability links and do not grant workbench access.
 
 The server validates Host, Origin/Fetch Metadata, and mutation provenance before
 authentication. Only loopback and local interface IP literals are accepted as
@@ -45,9 +46,9 @@ reached.
 spark web --host 0.0.0.0 --port 4310
 ```
 
-Use `--hmr` only for local development when watching source changes; it switches
-to the Vite development server, while the long-lived default serves the
-prebuilt handler without HMR. Settings distinguish API-key providers from OAuth
+Source-checkout launches use Vite so `pnpm spark web` serves the current source;
+pass `--hmr` when watching source changes. Installed product launches use the
+prebuilt handler. Settings distinguish API-key providers from OAuth
 login at `/settings/oauth/:provider`; the workbench never echoes stored secrets.
 Shared presentation lives in `@zendev-lab/spark-ui`. cwd is only a launch
 context; an unregistered cwd still starts the workbench and can be registered

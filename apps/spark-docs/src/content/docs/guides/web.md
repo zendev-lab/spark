@@ -10,10 +10,9 @@ spark web
 ```
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
-and prints the workbench URL such as `http://127.0.0.1:4310/` without opening
-a browser. Every normal request, including one from a loopback peer, requires a
-daemon access token. Every startup prints a usable daemon-issued process token
-after the listener is ready.
+and prints an immediately usable workbench URL such as
+`http://127.0.0.1:4310/?token=…` without opening a browser. Every normal
+request, including one from a loopback peer, requires a daemon access token.
 
 Bind `0.0.0.0` when the workbench should also be reachable through this host's
 local IPv4 interfaces. Spark discovers those interface addresses automatically;
@@ -21,6 +20,8 @@ there is no separate trusted-host allowlist. Direct Web accepts loopback and
 local interface IP literals only. Host, Origin/Fetch Metadata, and mutation
 provenance are validated before authentication, so this remains a trusted
 single-user LAN surface rather than a public multi-user control plane.
+Cross-site top-level GET navigation is accepted so a printed link can be
+clicked; cross-site subresources and mutations remain rejected.
 Browser cookies are scoped to a host, not a port. Treat every HTTP service on
 the same direct IP authority as part of that trusted host; use the Hub on an
 isolated HTTPS origin when this assumption does not hold.
@@ -31,24 +32,27 @@ spark web --host 0.0.0.0 --port 4310
 
 Every peer needs a daemon access token. On every startup, `spark web` asks
 the daemon to create one process token and prints both its plaintext and every
-reachable local URL after the listener is ready. Spark
+reachable local URL with that token after the listener is ready. Spark
 revokes that token during normal shutdown. The daemon remains the only owner:
 it stores only the hash and verifies every presented token. Use
 `spark daemon access create` for a separately managed token, inspect metadata
 with `spark daemon access list`, and use `spark daemon access revoke` after an
 unclean launcher exit or when a managed token is no longer needed.
+The printed URL is a bearer secret until the startup token is revoked. Do not
+share terminal output or the uncleaned link.
 
-Document navigation without a valid token opens the Spark Access page. Enter the token there;
-Spark verifies it through the daemon and stores it in an HttpOnly,
-SameSite=Strict cookie before returning to the requested page. `?token=…` remains
-a navigation-only compatibility carrier for automation/deep links and is
-promoted to the same cookie. API and WebSocket requests do not receive HTML
+Opening a printed URL verifies the token through the daemon, stores it in an
+HttpOnly, SameSite=Lax cookie, removes it from the address bar, and continues to
+the requested page. Document navigation without a valid token opens the Spark
+Access page for manual entry. The `?token=…` carrier is navigation-only; API and
+WebSocket requests do not receive HTML
 login pages: unauthenticated requests retain carrier-level 401/503 responses.
 Missing, wrong, expired, and revoked tokens do not expose token-state detail,
 and verification fails closed while the daemon is unreachable.
 
-Pass `--hmr` for local development when you need Vite to watch source changes;
-it is disabled by default for the long-lived server. The home page is a
+Source-checkout launches use Vite so `pnpm spark web` serves the current source;
+pass `--hmr` when you need to watch source changes. Installed product launches
+use the prebuilt handler. The home page is a
 daemon-wide Session tree and Invocation view, with pending human waits and
 recent Artifacts. It works when no Workspace is registered, including for
 daemon-scoped Channel Sessions. Workspace remains repository, cwd, and Artifact
@@ -94,9 +98,10 @@ per-process credential. Every listener belongs to Spark's outer access proxy,
 which uses the same authentication rule and Spark Access page as native Web:
 loopback and remote peers require the same daemon-owned access token, while
 local interface IP literals are discovered automatically.
-On every startup, `spark web-dsh` starts or reconnects the daemon, prints a
-newly issued process token with those URLs, and revokes it during
-normal shutdown just like native Web.
+On every startup, `spark web-dsh` starts or reconnects the daemon, prints those
+URLs with a newly issued process token, and revokes it during normal shutdown
+just like native Web. The printed links follow the same cookie promotion and
+address-bar cleanup flow as native Web.
 Host, Origin, and Fetch Metadata checks still run before token verification.
 API and WebSocket requests retain carrier-level authentication errors, and the
 proxy fails closed while the daemon is unreachable.

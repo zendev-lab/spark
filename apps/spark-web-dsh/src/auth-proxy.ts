@@ -313,6 +313,7 @@ function requestTrustError(
   trust: { bindHost: string; bindPort: number; lanAddresses: readonly string[] },
 ): string | null {
   const url = new URL(request.url ?? "/", "http://proxy.invalid");
+  const authSource = requestAuthSource(request, url);
   const failure = resolveSparkWebRequestTrustFailure({
     method: request.method,
     host: firstHeaderValue(request.headers.host),
@@ -320,9 +321,10 @@ function requestTrustError(
     fetchSite: firstHeaderValue(request.headers["sec-fetch-site"]),
     fetchMode: firstHeaderValue(request.headers["sec-fetch-mode"]),
     fetchDest: firstHeaderValue(request.headers["sec-fetch-dest"]),
-    authSource: requestAuthSource(request, url),
+    authSource,
     trust,
     clientAddress: request.socket.remoteAddress,
+    allowCrossSiteDocumentNavigation: true,
   });
   switch (failure) {
     case "host":

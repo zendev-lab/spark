@@ -16,6 +16,7 @@ import {
   sparkWebBrowserAuthority,
   sparkWebReachableHosts,
   sparkWebRequestReturnTo,
+  sparkWebStartupAccessUrl,
   sparkWebTokenFromCarriers,
 } from "./web-access.ts";
 
@@ -65,6 +66,10 @@ test("browser URLs expand wildcard listeners into reachable local authorities", 
   assert.deepEqual(sparkWebReachableHosts("192.168.1.5", ["10.0.0.2"]), ["192.168.1.5"]);
   assert.equal(sparkWebBrowserAuthority("192.168.1.5", 4310), "192.168.1.5:4310");
   assert.equal(sparkWebBrowserAuthority("::1", 4310), "[::1]:4310");
+  assert.equal(
+    sparkWebStartupAccessUrl("http://127.0.0.1:4310/?lang=zh", "sdu_a+b&c"),
+    "http://127.0.0.1:4310/?lang=zh&token=sdu_a%2Bb%26c",
+  );
 });
 
 test("direct Web trust is shared across loopback and LAN adapters", () => {
@@ -161,6 +166,59 @@ test("direct Web trust is shared across loopback and LAN adapters", () => {
     }),
     "cross-site",
   );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "10.0.0.2:4310",
+      fetchSite: "cross-site",
+      fetchMode: "navigate",
+      fetchDest: "document",
+      authSource: "cookie",
+      trust: lan,
+      clientAddress: "10.0.0.9",
+      allowCrossSiteDocumentNavigation: true,
+    }),
+    null,
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      method: "POST",
+      host: "10.0.0.2:4310",
+      fetchSite: "cross-site",
+      fetchMode: "navigate",
+      fetchDest: "document",
+      authSource: "cookie",
+      trust: lan,
+      clientAddress: "10.0.0.9",
+      allowCrossSiteDocumentNavigation: true,
+    }),
+    "cross-site",
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "10.0.0.2:4310",
+      fetchSite: "cross-site",
+      fetchMode: "navigate",
+      fetchDest: "document",
+      authSource: "query",
+      trust: lan,
+      clientAddress: "10.0.0.9",
+      allowCrossSiteDocumentNavigation: true,
+    }),
+    null,
+  );
+  assert.equal(
+    resolveSparkWebRequestTrustFailure({
+      host: "10.0.0.2:4310",
+      fetchSite: "cross-site",
+      fetchMode: "cors",
+      fetchDest: "empty",
+      authSource: "query",
+      trust: lan,
+      clientAddress: "10.0.0.9",
+      allowCrossSiteDocumentNavigation: true,
+    }),
+    "cross-site",
+  );
 });
 
 test("access return paths stay same-origin", () => {
@@ -181,10 +239,10 @@ test("token carriers prefer query, then header, then cookie", () => {
   assert.equal(sparkWebTokenFromCarriers({}), null);
 });
 
-test("access cookie is HttpOnly and SameSite=Strict", () => {
+test("access cookie is HttpOnly and SameSite=Lax", () => {
   assert.equal(
     sparkWebAccessSetCookie("sdu_good"),
-    "spark_web_token=sdu_good; Path=/; HttpOnly; SameSite=Strict",
+    "spark_web_token=sdu_good; Path=/; HttpOnly; SameSite=Lax",
   );
   assert.match(sparkWebAccessSetCookie("sdu_good", true), /; Secure$/u);
 });

@@ -7,6 +7,7 @@ import {
   createSparkWebStartupAccessToken,
   ensureSparkDaemonRunning,
   SparkDaemonStartupError,
+  sparkWebStartupAccessUrl,
   type SparkWebStartupAccessToken,
 } from "@zendev-lab/spark-daemon-client";
 import { formatSparkCliError, SparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
@@ -97,7 +98,14 @@ export async function runSparkWebCli(
     startupAccess = await createSparkWebStartupAccessToken("spark web");
 
     const handlerPath = join(appDir, "build", "handler.js");
-    if (!bind.hmr && existsSync(handlerPath)) {
+    if (options.startDevelopmentServer) {
+      await options.startDevelopmentServer({
+        appDir,
+        host: bind.host,
+        port: bind.port,
+        hmr: bind.hmr,
+      });
+    } else if (!bind.hmr && existsSync(handlerPath)) {
       configureSparkWebPlainHttpProtocol();
       const { handler } = (await import(handlerPath)) as {
         handler: (
@@ -112,13 +120,6 @@ export async function runSparkWebCli(
         });
         server.on("error", (error) => reject(sparkWebListenError(error, bind)));
         server.listen(bind.port, bind.host, () => resolveListen());
-      });
-    } else if (options.startDevelopmentServer) {
-      await options.startDevelopmentServer({
-        appDir,
-        host: bind.host,
-        port: bind.port,
-        hmr: bind.hmr,
       });
     } else {
       throw new SparkCliError({
@@ -166,7 +167,7 @@ export function markSparkWebPlainHttpRequest(request: {
 
 export function sparkWebListeningText(urls: readonly string[], accessToken: string): string {
   return (
-    `Spark web listening:\n${urls.map((url) => `  ${url}`).join("\n")}\n` +
+    `Spark web listening:\n${urls.map((url) => `  ${sparkWebStartupAccessUrl(url, accessToken)}`).join("\n")}\n` +
     `Startup access token:\n  ${accessToken}\nSpark revokes this token during normal shutdown.\n`
   );
 }
@@ -274,8 +275,9 @@ listener is ready. Manually managed tokens remain available through
 spark daemon access create. Host, same-origin
 metadata, and mutation provenance are still checked for every bind. Prints the
 reachable workbench URLs without opening a browser.
-Pass --hmr to use the Vite development server;
-the default serves the prebuilt handler without HMR for long-lived use.
+Source-checkout launches use the Vite development server so they always serve
+current source; pass --hmr to watch changes. Installed product launches use the
+prebuilt handler without HMR for long-lived use.
 Opens on the daemon-wide Session and Invocation view. Workspace remains
 repository, cwd, and Artifact context rather than a navigation prerequisite.
 Hub remains the multi-daemon proxy and management plane.

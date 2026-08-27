@@ -12,7 +12,7 @@ export const SPARK_WEB_ACCESS_PAGE_HEADERS = {
 export const SPARK_WEB_ACCESS_COOKIE = {
   path: "/",
   httpOnly: true,
-  sameSite: "strict",
+  sameSite: "lax",
 } as const;
 
 export type SparkWebAccessPageState = "prompt" | "invalid" | "unavailable";
@@ -87,6 +87,12 @@ export function sparkWebReachableHosts(
   return [host];
 }
 
+export function sparkWebStartupAccessUrl(url: string, token: string): string {
+  const accessUrl = new URL(url);
+  accessUrl.searchParams.set(SPARK_WEB_TOKEN_QUERY, token);
+  return accessUrl.toString();
+}
+
 export function isSparkWebHtmlNavigation(input: {
   method?: string | null;
   accept?: string | null;
@@ -115,11 +121,13 @@ export function resolveSparkWebRequestTrustFailure(input: {
   const host = input.host?.trim().toLowerCase();
   if (!host || !isAllowedWebAuthority(host, input.trust, input.clientAddress)) return "host";
 
+  const method = (input.method ?? "GET").toUpperCase();
   const fetchSite = input.fetchSite?.trim().toLowerCase();
   if (
     fetchSite === "cross-site" &&
     !(
       input.allowCrossSiteDocumentNavigation === true &&
+      method === "GET" &&
       input.fetchMode?.trim().toLowerCase() === "navigate" &&
       input.fetchDest?.trim().toLowerCase() === "document"
     )
@@ -129,7 +137,6 @@ export function resolveSparkWebRequestTrustFailure(input: {
 
   const origin = input.origin?.trim();
   if (origin && !originMatchesAuthority(origin, host)) return "origin";
-  const method = (input.method ?? "GET").toUpperCase();
   const mutation = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (mutation && input.authSource !== "header" && !origin && fetchSite !== "same-origin") {
     return "mutation-source";
@@ -174,7 +181,7 @@ export function sparkWebAccessSetCookie(token: string, secure = false): string {
     `${SPARK_WEB_TOKEN_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
     ...(secure ? ["Secure"] : []),
   ].join("; ");
 }
