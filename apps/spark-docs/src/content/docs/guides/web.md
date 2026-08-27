@@ -64,6 +64,12 @@ not read `.spark/`, Hub databases, or arbitrary host paths in the browser.
 Directory selection remains confined to registered workspaces and owning Spark
 worktrees after daemon-side realpath and symlink checks.
 
+Native Session history opens at the latest bounded page and loads earlier pages
+through an exclusive cursor. The daemon seeks only the indexed transcript
+records needed for each page; an older tail-only cache is rebuilt once when a
+cursor leaves its coverage. The JSONL transcript remains authoritative, and
+every returned page still obeys the daemon response-byte limit.
+
 Use the language and theme controls in the rail to select English or Chinese
 and light, dark, or system appearance. `Cmd+K` on macOS, or `Ctrl+K` elsewhere,
 opens global search. The installable PWA caches only the static shell: Session,

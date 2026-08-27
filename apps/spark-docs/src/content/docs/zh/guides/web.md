@@ -51,6 +51,11 @@ daemon 代理与管理界面，也是正式 DNS / 多 daemon 远程访问的支�
 目录选择只能落在已注册 workspace 或 owning Spark worktree 中，并由 daemon 对
 realpath 与 symlink 边界做校验。
 
+原生 Session 历史先打开有界的最新页，再通过独占游标逐页加载更早内容。daemon
+每页只按索引读取所需的 transcript 记录；旧的末尾摘要缓存首次翻出覆盖范围时会
+重建一次。JSONL transcript 仍是唯一事实源，每个返回页也继续遵守 daemon 的响应
+字节上限。
+
 可在 rail 中切换中文/英文和浅色、深色、跟随系统主题；macOS 用 `Cmd+K`，
 其他系统用 `Ctrl+K` 打开全局搜索。可安装的 PWA 只缓存静态 shell，不离线缓存
 Session、Artifact、credential 或导出数据。本地 Share 是随机、只读、仅当前进程
