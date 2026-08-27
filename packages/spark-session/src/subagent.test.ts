@@ -115,7 +115,7 @@ test("fork start keeps fork mode and maps a missing persona to builtin executor"
   assert.equal(sends.length, 0);
 });
 
-test("rejects a human persona and a missing parent before calling the host", async () => {
+test("rejects a human persona and an empty parent identity before calling the host", async () => {
   const children: SparkSubagentStartRequest[] = [];
   const [spawn] = createSparkSessionSubagentProviders(recordingHost(children));
   await assert.rejects(

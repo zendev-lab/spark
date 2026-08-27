@@ -81,8 +81,7 @@ export interface SparkDshSubagentStartRequest {
   roleRef?: string;
   cwd?: string;
   prompt?: unknown;
-  parent?: unknown;
-  parentSessionId?: string;
+  parent?: { session?: { id?: string } };
   signal?: AbortSignal;
 }
 
@@ -308,20 +307,7 @@ function promptTextFrom(request: SparkDshSubagentStartRequest): string | undefin
 }
 
 function parentSessionIdFrom(request: SparkDshSubagentStartRequest): string {
-  if (typeof request.parentSessionId === "string") return request.parentSessionId;
-  const parent = request.parent;
-  if (parent && typeof parent === "object") {
-    const record = parent as Record<string, unknown>;
-    const session = record.session;
-    if (session && typeof session === "object") {
-      const sessionId = (session as { id?: unknown }).id;
-      if (typeof sessionId === "string") return sessionId;
-      if (sessionId != null) return String(sessionId);
-    }
-    if (typeof record.sessionId === "string") return record.sessionId;
-    if (typeof record.id === "string") return record.id;
-  }
-  return "";
+  return request.parent?.session?.id ?? "";
 }
 
 function normalizeRoleRef(value: string): SparkSubagentRoleRef {
