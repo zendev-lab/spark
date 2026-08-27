@@ -1,5 +1,4 @@
 import {
-  isSparkWebLoopbackClientAddress,
   requestSparkDaemon,
   resolveSparkWebRequestTrustFailure,
   sparkWebTokenFromCarriers,
@@ -25,9 +24,8 @@ export const SPARK_WEB_BIND_PORT_ENV = "SPARK_WEB_BIND_PORT";
 /**
  * Spark Web is an authentication adapter, not a token owner. The daemon owns
  * the `daemon-user` token family (hashed storage, expiry, revocation); this
- * surface only presents a token and asks the daemon to verify it. Requests
- * arriving from an actual loopback peer are tokenless even when the listener
- * binds all interfaces; every remote peer requires a valid daemon-user token.
+ * surface only presents a token and asks the daemon to verify it. Every normal
+ * request requires a valid daemon-user token regardless of its TCP peer.
  */
 export type SparkWebTokenVerifier = (token: string) => Promise<SparkWebTokenVerification>;
 
@@ -80,11 +78,6 @@ export function resolveSparkWebRequestTrust(
   const lanAddresses =
     bindHost === SPARK_WEB_ALL_INTERFACES_HOST ? resolveSparkWebLanAddresses() : [];
   return { bindHost, bindPort, lanAddresses };
-}
-
-/** Token policy follows the actual TCP peer, not the listener bind address. */
-export function isSparkWebTokenRequired(clientAddress: string | null | undefined): boolean {
-  return !isSparkWebLoopbackClientAddress(clientAddress);
 }
 
 export function sparkWebRequestTrustError(input: {

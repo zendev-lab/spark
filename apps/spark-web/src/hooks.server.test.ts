@@ -15,18 +15,30 @@ afterEach(() => {
   setSparkWebTokenVerifier();
 });
 
-test("loopback peers stay tokenless even when the listener binds all interfaces", async () => {
+test("loopback peers require a token even when the listener binds all interfaces", async () => {
   for (const bindHost of ["127.0.0.1", "0.0.0.0"]) {
     stubTrust(bindHost);
     const { response } = await runHandle({
       url: "http://127.0.0.1:4310/",
       clientAddress: "::ffff:127.0.0.1",
+      headers: { accept: "text/html" },
     });
     assert.equal(response.status, 200, bindHost);
+    assert.match(await response.text(), /Connect to this daemon/u, bindHost);
   }
 });
 
-test("remote document navigation receives the shared access page instead of a raw 401", async () => {
+test("read-only Local Share capability URLs stay outside workbench token auth", async () => {
+  stubTrust("127.0.0.1");
+  setSparkWebTokenVerifier(async () => "invalid");
+  const { response } = await runHandle({
+    url: "http://127.0.0.1:4310/share/abcdefghijklmnopqrstuvwxyzABCDEF",
+  });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "ok");
+});
+
+test("document navigation receives the shared access page instead of a raw 401", async () => {
   stubTrust("10.0.0.2");
   const { response } = await runHandle({
     url: "http://10.0.0.2:4310/",
@@ -40,7 +52,7 @@ test("remote document navigation receives the shared access page instead of a ra
   assert.match(html, /name="token"/u);
 });
 
-test("remote API requests without a token keep the carrier-level 401", async () => {
+test("API requests without a token keep the carrier-level 401", async () => {
   stubTrust("10.0.0.2");
   await assert.rejects(
     () =>

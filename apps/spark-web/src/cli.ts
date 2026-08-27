@@ -81,7 +81,7 @@ export async function runSparkWebCli(
     clearInterval(heartbeat);
     await Promise.all([
       lease ? releaseSparkWebLease(lease).catch(() => undefined) : Promise.resolve(),
-      startupAccess?.revoke().catch(() => undefined) ?? Promise.resolve(),
+      revokeStartupAccess(startupAccess),
     ]);
   };
   const interrupt = () => {
@@ -138,6 +138,18 @@ export async function runSparkWebCli(
   const urls = sparkWebBrowserUrls(bind);
   process.stdout.write(sparkWebListeningText(urls, startupAccess.token));
   return await new Promise<number>(() => undefined);
+}
+
+async function revokeStartupAccess(access: SparkWebStartupAccessToken | undefined): Promise<void> {
+  if (!access) return;
+  try {
+    await access.revoke();
+  } catch (error) {
+    process.stderr.write(
+      `spark web: could not revoke startup access token ${access.recordId}; ` +
+        `run "spark daemon access revoke ${access.recordId}". ${errorMessage(error)}\n`,
+    );
+  }
 }
 
 /** Adapter Node otherwise assumes HTTPS when its handler is embedded directly. */
@@ -256,10 +268,10 @@ Usage:
 
 Binds to 127.0.0.1 by default. Binding 0.0.0.0 exposes the workbench on this
 host's local IPv4 interfaces automatically; no trusted-host configuration is
-needed. Requests from an actual loopback peer are tokenless. Every startup also
-prints a daemon access token; remote peers require it, and it remains a usable
-fallback if a runtime cannot classify a local peer as loopback. Manually managed
-tokens remain available through spark daemon access create. Host, same-origin
+needed. Every normal request requires a daemon access token, including requests
+from an actual loopback peer. Every startup prints a usable token after the
+listener is ready. Manually managed tokens remain available through
+spark daemon access create. Host, same-origin
 metadata, and mutation provenance are still checked for every bind. Prints the
 reachable workbench URLs without opening a browser.
 Pass --hmr to use the Vite development server;

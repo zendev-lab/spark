@@ -37,6 +37,13 @@ async function startUpstream(): Promise<{
     response.writeHead(200, { "content-type": "text/plain" });
     response.end("upstream-ok");
   });
+  server.on("upgrade", (request, socket) => {
+    seen.push(`${request.method} ${request.url} host=${request.headers.host}`);
+    headers.push(request.headers);
+    socket.end(
+      "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+    );
+  });
   const port = await listenLoopback(server);
   return { server, port, seen, headers };
 }
@@ -44,7 +51,6 @@ async function startUpstream(): Promise<{
 async function startProxy(
   targetPort: number,
   verify: SparkWebDshTokenVerifier,
-  remote = true,
 ): Promise<{ port: number; close: () => Promise<void> }> {
   const proxy = await startSparkWebDshAuthProxy({
     host: "0.0.0.0",
@@ -52,14 +58,7 @@ async function startProxy(
     targetPort,
     proxyCredential: PRIVATE_PROXY_CREDENTIAL,
     verify,
-    ...(remote
-      ? {
-          requiresToken: () => true,
-          // Production excludes loopback; tests inject it so a loopback TCP
-          // connection can represent a remote LAN request deterministically.
-          lanAddresses: ["127.0.0.1"],
-        }
-      : { lanAddresses: [] }),
+    lanAddresses: ["127.0.0.1"],
   });
   return {
     port: (proxy.server.address() as AddressInfo).port,
@@ -124,13 +123,13 @@ test("proxy preserves DSH LAN trust through its loopback target", () => {
   );
 });
 
-test("loopback peers stay tokenless through an all-interface proxy", async () => {
+test("loopback peers require a token through an all-interface proxy", async () => {
   const upstream = await startUpstream();
-  const proxy = await startProxy(upstream.port, async () => "invalid", false);
+  const proxy = await startProxy(upstream.port, async () => "invalid");
   try {
-    const response = await fetch(`http://127.0.0.1:${proxy.port}/`);
-    assert.equal(response.status, 200);
-    assert.equal(await response.text(), "upstream-ok");
+    const response = await fetch(`http://127.0.0.1:${proxy.port}/api/session.list`);
+    assert.equal(response.status, 401);
+    assert.equal(upstream.seen.length, 0);
   } finally {
     await proxy.close();
     upstream.server.close();
@@ -139,7 +138,9 @@ test("loopback peers stay tokenless through an all-interface proxy", async () =>
 
 test("loopback peers still pass the shared direct-Web trust boundary", async () => {
   const upstream = await startUpstream();
-  const proxy = await startProxy(upstream.port, async () => "invalid", false);
+  const proxy = await startProxy(upstream.port, async (token) =>
+    token === "sdu_good" ? "valid" : "invalid",
+  );
   try {
     for (const forged of [
       await rawGet(proxy.port, {}, `evil.example:${proxy.port}`),
@@ -165,7 +166,18 @@ test("loopback peers still pass the shared direct-Web trust boundary", async () 
         "sec-fetch-site": "same-origin",
       },
     });
-    assert.equal(sameOriginMutation.status, 200);
+    assert.equal(sameOriginMutation.status, 401);
+
+    const authenticatedMutation = await rawRequest(proxy.port, {
+      method: "POST",
+      path: "/api/rpc",
+      headers: {
+        origin: `http://127.0.0.1:${proxy.port}`,
+        "sec-fetch-site": "same-origin",
+        "x-spark-web-token": "sdu_good",
+      },
+    });
+    assert.equal(authenticatedMutation.status, 200);
 
     const forgedUpgrade = await rawRequest(proxy.port, {
       headers: {
@@ -182,7 +194,7 @@ test("loopback peers still pass the shared direct-Web trust boundary", async () 
   }
 });
 
-test("remote document navigation gets the shared access page while APIs keep 401", async () => {
+test("every peer gets the shared access page while APIs keep 401", async () => {
   const upstream = await startUpstream();
   const proxy = await startProxy(upstream.port, async () => "invalid");
   try {
@@ -297,6 +309,49 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
     assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_PROXY_HEADER], PRIVATE_PROXY_CREDENTIAL);
     assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_TOKEN_HEADER], undefined);
     assert.equal(upstream.headers[1]?.cookie, "theme=dark");
+  } finally {
+    await proxy.close();
+    upstream.server.close();
+  }
+});
+
+test("WebSocket upgrades require header or cookie auth and reject query tokens", async () => {
+  const upstream = await startUpstream();
+  const proxy = await startProxy(upstream.port, async (token) =>
+    token === "sdu_good" ? "valid" : token === "sdu_down" ? "unavailable" : "invalid",
+  );
+  const upgradeHeaders = { connection: "Upgrade", upgrade: "websocket" };
+  try {
+    assert.equal((await rawRequest(proxy.port, { headers: upgradeHeaders })).status, 401);
+    assert.equal(
+      (
+        await rawRequest(proxy.port, {
+          path: "/socket?token=sdu_good",
+          headers: upgradeHeaders,
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await rawRequest(proxy.port, {
+          headers: { ...upgradeHeaders, "x-spark-web-token": "sdu_down" },
+        })
+      ).status,
+      503,
+    );
+    assert.equal(
+      (
+        await rawRequest(proxy.port, {
+          path: "/socket?channel=main",
+          headers: { ...upgradeHeaders, "x-spark-web-token": "sdu_good" },
+        })
+      ).status,
+      101,
+    );
+    assert.deepEqual(upstream.seen, [`GET /socket?channel=main host=127.0.0.1:${upstream.port}`]);
+    assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_PROXY_HEADER], PRIVATE_PROXY_CREDENTIAL);
+    assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_TOKEN_HEADER], undefined);
   } finally {
     await proxy.close();
     upstream.server.close();

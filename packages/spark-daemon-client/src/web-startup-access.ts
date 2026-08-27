@@ -14,18 +14,17 @@ export interface SparkWebStartupAccessToken {
 export interface SparkWebStartupAccessTokenOptions {
   create?: (input: { label: string }) => Promise<SparkWebStartupTokenCreateResult>;
   revoke?: (input: { id: string }) => Promise<unknown>;
+  /** Test seam; production retries transient shutdown failures after these delays. */
+  revokeRetryDelaysMs?: readonly number[];
 }
 
 /**
  * Ask the daemon owner for one process-scoped direct-Web token.
  *
- * Every Web startup issues a fallback token, including loopback-only starts.
- * Actual loopback peers may still use the tokenless fast path, while the
- * printed credential prevents a runtime address-classification mismatch from
- * leaving the listener unreachable. Callers print the plaintext only after
- * their listener is ready and invoke `revoke` during normal shutdown. The
- * helper never generates or persists a competing credential outside the
- * daemon.
+ * Every Web startup issues the token required for normal workbench access,
+ * including loopback-only starts. Callers print the plaintext only after their
+ * listener is ready and invoke `revoke` during normal shutdown. The helper
+ * never generates or persists a competing credential outside the daemon.
  */
 export async function createSparkWebStartupAccessToken(
   label: string,
@@ -40,10 +39,44 @@ export async function createSparkWebStartupAccessToken(
     options.revoke ??
     (async (input: { id: string }) => await requestSparkDaemon("daemon.access.revoke", input));
   const created = await create({ label: normalizedLabel });
+  const revokeRetryDelaysMs = options.revokeRetryDelaysMs ?? [100, 300];
   let revokePromise: Promise<void> | undefined;
+  let revoked = false;
   return {
     token: created.token,
     recordId: created.record.id,
-    revoke: () => (revokePromise ??= revoke({ id: created.record.id }).then(() => undefined)),
+    revoke: () => {
+      if (revoked) return Promise.resolve();
+      return (revokePromise ??= revokeWithRetry(
+        revoke,
+        { id: created.record.id },
+        revokeRetryDelaysMs,
+      ).then(
+        () => {
+          revoked = true;
+        },
+        (error: unknown) => {
+          revokePromise = undefined;
+          throw error;
+        },
+      ));
+    },
   };
+}
+
+async function revokeWithRetry(
+  revoke: (input: { id: string }) => Promise<unknown>,
+  input: { id: string },
+  retryDelaysMs: readonly number[],
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await revoke(input);
+      return;
+    } catch (error) {
+      const delayMs = retryDelaysMs[attempt];
+      if (delayMs === undefined) throw error;
+      await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, delayMs));
+    }
+  }
 }

@@ -11,9 +11,9 @@ spark web
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
 and prints the workbench URL such as `http://127.0.0.1:4310/` without opening
-a browser. Requests that actually arrive from a loopback peer are tokenless.
-Every startup still prints a daemon-issued process token as a usable fallback
-when a runtime cannot classify a local peer as loopback.
+a browser. Every normal request, including one from a loopback peer, requires a
+daemon access token. Every startup prints a usable daemon-issued process token
+after the listener is ready.
 
 Bind `0.0.0.0` when the workbench should also be reachable through this host's
 local IPv4 interfaces. Spark discovers those interface addresses automatically;
@@ -21,12 +21,15 @@ there is no separate trusted-host allowlist. Direct Web accepts loopback and
 local interface IP literals only. Host, Origin/Fetch Metadata, and mutation
 provenance are validated before authentication, so this remains a trusted
 single-user LAN surface rather than a public multi-user control plane.
+Browser cookies are scoped to a host, not a port. Treat every HTTP service on
+the same direct IP authority as part of that trusted host; use the Hub on an
+isolated HTTPS origin when this assumption does not hold.
 
 ```bash
 spark web --host 0.0.0.0 --port 4310
 ```
 
-A remote peer needs a daemon access token. On every startup, `spark web` asks
+Every peer needs a daemon access token. On every startup, `spark web` asks
 the daemon to create one process token and prints both its plaintext and every
 reachable local URL after the listener is ready. Spark
 revokes that token during normal shutdown. The daemon remains the only owner:
@@ -35,7 +38,7 @@ it stores only the hash and verifies every presented token. Use
 with `spark daemon access list`, and use `spark daemon access revoke` after an
 unclean launcher exit or when a managed token is no longer needed.
 
-Remote document navigation opens the Spark Access page. Enter the token there;
+Document navigation without a valid token opens the Spark Access page. Enter the token there;
 Spark verifies it through the daemon and stores it in an HttpOnly,
 SameSite=Strict cookie before returning to the requested page. `?token=…` remains
 a navigation-only compatibility carrier for automation/deep links and is
@@ -88,9 +91,9 @@ spark web-dsh --host 0.0.0.0 --port 8888
 
 The DSH server itself stays on a randomized loopback port protected by a
 per-process credential. Every listener belongs to Spark's outer access proxy,
-which uses the same peer-based rule and Spark Access page as native Web: actual
-loopback peers are tokenless, local interface IP literals are discovered
-automatically, and remote peers require the same daemon-owned access tokens.
+which uses the same authentication rule and Spark Access page as native Web:
+loopback and remote peers require the same daemon-owned access token, while
+local interface IP literals are discovered automatically.
 On every startup, `spark web-dsh` starts or reconnects the daemon, prints a
 newly issued process token with those URLs, and revokes it during
 normal shutdown just like native Web.

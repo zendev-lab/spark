@@ -17,7 +17,8 @@ test("spark web help documents direct LAN access without trusted-host", () => {
   assert.match(sparkWebHelpText(), /local IPv4 interfaces automatically/u);
   assert.doesNotMatch(sparkWebHelpText(), /--trusted-host/u);
   assert.match(sparkWebHelpText(), /Vite development server/u);
-  assert.match(sparkWebHelpText(), /Every startup also\s+prints a daemon access token/u);
+  assert.match(sparkWebHelpText(), /Every normal request requires a daemon access token/u);
+  assert.match(sparkWebHelpText(), /Every startup prints a usable token/u);
 });
 
 test("spark web prints reachable URLs and its daemon-issued startup token", () => {

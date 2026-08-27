@@ -3,9 +3,8 @@
  *
  * The daemon owns the `daemon-user` token family. The DSH compatibility server
  * stays on loopback; Spark's outer proxy owns the real network boundary,
- * validates local-IP Host/Origin metadata, classifies the actual TCP peer, and
- * asks the daemon to verify remote-user tokens. Loopback peers remain
- * tokenless even when the proxy listener binds 0.0.0.0.
+ * validates local-IP Host/Origin metadata and asks the daemon to verify every
+ * daemon-user token before forwarding a request to DSH.
  */
 import {
   createServer,
@@ -116,8 +115,7 @@ export interface SparkWebDshAuthProxyOptions {
   /** Per-process credential required by the private DSH WebServer adapter. */
   proxyCredential: string;
   verify?: SparkWebDshTokenVerifier;
-  /** Test seams; production derives both values from the accepted socket/host. */
-  requiresToken?: (request: IncomingMessage) => boolean;
+  /** Test seam; production derives the values from the listener host. */
   lanAddresses?: readonly string[];
 }
 
@@ -133,12 +131,8 @@ export async function startSparkWebDshAuthProxy(
   const targetHost = options.targetHost ?? "127.0.0.1";
   const verify = options.verify ?? verifySparkWebDshTokenWithDaemon;
   const lanAddresses = [...(options.lanAddresses ?? resolveSparkWebDshLanAddresses())];
-  const requiresToken =
-    options.requiresToken ??
-    ((request: IncomingMessage) => !isSparkWebLoopbackClientAddress(request.socket.remoteAddress));
 
   const authenticate = async (request: IncomingMessage): Promise<AuthenticatedRequest> => {
-    if (!requiresToken(request)) return { outcome: "authenticated" };
     const url = new URL(request.url ?? "/", "http://proxy.invalid");
     const token = sparkWebTokenFromCarriers({
       query: url.searchParams.get(SPARK_WEB_DSH_TOKEN_QUERY),
@@ -158,8 +152,7 @@ export async function startSparkWebDshAuthProxy(
 
   const server = createServer((request, response) => {
     void (async () => {
-      const tokenRequired = requiresToken(request);
-      const trustError = requestTrustError(request, tokenRequired, {
+      const trustError = requestTrustError(request, {
         bindHost: options.host,
         bindPort: request.socket.localPort ?? options.port,
         lanAddresses,
@@ -168,7 +161,7 @@ export async function startSparkWebDshAuthProxy(
 
       const url = new URL(request.url ?? "/", "http://proxy.invalid");
       if (url.pathname === SPARK_WEB_ACCESS_PATH) {
-        return await handleAccessRequest(request, response, tokenRequired, verify, url);
+        return await handleAccessRequest(request, response, verify, url);
       }
 
       const auth = await authenticate(request);
@@ -229,8 +222,7 @@ export async function startSparkWebDshAuthProxy(
   // handshake with the same network and daemon-user boundary before piping.
   server.on("upgrade", (request, socket, head) => {
     void (async () => {
-      const tokenRequired = requiresToken(request);
-      const trustError = requestTrustError(request, tokenRequired, {
+      const trustError = requestTrustError(request, {
         bindHost: options.host,
         bindPort: request.socket.localPort ?? options.port,
         lanAddresses,
@@ -241,7 +233,7 @@ export async function startSparkWebDshAuthProxy(
         return;
       }
       const auth = await authenticate(request);
-      if (auth.outcome !== "authenticated" && auth.outcome !== "promoteQueryToken") {
+      if (auth.outcome !== "authenticated") {
         socket.write(
           `HTTP/1.1 ${auth.outcome === "daemonUnavailable" ? 503 : 401} Unauthorized\r\nConnection: close\r\n\r\n`,
         );
@@ -300,7 +292,6 @@ type AuthenticatedRequest =
 async function handleAccessRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  tokenRequired: boolean,
   verify: SparkWebDshTokenVerifier,
   url: URL,
 ): Promise<void> {
@@ -308,7 +299,6 @@ async function handleAccessRequest(
     (request.method ?? "GET").toUpperCase() === "POST" ? await readAccessForm(request) : undefined;
   const outcome = await resolveSparkWebAccessRequest({
     method: request.method,
-    tokenRequired,
     returnTo: form?.get("returnTo") ?? url.searchParams.get("returnTo"),
     token: form?.get("token"),
     verify,
@@ -320,7 +310,6 @@ async function handleAccessRequest(
 
 function requestTrustError(
   request: IncomingMessage,
-  tokenRequired: boolean,
   trust: { bindHost: string; bindPort: number; lanAddresses: readonly string[] },
 ): string | null {
   const url = new URL(request.url ?? "/", "http://proxy.invalid");
@@ -331,7 +320,7 @@ function requestTrustError(
     fetchSite: firstHeaderValue(request.headers["sec-fetch-site"]),
     fetchMode: firstHeaderValue(request.headers["sec-fetch-mode"]),
     fetchDest: firstHeaderValue(request.headers["sec-fetch-dest"]),
-    authSource: tokenRequired ? requestAuthSource(request, url) : "none",
+    authSource: requestAuthSource(request, url),
     trust,
     clientAddress: request.socket.remoteAddress,
   });

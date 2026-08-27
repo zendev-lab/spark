@@ -43,22 +43,20 @@ spark web-dsh --host 0.0.0.0 --port 3080
 The DSH compatibility server itself always stays on a randomized loopback port
 guarded by a per-process credential. Spark's outer access proxy owns every
 listener and the actual network boundary. Requests from an actual loopback peer
-remain tokenless even when the listener binds `0.0.0.0`; local non-loopback IPv4
-authorities are discovered automatically, and remote peers require the
-daemon-owned `daemon-user` token family.
+require the same daemon-owned `daemon-user` token as every other peer, even when
+the listener binds `0.0.0.0`; local non-loopback IPv4 authorities are discovered
+automatically.
 
-Remote document navigation opens the same Spark Access page as native
+Document navigation without a valid token opens the same Spark Access page as native
 `spark web`. Every launch starts or reconnects the daemon, expands a wildcard
 bind into reachable local URLs, prints a daemon-issued process token, and
-revokes it during normal shutdown. Actual loopback peers do not need the token,
-but it remains a usable fallback if runtime address classification disagrees.
-Enter the token on the page; Spark
+revokes it during normal shutdown. Enter the printed token on the page; Spark
 verifies it through the daemon before storing an HttpOnly, SameSite=Strict
 cookie. Use `spark daemon access create` for a separately managed token.
-`?token=…`, `x-spark-web-token`, and the
-`spark_web_token` cookie remain supported carrier forms for compatibility and
-automation. API and WebSocket requests do not receive an HTML login page: they
-retain carrier-level 401/503 responses.
+`?token=…` remains a navigation-only carrier; `x-spark-web-token` and the
+`spark_web_token` cookie support API and WebSocket authentication. Those
+requests do not receive an HTML login page: they retain carrier-level 401/503
+responses.
 
 Host, Origin, and Fetch Metadata checks run before token verification. Direct
 access accepts loopback and local interface IP literals only; arbitrary DNS

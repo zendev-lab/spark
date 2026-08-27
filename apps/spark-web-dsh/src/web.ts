@@ -37,8 +37,7 @@
  *    loopback port guarded by a per-process credential. Spark's outer proxy
  *    owns the requested listener and applies the same Host, Origin, Fetch
  *    Metadata, and mutation-source checks for every bind (see `auth-proxy.ts`).
- *    Loopback peers stay tokenless; remote peers authenticate with daemon-user
- *    tokens.
+ *    Every peer authenticates with a daemon-user token.
  * 9. **Host plugin HMR disabled by default**, because this compatibility server
  *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
@@ -1144,7 +1143,7 @@ export async function runSparkWeb(args: SparkWebArgs): Promise<number> {
   let stopPromise: Promise<void> | undefined;
   const stop = () =>
     (stopPromise ??= Promise.all([
-      startupAccess?.revoke().catch(() => undefined) ?? Promise.resolve(),
+      revokeStartupAccess(startupAccess),
       proxy.close().catch(() => undefined),
     ]).then(() => undefined));
   const interrupt = () => {
@@ -1184,6 +1183,19 @@ export async function runSparkWeb(args: SparkWebArgs): Promise<number> {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
     await stop();
+  }
+}
+
+async function revokeStartupAccess(access: SparkWebStartupAccessToken | undefined): Promise<void> {
+  if (!access) return;
+  try {
+    await access.revoke();
+  } catch (error) {
+    process.stderr.write(
+      `spark web-dsh: could not revoke startup access token ${access.recordId}; ` +
+        `run "spark daemon access revoke ${access.recordId}". ` +
+        `${error instanceof Error ? error.message : String(error)}\n`,
+    );
   }
 }
 

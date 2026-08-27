@@ -97,8 +97,8 @@ export function isSparkWebHtmlNavigation(input: {
 
 /**
  * Shared Host, Origin, Fetch Metadata, and mutation-source boundary for direct
- * Native Web and Web DSH access. Tokenless loopback changes authentication,
- * never request provenance.
+ * Native Web and Web DSH access. Authentication and request provenance remain
+ * independent boundaries for every TCP peer.
  */
 export function resolveSparkWebRequestTrustFailure(input: {
   method?: string | null;
@@ -181,7 +181,6 @@ export function sparkWebAccessSetCookie(token: string, secure = false): string {
 
 export async function resolveSparkWebAccessRequest(input: {
   method?: string | null;
-  tokenRequired: boolean;
   returnTo?: string | null;
   token?: string | null;
   verify: (token: string) => Promise<SparkWebTokenVerification>;
@@ -189,12 +188,9 @@ export async function resolveSparkWebAccessRequest(input: {
   const returnTo = sanitizeSparkWebReturnTo(input.returnTo);
   const method = (input.method ?? "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") {
-    return input.tokenRequired
-      ? { type: "page", status: 200, state: "prompt", returnTo }
-      : { type: "redirect", location: returnTo };
+    return { type: "page", status: 200, state: "prompt", returnTo };
   }
   if (method !== "POST") return { type: "methodNotAllowed" };
-  if (!input.tokenRequired) return { type: "redirect", location: returnTo };
   const token = input.token?.trim() ?? "";
   if (!token) return { type: "page", status: 401, state: "invalid", returnTo };
   const verification = await input.verify(token);

@@ -392,8 +392,8 @@ function eventsCommand(parsed: ParsedArgs, io: CliIo): number {
 
 /**
  * Manage the daemon-owned `daemon-user` tokens that authenticate direct
- * browser surfaces on non-loopback listeners. Plaintext appears once at
- * creation; the daemon persists only hashes.
+ * browser surfaces on every listener. Plaintext appears once at creation; the
+ * daemon persists only hashes.
  */
 async function accessCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo): Promise<number> {
   const [action = "list", tokenId] = parsed.positionals;

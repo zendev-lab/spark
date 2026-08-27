@@ -196,16 +196,14 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "GET",
-      tokenRequired: false,
       returnTo: "/sessions/sess_1",
       verify,
     }),
-    { type: "redirect", location: "/sessions/sess_1" },
+    { type: "page", status: 200, state: "prompt", returnTo: "/sessions/sess_1" },
   );
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "HEAD",
-      tokenRequired: true,
       returnTo: "/sessions/sess_1",
       verify,
     }),
@@ -214,7 +212,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "POST",
-      tokenRequired: true,
       returnTo: "/sessions/sess_1",
       token: "sdu_good",
       verify,
@@ -224,7 +221,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "POST",
-      tokenRequired: true,
       returnTo: "/",
       token: "sdu_bad",
       verify,
@@ -234,7 +230,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "POST",
-      tokenRequired: true,
       returnTo: "/",
       token: "sdu_down",
       verify,
@@ -244,7 +239,6 @@ test("access form GET and POST share one state machine", async () => {
   assert.deepEqual(
     await resolveSparkWebAccessRequest({
       method: "PUT",
-      tokenRequired: true,
       verify,
     }),
     { type: "methodNotAllowed" },

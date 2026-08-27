@@ -10,27 +10,29 @@ spark web
 ```
 
 `spark web` 默认绑定回环地址，会启动或重连本地 daemon，并输出工作台 URL（例如
-`http://127.0.0.1:4310/`），但不会自动打开浏览器。真正从回环 peer 到达的请求免
-token。每次启动仍会打印一个 daemon 签发的进程 token；若 runtime 无法把本机 peer
-识别为回环，它可作为可用 fallback。
+`http://127.0.0.1:4310/`），但不会自动打开浏览器。包括回环 peer 在内的每个正常请求
+都需要 daemon access token。listener ready 后，每次启动都会打印一个可用的 daemon
+签发进程 token。
 
 需要通过本机局域网 IPv4 访问时，直接绑定 `0.0.0.0`。Spark 会自动发现本机非回环
 IPv4，不再维护单独的 trusted-host allowlist。Direct Web 只接受回环地址与本机接口
 IP literal；Host、Origin/Fetch Metadata 与 mutation 来源检查先于认证执行，因此它仍是
 受信任的单用户 LAN 界面，不是公网多用户控制面。
+浏览器 cookie 按 host 而不是 port 隔离，因此同一 direct IP authority 上的所有 HTTP
+服务都必须视为同一受信任宿主；若这个前提不成立，应使用具有独立 HTTPS origin 的 Hub。
 
 ```bash
 spark web --host 0.0.0.0 --port 4310
 ```
 
-远端 peer 必须持有 daemon 访问 token。每次启动 `spark web` 都会要求 daemon 创建一个
+每个 peer 都必须持有 daemon 访问 token。每次启动 `spark web` 都会要求 daemon 创建一个
 当前进程使用的 token；listener ready 后，终端会同时打印 token 明文和
 所有可访问的本机 URL，并在正常退出时吊销这个 token。`daemon-user` token family 仍只
 由 daemon 拥有、只存哈希并负责校验。需要独立管理的 token 时继续使用
 `spark daemon access create`，用 `spark daemon access list` 查看元数据；launcher
 异常退出后或不再需要长期 token 时，用 `spark daemon access revoke` 吊销。
 
-远端浏览器进行页面导航时会进入统一的 Spark Access 页面。输入 token 后，Spark 通过
+没有有效 token 的页面导航会进入统一的 Spark Access 页面。输入 token 后，Spark 通过
 daemon 校验，并写入 HttpOnly、SameSite=Strict cookie，再返回原页面。`?token=…` 继续
 作为自动化/deep link 的 navigation-only 兼容 carrier，并会提升为同一 cookie。API 与
 WebSocket 请求不会收到 HTML 登录页，未认证时仍返回 transport-level 401/503。缺失、
@@ -70,9 +72,9 @@ spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
 DSH server 本身始终锁定在随机回环端口，并由一次性进程凭据保护；所有监听地址都由
-Spark 外层 access proxy 提供服务。该 proxy 与 native Web 使用相同的 peer-based 规则和
-Spark Access 页面：实际回环 peer 免 token，本机接口 IPv4 自动发现，远端 peer 使用同一套
-daemon-owned access token。每次启动 `spark web-dsh` 都会启动或重连 daemon，
+Spark 外层 access proxy 提供服务。该 proxy 与 native Web 使用相同的认证规则和
+Spark Access 页面：回环与远端 peer 都使用同一套 daemon-owned access token，本机接口
+IPv4 自动发现。每次启动 `spark web-dsh` 都会启动或重连 daemon，
 在 URL 后打印新创建的进程 token，并像 native Web 一样在正常退出时吊销。Host、Origin
 与 Fetch Metadata 检查仍先于 token 校验；API
 与 WebSocket 保持 transport-level 认证错误，daemon 不可达时 fail closed。
