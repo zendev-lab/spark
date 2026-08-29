@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandIcon from "../BrandIcon.svelte";
   import Icon from "../Icon.svelte";
   import DialogShell from "../ui/Dialog.svelte";
   import {
@@ -126,7 +127,13 @@
       data-model-picker-trigger
       onclick={() => resetSearch(true)}
     >
-      <span class="trigger-icon"><Icon name="spark" size={compact ? 14 : 15} /></span>
+      <span class="trigger-icon">
+        {#if selectedGroup?.brandIcon}
+          <BrandIcon name={selectedGroup.brandIcon} size={compact ? 14 : 15} />
+        {:else}
+          <Icon name="spark" size={compact ? 14 : 15} />
+        {/if}
+      </span>
       <span class="trigger-copy">
         <strong>{triggerLabel}</strong>
         {#if !compact && selectedGroup}<small>{selectedGroup.label}</small>{/if}
@@ -179,7 +186,13 @@
       {#each groups as group (group.id)}
         <CommandGroup value={group.id} class="model-picker-group">
           <CommandGroupHeading class="model-picker-group-heading">
-            <span class="provider-mark">{monogram(group.label)}</span>
+            <span class="provider-mark">
+              {#if group.brandIcon}
+                <BrandIcon name={group.brandIcon} size={16} />
+              {:else}
+                {monogram(group.label)}
+              {/if}
+            </span>
             <span>
               <strong>{group.label}</strong>
               {#if group.description}<small>{group.description}</small>{/if}

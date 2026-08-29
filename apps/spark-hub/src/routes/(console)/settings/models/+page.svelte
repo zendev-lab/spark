@@ -1,9 +1,16 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { invalidateAll } from "$app/navigation";
-  import { Icon } from "@zendev-lab/spark-ui";
   import { ModelPicker, type ModelPickerGroup } from "$lib/components/model-selector";
-  import { Button, Field, Input, PageHeader, Select } from "@zendev-lab/spark-ui";
+  import {
+    brandIconForModelProvider,
+    Button,
+    Field,
+    Icon,
+    Input,
+    PageHeader,
+    Select,
+  } from "@zendev-lab/spark-ui";
   import type { SparkModelCatalogProvider } from "@zendev-lab/spark-protocol";
 
   let { data, form } = $props();
@@ -85,6 +92,7 @@
     const groups: ModelPickerGroup[] = providers.map((provider) => ({
       id: provider.providerName,
       label: provider.label,
+      brandIcon: brandIconForModelProvider(provider.providerName),
       options: provider.models
         .filter(
           (entry) =>

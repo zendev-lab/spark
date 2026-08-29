@@ -14,6 +14,12 @@ wire format, or executable MDX runtime.
 
 ## Product visual system
 
+`Icon` renders the curated Lucide vocabulary for actions, navigation, and status. `BrandIcon`
+renders a separate, curated Simple Icons vocabulary for provider, channel, and integration
+identity; unsupported brands fall back at the consuming surface instead of being approximated
+with another company's mark. Product-owned logos remain dedicated assets rather than entries in
+either shared icon map.
+
 The root export owns the shared product primitives: `PageLayout`, `PageHeader`,
 `Panel`, `StatCard`, `EmptyState`, `Notice`, `StatusPill`, `Button`, `Field`,
 `Input`, `Select`, `Checkbox`, `Textarea`, `Dialog`, and `ConfirmDialog`.
