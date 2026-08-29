@@ -86,7 +86,7 @@ export function sparkWebRequestTrustError(input: {
   trust: SparkWebRequestTrust;
   clientAddress: string | null | undefined;
 }): string | null {
-  return requestTrustError(input, false);
+  return requestTrustError(input, true);
 }
 
 export function sparkWebShareRequestTrustError(input: {

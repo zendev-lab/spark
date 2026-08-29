@@ -75,8 +75,8 @@ spark web --port 4310
 spark web --host 0.0.0.0 --port 4310
 ```
 
-命令输出可访问的工作台 URL，但不会自动打开浏览器。每次启动都会在 listener ready 后
-打印 daemon 创建、可用于回环或 LAN 访问的进程 token，并在正常退出时吊销。
+命令输出带 daemon 进程 token、可直接访问的工作台 URL，但不会自动打开浏览器；同时单独
+打印 token 明文，并在正常退出时吊销。链接可用于回环或 LAN 访问。
 
 daemon 访问 token 由 daemon 持有，只存储哈希。需要单独管理 token、在 launcher
 异常退出后检查元数据或手工吊销时，使用：
@@ -87,9 +87,10 @@ spark daemon access list [--json]
 spark daemon access revoke <token-id> [--json]
 ```
 
-没有有效 token 的页面导航会进入统一的 Spark Access 页面。输入 token 后由 daemon 校验，并写入
-HttpOnly、SameSite=Strict cookie。`?token=…` navigation carrier 与
-`x-spark-web-token` 请求头继续用于自动化/兼容路径。API 与 WebSocket 不返回 HTML
+打开终端打印的 URL 后，daemon 会校验 token，写入 HttpOnly、SameSite=Lax cookie，
+从地址栏移除 token，再进入目标页面。没有有效 token 的页面导航会进入 Spark Access 页面
+供手工输入。`?token=…` 只用于页面导航；`x-spark-web-token` 请求头继续用于自动化。
+API 与 WebSocket 不返回 HTML
 登录页，未认证时仍保持 transport-level 401/503。缺失、错误、过期、已吊销 token
 不会暴露具体状态；daemon 不可达时 fail closed。
 
@@ -102,8 +103,8 @@ token 规则、本机 IP trust 语义和 Spark Access 页面：
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-该命令同样不会自动打开浏览器，并会把 wildcard bind 展开成可访问的本机 URL。
-每次启动都会启动或重连 daemon，并打印与 native Web 相同类型的进程 token。
+该命令同样不会自动打开浏览器，并会把 wildcard bind 展开成带 token、可直接访问的本机 URL。
+每次启动都会启动或重连 daemon，并使用与 native Web 相同的 token 链接流程。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读

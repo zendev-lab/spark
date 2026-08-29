@@ -28,8 +28,8 @@ test("spark web prints reachable URLs and its daemon-issued startup token", () =
       "sdu_abcdefghijklmnopqrstuvwxyz123456",
     ),
     `Spark web listening:
-  http://127.0.0.1:4310/
-  http://192.168.1.5:4310/
+  http://127.0.0.1:4310/?token=sdu_abcdefghijklmnopqrstuvwxyz123456
+  http://192.168.1.5:4310/?token=sdu_abcdefghijklmnopqrstuvwxyz123456
 Startup access token:
   sdu_abcdefghijklmnopqrstuvwxyz123456
 Spark revokes this token during normal shutdown.

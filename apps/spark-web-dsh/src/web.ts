@@ -81,6 +81,7 @@ import {
   ensureSparkDaemonRunning,
   sparkWebBrowserAuthority,
   sparkWebReachableHosts,
+  sparkWebStartupAccessUrl,
   type SparkWebStartupAccessToken,
 } from "@zendev-lab/spark-daemon-client";
 import { startSparkWebDshAuthProxy } from "./auth-proxy.ts";
@@ -1231,7 +1232,7 @@ export function sparkWebDshBrowserUrls(
 
 export function sparkWebDshListeningText(urls: readonly string[], accessToken: string): string {
   return (
-    `Spark web-dsh listening:\n${urls.map((url) => `  ${url}`).join("\n")}\n` +
+    `Spark web-dsh listening:\n${urls.map((url) => `  ${sparkWebStartupAccessUrl(url, accessToken)}`).join("\n")}\n` +
     `Startup access token:\n  ${accessToken}\nSpark revokes this token during normal shutdown.\n`
   );
 }

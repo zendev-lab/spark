@@ -80,10 +80,10 @@ spark web --port 4310
 spark web --host 0.0.0.0 --port 4310
 ```
 
-The command prints the reachable workbench URLs without opening a browser. It
-also prints a daemon-issued process token after every startup and revokes that
-token during normal shutdown. The printed token is immediately usable for
-loopback and LAN access.
+The command prints immediately usable workbench URLs carrying a daemon-issued
+process token without opening a browser. It also prints the token separately
+and revokes it during normal shutdown. The links work for loopback and LAN
+access.
 
 Daemon access tokens are owned by the daemon, which stores only hashes. Use the
 following commands for separately managed tokens, to inspect metadata after an
@@ -95,10 +95,12 @@ spark daemon access list [--json]
 spark daemon access revoke <token-id> [--json]
 ```
 
-Document navigation without a valid token opens the Spark Access page. Enter the token there;
-it is verified by the daemon and stored in an HttpOnly, SameSite=Strict cookie.
-The `?token=…` navigation carrier and `x-spark-web-token` header remain available
-for automation/compatibility. API and WebSocket requests retain carrier-level
+Opening a printed URL verifies the token through the daemon, stores it in an
+HttpOnly, SameSite=Lax cookie, removes it from the address bar, and continues to
+the requested page. Document navigation without a valid token opens the Spark
+Access page for manual entry. The `?token=…` carrier remains navigation-only;
+the `x-spark-web-token` header remains available for automation. API and
+WebSocket requests retain carrier-level
 401/503 responses rather than HTML login pages. Missing, wrong, expired, and
 revoked tokens do not expose token-state detail, and verification fails closed
 while the daemon is unreachable.
@@ -113,9 +115,9 @@ rule, local-IP trust semantics, and Spark Access page as native Web:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-This command also expands wildcard binds into reachable local URLs without
-opening a browser. Every launch starts or reconnects the daemon and prints the
-same kind of process token as native Web.
+This command also expands wildcard binds into immediately usable local URLs
+without opening a browser. Every launch starts or reconnects the daemon and
+uses the same tokenized-link flow as native Web.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.

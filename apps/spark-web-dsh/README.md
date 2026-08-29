@@ -49,11 +49,12 @@ automatically.
 
 Document navigation without a valid token opens the same Spark Access page as native
 `spark web`. Every launch starts or reconnects the daemon, expands a wildcard
-bind into reachable local URLs, prints a daemon-issued process token, and
-revokes it during normal shutdown. Enter the printed token on the page; Spark
-verifies it through the daemon before storing an HttpOnly, SameSite=Strict
-cookie. Use `spark daemon access create` for a separately managed token.
-`?token=…` remains a navigation-only carrier; `x-spark-web-token` and the
+bind into reachable local URLs, prints each URL with a daemon-issued process
+token, and revokes it during normal shutdown. Opening a printed URL verifies
+the token through the daemon, stores an HttpOnly, SameSite=Lax cookie, removes
+the token from the address bar, and continues to the requested page. Use
+`spark daemon access create` for a separately managed token. `?token=…` remains
+a navigation-only carrier; `x-spark-web-token` and the
 `spark_web_token` cookie support API and WebSocket authentication. Those
 requests do not receive an HTML login page: they retain carrier-level 401/503
 responses.

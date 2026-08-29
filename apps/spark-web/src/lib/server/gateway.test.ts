@@ -106,7 +106,7 @@ test("request trust enforces local IP Host, Origin, Fetch Metadata, and cookie m
   );
 });
 
-test("cross-site document navigation is allowed only for read-only share URLs", () => {
+test("cross-site document GET navigation is allowed while subresources stay rejected", () => {
   const trust = { bindHost: "10.0.0.2", bindPort: 4310, lanAddresses: [] };
   const clientAddress = "10.0.0.9";
   const request = new Request("http://10.0.0.2:4310/share/12345678901234567890123456789012", {
@@ -122,9 +122,9 @@ test("cross-site document navigation is allowed only for read-only share URLs", 
     true,
   );
   assert.equal(sparkWebShareRequestTrustError({ request, trust, clientAddress }), null);
-  assert.match(
-    sparkWebRequestTrustError({ request, authSource: "none", trust, clientAddress }) ?? "",
-    /cross-site/u,
+  assert.equal(
+    sparkWebRequestTrustError({ request, authSource: "none", trust, clientAddress }),
+    null,
   );
   assert.equal(isSparkWebReadOnlyShareRequest(request, "/api/v1/rpc"), false);
   assert.match(

@@ -234,7 +234,7 @@ test("shared access form verifies with the daemon and promotes the token to a co
     const cookie = response.headers.get("set-cookie") ?? "";
     assert.match(cookie, /^spark_web_token=sdu_good/u);
     assert.match(cookie, /HttpOnly/u);
-    assert.match(cookie, /SameSite=Strict/u);
+    assert.match(cookie, /SameSite=Lax/u);
 
     const invalid = await fetch(`http://127.0.0.1:${proxy.port}/__spark/access`, {
       method: "POST",
@@ -291,11 +291,17 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
     });
     assert.equal(cookieAuth.status, 200);
 
-    const navigation = await fetch(`http://127.0.0.1:${proxy.port}/?token=sdu_good&lang=zh`, {
-      redirect: "manual",
+    const navigation = await rawRequest(proxy.port, {
+      path: "/?token=sdu_good&lang=zh",
+      headers: {
+        "sec-fetch-site": "cross-site",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-dest": "document",
+      },
     });
     assert.equal(navigation.status, 303);
-    assert.equal(navigation.headers.get("location"), "/?lang=zh");
+    assert.equal(navigation.headers.location, "/?lang=zh");
+    assert.match(String(navigation.headers["set-cookie"]), /SameSite=Lax/u);
 
     const queryMutation = await fetch(`http://127.0.0.1:${proxy.port}/api/rpc?token=sdu_good`, {
       method: "POST",
@@ -407,7 +413,7 @@ function rawRequest(
     headers?: Record<string, string>;
     host?: string;
   },
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; headers: Record<string, string> }> {
   return new Promise((resolveRaw, rejectRaw) => {
     const socket: Socket = connect({ host: "127.0.0.1", port });
     let buffer = "";
@@ -424,9 +430,16 @@ function rawRequest(
       if (headerEnd < 0 || settled) return;
       settled = true;
       clearTimeout(timeout);
-      const status = Number(buffer.slice(0, buffer.indexOf("\r\n")).split(" ")[1]);
+      const headerLines = buffer.slice(0, headerEnd).split("\r\n");
+      const status = Number(headerLines.shift()?.split(" ")[1]);
+      const headers = Object.fromEntries(
+        headerLines.map((line) => {
+          const separator = line.indexOf(":");
+          return [line.slice(0, separator).toLowerCase(), line.slice(separator + 1).trim()];
+        }),
+      );
       socket.destroy();
-      resolveRaw({ status, body: buffer.slice(headerEnd + 4) });
+      resolveRaw({ status, body: buffer.slice(headerEnd + 4), headers });
     });
     socket.on("error", (error) => {
       if (settled) return;

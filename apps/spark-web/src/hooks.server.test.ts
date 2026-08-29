@@ -92,6 +92,7 @@ test("access form verifies with the daemon, sets the HttpOnly carrier cookie, an
   );
   assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
   assert.equal(cookieSet.mock.calls[0]?.[2]?.httpOnly, true);
+  assert.equal(cookieSet.mock.calls[0]?.[2]?.sameSite, "lax");
   assert.equal(cookieSet.mock.calls[0]?.[2]?.secure, false);
 });
 
@@ -133,6 +134,11 @@ test("verified query tokens remain a navigation-only compatibility carrier", asy
         url: "http://10.0.0.2:4310/?token=sdu_good&lang=en",
         clientAddress: "10.0.0.9",
         cookieSet,
+        headers: {
+          "sec-fetch-site": "cross-site",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-dest": "document",
+        },
       }),
     (error: unknown) => {
       if (!isRedirect(error)) return false;
@@ -142,6 +148,7 @@ test("verified query tokens remain a navigation-only compatibility carrier", asy
     },
   );
   assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
+  assert.equal(cookieSet.mock.calls[0]?.[2]?.sameSite, "lax");
 
   await assert.rejects(
     () =>
