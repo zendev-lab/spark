@@ -16,6 +16,7 @@ const remoteAccess = vi.hoisted(() => ({
   remoteAccessDecision: vi.fn((): { required: boolean } => ({ required: false })),
 }));
 const hubAccess = vi.hoisted(() => ({
+  listUserDaemonGrantIds: vi.fn((): string[] => []),
   listUserDaemonGrantWorkspaceIds: vi.fn((): string[] => []),
 }));
 
@@ -43,6 +44,8 @@ beforeEach(() => {
   auth.hubSessionAllowsRequest.mockReturnValue(false);
   remoteAccess.remoteAccessDecision.mockReset();
   remoteAccess.remoteAccessDecision.mockReturnValue({ required: false });
+  hubAccess.listUserDaemonGrantIds.mockReset();
+  hubAccess.listUserDaemonGrantIds.mockReturnValue([]);
   hubAccess.listUserDaemonGrantWorkspaceIds.mockReset();
   hubAccess.listUserDaemonGrantWorkspaceIds.mockReturnValue([]);
 });
@@ -108,6 +111,7 @@ describe("Hub remote access boundary", () => {
     const session = hubSession("member");
     auth.getCurrentHubSession.mockReturnValue(session);
     auth.hubSessionAllowsRequest.mockReturnValue(true);
+    hubAccess.listUserDaemonGrantIds.mockReturnValue(["rt_granted"]);
     hubAccess.listUserDaemonGrantWorkspaceIds.mockReturnValue(["ws_granted"]);
     const url = new URL("https://spark.example/granted-workspace/sessions");
     const event = requestEvent(url, { headers: { accept: "text/html" } });
@@ -121,9 +125,14 @@ describe("Hub remote access boundary", () => {
       database.getDatabase.mock.results[0]?.value,
       session.userId,
     );
+    expect(hubAccess.listUserDaemonGrantIds).toHaveBeenCalledWith(
+      database.getDatabase.mock.results[0]?.value,
+      session.userId,
+    );
     const locals = event.locals as App.Locals;
     expect(locals.hasControlPlaneAccess).toBe(false);
     expect(locals.authorizedWorkspaceIds).toEqual(["ws_granted"]);
+    expect(locals.authorizedDaemonIds).toEqual(["rt_granted"]);
   });
 
   it("leaves owner locals unrestricted on remote requests", async () => {
@@ -141,7 +150,9 @@ describe("Hub remote access boundary", () => {
     const locals = event.locals as App.Locals;
     expect(locals.hasControlPlaneAccess).toBe(true);
     expect(locals.authorizedWorkspaceIds).toBeNull();
+    expect(locals.authorizedDaemonIds).toBeNull();
     expect(hubAccess.listUserDaemonGrantWorkspaceIds).not.toHaveBeenCalled();
+    expect(hubAccess.listUserDaemonGrantIds).not.toHaveBeenCalled();
   });
 
   it("rotates an expired hub session through the refresh cookie before resolving", async () => {
@@ -186,6 +197,7 @@ describe("Hub remote access boundary", () => {
     expect(locals.sessionToken).toBeNull();
     expect(locals.hasControlPlaneAccess).toBe(true);
     expect(locals.authorizedWorkspaceIds).toBeNull();
+    expect(locals.authorizedDaemonIds).toBeNull();
   });
 });
 

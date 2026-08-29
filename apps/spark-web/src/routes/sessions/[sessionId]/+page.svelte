@@ -127,6 +127,10 @@
   let searchError = $state<string | null>(null);
   let searchRequestToken = 0;
   let revealSearchRequestToken = 0;
+  let conversationListOpen = $state(false);
+  let workDetailsOpen = $state(false);
+  let conversationSettingsOpen = $state(false);
+  let moreActionsOpen = $state(false);
   let shareHref = $state<string | null>(null);
   let sharing = $state(false);
   let memoryFeedbackBusy = $state("");
@@ -135,6 +139,16 @@
   let activeOwnerSessionId: string | undefined;
   let detachSessionEvents: (() => void) | undefined;
   const notifiedAskIds = new Set<string>();
+
+  function toggleConversationList() {
+    conversationListOpen = !conversationListOpen;
+    if (conversationListOpen) workDetailsOpen = false;
+  }
+
+  function toggleWorkDetails() {
+    workDetailsOpen = !workDetailsOpen;
+    if (workDetailsOpen) conversationListOpen = false;
+  }
 
   function ownsActionFeedback(ownerSessionId: string, requestToken: number): boolean {
     return (
@@ -513,7 +527,8 @@
     };
     switch (action.intent) {
       case "model.select":
-        feedback("Use the model picker above the composer.");
+        conversationSettingsOpen = true;
+        feedback(copy.modelPickerHint);
         document.getElementById("spark-web-model")?.focus();
         return;
       case "thinking.select": {
@@ -525,7 +540,8 @@
           await setThinking(level as SparkThinkingLevel, ownerSessionId);
           feedback(`Thinking set to ${level}.`);
         } else {
-          feedback("Use the Thinking selector above the composer.");
+          conversationSettingsOpen = true;
+          feedback(copy.thinkingPickerHint);
         }
         return;
       }
@@ -901,11 +917,6 @@
     invokeSessionControl(ownerSessionId, () => cancelTurn(invocationId));
   }
 
-  function retryCurrentTurn() {
-    const ownerSessionId = snapshot.sessionId;
-    invokeSessionControl(ownerSessionId, () => retryTurn(ownerSessionId));
-  }
-
   function changeThinkingLevel(thinkingLevel: SparkThinkingLevel) {
     const ownerSessionId = snapshot.sessionId;
     invokeSessionControl(ownerSessionId, () => setThinking(thinkingLevel, ownerSessionId));
@@ -1085,38 +1096,121 @@
   </Button>
 {/snippet}
 
-<div class="workbench-shell">
-  <aside>
-    <SessionTree
-      sessions={treeSessions}
-      selectedSessionId={snapshot.sessionId}
-      includeArchived={true}
-      {busySessionId}
-      labels={copy.tree}
-      hrefFor={(sessionId) => `/sessions/${sessionId}`}
-      onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
-      onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
-      onClose={(session) => requestSessionClose(session as SparkSessionProjection)}
-    />
-    {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
+<div
+  class="workbench-shell"
+  class:conversation-list-open={conversationListOpen}
+  class:work-details-open={workDetailsOpen}
+>
+  <aside id="conversation-list-panel" class="context-panel conversation-list-panel" hidden={!conversationListOpen}>
+    <header class="context-panel-header">
+      <strong>{copy.conversationList}</strong>
+      <Button variant="ghost" size="compact" ariaLabel={copy.closeConversationList} onclick={() => (conversationListOpen = false)}>
+        <Icon name="close" size={15} />
+      </Button>
+    </header>
+    <div class="context-panel-body">
+      <SessionTree
+        sessions={treeSessions}
+        selectedSessionId={snapshot.sessionId}
+        includeArchived={true}
+        {busySessionId}
+        labels={copy.tree}
+        hrefFor={(sessionId) => `/sessions/${sessionId}`}
+        onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
+        onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
+        onClose={(session) => requestSessionClose(session as SparkSessionProjection)}
+      />
+      {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
+    </div>
   </aside>
+
   <section class="workbench">
-  <div class="session-actions" aria-label={copy.actions}>
-    <Button variant="secondary" size="compact" onclick={() => (searchOpen = !searchOpen)}><Icon name="search" size={14} />{copy.searchHistory}</Button>
-    <details>
-      <summary>{copy.export}</summary>
-      <div class="export-menu">
-        {#each ["jsonl", "json", "text", "html"] as format}
-          <a href={`/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/export?format=${format}`}>{format.toUpperCase()}</a>
-        {/each}
-      </div>
-    </details>
-    <Button variant="secondary" size="compact" onclick={() => void createLocalShare()} disabled={sharing}>
-      <Icon name="share" size={14} />
-      {sharing ? copy.sharing : copy.localShare}
-    </Button>
-    {#if shareHref}<Button variant="ghost" size="compact" href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</Button>{/if}
-  </div>
+  <header class="conversation-header">
+    <div class="conversation-identity">
+      <span>{copy.currentSession}</span>
+      <h1>{currentSession?.name ?? copy.tree.untitled}</h1>
+    </div>
+    <div class="conversation-view-controls" aria-label={copy.actions}>
+      <Button
+        variant="ghost"
+        size="compact"
+        ariaLabel={conversationListOpen ? copy.closeConversationList : copy.openConversationList}
+        ariaExpanded={conversationListOpen}
+        ariaControls="conversation-list-panel"
+        onclick={toggleConversationList}
+      >
+        <Icon name="message" size={15} />
+        <span>{copy.conversationList}</span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="compact"
+        ariaLabel={workDetailsOpen ? copy.closeWorkDetails : copy.openWorkDetails}
+        ariaExpanded={workDetailsOpen}
+        ariaControls="session-work-details"
+        onclick={toggleWorkDetails}
+      >
+        <Icon name="workspace" size={15} />
+        <span>{copy.workDetails}</span>
+      </Button>
+      <details class="conversation-settings" bind:open={conversationSettingsOpen}>
+        <summary><Icon name="settings" size={15} />{copy.conversationSettings}</summary>
+        <div class="conversation-settings-panel">
+          <ModelSelector
+            id="spark-web-model"
+            groups={modelGroups}
+            bind:value={modelValue}
+            label={copy.model}
+            title={copy.model}
+            description={copy.chooseModel}
+            placeholder={copy.selectModel}
+            searchPlaceholder={copy.searchModels}
+            emptyLabel={copy.noModels}
+            closeLabel={copy.close}
+            clearSearchLabel={copy.clear}
+            selectedLabel={copy.selected}
+            onCommit={commitModelValue}
+          />
+          <div class="thinking-control">
+            <span>{copy.thinking}</span>
+            <Select
+              id="spark-web-thinking"
+              value={snapshot.thinkingLevel ?? "high"}
+              groups={thinkingGroups}
+              label={copy.thinking}
+              compact
+              onValueChange={(value) => {
+                if ((sparkThinkingLevelOptions as readonly string[]).includes(value)) {
+                  changeThinkingLevel(value as SparkThinkingLevel);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </details>
+      <details class="more-actions" bind:open={moreActionsOpen}>
+        <summary><Icon name="menu" size={15} />{copy.moreActions}</summary>
+        <div class="more-actions-panel">
+          <Button variant="ghost" size="compact" onclick={() => { searchOpen = !searchOpen; moreActionsOpen = false; }}>
+            <Icon name="search" size={14} />{copy.searchHistory}
+          </Button>
+          <div class="export-actions">
+            <strong>{copy.export}</strong>
+            <div>
+              {#each ["jsonl", "json", "text", "html"] as format}
+                <a href={`/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/export?format=${format}`}>{format.toUpperCase()}</a>
+              {/each}
+            </div>
+          </div>
+          <Button variant="ghost" size="compact" onclick={() => void createLocalShare()} disabled={sharing}>
+            <Icon name="share" size={14} />
+            {sharing ? copy.sharing : copy.localShare}
+          </Button>
+          {#if shareHref}<Button variant="ghost" size="compact" href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</Button>{/if}
+        </div>
+      </details>
+    </div>
+  </header>
   {#if searchOpen}
     <section class="history-search" aria-label={copy.historySearchRegion}>
       <form onsubmit={(event) => void searchHistory(event)}>
@@ -1293,54 +1387,17 @@
           <span>{copy.addFiles}</span>
           <input type="file" multiple onchange={(event) => void addAttachments(event)} />
         </label>
-      {/snippet}
-      {#snippet header()}
-        <div class="controls">
-          <ModelSelector
-            id="spark-web-model"
-            groups={modelGroups}
-            bind:value={modelValue}
-            label={copy.model}
-            title={copy.model}
-            description={copy.chooseModel}
-            placeholder={copy.selectModel}
-            searchPlaceholder={copy.searchModels}
-            emptyLabel={copy.noModels}
-            closeLabel={copy.close}
-            clearSearchLabel={copy.clear}
-            selectedLabel={copy.selected}
-            onCommit={commitModelValue}
-          />
+        {#if activity.runningTurnId}
           <Button
             type="button"
             variant="danger"
             size="compact"
             onclick={stopCurrentTurn}
-            disabled={!activity.runningTurnId}
           >
             <Icon name="stop" size={13} />
             {copy.stop}
           </Button>
-          <Button type="button" variant="secondary" size="compact" onclick={retryCurrentTurn}>
-            <Icon name="retry" size={13} />
-            {copy.retry}
-          </Button>
-          <div class="thinking-control">
-            <span>{copy.thinking}</span>
-            <Select
-              id="spark-web-thinking"
-              value={snapshot.thinkingLevel ?? "high"}
-              groups={thinkingGroups}
-              label={copy.thinking}
-              compact
-              onValueChange={(value) => {
-                if ((sparkThinkingLevelOptions as readonly string[]).includes(value)) {
-                  changeThinkingLevel(value as SparkThinkingLevel);
-                }
-              }}
-            />
-          </div>
-        </div>
+        {/if}
       {/snippet}
       {#snippet tools()}
         {#if slashActionBar}
@@ -1375,11 +1432,19 @@
     outputTokens={snapshot.usage?.outputTokens}
   />
   </section>
-  <SessionWorkPanel
-    {snapshot}
-    labels={copy.work}
-    onOpenArtifact={currentWorkspaceId ? openArtifact : undefined}
-  />
+  <aside id="session-work-details" class="context-panel work-details-panel" hidden={!workDetailsOpen}>
+    <header class="context-panel-header">
+      <strong>{copy.workDetails}</strong>
+      <Button variant="ghost" size="compact" ariaLabel={copy.closeWorkDetails} onclick={() => (workDetailsOpen = false)}>
+        <Icon name="close" size={15} />
+      </Button>
+    </header>
+    <SessionWorkPanel
+      {snapshot}
+      labels={copy.work}
+      onOpenArtifact={currentWorkspaceId ? openArtifact : undefined}
+    />
+  </aside>
 </div>
 
 <ConfirmDialog
@@ -1414,65 +1479,220 @@
 <style>
   .workbench-shell {
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 340px);
-    height: calc(100vh - 53px);
+    grid-template-columns: minmax(0, 1fr);
+    height: calc(100dvh - 53px);
     min-height: 0;
   }
-  aside {
+
+  .workbench-shell.conversation-list-open {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .workbench-shell.work-details-open {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 370px);
+  }
+
+  .context-panel {
     background: var(--color-surface);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .context-panel[hidden] {
+    display: none;
+  }
+
+  .conversation-list-panel {
     border-right: 1px solid var(--color-border);
+  }
+
+  .work-details-panel {
+    border-left: 1px solid var(--color-border);
+  }
+
+  .context-panel-header {
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    min-height: 52px;
+    padding: 8px 10px 8px 14px;
+  }
+
+  .context-panel-header strong {
+    font-size: var(--text-body);
+  }
+
+  .context-panel-body {
     min-height: 0;
     overflow: auto;
     padding: 12px;
   }
+
+  :global(.work-details-panel .session-work-panel) {
+    border-left: 0;
+  }
+
   .tree-error {
     color: var(--color-danger);
     font-size: var(--text-caption);
   }
+
   .workbench {
-    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 12px;
+    margin-inline: auto;
+    max-width: 1040px;
+    min-height: 0;
+    padding: 0 clamp(12px, 3vw, 32px) 12px;
+    width: 100%;
   }
-  .session-actions {
+
+  .conversation-header {
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--spacing-lg);
+    justify-content: space-between;
+    min-height: 60px;
+    padding: 8px 0;
+  }
+
+  .conversation-identity {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .conversation-identity span {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .conversation-identity h1 {
+    font-size: var(--text-card-title);
+    font-weight: var(--weight-section-title);
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .conversation-view-controls {
     align-items: center;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--spacing-xs);
+    min-width: 0;
   }
-  .session-actions summary,
+
+  .conversation-view-controls details {
+    position: relative;
+  }
+
+  .conversation-view-controls summary,
   .attach-button {
     align-items: center;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
-    color: var(--color-ink);
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
     cursor: pointer;
     display: inline-flex;
     font: inherit;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-button);
     gap: 6px;
-    padding: 5px 8px;
+    min-height: var(--control-height-compact);
+    padding: 5px 10px;
     text-decoration: none;
   }
-  .session-actions details {
-    position: relative;
-  }
-  .session-actions summary {
+
+  .conversation-view-controls summary {
     list-style: none;
   }
-  .export-menu {
+
+  .conversation-view-controls summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .conversation-view-controls summary:hover,
+  .conversation-view-controls summary:focus-visible,
+  .conversation-view-controls details[open] > summary {
+    background: var(--color-surface-soft);
+    color: var(--color-ink);
+  }
+
+  .conversation-view-controls summary:focus-visible {
+    box-shadow: var(--shadow-focus);
+    outline: none;
+  }
+
+  .conversation-settings-panel,
+  .more-actions-panel {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
-    box-shadow: var(--shadow-card-raised);
+    border-radius: var(--rounded-lg);
+    box-shadow: var(--shadow-popover);
+    display: grid;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    position: absolute;
+    right: 0;
+    top: calc(100% + 7px);
+    z-index: 20;
+  }
+
+  .conversation-settings-panel {
+    min-width: min(340px, calc(100vw - 32px));
+  }
+
+  .more-actions-panel {
+    min-width: 250px;
+  }
+
+  .more-actions-panel :global(.ui-button) {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .export-actions {
+    border-block: 1px solid var(--color-border-soft);
+    display: grid;
+    gap: 7px;
+    padding: 9px 4px;
+  }
+
+  .export-actions > strong {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .export-actions > div {
     display: grid;
     gap: 4px;
-    padding: 6px;
-    position: absolute;
-    z-index: 4;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .export-actions a {
+    border-radius: var(--rounded-sm);
+    color: var(--color-ink-muted);
+    font-size: 11px;
+    padding: 5px;
+    text-align: center;
+    text-decoration: none;
+  }
+
+  .export-actions a:hover,
+  .export-actions a:focus-visible {
+    background: var(--color-primary-weak);
+    color: var(--color-primary);
+    outline: none;
+  }
+
   .history-search {
     background: var(--color-surface-soft);
     border: 1px solid var(--color-border);
@@ -1521,26 +1741,7 @@
   .memory-feedback code {
     font-size: 11px;
   }
-  @media (max-width: 760px) {
-    .workbench-shell {
-      display: block;
-      height: auto;
-    }
-    aside {
-      border-bottom: 1px solid var(--color-border);
-      border-right: 0;
-      max-height: 34vh;
-    }
-    .workbench {
-      height: 66vh;
-    }
-  }
-  .controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
+
   .thinking-control {
     align-items: center;
     color: var(--color-ink-muted);
@@ -1581,4 +1782,59 @@
   .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; padding: var(--spacing-lg) var(--spacing-xl); white-space: pre-wrap; }
   :global(.artifact-close) { align-items: center; background: transparent; border: 0; border-radius: var(--rounded-md); color: var(--color-ink-muted); cursor: pointer; display: inline-flex; height: 32px; justify-content: center; width: 32px; }
   :global(.artifact-close:hover) { background: var(--color-surface-soft); }
+
+  @media (max-width: 900px) {
+    .conversation-header {
+      align-items: start;
+      flex-direction: column;
+      gap: var(--spacing-xs);
+    }
+
+    .conversation-view-controls {
+      width: 100%;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls > details {
+      flex: 1 1 0;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls summary {
+      justify-content: center;
+      width: 100%;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .workbench-shell,
+    .workbench-shell.conversation-list-open,
+    .workbench-shell.work-details-open {
+      grid-template-columns: minmax(0, 1fr);
+      height: auto;
+    }
+
+    .context-panel {
+      border-bottom: 1px solid var(--color-border);
+      border-inline: 0;
+      grid-row: 1;
+      max-height: 48dvh;
+    }
+
+    .workbench {
+      grid-row: 2;
+      height: 72dvh;
+    }
+
+    .conversation-view-controls span {
+      display: none;
+    }
+
+    .conversation-settings-panel,
+    .more-actions-panel {
+      left: 0;
+      min-width: min(320px, calc(100vw - 24px));
+      right: auto;
+    }
+  }
 </style>

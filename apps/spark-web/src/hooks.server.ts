@@ -79,7 +79,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     error(
       challenge.status,
       challenge.status === 503
-        ? "Spark daemon is unavailable to verify the web token"
+        ? "Spark is unavailable to verify the web token"
         : "Spark web token required",
     );
   }

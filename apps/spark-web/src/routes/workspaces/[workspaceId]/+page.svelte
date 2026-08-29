@@ -571,7 +571,7 @@
     {#if roleModelStatus}<Notice tone="success" message={roleModelStatus} />{/if}
   </Panel>
 
-  <Panel title={copy.artifacts} note={`${data.artifactCatalog.total} ${data.artifactCatalog.total === 1 ? copy.daemonOwnedArtifact : copy.daemonOwnedArtifacts}`} id="artifact-center-heading">
+  <Panel title={copy.artifacts} note={`${data.artifactCatalog.total} ${data.artifactCatalog.total === 1 ? copy.artifactCountLabel : copy.artifactCountLabels}`} id="artifact-center-heading">
     {#if artifactError}<Notice tone="danger" message={artifactError} />{/if}
     {#if data.artifactCatalog.artifacts.length === 0}
       <p>{copy.noArtifacts}</p>

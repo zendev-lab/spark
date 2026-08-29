@@ -278,8 +278,8 @@ test("access page is framework-neutral and escapes dynamic values", () => {
   });
   assert.match(html, new RegExp(`action="${SPARK_WEB_ACCESS_PATH}"`, "u"));
   assert.match(html, /Invalid access token/u);
-  assert.match(html, /token printed when the Web process started/u);
-  assert.match(html, /spark daemon access create/u);
+  assert.match(html, /token printed when Spark Web started/u);
+  assert.doesNotMatch(html, /daemon/iu);
   assert.doesNotMatch(html, /<script>/u);
   assert.match(html, /&lt;Spark &amp; &quot;DSH&quot;&gt;/u);
 });

@@ -10,12 +10,14 @@ export function loadShellWorkspaceLayout(input: {
   preferredWorkspaceId?: string | null;
   preferredWorkspaceSlug?: string | null;
   authorizedWorkspaceIds?: readonly string[] | null;
+  authorizedDaemonIds?: readonly string[] | null;
 }) {
   const preferredFromQuery = input.preferredWorkspaceSlug?.trim() || null;
   const preferredFromCookie = input.cookies.get(activeWorkspaceCookieName)?.trim() || null;
   const loadedLayout = loadWorkbenchLayout(getDatabase(), input.pathname, {
     preferredWorkspaceSlug: preferredFromQuery || preferredFromCookie,
     authorizedWorkspaceIds: input.authorizedWorkspaceIds ?? null,
+    authorizedDaemonIds: input.authorizedDaemonIds ?? null,
   });
   const preferredById = input.preferredWorkspaceId
     ? loadedLayout.workspaces.find((workspace) => workspace.id === input.preferredWorkspaceId)

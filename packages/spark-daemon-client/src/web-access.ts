@@ -227,8 +227,8 @@ export function renderSparkWebAccessPage(
     state === "invalid"
       ? '<p class="feedback error" role="alert">Invalid access token.</p>'
       : state === "unavailable"
-        ? '<p class="feedback error" role="alert">The Spark daemon is unavailable to verify this token.</p>'
-        : '<p class="feedback">Remote access requires a daemon access token.</p>';
+        ? '<p class="feedback error" role="alert">Spark is temporarily unavailable. Try again after restarting Spark.</p>'
+        : '<p class="feedback">Remote access requires a Spark access token.</p>';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -256,7 +256,7 @@ export function renderSparkWebAccessPage(
 <body>
   <main>
     <h1>${product}</h1>
-    <p class="subtitle">Connect to this daemon</p>
+    <p class="subtitle">Continue to Spark</p>
     ${feedback}
     <form method="post" action="${SPARK_WEB_ACCESS_PATH}" autocomplete="off">
       <input type="hidden" name="returnTo" value="${returnTo}" />
@@ -264,7 +264,7 @@ export function renderSparkWebAccessPage(
       <input id="spark-access-token" name="token" type="password" required autofocus spellcheck="false" autocomplete="off" placeholder="sdu_…" />
       <button type="submit">Continue</button>
     </form>
-    <p class="hint">Use the token printed when the Web process started, or create a managed token with <code>spark daemon access create</code>.</p>
+    <p class="hint">Use an access token created for Spark Web, including the token printed when Spark Web started.</p>
   </main>
 </body>
 </html>`;

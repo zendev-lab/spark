@@ -9,7 +9,7 @@ export const load: PageServerLoad = async ({ params }) => {
   const listed = await invokeSparkWebRpc("workspace.list", {});
   const workspace = listed.workspaces.find((entry) => entry.id === workspaceId);
   if (!workspace) {
-    error(404, "Workspace is not bound to this daemon");
+    error(404, "This Workspace is not available in Spark Web");
   }
   const [sessions, artifactCatalog, roleCatalog, roleModelSettings, skillCatalog, modelCatalog] =
     await Promise.all([

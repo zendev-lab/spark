@@ -191,18 +191,15 @@ afterEach(() => {
 });
 
 describe("Session page owner state", () => {
-  it("uses shared controls and localized labels in the composer header", async () => {
+  it("keeps conversation settings available without crowding the composer", async () => {
     mocks.webRpc.mockResolvedValue({ waits: [] });
     const data = sessionData("a");
     data.messages = getDictionary("zh-CN");
     const screen = await render(SessionPage, { data });
 
-    const stop = screen.getByRole("button", { name: "停止" });
-    await expect.element(stop).toBeDisabled();
-    await expect.element(stop).toHaveAttribute("data-variant", "danger");
-    await expect
-      .element(screen.getByRole("button", { name: "重试" }))
-      .toHaveAttribute("data-variant", "secondary");
+    await expect.element(screen.getByRole("button", { name: "停止" })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    await screen.getByText("对话设置", { exact: true }).click();
     const thinking = screen.getByRole("button", { name: "思考级别" });
     await expect.element(thinking).toHaveClass(/ui-select-trigger/u);
     await expect.element(thinking).toHaveTextContent("高");
@@ -226,6 +223,27 @@ describe("Session page owner state", () => {
     await screen.unmount();
   });
 
+  it("keeps the transcript primary and opens only one contextual panel at a time", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const conversations = screen.container.querySelector<HTMLElement>("#conversation-list-panel");
+    const work = screen.container.querySelector<HTMLElement>("#session-work-details");
+
+    expect(conversations?.hidden).toBe(true);
+    expect(work?.hidden).toBe(true);
+    await expect.element(screen.getByRole("heading", { name: "Session a" })).toBeVisible();
+    await expect.element(screen.getByRole("textbox", { name: "Prompt" })).toBeVisible();
+
+    await screen.getByRole("button", { name: "Open conversations" }).click();
+    expect(conversations?.hidden).toBe(false);
+    expect(work?.hidden).toBe(true);
+
+    await screen.getByRole("button", { name: "Open work details" }).click();
+    expect(conversations?.hidden).toBe(true);
+    expect(work?.hidden).toBe(false);
+    await screen.unmount();
+  });
+
   it("confirms Session closure with the shared dialog before calling the daemon owner", async () => {
     mocks.webRpc.mockImplementation((method: string) => {
       if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
@@ -239,18 +257,17 @@ describe("Session page owner state", () => {
     });
     const screen = await render(SessionPage, { data: sessionData("a") });
 
-    await screen.getByRole("button", { name: "Close" }).click();
+    await screen.getByRole("button", { name: "Open conversations" }).click();
+    await screen.getByRole("button", { name: "Close", exact: true }).click();
     await expect.element(screen.getByRole("dialog")).toBeVisible();
-    await expect
-      .element(screen.getByText("The daemon will mark Session a as closed."))
-      .toBeVisible();
+    await expect.element(screen.getByText("Spark will mark Session a as closed.")).toBeVisible();
     expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.close")).toBe(false);
 
     await screen.getByRole("button", { name: "Keep session" }).click();
     await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
     expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.close")).toBe(false);
 
-    await screen.getByRole("button", { name: "Close" }).click();
+    await screen.getByRole("button", { name: "Close", exact: true }).click();
     await screen.getByRole("button", { name: "Close session" }).click();
     await expect
       .poll(() => mocks.webRpc.mock.calls.some(([method]) => method === "session.close"))
@@ -265,12 +282,13 @@ describe("Session page owner state", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(response.promise);
     const screen = await render(SessionPage, { data: sessionData("a") });
 
+    await screen.getByRole("button", { name: "Open work details" }).click();
     await screen.getByRole("tab", { name: "Details" }).click();
-    await screen.getByRole("button", { name: "Open" }).click();
+    await screen.getByRole("button", { name: "Open", exact: true }).click();
     await screen.rerender({ data: sessionData("b") });
     response.resolve(new Response("private Session A content"));
 
-    await expect.element(screen.getByRole("link", { name: /Session b/ })).toBeVisible();
+    await expect.element(screen.getByRole("heading", { name: "Session b" })).toBeVisible();
     expect(screen.container.textContent).not.toContain("private Session A content");
     expect(screen.container.querySelector('[role="dialog"]')).toBeNull();
     await screen.unmount();
@@ -282,12 +300,13 @@ describe("Session page owner state", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(response.promise);
     const screen = await render(SessionPage, { data: sessionData("a") });
 
+    await screen.getByRole("button", { name: "Open work details" }).click();
     await screen.getByRole("tab", { name: "Details" }).click();
-    await screen.getByRole("button", { name: "Open" }).click();
+    await screen.getByRole("button", { name: "Open", exact: true }).click();
     await screen.rerender({ data: sessionData("b") });
     response.reject(new Error("private Session A failure"));
 
-    await expect.element(screen.getByRole("link", { name: /Session b/ })).toBeVisible();
+    await expect.element(screen.getByRole("heading", { name: "Session b" })).toBeVisible();
     expect(screen.container.textContent).not.toContain("private Session A failure");
     expect(screen.container.querySelector('[role="alert"]')).toBeNull();
     await screen.unmount();
@@ -542,6 +561,7 @@ describe("Session page owner state", () => {
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
     await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/queue");
     await screen.getByRole("button", { name: "Retry" }).click();
     await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
 
@@ -565,6 +585,7 @@ describe("Session page owner state", () => {
 
     await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
     await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.getByText("Conversation settings", { exact: true }).click();
     await screen.getByRole("button", { name: "Model", exact: true }).click();
     await screen.getByText("Candidate", { exact: true }).click();
     modelResponse.reject(new Error("current model failure"));

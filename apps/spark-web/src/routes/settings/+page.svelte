@@ -138,17 +138,17 @@
   }
 
   async function refreshDaemon() {
-    await run("Daemon status", async () => {
+    await run("Spark status", async () => {
       daemonOverride = await webRpc("daemon.status", {});
-      return `Daemon is ${daemonOverride.lifecycle.state}.`;
+      return `Spark is ${daemonOverride.lifecycle.state}.`;
     });
   }
 
   async function restartDaemon() {
-    await run("Daemon restart", async () => {
+    await run("Spark restart", async () => {
       const result = await webRpc("daemon.restart", {});
       restartOpen = false;
-      return `Daemon restart ${result.restartId} accepted; active work is draining.`;
+      return `Spark restart ${result.restartId} accepted; active work is draining.`;
     });
   }
 
@@ -229,7 +229,7 @@
     </form>
   </Panel>
 
-  <Panel title={copy.daemon} id="daemon-heading">
+  <Panel title={copy.runtime} id="runtime-heading">
     <dl><div><dt>{copy.lifecycle}</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>{copy.build}</dt><dd>{daemon.buildFingerprint ?? copy.unavailable}</dd></div><div><dt>{copy.invocations}</dt><dd>{daemon.invocations.running} {copy.running} · {daemon.invocations.queued} {copy.queued} · {daemon.invocations.failed} {copy.failed}</dd></div><div><dt>{copy.observed}</dt><dd>{daemon.observedAt}</dd></div></dl>
     <div class="row"><Button variant="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>{copy.refresh}</Button><Button variant="danger" disabled={Boolean(busy)} onclick={() => (restartOpen = true)}>{copy.restart}</Button></div>
   </Panel>
@@ -246,7 +246,7 @@
   confirmLabel={copy.restart}
   cancelLabel={copy.cancel}
   danger
-  loading={busy === "Daemon restart"}
+  loading={busy === "Spark restart"}
   onConfirm={() => void restartDaemon()}
 />
 

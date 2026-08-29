@@ -9,6 +9,7 @@ import {
   hasActiveHubAccessTokens,
   listHubAccessTokens,
   listUserDaemonGrantWorkspaceIds,
+  listUserDaemonGrantIds,
   resolveSessionOwningRuntimeId,
   resolveWorkspaceOwningRuntimeId,
   revokeHubAccessToken,
@@ -165,6 +166,7 @@ describe("user daemon grants", () => {
       true,
     );
     expect(listUserDaemonGrantWorkspaceIds(db, "usr_member")).toEqual(["ws_a"]);
+    expect(listUserDaemonGrantIds(db, "usr_member")).toEqual(["rt_a"]);
 
     // Moving the workspace lease to another daemon immediately re-derives access.
     db.prepare("UPDATE workspace_leases SET ended_at = ? WHERE workspace_id = ?").run(
@@ -185,6 +187,7 @@ describe("user daemon grants", () => {
       false,
     );
     expect(listUserDaemonGrantWorkspaceIds(db, "usr_member")).toEqual([]);
+    expect(listUserDaemonGrantIds(db, "usr_member")).toEqual(["rt_a"]);
     db.close();
   });
 });

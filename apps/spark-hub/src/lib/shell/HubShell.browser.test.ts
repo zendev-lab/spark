@@ -17,15 +17,14 @@ describe("HubShell browser contract", () => {
   it("moves focus into mobile navigation and restores it after Escape", async () => {
     const screen = await render(HubShell, {
       children,
-      closeNavigationLabel: messages.layout.aria.closeWorkspaceNavigation,
+      closeNavigationLabel: messages.layout.aria.closeNavigation,
       common: messages.common,
       layout: messages.layout,
       navigation,
-      navigationAriaLabel: messages.layout.aria.workspaceNavigation,
+      navigationAriaLabel: messages.layout.aria.workbenchNavigation,
       navigationId: "test-navigation",
       pathname: "/workspace/sessions",
       sessionMessages: messages.sessions,
-      workspaceHref: () => "/",
     });
 
     const toggle = screen.container.querySelector<HTMLButtonElement>(
@@ -57,15 +56,14 @@ describe("HubShell browser contract", () => {
   it("keeps the skip-to-content link visually hidden until keyboard focus", async () => {
     const screen = await render(HubShell, {
       children,
-      closeNavigationLabel: messages.layout.aria.closeWorkspaceNavigation,
+      closeNavigationLabel: messages.layout.aria.closeNavigation,
       common: messages.common,
       layout: messages.layout,
       navigation,
-      navigationAriaLabel: messages.layout.aria.workspaceNavigation,
+      navigationAriaLabel: messages.layout.aria.workbenchNavigation,
       navigationId: "test-navigation",
       pathname: "/workspace/sessions",
       sessionMessages: messages.sessions,
-      workspaceHref: () => "/",
     });
 
     const skipLink = screen.container.querySelector<HTMLAnchorElement>(".skip-link");
@@ -81,6 +79,44 @@ describe("HubShell browser contract", () => {
     skipLink?.click();
     await vi.waitFor(() => {
       expect(document.activeElement?.id).toBe("hub-main-content");
+    });
+
+    await screen.unmount();
+  });
+
+  it("presents daemon grants instead of a top-level workspace switcher", async () => {
+    const screen = await render(HubShell, {
+      canManageDaemonAccess: true,
+      children,
+      closeNavigationLabel: messages.layout.aria.closeNavigation,
+      common: messages.common,
+      daemons: [{ id: "rt-build", name: "Build daemon", status: "online" }],
+      layout: messages.layout,
+      navigation,
+      navigationAriaLabel: messages.layout.aria.workbenchNavigation,
+      navigationId: "test-navigation",
+      pathname: "/",
+      sessionMessages: messages.sessions,
+      workspaces: [{ id: "ws-repo", slug: "repo", name: "Repository group" }],
+    });
+
+    const daemonMenu = screen.getByRole("button", { name: "Authorized daemons" });
+    await expect.element(daemonMenu).toHaveTextContent("Build daemon");
+    await daemonMenu.click();
+    expect(document.querySelector(".account-popover .daemon-item strong")?.textContent).toBe(
+      "Build daemon",
+    );
+    await expect.element(daemonMenu).toHaveAttribute("aria-expanded", "true");
+    await expect.element(screen.getByText("online", { exact: true })).toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Manage daemon access" }))
+      .toHaveAttribute("href", "/settings/access");
+    expect(screen.container.textContent).not.toContain("Switch workspace");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() => {
+      expect(daemonMenu.element().getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(daemonMenu.element());
     });
 
     await screen.unmount();

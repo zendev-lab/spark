@@ -11,6 +11,12 @@ export interface HubSearchWorkspace {
   name: string;
 }
 
+export interface HubDaemonSummary {
+  id: string;
+  name: string;
+  status: string;
+}
+
 export interface HubSearchResult {
   id: string;
   type: "session" | "workspace" | "page";

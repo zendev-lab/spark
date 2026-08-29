@@ -10,7 +10,7 @@
   let copy = $derived(data.messages.web.sessions);
   const sessions = $derived(ordinaryDaemonSessions(data.sessions as SparkWebSession[]));
   function workspaceLabel(workspaceId: string | null): string {
-    if (!workspaceId) return copy.daemon;
+    if (!workspaceId) return copy.generalContext;
     return data.workspaces.find((workspace) => workspace.id === workspaceId)?.displayName ?? workspaceId;
   }
 
@@ -30,7 +30,7 @@
               {#if sessionWorkspaceId(session)}
                 <a href="/workspaces/{sessionWorkspaceId(session)}">{workspaceLabel(sessionWorkspaceId(session))}</a>
               {:else}
-                {copy.daemon}
+                {copy.generalContext}
               {/if}
               <StatusPill label={session.activity ?? "idle"} status={session.activity ?? "idle"} />
             </span>

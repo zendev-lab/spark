@@ -1,5 +1,8 @@
 import { createId } from "@zendev-lab/spark-protocol";
-import { listUserDaemonGrantWorkspaceIds } from "@zendev-lab/spark-hub-coordination/hub-access";
+import {
+  listUserDaemonGrantIds,
+  listUserDaemonGrantWorkspaceIds,
+} from "@zendev-lab/spark-hub-coordination/hub-access";
 import type { Handle, HandleServerError, RequestEvent } from "@sveltejs/kit";
 import {
   getCurrentHubSession,
@@ -23,6 +26,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   event.locals.requestId = createId("msg");
   event.locals.hasControlPlaneAccess = false;
   event.locals.authorizedWorkspaceIds = null;
+  event.locals.authorizedDaemonIds = null;
   let databasePinned = false;
   try {
     pinDatabase();
@@ -57,6 +61,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
     if (decision.required && hubSession && hubSession.role !== "owner") {
       event.locals.authorizedWorkspaceIds = listUserDaemonGrantWorkspaceIds(db, hubSession.userId);
+      event.locals.authorizedDaemonIds = listUserDaemonGrantIds(db, hubSession.userId);
     }
 
     const locale = resolveRequestLocale({

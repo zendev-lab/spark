@@ -52,6 +52,7 @@ function pageData(overrides: Partial<PageData> = {}): PageData {
       localPath: null,
     },
     workspaces: [],
+    daemons: [],
     sessions: [],
     sessionsAvailable: true,
     isGlobalConsole: true,

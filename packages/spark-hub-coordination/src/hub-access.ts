@@ -371,6 +371,20 @@ export function listUserDaemonGrantWorkspaceIds(db: DatabaseSync, userId: string
   return rows.map((row) => row.workspaceId);
 }
 
+/** Active daemon grants held by one Hub member. */
+export function listUserDaemonGrantIds(db: DatabaseSync, userId: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT g.runtime_id AS runtimeId
+       FROM user_daemon_grants g
+       JOIN runtime_connections rc ON rc.id = g.runtime_id
+       WHERE g.user_id = ? AND g.revoked_at IS NULL
+       ORDER BY g.runtime_id`,
+    )
+    .all(userId) as Array<{ runtimeId: string }>;
+  return rows.map((row) => row.runtimeId);
+}
+
 function normalizeDaemonIds(db: DatabaseSync, daemonIds: string[]): string[] {
   const normalized = [...new Set(daemonIds.map((id) => id.trim()).filter(Boolean))];
   if (normalized.length === 0) {

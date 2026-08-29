@@ -66,7 +66,7 @@ function setupWorkspace(slug = "spore") {
     name: "MVP",
     createdAt: now,
   });
-  return { db, workspace, bindingId };
+  return { db, workspace, bindingId, runtimeId };
 }
 
 describe("loadWorkbenchLayout", () => {
@@ -137,7 +137,7 @@ describe("loadWorkbenchLayout", () => {
   });
 
   it("shows only the workspaces behind a remote member's daemon grants", () => {
-    const { db, workspace } = setupWorkspace("spore");
+    const { db, workspace, runtimeId: authorizedRuntimeId } = setupWorkspace("spore");
     const runtimeId = createId("rt");
     const bindingId = createId("rtwb");
     const now = "2026-07-09T03:00:00.000Z";
@@ -161,9 +161,31 @@ describe("loadWorkbenchLayout", () => {
     const layout = loadWorkbenchLayout(db, "/other/sessions", {
       preferredWorkspaceSlug: "other",
       authorizedWorkspaceIds: [workspace.id],
+      authorizedDaemonIds: [authorizedRuntimeId],
     });
     expect(layout.workspaces.map((item) => item.slug)).toEqual(["spore"]);
+    expect(layout.daemons.map((item) => item.id)).toEqual([authorizedRuntimeId]);
     expect(layout.activeWorkspace?.id).toBe(workspace.id);
+    db.close();
+  });
+
+  it("keeps an authorized daemon visible even before it exposes a Session group", () => {
+    const { db } = setupWorkspace("spore");
+    const daemonId = createId("rt");
+    const now = "2026-07-09T03:10:00.000Z";
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
+       VALUES (?, ?, 'Fresh daemon', 'offline', ?, '{}', '{}', ?, ?)`,
+    ).run(daemonId, "install-fresh", runtimeProtocolVersion, now, now);
+
+    const layout = loadWorkbenchLayout(db, "/", {
+      authorizedWorkspaceIds: [],
+      authorizedDaemonIds: [daemonId],
+    });
+
+    expect(layout.workspaces).toEqual([]);
+    expect(layout.daemons).toEqual([{ id: daemonId, name: "Fresh daemon", status: "offline" }]);
     db.close();
   });
 });
@@ -216,6 +238,72 @@ describe("public artifact counts", () => {
     });
     expect(home.workspaces[0]?.artifactCount).toBe(2);
 
+    db.close();
+  });
+});
+
+describe("workbench attention projection", () => {
+  it("projects the latest durable Invocation for each authorized Session", () => {
+    const { db, workspace, bindingId, runtimeId } = setupWorkspace("focus");
+    const sessionId = "session-release";
+    db.prepare(
+      `INSERT INTO runtime_session_projections
+        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+         lifecycle, placement, activity, lifetime, lineage_origin_kind, record_json, projected_at)
+       VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'running', 'persistent', 'root', ?, ?)`,
+    ).run(
+      runtimeId,
+      sessionId,
+      workspace.id,
+      bindingId,
+      JSON.stringify({ name: "Release train" }),
+      "2026-07-09T04:00:00.000Z",
+    );
+    db.prepare(
+      `INSERT INTO runtime_invocation_projections
+        (runtime_id, runtime_invocation_id, session_id, scope, workspace_id,
+         runtime_workspace_binding_id, status, event_cursor, payload_json, created_at, updated_at)
+       VALUES
+        (?, 'inv-old', ?, 'workspace', ?, ?, 'failed', 2, '{}', ?, ?),
+        (?, 'inv-live', ?, 'workspace', ?, ?, 'running', 3, '{}', ?, ?)`,
+    ).run(
+      runtimeId,
+      sessionId,
+      workspace.id,
+      bindingId,
+      "2026-07-09T04:00:00.000Z",
+      "2026-07-09T04:01:00.000Z",
+      runtimeId,
+      sessionId,
+      workspace.id,
+      bindingId,
+      "2026-07-09T04:02:00.000Z",
+      "2026-07-09T04:03:00.000Z",
+    );
+
+    const home = loadWorkbenchHome(db, {
+      forceWorkspaceCreate: false,
+      pendingWorkspaceSetup: null,
+      authorizedWorkspaceIds: [workspace.id],
+    });
+
+    expect(home.attentionItems).toEqual([
+      expect.objectContaining({
+        id: "invocation:inv-live",
+        group: "running",
+        title: "Release train",
+        workspaceSlug: "focus",
+        sessionId,
+        invocationId: "inv-live",
+      }),
+    ]);
+    expect(
+      loadWorkbenchHome(db, {
+        forceWorkspaceCreate: false,
+        pendingWorkspaceSetup: null,
+        authorizedWorkspaceIds: [],
+      }).attentionItems,
+    ).toEqual([]);
     db.close();
   });
 });
