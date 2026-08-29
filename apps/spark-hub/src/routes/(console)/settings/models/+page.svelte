@@ -161,7 +161,7 @@
 <svelte:head><title>{copy.headTitle}</title></svelte:head>
 
 <section class="models-settings" aria-labelledby="models-title">
-  <PageHeader id="models-title" eyebrow={copy.eyebrow} title={copy.title} lede={copy.lede} />
+  <PageHeader id="models-title" title={copy.title} lede={copy.lede} />
 
   {#if !data.control.available}
     <div class="notice error" role="alert"><Icon name="warning" size={18} />{copy.daemonUnavailable}</div>

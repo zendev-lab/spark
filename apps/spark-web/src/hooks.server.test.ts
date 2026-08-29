@@ -24,7 +24,7 @@ test("loopback peers require a token even when the listener binds all interfaces
       headers: { accept: "text/html" },
     });
     assert.equal(response.status, 200, bindHost);
-    assert.match(await response.text(), /Connect to this daemon/u, bindHost);
+    assert.match(await response.text(), /Continue to Spark/u, bindHost);
   }
 });
 
@@ -47,8 +47,8 @@ test("document navigation receives the shared access page instead of a raw 401",
   });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /Connect to this daemon/u);
-  assert.match(html, /spark daemon access create/u);
+  assert.match(html, /Continue to Spark/u);
+  assert.doesNotMatch(html, /daemon/iu);
   assert.match(html, /name="token"/u);
 });
 
@@ -120,7 +120,7 @@ test("invalid and unavailable access tokens stay on the shared access page", asy
     headers: { accept: "text/html" },
   });
   assert.equal(unavailable.response.status, 503);
-  assert.match(await unavailable.response.text(), /daemon is unavailable/u);
+  assert.match(await unavailable.response.text(), /Spark is temporarily unavailable/u);
 });
 
 test("verified query tokens remain a navigation-only compatibility carrier", async () => {

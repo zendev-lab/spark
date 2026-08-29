@@ -29,7 +29,12 @@
     return "ready";
   }
 
+  function daemonName(daemonId: string) {
+    return data.daemons.find((daemon) => daemon.id === daemonId)?.name ?? t.access.unknownDaemon;
+  }
+
   let revokingId = $state<string | null>(null);
+  let selectedDaemonIds = $state<string[]>([]);
 </script>
 
 <svelte:head>
@@ -55,6 +60,7 @@
       emptyTitle={t.access.emptyTitle}
       emptyBody={t.access.emptyBody}
       hasTokens={data.accessTokens.length > 0}
+      submitDisabled={selectedDaemonIds.length === 0}
     >
       {#snippet fields()}
         <Field id="access-user" label={t.access.userLabel} reserveMeta={false}>
@@ -64,12 +70,22 @@
           <legend>{t.access.daemonsLabel}</legend>
           {#each data.daemons as daemon}
             <label class="daemon-grant">
-              <input type="checkbox" name="daemonIds" value={daemon.id} />
+              <input type="checkbox" name="daemonIds" value={daemon.id} bind:group={selectedDaemonIds} />
               <span>{daemon.name}</span>
-              <small>{daemon.id}</small>
             </label>
           {/each}
+          {#if selectedDaemonIds.length === 0}
+            <small class="selection-hint">{t.access.daemonSelectionRequired}</small>
+          {/if}
         </fieldset>
+        <details class="daemon-identifiers">
+          <summary>{t.access.daemonTechnicalDetails}</summary>
+          <dl>
+            {#each data.daemons as daemon}
+              <div><dt>{daemon.name}</dt><dd><code>{daemon.id}</code></dd></div>
+            {/each}
+          </dl>
+        </details>
       {/snippet}
       {#snippet created()}
         {#if form?.intent === "hubAccess" && form?.accessToken}
@@ -90,7 +106,7 @@
               <small>{t.access.memberLabel}: {form.accessMemberName}</small>
             {/if}
             {#if form.accessDaemonIds?.length}
-              <small>{t.access.grantedDaemons}: {form.accessDaemonIds.join(", ")}</small>
+              <small>{t.access.grantedDaemons}: {form.accessDaemonIds.map(daemonName).join(", ")}</small>
             {/if}
             <small>{t.access.expiresPrefix} {formatRelative(form.accessExpiresAt ?? null)}</small>
           </div>
@@ -106,7 +122,7 @@
                 <small>{t.access.memberLabel}: {token.memberName}</small>
               {/if}
               {#if token.daemonIds.length > 0}
-                <small>{t.access.grantedDaemons}: {token.daemonIds.join(", ")}</small>
+                <small>{t.access.grantedDaemons}: {token.daemonIds.map(daemonName).join(", ")}</small>
               {/if}
             </div>
             <span class="status-pill {status}">{statusLabel(status)}</span>
@@ -266,15 +282,49 @@
   }
 
   .daemon-grant {
-    align-items: baseline;
+    align-items: center;
     display: flex;
     gap: 8px;
+    min-height: 32px;
   }
 
-  .daemon-grant small {
-    color: var(--color-ink-subtle);
-    font-size: 12px;
+  .selection-hint {
+    color: var(--color-warning-strong);
+    margin-top: 2px;
   }
+
+  .daemon-identifiers {
+    border-top: 1px solid var(--color-border-soft);
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+    padding-top: var(--spacing-xs);
+  }
+
+  .daemon-identifiers summary {
+    cursor: pointer;
+    font-weight: 650;
+    padding-block: 4px;
+  }
+
+  .daemon-identifiers summary:focus-visible {
+    border-radius: var(--rounded-sm);
+    box-shadow: var(--shadow-focus);
+    outline: none;
+  }
+
+  .daemon-identifiers dl {
+    display: grid;
+    gap: 6px;
+    margin: var(--spacing-xs) 0 0;
+  }
+
+  .daemon-identifiers dl div {
+    display: grid;
+    gap: var(--spacing-xs);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+
+  .daemon-identifiers dd { margin: 0; overflow-wrap: anywhere; }
 
   .token-row {
     align-items: center;

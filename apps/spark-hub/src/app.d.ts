@@ -14,6 +14,8 @@ declare global {
        * `null` means unrestricted (owner session or local access).
        */
       authorizedWorkspaceIds: string[] | null;
+      /** Remote member sessions: daemon grants are the authentication boundary. */
+      authorizedDaemonIds: string[] | null;
       hasControlPlaneAccess: boolean;
     }
   }

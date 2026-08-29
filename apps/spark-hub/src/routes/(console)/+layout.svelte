@@ -9,7 +9,6 @@
   } from "$lib/console-nav";
   import HubShell from "$lib/shell/HubShell.svelte";
   import type { HubSearchSession } from "$lib/shell/hub-search";
-  import { workspaceSwitcherHrefForPage } from "$lib/workbench-nav";
   import { workspacePath } from "$lib/workspace-routes";
 
   let { data, children } = $props();
@@ -60,9 +59,6 @@
     return isConsoleNavItemActive({ pathname: page.url.pathname, href });
   }
 
-  let workspaceSwitcherHref = $derived(
-    workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
-  );
 </script>
 
 {#snippet navigation(closeNavigation: () => void)}
@@ -106,11 +102,13 @@
 
 <HubShell
   activeWorkspace={isControlPlane ? null : data.activeWorkspace}
+  canManageDaemonAccess={data.hasControlPlaneAccess}
   {children}
-  closeNavigationLabel={t.aria.closeWorkspaceNavigation}
+  closeNavigationLabel={t.aria.closeNavigation}
   common={data.messages.common}
   contentMode="padded"
   {contextBar}
+  daemons={data.daemons ?? []}
   layout={t}
   {navigation}
   navigationAriaLabel={consoleMessages.ariaNavigation}
@@ -119,8 +117,7 @@
   pathname={page.url.pathname}
   sessions={searchSessions}
   sessionMessages={data.messages.sessions}
-  showWorkspaceMenu={!isControlPlane}
-  workspaceHref={workspaceSwitcherHref}
+  showDaemonMenu={true}
   workspaces={workspaceOptions}
 />
 

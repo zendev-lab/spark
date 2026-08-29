@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { Button, Dialog, Icon, Input, Select, type SelectGroup } from "@zendev-lab/spark-ui";
+  import { Button, Dialog, Icon, Input, OperationsShell, Select, type SelectGroup } from "@zendev-lab/spark-ui";
   import { DialogClose, DialogTitle } from "@zendev-lab/spark-ui/headless";
   import { webRpc } from "$lib/web-rpc";
 
@@ -140,16 +140,22 @@
   <link rel="icon" href="/icons/spark.svg" />
 </svelte:head>
 
-<div class="shell">
-  <a class="skip-link" href="#spark-main">{data.messages.shared.skipToContent}</a>
+{#snippet shellHeader(navigationExpanded: boolean, toggleNavigation: () => void)}
   <header class="top">
-    <a href="/" class="brand"><span aria-hidden="true"><Icon name="spark" size={17} /></span><span>Spark</span></a>
+    <div class="top-brand">
+      <button
+        class="navigation-toggle"
+        type="button"
+        aria-controls="spark-primary-navigation"
+        aria-expanded={navigationExpanded}
+        aria-label={copy.primaryNavigation}
+        onclick={toggleNavigation}
+      >
+        <Icon name={navigationExpanded ? "close" : "menu"} size={18} />
+      </button>
+      <a href="/" class="brand"><span aria-hidden="true"><Icon name="spark" size={17} /></span><span>Spark</span></a>
+    </div>
     <div class="top-actions">
-      <nav aria-label={copy.primaryNavigation}>
-        <a href="/" aria-current={navCurrent("/")}><Icon name="home" size={15} /><span>{copy.overview}</span></a>
-        <a href="/sessions" aria-current={navCurrent("/sessions")}><Icon name="message" size={15} /><span>{copy.sessions}</span></a>
-        <a href="/settings" aria-current={navCurrent("/settings")}><Icon name="settings" size={15} /><span>{copy.settings}</span></a>
-      </nav>
       <Button bind:element={searchTrigger} variant="ghost" size="compact" ariaExpanded={searchOpen} onclick={toggleSearch}>
         <Icon name="search" size={15} />
         <span>{copy.search}</span>
@@ -159,8 +165,38 @@
       <Select id="spark-locale" value={data.locale} groups={localeGroups} label={copy.language} compact fit onValueChange={(value) => void selectLocale(value as "en" | "zh-CN")} />
     </div>
   </header>
-  <main id="spark-main" tabindex="-1">{@render children()}</main>
-</div>
+{/snippet}
+
+{#snippet navigation(closeNavigation: () => void)}
+  <div class="scope-navigation">
+    <nav aria-label={copy.primaryNavigation}>
+      <a href="/" aria-current={navCurrent("/")} onclick={closeNavigation}><Icon name="new-message" size={17} /><span>{copy.overview}</span></a>
+      <a href="/sessions" aria-current={navCurrent("/sessions")} onclick={closeNavigation}><Icon name="message" size={17} /><span>{copy.sessions}</span></a>
+      <a href="/workspaces" aria-current={navCurrent("/workspaces")} onclick={closeNavigation}><Icon name="workspace" size={17} /><span>{copy.workspaces}</span></a>
+      <a href="/settings" aria-current={navCurrent("/settings")} onclick={closeNavigation}><Icon name="settings" size={17} /><span>{copy.settings}</span></a>
+    </nav>
+  </div>
+{/snippet}
+
+{#snippet skipLink()}
+  <a class="skip-link" href="#spark-main">{data.messages.shared.skipToContent}</a>
+{/snippet}
+
+<!-- THESIS: Spark Web is the local conversation canvas; execution topology is invisible to users and operational coordination belongs in Hub. OWN-WORLD: quiet slate surfaces, precise one-pixel rules, Spark blue focus, and conversation-shaped controls. STORY: choose project context, send the first message, then continue inside its durable Session. FIRST VIEWPORT: a 52px command bar, compact conversation rail, centered Composer, and recent Sessions below. FORM: Conversation Canvas, the user-pinned correction to surface roll 5a7f18fc. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance. -->
+<OperationsShell
+  header={shellHeader}
+  {navigation}
+  navigationAriaLabel={copy.primaryNavigation}
+  navigationId="spark-primary-navigation"
+  closeNavigationLabel={copy.close}
+  navigationSize="compact"
+  mainId="spark-main"
+  navigationKey={page.url.pathname}
+  designDirection="conversation-canvas-5a7f18fc"
+  {skipLink}
+>
+  {@render children()}
+</OperationsShell>
 
 <Dialog
   bind:open={searchOpen}
@@ -203,11 +239,6 @@
     color: var(--color-ink);
     font-family: var(--font-sans, system-ui, sans-serif);
   }
-  .shell {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
   .skip-link {
     background: var(--color-surface);
     color: var(--color-ink);
@@ -227,12 +258,15 @@
     border-bottom: 1px solid var(--color-border);
     display: flex;
     gap: var(--spacing-lg);
+    height: var(--shell-topbar-height);
     justify-content: space-between;
-    min-height: var(--shell-topbar-height);
-    padding: 8px var(--spacing-xl);
-    position: sticky;
-    top: 0;
+    padding: 0 var(--spacing-md);
     z-index: 40;
+  }
+  .top-brand {
+    align-items: center;
+    display: flex;
+    gap: var(--spacing-xs);
   }
   .brand {
     align-items: center;
@@ -258,27 +292,47 @@
     gap: var(--spacing-xs);
     min-width: 0;
   }
-  nav {
-    display: flex;
+  .navigation-toggle {
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    display: none;
+    height: var(--control-height-compact);
+    justify-content: center;
+    padding: 0;
+    width: var(--control-height-compact);
+  }
+  .scope-navigation {
+    align-content: start;
+    display: grid;
+    height: 100%;
+    min-height: 0;
+    padding: var(--spacing-md) var(--spacing-sm);
+  }
+  .scope-navigation nav {
+    display: grid;
     gap: var(--spacing-xxs);
   }
-  nav a {
+  .scope-navigation nav a {
     align-items: center;
     border-radius: var(--rounded-md);
     color: var(--color-ink-muted);
-    display: inline-flex;
-    font-size: var(--text-caption);
-    font-weight: var(--weight-caption-medium);
-    gap: 6px;
-    min-height: var(--control-height-compact);
-    padding: 5px 9px;
+    display: flex;
+    font-size: var(--text-body);
+    font-weight: 560;
+    gap: var(--spacing-sm);
+    min-height: var(--control-height-default);
+    padding: 0 var(--spacing-sm);
     text-decoration: none;
   }
-  nav a:hover {
+  .scope-navigation nav a:hover {
     background: var(--color-surface-soft);
     color: var(--color-ink);
   }
-  nav a[aria-current="page"] {
+  .scope-navigation nav a[aria-current="page"] {
     background: var(--color-primary-weak);
     color: var(--color-primary);
   }
@@ -376,9 +430,12 @@
   .search-error {
     color: var(--color-danger-strong);
   }
-  main {
-    flex: 1 1 auto;
-    min-height: 0;
+  @media (max-width: 900px) {
+    .navigation-toggle {
+      display: inline-flex;
+      height: var(--control-height-touch);
+      width: var(--control-height-touch);
+    }
   }
   @media (max-width: 640px) {
     .top {
@@ -387,7 +444,6 @@
       padding: 8px var(--spacing-sm);
     }
     .brand > span:last-child,
-    nav a span,
     :global(.top-actions > .ui-button span),
     kbd {
       display: none;
@@ -395,16 +451,13 @@
     .top-actions {
       gap: var(--spacing-xxs);
     }
-    nav a {
-      padding-inline: 8px;
-    }
   }
   @media (prefers-contrast: more) {
     .top,
     :global(.search-dialog) {
       border-color: currentColor;
     }
-    nav a {
+    .scope-navigation nav a {
       color: var(--color-ink);
       text-decoration: underline;
       text-underline-offset: 3px;

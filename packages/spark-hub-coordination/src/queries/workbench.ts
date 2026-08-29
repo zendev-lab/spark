@@ -7,7 +7,12 @@ import {
   resolvePendingWorkspaceBinding,
   resolvePendingWorkspaceRuntimeState,
 } from "./inbox-and-workspace.ts";
-import type { PendingWorkspaceBindingSetup, WorkbenchWorkspaceSummary } from "./types.ts";
+import type {
+  PendingWorkspaceBindingSetup,
+  WorkbenchAttentionItem,
+  WorkbenchDaemonSummary,
+  WorkbenchWorkspaceSummary,
+} from "./types.ts";
 import {
   countConnectedRuntimeSessions,
   listAllRuntimeWorkspaceBindings,
@@ -25,9 +30,11 @@ export function loadWorkbenchLayout(
   options: {
     preferredWorkspaceSlug?: string | null;
     authorizedWorkspaceIds?: readonly string[] | null;
+    authorizedDaemonIds?: readonly string[] | null;
   } = {},
 ) {
   const authorizedWorkspaceIds = options.authorizedWorkspaceIds ?? null;
+  const authorizedDaemonIds = options.authorizedDaemonIds ?? null;
   const workspaces =
     authorizedWorkspaceIds !== null && authorizedWorkspaceIds.length === 0
       ? []
@@ -68,7 +75,18 @@ export function loadWorkbenchLayout(
     workbenchWorkspaceSummary(preferredWorkspace, workspaces) ??
     workspaces[0] ??
     null;
-  return { activeWorkspace, workspaces };
+  const daemons =
+    authorizedDaemonIds !== null && authorizedDaemonIds.length === 0
+      ? []
+      : (db
+          .prepare(
+            `SELECT id, name, status
+             FROM runtime_connections
+             ${authorizedDaemonIds !== null ? `WHERE id IN (${placeholders(authorizedDaemonIds.length)})` : ""}
+             ORDER BY updated_at DESC, created_at DESC`,
+          )
+          .all(...(authorizedDaemonIds ?? [])) as unknown as WorkbenchDaemonSummary[]);
+  return { activeWorkspace, workspaces, daemons };
 }
 
 function workbenchWorkspaceSummary(
@@ -154,6 +172,9 @@ export function loadWorkbenchHome(
 
   return {
     workspaces: input.forceWorkspaceCreate ? [] : workspaces,
+    attentionItems: input.forceWorkspaceCreate
+      ? []
+      : loadWorkbenchAttentionItems(db, authorizedWorkspaceIds),
     redirectWorkspace: workspaces.length > 0 && !input.forceWorkspaceCreate ? workspaces[0] : null,
     runnerBindings: listAllRuntimeWorkspaceBindings(db),
     leases: listWorkspaceLeases(db),
@@ -164,6 +185,181 @@ export function loadWorkbenchHome(
       ? resolvePendingWorkspaceRuntimeState(db, input.pendingWorkspaceSetup)
       : null,
   };
+}
+
+function loadWorkbenchAttentionItems(
+  db: DatabaseSync,
+  authorizedWorkspaceIds: readonly string[] | null,
+): WorkbenchAttentionItem[] {
+  if (authorizedWorkspaceIds !== null && authorizedWorkspaceIds.length === 0) return [];
+  const authorizationClause =
+    authorizedWorkspaceIds !== null
+      ? `AND w.id IN (${placeholders(authorizedWorkspaceIds.length)})`
+      : "";
+  const authorizationValues = authorizedWorkspaceIds ?? [];
+  const pending = db
+    .prepare(
+      `SELECT ii.id,
+              ii.title,
+              ii.summary,
+              ii.status,
+              ii.updated_at AS updatedAt,
+              w.id AS workspaceId,
+              w.slug AS workspaceSlug,
+              w.name AS workspaceName,
+              rc.status AS runtimeStatus,
+              COALESCE(
+                CASE
+                  WHEN json_valid(hr.context_json)
+                  THEN CAST(json_extract(hr.context_json, '$.sessionId') AS TEXT)
+                  ELSE NULL
+                END,
+                CASE
+                  WHEN json_valid(c.payload_json)
+                  THEN CAST(json_extract(c.payload_json, '$.payload.target.sessionId') AS TEXT)
+                  ELSE NULL
+                END
+              ) AS sessionId
+       FROM inbox_items ii
+       JOIN workspaces w ON w.id = ii.workspace_id
+       LEFT JOIN human_requests hr ON hr.id = ii.human_request_id
+       LEFT JOIN commands c
+         ON c.id = CASE
+           WHEN json_valid(hr.context_json)
+           THEN CAST(json_extract(hr.context_json, '$.commandId') AS TEXT)
+           ELSE NULL
+         END
+       LEFT JOIN workspace_leases wl
+         ON wl.workspace_id = w.id
+        AND wl.ended_at IS NULL
+       LEFT JOIN runtime_workspace_bindings rwb ON rwb.id = wl.runtime_workspace_binding_id
+       LEFT JOIN runtime_connections rc ON rc.id = rwb.runtime_id
+       WHERE ii.status = 'pending'
+         AND w.status = 'active'
+         ${authorizationClause}
+       ORDER BY CASE ii.urgency WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+                ii.updated_at DESC
+       LIMIT 40`,
+    )
+    .all(...authorizationValues) as Array<{
+    id: string;
+    title: string;
+    summary: string | null;
+    status: string;
+    updatedAt: string;
+    workspaceId: string;
+    workspaceSlug: string;
+    workspaceName: string;
+    runtimeStatus: string | null;
+    sessionId: string | null;
+  }>;
+  const pendingSessionIds = new Set(
+    pending.flatMap((item) => (item.sessionId ? [item.sessionId] : [])),
+  );
+
+  const latestInvocations = db
+    .prepare(
+      `WITH ranked_invocations AS (
+         SELECT rip.runtime_id,
+                rip.runtime_invocation_id,
+                rip.session_id,
+                rip.workspace_id,
+                rip.status,
+                rip.updated_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY rip.runtime_id, rip.session_id
+                  ORDER BY rip.updated_at DESC, rip.runtime_invocation_id DESC
+                ) AS row_number
+         FROM runtime_invocation_projections rip
+         WHERE rip.scope = 'workspace'
+       )
+       SELECT ranked.runtime_invocation_id AS invocationId,
+              ranked.session_id AS sessionId,
+              ranked.status,
+              ranked.updated_at AS updatedAt,
+              COALESCE(
+                NULLIF(CAST(json_extract(rsp.record_json, '$.name') AS TEXT), ''),
+                ranked.session_id
+              ) AS title,
+              w.id AS workspaceId,
+              w.slug AS workspaceSlug,
+              w.name AS workspaceName,
+              rc.status AS runtimeStatus
+       FROM ranked_invocations ranked
+       JOIN runtime_session_projections rsp
+         ON rsp.runtime_id = ranked.runtime_id
+        AND rsp.session_id = ranked.session_id
+       JOIN workspaces w ON w.id = ranked.workspace_id
+       LEFT JOIN runtime_connections rc ON rc.id = ranked.runtime_id
+       WHERE ranked.row_number = 1
+         AND w.status = 'active'
+         ${authorizationClause}
+       ORDER BY CASE ranked.status
+                  WHEN 'running' THEN 0
+                  WHEN 'queued' THEN 1
+                  WHEN 'failed' THEN 2
+                  WHEN 'timed_out' THEN 3
+                  WHEN 'lost' THEN 4
+                  ELSE 5
+                END,
+                ranked.updated_at DESC
+       LIMIT 80`,
+    )
+    .all(...authorizationValues) as Array<{
+    invocationId: string;
+    sessionId: string;
+    status: string;
+    updatedAt: string;
+    title: string;
+    workspaceId: string;
+    workspaceSlug: string;
+    workspaceName: string;
+    runtimeStatus: string | null;
+  }>;
+
+  return [
+    ...pending.map((item): WorkbenchAttentionItem => ({
+      id: `inbox:${item.id}`,
+      kind: "inbox",
+      group: "needs-you",
+      title: item.title,
+      summary: item.summary,
+      status: item.status,
+      updatedAt: item.updatedAt,
+      workspaceId: item.workspaceId,
+      workspaceSlug: item.workspaceSlug,
+      workspaceName: item.workspaceName,
+      runtimeStatus: item.runtimeStatus,
+      sessionId: item.sessionId,
+      invocationId: null,
+      inboxItemId: item.id,
+    })),
+    ...latestInvocations
+      .filter((item) => !pendingSessionIds.has(item.sessionId))
+      .slice(0, 40)
+      .map((item): WorkbenchAttentionItem => ({
+        id: `invocation:${item.invocationId}`,
+        kind: "invocation",
+        group: invocationAttentionGroup(item.status),
+        title: item.title,
+        summary: null,
+        status: item.status,
+        updatedAt: item.updatedAt,
+        workspaceId: item.workspaceId,
+        workspaceSlug: item.workspaceSlug,
+        workspaceName: item.workspaceName,
+        runtimeStatus: item.runtimeStatus,
+        sessionId: item.sessionId,
+        invocationId: item.invocationId,
+        inboxItemId: null,
+      })),
+  ];
+}
+
+function invocationAttentionGroup(status: string): WorkbenchAttentionItem["group"] {
+  if (status === "queued" || status === "running") return "running";
+  if (status === "failed" || status === "timed_out" || status === "lost") return "failed";
+  return "recent";
 }
 
 function placeholders(count: number): string {

@@ -25,6 +25,7 @@ describe("hub browser access page", () => {
     expect(body).toContain('name="user"');
     expect(body).toContain('name="daemonIds"');
     expect(body).toContain('value="rt_local"');
+    expect(body).toContain("disabled");
     expect(body).toContain(messages.settings.access.emptyTitle);
     expect(body).not.toContain("createWorkspaceAccessToken");
   });
@@ -47,7 +48,7 @@ describe("hub browser access page", () => {
 
     expect(body).toContain("https://hub.test/login");
     expect(body).toContain("access-secret");
-    expect(body).toContain("rt_local");
+    expect(body).toContain("Local runner");
     expect(body).toContain("reviewer");
     expect(body).toContain(messages.settings.access.loginUrl);
     expect(body).toContain(messages.settings.access.oneTimeToken);

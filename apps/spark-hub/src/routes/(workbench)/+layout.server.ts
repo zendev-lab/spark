@@ -38,6 +38,8 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
       workspaceIdParam,
       url,
       authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
+      authorizedDaemonIds: locals?.authorizedDaemonIds ?? null,
+      hasControlPlaneAccess: locals?.hasControlPlaneAccess ?? false,
     });
   }
 
@@ -57,6 +59,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
         : null,
     preferredWorkspaceSlug: url.searchParams.get("workspace") ?? null,
     authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
+    authorizedDaemonIds: locals?.authorizedDaemonIds ?? null,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions =
@@ -90,6 +93,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
     sessions,
     sessionsAvailable: managedSessions.available,
     sessionControlAvailable: managedSessions.controlAvailable,
+    hasControlPlaneAccess: locals?.hasControlPlaneAccess ?? false,
   };
 };
 
@@ -98,6 +102,8 @@ async function loadWorkspaceRailShell(input: {
   workspaceIdParam: string;
   url: URL;
   authorizedWorkspaceIds: readonly string[] | null;
+  authorizedDaemonIds: readonly string[] | null;
+  hasControlPlaneAccess: boolean;
 }) {
   const layout = loadShellWorkspaceLayout({
     cookies: input.cookies,
@@ -106,6 +112,7 @@ async function loadWorkspaceRailShell(input: {
     preferredWorkspaceId: null,
     preferredWorkspaceSlug: input.workspaceIdParam,
     authorizedWorkspaceIds: input.authorizedWorkspaceIds,
+    authorizedDaemonIds: input.authorizedDaemonIds,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions = activeWorkspaceId
@@ -126,6 +133,7 @@ async function loadWorkspaceRailShell(input: {
     sessions,
     sessionsAvailable: managedSessions.available,
     sessionControlAvailable: managedSessions.controlAvailable,
+    hasControlPlaneAccess: input.hasControlPlaneAccess,
   };
 }
 

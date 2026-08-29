@@ -202,7 +202,7 @@ test("every peer gets the shared access page while APIs keep 401", async () => {
       headers: { accept: "text/html" },
     });
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Connect to this daemon/u);
+    assert.match(await page.text(), /Continue to Spark/u);
 
     const api = await fetch(`http://127.0.0.1:${proxy.port}/api/session.list`);
     assert.equal(api.status, 401);
@@ -261,7 +261,7 @@ test("proxy fails closed with the shared unavailable page or API 503", async () 
       headers: { accept: "text/html", "x-spark-web-token": "sdu_good" },
     });
     assert.equal(page.status, 503);
-    assert.match(await page.text(), /daemon is unavailable/u);
+    assert.match(await page.text(), /Spark is temporarily unavailable/u);
 
     const api = await fetch(`http://127.0.0.1:${proxy.port}/api/session.list`, {
       headers: { "x-spark-web-token": "sdu_good" },
