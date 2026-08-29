@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { goto } from "$app/navigation";
   import {
+    brandIconForModelProvider,
     Button,
     ConfirmDialog,
     Dialog,
@@ -1070,6 +1071,7 @@
     data.catalog.providers.map((provider) => ({
       id: provider.providerName,
       label: provider.label,
+      brandIcon: brandIconForModelProvider(provider.providerName),
       options: provider.models.map((entry) => ({
         value: `${entry.model.providerName}/${entry.model.modelId}`,
         label: entry.model.modelLabel ?? entry.model.modelId,

@@ -1,4 +1,5 @@
 import type { ModelPickerGroup } from "$lib/components/model-selector";
+import { brandIconForModelProvider } from "@zendev-lab/spark-ui";
 import type { SparkModelCatalogProvider } from "@zendev-lab/spark-protocol";
 import { modelValue } from "./presentation";
 import type { SessionsWorkbenchCopy } from "./types";
@@ -12,6 +13,7 @@ export function buildModelGroups(
     return {
       id: provider.providerName,
       label: provider.label,
+      brandIcon: brandIconForModelProvider(provider.providerName),
       description: provider.auth.configured ? undefined : copy.providerLoginRequired,
       options:
         available.length > 0

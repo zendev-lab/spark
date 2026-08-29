@@ -1,0 +1,75 @@
+import {
+  siAnthropic,
+  siCloudflare,
+  siDeepseek,
+  siGithubcopilot,
+  siGoogle,
+  siHuggingface,
+  siKimi,
+  siMinimax,
+  siMistralai,
+  siMoonshotai,
+  siNvidia,
+  siOpencode,
+  siOpenrouter,
+  siQq,
+  siQwen,
+  siVercel,
+  siXiaomi,
+  type SimpleIcon,
+} from "simple-icons";
+
+export const brandIconMap = {
+  anthropic: siAnthropic,
+  cloudflare: siCloudflare,
+  deepseek: siDeepseek,
+  "github-copilot": siGithubcopilot,
+  google: siGoogle,
+  "hugging-face": siHuggingface,
+  kimi: siKimi,
+  minimax: siMinimax,
+  "mistral-ai": siMistralai,
+  "moonshot-ai": siMoonshotai,
+  nvidia: siNvidia,
+  opencode: siOpencode,
+  openrouter: siOpenrouter,
+  qq: siQq,
+  qwen: siQwen,
+  vercel: siVercel,
+  xiaomi: siXiaomi,
+} satisfies Record<string, SimpleIcon>;
+
+export type BrandIconName = keyof typeof brandIconMap;
+
+const modelProviderBrandIcons: Readonly<Record<string, BrandIconName>> = {
+  anthropic: "anthropic",
+  "cloudflare-ai-gateway": "cloudflare",
+  "cloudflare-workers-ai": "cloudflare",
+  deepseek: "deepseek",
+  "github-copilot": "github-copilot",
+  google: "google",
+  "google-vertex": "google",
+  huggingface: "hugging-face",
+  "kimi-coding": "kimi",
+  minimax: "minimax",
+  "minimax-cn": "minimax",
+  mistral: "mistral-ai",
+  moonshotai: "moonshot-ai",
+  "moonshotai-cn": "moonshot-ai",
+  nvidia: "nvidia",
+  opencode: "opencode",
+  "opencode-go": "opencode",
+  openrouter: "openrouter",
+  "qwen-token-plan": "qwen",
+  "qwen-token-plan-cn": "qwen",
+  "qwen-token-plan-individual": "qwen",
+  "vercel-ai-gateway": "vercel",
+  xiaomi: "xiaomi",
+  "xiaomi-token-plan-ams": "xiaomi",
+  "xiaomi-token-plan-cn": "xiaomi",
+  "xiaomi-token-plan-sgp": "xiaomi",
+};
+
+export function brandIconForModelProvider(providerName: string): BrandIconName | undefined {
+  return modelProviderBrandIcons[providerName.trim().toLowerCase()];
+}
