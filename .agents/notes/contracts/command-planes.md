@@ -177,8 +177,8 @@ A **source app**, an **executable**, and a **distribution** are different axes:
 - an npm distribution is the minimal independently installable runtime closure
   for one deployment and trust domain.
 
-Spark publishes six lockstep product distributions plus four native CLI payload
-versions from the same monorepo and release tag:
+Spark publishes lockstep product distributions plus supported native CLI
+payloads from the same monorepo and release tag:
 
 | Distribution | Package | Executables | Deployment boundary |
 | --- | --- | --- | --- |
@@ -193,11 +193,11 @@ The split does **not** move implementation ownership out of the private source
 workspaces or create another repository. Reusable behavior remains in private
 packages and is bundled into the executable app that owns the process.
 
-All six product distributions use the same semantic version and protocol compatibility
+All product distributions use the same semantic version and protocol compatibility
 contract in v0.x. `@zendev-lab/spark` keeps the full installation experience as
 a dependency-only meta package with a thin `spark` forwarder.
 `@zendev-lab/spark-cli` contains the native parser/router/updater, ACP/MCP
-adapters, and four exact platform payload aliases;
+adapters, and the supported platform payload aliases;
 it depends on exact-version app packages rather than embedding their assets. Each
 executable app package rejects the other apps' implementation assets and can be
 installed directly.

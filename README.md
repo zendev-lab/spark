@@ -6,8 +6,9 @@ and multi-workspace coordination.**
 Spark keeps agent work alive beyond one terminal process. A local daemon owns
 persistent sessions, invocations, background execution, retries, and recovery.
 The Hub coordinates registered workspaces and delegations without taking over
-their repositories or execution state. The TUI, Hub Web UI, channels, and ACP
-are interfaces over those owners rather than competing runtimes.
+their repositories or execution state. The local Web workbench, Hub Web UI,
+channels, and ACP are interfaces over those owners rather than competing
+runtimes.
 
 Use Spark when a coding task needs to continue, ask for a decision, produce
 traceable artifacts, survive frontend restarts, or move between terminal and
@@ -32,7 +33,7 @@ the command:
 npm install --global @zendev-lab/spark
 ```
 
-Run a foreground task without opening the TUI:
+Run a foreground task without starting the browser workbench:
 
 ```bash
 spark run "Summarize this repository and identify its validation command."
@@ -63,16 +64,17 @@ operation.
 
 - **Durable execution** — sessions, invocations, background work, retries, and
   recovery belong to the daemon rather than a frontend process.
-- **Controlled autonomy** — Plan and Implement cover ordinary changes; Goal,
-  Loop, Repro, and Workflow add supervised long-running behavior.
+- **Controlled autonomy** — one-shot `/plan`, `/execute`, and `/fleet`
+  directives cover ordinary work; Goal, Loop, Repro, and Workflow add
+  supervised long-running behavior.
 - **Human decisions** — questions and approvals remain attached to the session
   and work that requested them.
 - **Traceable outcomes** — tasks connect work to `issue`, `git_change`, and
   `document` artifacts, with verification kept separate from user-facing
   results.
-- **Multiple interfaces** — use the native TUI, Hub Web UI, messaging channels,
-  headless JSON commands, or the stateless ACP adapter over the same execution
-  model.
+- **Multiple interfaces** — use the local Web workbench, Hub Web UI, messaging
+  channels, headless JSON commands, or the stateless ACP adapter over the same
+  execution model.
 - **Local-first boundaries** — each daemon retains local execution and side
   effects; Hub coordination carries routing state, audit data, and bounded
   receipts.
@@ -85,7 +87,7 @@ Spark separates dispatch, presentation, coordination, and execution:
 spark CLI / spark web ─────────► local spark-daemon ───► workspace + providers
 channels / spark-acp ────────────────────────┘
 
-browser / future app ──────────► spark-hub ◄────────── registered spark-daemon
+browser / Hub Web ─────────────► spark-hub ◄────────── registered spark-daemon
                                   │
                                   └── embedded Web UI + global control plane
 ```
@@ -108,9 +110,10 @@ dependency direction and state writers are defined by
 ## Typical workflow
 
 1. Describe the intended outcome in `spark web` or with `spark run`.
-2. Use Plan to turn the intent into durable, inspectable tasks.
-3. Use Implement for ordinary execution, or opt into Goal, Loop, Repro, or
-   Workflow when the work needs autonomous progress.
+2. Use `/plan` to turn the intent into durable, inspectable tasks.
+3. Use `/execute` for ordinary execution, `/fleet` for an isolated parallel
+   frontier, or opt into Goal, Loop, Repro, or Workflow when the work needs
+   autonomous progress.
 4. Answer questions and approvals from the owning session or Hub Inbox.
 5. Inspect artifacts, changes, tasks, and verification before delivery.
 6. Continue locally or delegate bounded work to another workspace through Hub.
@@ -152,8 +155,8 @@ maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-Spark publishes six lockstep-versioned product distributions plus four native
-CLI payload versions from the same private monorepo:
+Spark publishes lockstep-versioned product distributions and platform-specific
+native CLI payloads from the same private monorepo:
 
 - `@zendev-lab/spark` is the **complete installation meta package**. It pins the
   matching CLI, daemon, Hub, and web app packages and keeps `spark` available
@@ -167,12 +170,12 @@ CLI payload versions from the same private monorepo:
 
 The split is a deployment and trust boundary, not a source-code ownership split.
 The private app composition roots and internal adapter/capability workspaces
-remain unpublished source boundaries. The six product tarballs share one
-release version and protocol compatibility contract. npm resolves exactly one
-of the four macOS/Linux native CLI payloads for the current platform, while the
-app packages can be installed and deployed independently.
+remain unpublished source boundaries. The product tarballs share one release
+version and protocol compatibility contract. npm resolves exactly one supported
+macOS/Linux native CLI payload for the current platform, while the app packages
+can be installed and deployed independently.
 
-GitHub Releases also publish four verified native bootstrap archives,
+GitHub Releases also publish verified native bootstrap archives,
 `native-release-manifest.json`, `SHA256SUMS`, provenance, and an exact-version
 `install.sh`. The bootstrap contains no Node runtime: it verifies Node 24 and
 npm, then delegates the product payload transaction to the native updater.

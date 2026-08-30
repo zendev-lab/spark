@@ -566,7 +566,7 @@ const messages = {
     sideThread: {
       title: "旁路线程",
       description:
-        "由 daemon 持有、附属于当前对话的隔离调查。Hub 转发与原生 TUI 完全相同的控制命令。",
+        "由 daemon 持有、附属于当前对话的隔离调查。所有操作都发送给所属 daemon；Hub 不自行执行调查。",
       loading: "正在加载旁路线程…",
       missing: "当前对话尚未开启旁路线程。",
       unavailable: "旁路线程当前不可用。",

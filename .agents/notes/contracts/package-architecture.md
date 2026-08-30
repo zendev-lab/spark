@@ -7,7 +7,7 @@ The machine-readable source of truth is
 [`../../architecture/packages.json`](../../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and `stateWriter`. The same
 inventory owns the layer matrix, exact temporary
-exceptions, Pi manifest ownership, package budget, and expected composition
+exceptions, Pi manifest ownership, workspace-count policy, and expected composition
 roots. `pnpm run check:architecture` rejects an unclassified workspace, an
 undeclared production dependency, a stale export, or a governance violation.
 
@@ -21,7 +21,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, generated layer direction, exact exceptions, Pi ownership, package budget, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, generated layer direction, exact exceptions, Pi ownership, workspace-count policy, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
 | point-in-time direct dependencies, fan-in/out, cross-owner edges, exception budget, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
 
 `pnpm run check:architecture` validates the schemas, runs Syncpack and Knip,
@@ -173,22 +173,22 @@ public package.
 
 The root package is the complete-installation meta package and managed-update
 identity; it contains no parser implementation. `spark-cli` owns the native
-`spark` parser, diagnostics, updater, router, ACP/MCP adapters, and four exact
-macOS/Linux optional payload aliases. Daemon, Hub, local web, and DSH web are
+`spark` parser, diagnostics, updater, router, ACP/MCP adapters, and the
+supported macOS/Linux optional payload aliases. Daemon, Hub, local web, and DSH web are
 also independently installable deployment closures. All product packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
 lockstep dependencies instead of repackaging those assets.
 
 Do not create publishable source manifests inside `apps/*` or `packages/*`.
-Source workspaces retain `private: true`; the release builder generates six
-product manifests and four platform payload manifests under
+Source workspaces retain `private: true`; the release builder generates the
+product and platform payload manifests under
 `dist/npm-products/`, computes runtime dependency closures independently, and
 publishes exact tarballs from one release tag. The root
 manifest owns the `@zendev-lab/spark` name and lockstep version, while source
 ownership, process ownership, and distribution placement remain separate axes.
 
-GitHub Releases carry only the four native bootstrap archives, their native
+GitHub Releases carry only the supported native bootstrap archives, their native
 release manifest, `SHA256SUMS`, provenance, and an installer with an embedded
 exact version. The curl installer is a stateless bootstrap: it verifies the
 selected archive, then delegates to
@@ -254,7 +254,7 @@ package owns no persistent writes. This phase does not introduce a second
 authority or participation model. Domain ownership remains defined by the
 normative owner specifications and enforced owner APIs.
 
-## Pi ownership and package budget
+## Pi ownership and workspace additions
 
 The inventory has no `package.json#pi` owner (`productManifestOwner` is
 `null`). It assigns the remaining Pi SDK dependency (`pi-ai`) to
@@ -263,14 +263,11 @@ not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.
 
-The package budget is closed at 38 after the owner-name normalization and the
-removal of the two transitional execution facades plus `spark-modes`. Host and
-agent-loop behavior now lives under the daemon product composition root, and
-durable session modes are retired in favor of one-shot directives; no
-replacement or alias workspace was introduced. The machine-readable inventory
-remains authoritative for the landed count.
-Raising or replacing its ceiling requires an explicit architecture decision in
-the inventory rather than a new constant in a checker.
+Host and agent-loop behavior lives under the daemon product composition root,
+and durable session modes are retired in favor of one-shot directives; no
+replacement or alias workspace was introduced. Workspace additions, removals,
+renames, or reclassifications must update the machine-readable inventory and
+justify the affected owner or runtime boundary there.
 
 ## Deliberate boundaries
 

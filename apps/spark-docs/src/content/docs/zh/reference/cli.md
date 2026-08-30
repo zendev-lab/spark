@@ -160,4 +160,4 @@ details: no such column: serialization_key
 支持 `--json` 的命令仍按文档返回 JSON payload，自动化应继续使用 JSON。
 
 需要逐步引导时，继续阅读[快速开始](/zh/getting-started/)、
-[TUI](/zh/guides/tui/)或[运维手册](/zh/guides/operator-handbook/)。
+[本地 Web 工作台](/zh/guides/web/)或[运维手册](/zh/guides/operator-handbook/)。

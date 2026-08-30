@@ -22,9 +22,9 @@ A2UI projection; Hub does not keep a second Repro store or schedule lane work.
 Summary shows status and counts first; working directory, model, session ID,
 and timestamps remain under Technical details.
 
-The TUI `/inspect` panel is only the current terminal session's local
-projection. Hub Web is the browser control surface across sessions and
-workspaces. Both submit execution to Spark daemons.
+The local Web workbench is a single-daemon browser surface. Hub Web spans
+registered daemons, sessions, and workspaces. Both submit execution to Spark
+daemons rather than owning it.
 
 ## Start Hub Web
 

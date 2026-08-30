@@ -19,8 +19,9 @@ checkpoint receipt 和 `formalizedRevision`。该文档来自 daemon 已有的 A
 第二份 Repro store，也不调度 lane 工作。摘要先显示状态与数量；工作目录、模型、
 session ID 和时间放在默认折叠的技术详情中。
 
-TUI 的 `/inspect` 只展示当前终端 session 的本地投影；Hub Web 是跨 session 和
-workspace 的浏览器控制面。两者都把执行提交给 Spark daemon。
+本地 Web 工作台是面向单个 daemon 的浏览器界面；Hub Web 跨已注册 daemon、
+session 和 workspace 提供控制面。两者都把执行提交给 Spark daemon，而不自行持有
+执行状态。
 
 ## 启动 Hub Web
 
