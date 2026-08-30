@@ -66,7 +66,9 @@ multi-daemon or DNS-based remote access. Missing, wrong, expired, and revoked
 tokens are rejected without exposing token-state detail, and verification
 fails closed while the daemon is unreachable.
 
-Initialize the DSH profile once with `dsh web` before the first Spark boot.
+On first use, Spark initializes the DSH `web` profile through the profile API
+shipped by the installed DSH release. This does not start a separate DSH
+server, and later launches preserve the profile's user patch and dependencies.
 `pnpm --filter @zendev-lab/spark-web-dsh run build` deterministically writes the
 host, client, Cue, Web, LLM, and spark-session-subagent bundles under ignored `lib/`;
 release build and smoke generate them instead of relying on tracked output. The
