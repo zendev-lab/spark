@@ -47,10 +47,14 @@ function firstVisibleElement(selector: string): HTMLElement | null {
   return elements.find((element) => element.getClientRects().length > 0) ?? elements[0] ?? null;
 }
 
+function preferredScrollBehavior(): ScrollBehavior {
+  return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
 function focusSurface(selector: string): boolean {
   const target = firstVisibleElement(selector);
   if (!target) return false;
-  target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  target.scrollIntoView({ behavior: preferredScrollBehavior(), block: "nearest" });
   target.focus({ preventScroll: true });
   return true;
 }
@@ -61,7 +65,7 @@ function showQueueSurface(): boolean {
   const details = queue.querySelector("details");
   if (details) details.open = true;
   const target = queue.querySelector<HTMLElement>(".queue-scroll") ?? queue;
-  target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  target.scrollIntoView({ behavior: preferredScrollBehavior(), block: "nearest" });
   target.focus({ preventScroll: true });
   return true;
 }

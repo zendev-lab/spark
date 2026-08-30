@@ -790,11 +790,17 @@
       windowOverride = current;
       await tick();
       if (!ownsReveal()) return;
-      document.getElementById(messageId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document
+        .getElementById(messageId)
+        ?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
     } catch (error) {
       if (!ownsReveal()) return;
       searchError = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  function preferredScrollBehavior(): ScrollBehavior {
+    return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
   }
 
   async function createLocalShare() {
