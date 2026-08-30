@@ -20,6 +20,22 @@ describe("Task worktree execution authorization", () => {
     ).toThrow("completionGate is invalid");
   });
 
+  it("rejects non-boolean exclusive-node requirements", () => {
+    expect(() =>
+      normalizeTaskExecutionPolicy({
+        resources: { gpuCount: 0, exclusiveNode: "yes" as unknown as boolean },
+      }),
+    ).toThrow("resources.exclusiveNode must be a boolean");
+  });
+
+  it("defaults imported resource requests without a GPU count to zero", () => {
+    expect(
+      normalizeTaskExecutionPolicy({
+        resources: { minGpuMemoryGiB: 24 } as { gpuCount: number; minGpuMemoryGiB: number },
+      }).resources,
+    ).toEqual({ gpuCount: 0, minGpuMemoryGiB: 24 });
+  });
+
   it("requires the primary target to be writable and deduplicates the exact set", () => {
     expect(
       normalizeTaskExecutionPolicy({
