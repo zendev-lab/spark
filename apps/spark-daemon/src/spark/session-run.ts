@@ -25,7 +25,7 @@ import type {
   SparkTaskExecutionScope,
 } from "@zendev-lab/spark-invocation";
 import { contentHash } from "@zendev-lab/spark-invocation";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import { defaultTaskGraphStore, type TaskGraph, type TaskRun } from "@zendev-lab/spark-tasks";
 import {
   createDefaultRoleRegistry,
   defaultProjectRoleModelSettingsStore,
@@ -1185,6 +1185,7 @@ async function sessionExecutionIdentity(
             executionSessionId: task.sessionId,
             cwdArtifactRef: sessionContext.cwdArtifactRef,
             resolveSessionCwd: options.resolveSessionCwd,
+            session: sessionContext.session,
           })
         : undefined;
   return {
@@ -1301,11 +1302,16 @@ async function resolveWorkspaceTaskExecutionScope(input: {
   executionSessionId: string;
   cwdArtifactRef?: string;
   resolveSessionCwd?: SparkDaemonTaskExecutorOptions["resolveSessionCwd"];
+  session?: SparkSessionState;
 }): Promise<SparkTaskExecutionScope | undefined> {
-  const request = fleetTaskRequestMetadata(input.task);
-  if (!request) throw new Error("Task Session requires authoritative task_execution metadata");
   const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
   if (!graph) throw new Error("Task execution scope requires the owning Workspace TaskGraph");
+  const request =
+    fleetTaskRequestMetadata(input.task) ??
+    taskSessionRequestMetadata(input.session, graph, input.executionSessionId);
+  if (!request) {
+    throw new Error("Task Session lineage does not resolve to one authoritative TaskRun");
+  }
   const run = graph
     .runs(request.projectRef as ProjectRef)
     .find((candidate) => candidate.ref === request.runRef);
@@ -1314,7 +1320,8 @@ async function resolveWorkspaceTaskExecutionScope(input: {
     run.taskRef !== request.taskRef ||
     (run.execution.sessionId ?? run.execution.executionSessionId) !== input.executionSessionId ||
     run.execution.jobId !== request.jobId ||
-    run.execution.attempt !== request.attempt
+    run.execution.attempt !== request.attempt ||
+    !sessionOwnsTaskRun(input.session, run, input.executionSessionId)
   ) {
     throw new Error("Task invocation no longer matches its authoritative TaskRun binding");
   }
@@ -1397,8 +1404,16 @@ async function resolveWorkspaceTaskExecutionScope(input: {
   });
 }
 
+interface TaskExecutionRequestMetadata {
+  projectRef: string;
+  taskRef: string;
+  runRef: string;
+  jobId: string;
+  attempt: number;
+}
+
 function taskExecutionBinding(
-  request: NonNullable<ReturnType<typeof fleetTaskRequestMetadata>>,
+  request: TaskExecutionRequestMetadata,
   ownerSessionId: string,
 ): NonNullable<SparkTaskExecutionScope["binding"]> {
   return {
@@ -1411,15 +1426,9 @@ function taskExecutionBinding(
   };
 }
 
-function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
-  | {
-      projectRef: string;
-      taskRef: string;
-      runRef: string;
-      jobId: string;
-      attempt: number;
-    }
-  | undefined {
+function fleetTaskRequestMetadata(
+  task: SparkDaemonSessionRunTask,
+): TaskExecutionRequestMetadata | undefined {
   const mail = recordValue(task.messageMetadata?.sessionMail);
   const payload = recordValue(mail?.requestPayload) ?? recordValue(task.messageMetadata);
   if (
@@ -1441,6 +1450,77 @@ function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
     jobId: payload.jobId,
     attempt: payload.attempt,
   };
+}
+
+function taskSessionRequestMetadata(
+  session: SparkSessionState | undefined,
+  graph: TaskGraph,
+  executionSessionId: string,
+): TaskExecutionRequestMetadata | undefined {
+  if (!session || session.lineage.kind !== "child") return undefined;
+  const origin = session.lineage.origin;
+  if (origin.kind !== "task_run" && origin.kind !== "task_revision") return undefined;
+  const candidates = graph
+    .runs(origin.projectRef as ProjectRef)
+    .filter(
+      (run) =>
+        run.taskRef === origin.taskRef &&
+        (run.execution?.sessionId ?? run.execution?.executionSessionId) === executionSessionId &&
+        sessionOwnsTaskRun(session, run, executionSessionId),
+    );
+  const run =
+    origin.kind === "task_run"
+      ? candidates.find((candidate) => candidate.ref === origin.runRef)
+      : currentTaskRevisionRun(candidates);
+  if (!run?.execution) return undefined;
+  return {
+    projectRef: run.projectRef,
+    taskRef: run.taskRef,
+    runRef: run.ref,
+    jobId: run.execution.jobId,
+    attempt: run.execution.attempt,
+  };
+}
+
+function currentTaskRevisionRun(candidates: TaskRun[]): TaskRun | undefined {
+  const active = candidates.filter(
+    (run) => run.status === "queued" || run.status === "running" || run.status === "blocked",
+  );
+  if (active.length > 1) return undefined;
+  if (active[0]) return active[0];
+  return [...candidates].sort(
+    (left, right) =>
+      (right.updatedAt ?? right.finishedAt ?? right.startedAt ?? "").localeCompare(
+        left.updatedAt ?? left.finishedAt ?? left.startedAt ?? "",
+      ) || right.ref.localeCompare(left.ref),
+  )[0];
+}
+
+function sessionOwnsTaskRun(
+  session: SparkSessionState | undefined,
+  run: TaskRun,
+  executionSessionId: string,
+): boolean {
+  if (!run.execution || !session || session.lineage.kind !== "child") return false;
+  const origin = session.lineage.origin;
+  if (origin.kind !== "task_run" && origin.kind !== "task_revision") return false;
+  if (
+    origin.projectRef !== run.projectRef ||
+    origin.taskRef !== run.taskRef ||
+    session.lineage.parentSessionId !== run.execution.ownerSessionId ||
+    origin.sessionGoalId !== run.execution.sessionGoalId ||
+    (run.execution.sessionId ?? run.execution.executionSessionId) !== executionSessionId
+  ) {
+    return false;
+  }
+  if (origin.kind === "task_run") {
+    return (
+      origin.runRef === run.ref &&
+      origin.jobId === run.execution.jobId &&
+      origin.attempt === run.execution.attempt
+    );
+  }
+  return run.execution.sessionLifetime === "task_revision";
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
