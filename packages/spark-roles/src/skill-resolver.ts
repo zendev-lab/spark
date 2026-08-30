@@ -155,11 +155,6 @@ export class SparkSkillResolver {
     return { skills: [...skillsByName.values()], diagnostics };
   }
 
-  async formatAvailableSkillsForPrompt(): Promise<string> {
-    const { skills } = await this.resolve();
-    return formatSparkSkillsForPrompt(skills);
-  }
-
   async loadMatchingSkillsForPrompt(request: string, limit = 3): Promise<SparkSkillPromptMatch[]> {
     const { skills } = await this.resolve({ includeRepository: true });
     return matchSparkSkillsForPrompt(skills, request, limit);
@@ -202,29 +197,6 @@ export async function loadSkillsFromDir(
   const diagnostics: SparkSkillDiagnostic[] = [];
   await scanSkillDir(resolve(dir), layer, options.rootMarkdownAsSkill ?? true, skills, diagnostics);
   return { skills, diagnostics };
-}
-
-export function formatSparkSkillsForPrompt(skills: readonly SparkSkill[]): string {
-  const visible = modelInvocableSkills(skills);
-  if (visible.length === 0) return "";
-  const lines = [
-    "\n\nThe following skills provide specialized instructions or intelligent execution for specific tasks.",
-    "When a skill matches, choose exactly one primary path:",
-    "- If skill_delegate is active, call it with a self-contained instruction to let a fresh Worker load and execute the Skill without requiring this session to execute it.",
-    "- Use read on the listed file only when this session itself must inspect and follow the skill instructions.",
-    "Do not explicitly read a Skill before delegating it. Resolve relative references against the listed Skill directory.",
-    "",
-    "<available_skills>",
-  ];
-  for (const skill of visible) {
-    lines.push("  <skill>");
-    lines.push(`    <name>${escapeXml(skill.name)}</name>`);
-    lines.push(`    <description>${escapeXml(skill.description)}</description>`);
-    lines.push(`    <location>${escapeXml(skill.filePath)}</location>`);
-    lines.push("  </skill>");
-  }
-  lines.push("</available_skills>");
-  return lines.join("\n");
 }
 
 export function matchSparkSkillsForPrompt(
@@ -276,41 +248,6 @@ export async function loadSparkSkillByName(
  * may also pass explicitly loaded bodies, but native request matching remains
  * metadata-only so the parent can choose between read and skill_delegate.
  */
-export function formatSelectedSparkSkillsForPrompt(
-  matches: readonly SparkSkillPromptMatch[],
-): string {
-  if (matches.length === 0) return "";
-  const hasLoadedBodies = matches.some(
-    (match) => match.promptBody !== false && match.content.length > 0,
-  );
-  const lines = [
-    "Dynamic context checkpoint: matching skills for current user request.",
-    hasLoadedBodies
-      ? "Some Skill bodies were explicitly loaded by the caller. Follow only those loaded instructions when relevant."
-      : "Skill bodies are not loaded. Choose one primary path: call skill_delegate for a self-contained unit of work, or read SKILL.md when this session itself must follow it.",
-    "Do not explicitly read and delegate the same Skill by default.",
-    "<selected_skills>",
-  ];
-  for (const match of matches) {
-    lines.push("  <skill>");
-    lines.push(`    <name>${escapeXml(match.skill.name)}</name>`);
-    lines.push(`    <description>${escapeXml(match.skill.description)}</description>`);
-    lines.push(`    <location>${escapeXml(match.skill.filePath)}</location>`);
-    if (match.promptBody !== false && match.content.length > 0) {
-      lines.push("    <content>");
-      for (const contentLine of match.content.replace(/\r\n?/gu, "\n").split("\n")) {
-        lines.push(`      ${contentLine}`);
-      }
-      lines.push("    </content>");
-    } else if (match.content.length > 0) {
-      lines.push(`    <title>${escapeXml(match.content)}</title>`);
-    }
-    lines.push("  </skill>");
-  }
-  lines.push("</selected_skills>");
-  return lines.join("\n");
-}
-
 function modelInvocableSkills(skills: readonly SparkSkill[]): SparkSkill[] {
   return skills.filter((skill) => !skill.disabled && !skill.disableModelInvocation);
 }

@@ -19,8 +19,6 @@ import type {
 
 export type { ChannelAdapterType };
 
-export type { ChannelMessageReference, ChannelMessageReferenceSource };
-
 export interface IncomingMessage {
   /** Configured adapter instance that received this message. */
   adapterId?: string;

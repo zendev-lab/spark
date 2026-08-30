@@ -26,7 +26,6 @@
     "@sveltejs/kit": "^2.28.0",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-i18n": "workspace:*",
-    "@zendev-lab/spark-platform-node": "workspace:*",
     "@zendev-lab/spark-protocol": "workspace:*",
     "@zendev-lab/spark-ui": "workspace:*",
     "svelte": "^5.38.8"

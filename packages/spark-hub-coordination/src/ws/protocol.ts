@@ -59,7 +59,7 @@ import {
   recordInvocationUpdate,
 } from "../projection-services.ts";
 import type { DatabaseSync } from "node:sqlite";
-import type { RawData, WebSocket } from "ws";
+import type { WebSocket } from "ws";
 
 import type {
   RuntimeWebSocketContext,
@@ -1555,24 +1555,6 @@ export function sendError(
       payload: { code, message },
     }),
   );
-}
-
-export function parseMessage(
-  data: RawData,
-): { ok: true; value: unknown } | { ok: false; message: string } {
-  try {
-    const text =
-      typeof data === "string"
-        ? data
-        : Buffer.isBuffer(data)
-          ? data.toString("utf8")
-          : Array.isArray(data)
-            ? Buffer.concat(data).toString("utf8")
-            : Buffer.from(data).toString("utf8");
-    return { ok: true, value: JSON.parse(text) };
-  } catch {
-    return { ok: false, message: "Runtime WebSocket message must be valid JSON." };
-  }
 }
 
 function hashOptional(value: string | undefined): string | null {

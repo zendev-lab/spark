@@ -6,7 +6,7 @@ export interface CueOperationHost {
   registerTool(config: CueOperationDefinition): void;
 }
 
-export type CueNotifyLevel = "info" | "warning" | "error" | "success";
+type CueNotifyLevel = "info" | "warning" | "error" | "success";
 
 export interface CueOperationContext {
   cwd?: string;
@@ -24,11 +24,6 @@ export interface CueOperationContext {
   /** Opaque per-execution launch lease; policy remains owned by the host adapter. */
   cueSpawnAdapter?: SpawnAdapterHandle;
   ui?: { notify?: (msg: string, level: CueNotifyLevel) => void };
-}
-
-export interface CueOperationRegistration {
-  releaseSession(ctx?: CueOperationContext): void;
-  dispose(): void;
 }
 
 export interface CueOperationDefinition {
