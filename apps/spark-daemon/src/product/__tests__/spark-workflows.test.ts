@@ -34,6 +34,8 @@ import {
   renderSparkDynamicWorkflowDashboardText,
 } from "../policy/spark-dynamic-workflow-run-rendering.ts";
 
+const approveTestWorkflowRun = () => ({ approved: true, reason: "trusted test fixture" });
+
 test("spark-workflows projects zero-agent parallel helper work into dashboard tree", async () => {
   const script = `export const meta = { name: 'zero agent fanout', description: 'zero agent fanout workflow' }
 stage('Fanout')
@@ -381,8 +383,9 @@ test("Spark workflow_run tool routes default agents through ctx.runRole", async 
       }>;
     };
     const tools = new Map<string, TestWorkflowRunTool>();
-    registerSparkWorkflowRunTool((config) =>
-      tools.set(config.name, config as unknown as TestWorkflowRunTool),
+    registerSparkWorkflowRunTool(
+      (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
+      { approveRun: approveTestWorkflowRun },
     );
     const tool = tools.get("workflow_run");
     assert.ok(tool, "missing workflow_run tool");
@@ -449,6 +452,7 @@ test("Spark workflow_run tool persists, resumes, and keeps original base metadat
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: (input) => {
           agentRunnerBases.push(input.base?.baseTree);
           return async (prompt) => {
@@ -582,6 +586,7 @@ test("Spark workflow_run streams live onUpdate events before wait=true completio
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: () => async () => agentGate,
         refreshSparkWidget: async () => {
           refreshes += 1;
@@ -660,7 +665,7 @@ test("Spark workflow_run returns before background DynamicWorkflowManager comple
     });
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
-      { createAgentRunner: () => async () => agentGate },
+      { approveRun: approveTestWorkflowRun, createAgentRunner: () => async () => agentGate },
     );
     const tool = tools.get("workflow_run");
     assert.ok(tool, "missing workflow_run tool");
@@ -742,6 +747,7 @@ test("Spark DynamicWorkflowManager applies pause, resume, stop, and restart to a
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: () => {
           let calls = 0;
           return async () => {
@@ -803,6 +809,7 @@ return { first, second }`;
     registerSparkWorkflowRunTool(
       (config) => stopTools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: ({ signal }) => {
           stopSignal = signal;
           return async () => {
@@ -843,6 +850,7 @@ return await agent('never finishes', { label: 'blocked' })`,
     registerSparkWorkflowRunTool(
       (config) => restartTools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: ({ signal }) => {
           restartFactoryCalls += 1;
           if (!firstRestartSignal) firstRestartSignal = signal;
@@ -927,6 +935,7 @@ test("Spark workflow_run persists and renders real workflow agent telemetry", as
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: () => async (_prompt, options) => {
           options.reportTelemetry?.({
             runRef: "run:child-usage",
@@ -1006,6 +1015,7 @@ test("Spark workflow_run tool executes inline and saved workflow scripts through
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
+        approveRun: approveTestWorkflowRun,
         createAgentRunner: () => async () => "agent output",
         resolveScript: async ({ selector }) => ({
           label: selector,
@@ -1140,11 +1150,80 @@ return await webSearch({ query: 'approval smoke' })`;
         }),
       /workflow_run approval denied: test denied/,
     );
-    assert.deepEqual(approvalRiskFlags, ["web_or_fetch"]);
+    assert.deepEqual(approvalRiskFlags, ["executable_source", "web_or_fetch"]);
     assert.equal(createdAgent, false);
     assert.equal(ranWorkflow, false);
     const persisted = await defaultSparkDynamicWorkflowEventStore(dir).load();
     assert.equal(persisted.runs.length, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Spark workflow_run requires digest-bound approval for every non-builtin source", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-source-approval-"));
+  try {
+    type TestWorkflowRunTool = {
+      execute: (
+        toolCallId: string,
+        params: Record<string, unknown>,
+        signal: AbortSignal,
+        onUpdate: () => void,
+        ctx: { cwd: string },
+      ) => Promise<unknown>;
+    };
+    const tools = new Map<string, TestWorkflowRunTool>();
+    const approvals: Array<{ source: string; scriptHash: string }> = [];
+    registerSparkWorkflowRunTool(
+      (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
+      {
+        resolveScript: async ({ selector }) => ({
+          label: selector,
+          script: `export const meta = { name: 'saved', description: 'saved workflow' }
+return 'saved-result'`,
+        }),
+        approveRun: ({ summary }) => {
+          approvals.push({ source: summary.source, scriptHash: summary.scriptHash });
+          assert.deepEqual(summary.riskFlags, ["executable_source"]);
+          return { approved: false, reason: "source not trusted" };
+        },
+      },
+    );
+    const tool = tools.get("workflow_run");
+    assert.ok(tool, "missing workflow_run tool");
+
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "tool-call",
+          { selector: "workspace:untrusted" },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: dir },
+        ),
+      /workflow_run approval denied: source not trusted/u,
+    );
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "tool-call-inline",
+          {
+            script: `export const meta = { name: 'inline', description: 'inline workflow' }
+return 'inline-result'`,
+          },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: dir },
+        ),
+      /workflow_run approval denied: source not trusted/u,
+    );
+    assert.deepEqual(
+      approvals.map((approval) => approval.source),
+      ["workspace:untrusted", "inline workflow"],
+    );
+    for (const approval of approvals) {
+      assert.match(approval.scriptHash, /^[a-f0-9]{64}$/u);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1213,7 +1292,12 @@ return await agent('bounded work', { role: 'executor' })`,
     assert.match(observed?.roleBindings[0]?.roleRevision ?? "", /^sha256:[a-f0-9]{64}$/u);
     assert.ok(observed?.tools.includes("cue_exec"));
     assert.ok(observed?.tools.includes("write"));
-    assert.deepEqual(observed?.riskFlags, ["role_policies", "shell_tools", "write_tools"]);
+    assert.deepEqual(observed?.riskFlags, [
+      "executable_source",
+      "role_policies",
+      "shell_tools",
+      "write_tools",
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1244,7 +1328,12 @@ test("Spark workflow_run records scoped approval provenance for risky workflows"
       {
         approveRun: ({ summary }) => {
           approvalSource = summary.source;
-          assert.deepEqual(summary.riskFlags, ["role_policies", "shell_tools", "write_tools"]);
+          assert.deepEqual(summary.riskFlags, [
+            "executable_source",
+            "role_policies",
+            "shell_tools",
+            "write_tools",
+          ]);
           approvedRoleBindings = summary.roleBindings;
           assert.equal(summary.resources.stageCount, 0);
           assert.equal(summary.resources.phaseCount, 0);
@@ -1277,6 +1366,7 @@ return await agent('bounded work', { role: 'executor' })`,
     assert.equal(stored.approval?.method, "reviewer");
     assert.equal(stored.approval?.reason, "bounded executor delegation");
     assert.deepEqual(stored.approval?.summary.riskFlags, [
+      "executable_source",
       "role_policies",
       "shell_tools",
       "write_tools",
@@ -1288,7 +1378,10 @@ return await agent('bounded work', { role: 'executor' })`,
       stored.approval?.summary.roleBindings?.[0]?.roleRevision ?? "",
       /^sha256:[a-f0-9]{64}$/u,
     );
-    assert.match(formatSparkDynamicWorkflowRunLine(stored), /approval=reviewer:role_policies/u);
+    assert.match(
+      formatSparkDynamicWorkflowRunLine(stored),
+      /approval=reviewer:executable_source\+role_policies/u,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1351,7 +1444,7 @@ return { draft, verdict, complete }`,
       { cwd: dir },
     );
 
-    assert.deepEqual(approvedRiskFlags, ["fan_out"]);
+    assert.deepEqual(approvedRiskFlags, ["executable_source", "fan_out"]);
     const details = result.details as {
       workflow: {
         status: string;
@@ -1466,7 +1559,13 @@ return { reused: true, args }
     const tools = new Map<string, TestWorkflowRunTool>();
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
-      { createAgentRunner: () => async () => "agent output" },
+      {
+        createAgentRunner: () => async () => "agent output",
+        approveRun: ({ summary }) => {
+          assert.deepEqual(summary.riskFlags, ["executable_source"]);
+          return { approved: true, reason: "trusted saved workflow" };
+        },
+      },
     );
     const tool = tools.get("workflow_run");
     assert.ok(tool, "missing workflow_run tool");
@@ -1556,9 +1655,20 @@ Run the saved child workflow.
       "utf8",
     );
     const tools = new Map<string, TestWorkflowRunTool>();
+    const approvedSources: Array<{ source: string; scriptHash: string; riskFlags: string[] }> = [];
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
-      { createAgentRunner: () => async () => "agent output" },
+      {
+        createAgentRunner: () => async () => "agent output",
+        approveRun: ({ summary }) => {
+          approvedSources.push({
+            source: summary.source,
+            scriptHash: summary.scriptHash,
+            riskFlags: summary.riskFlags,
+          });
+          return { approved: true, reason: "trusted exact child source" };
+        },
+      },
     );
     const tool = tools.get("workflow_run");
     assert.ok(tool, "missing workflow_run tool");
@@ -1580,6 +1690,10 @@ return await workflow('workspace:child', { focus: args.focus })`,
     const details = result.details as { workflow: { result: { marker: string; args: unknown } } };
     assert.equal(details.workflow.result.marker, "saved-child");
     assert.deepEqual(details.workflow.result.args, { focus: "nested-demo" });
+    assert.equal(approvedSources.length, 2);
+    const childApproval = approvedSources.find((approval) => approval.source === "workspace:child");
+    assert.deepEqual(childApproval?.riskFlags, ["executable_source"]);
+    assert.match(childApproval?.scriptHash ?? "", /^[a-f0-9]{64}$/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

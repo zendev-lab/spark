@@ -618,6 +618,7 @@ const sparkLocalRpcSessionInvocationNotFoundOrpcErrors = {
 const sparkLocalRpcTurnResultOrpcErrors = {
   invocation_not_found: sparkLocalRpcInvocationOrpcErrors.invocation_not_found,
   invocation_not_terminal: sparkLocalRpcInvocationOrpcErrors.invocation_not_terminal,
+  session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
 } as const;
 
 const sparkLocalRpcTurnStreamOrpcErrors = {
@@ -1465,6 +1466,9 @@ export const sparkLocalRpcHumanInteractionRespondResultSchema = z.object({
 const workspaceIdInputSchema = z.object({ workspaceId: z.string().trim().min(1) });
 const invocationIdInputSchema = sparkTurnStatusRequestSchema;
 const sessionIdInputSchema = sparkSessionGetRequestSchema;
+const channelPeerSessionIdInputSchema = sparkSessionGetRequestSchema.extend({
+  callerSessionId: z.string().trim().min(1).optional(),
+});
 const providerNameInputSchema = z.object({ providerName: z.string().trim().min(1) });
 const flowIdInputSchema = z.object({ flowId: z.string().trim().min(1) });
 const workspaceIdMutationInputSchema = z.object({ id: z.string().min(1) });
@@ -1751,8 +1755,11 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionListRequestSchema,
     output: z.array(sparkSessionProjectionSchema),
   },
-  "session.get": { input: sessionIdInputSchema, output: sparkSessionProjectionSchema },
-  "session.lookup": { input: sessionIdInputSchema, output: sparkSessionPeerProjectionSchema },
+  "session.get": { input: channelPeerSessionIdInputSchema, output: sparkSessionProjectionSchema },
+  "session.lookup": {
+    input: channelPeerSessionIdInputSchema,
+    output: sparkSessionPeerProjectionSchema,
+  },
   "session.snapshot": {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),

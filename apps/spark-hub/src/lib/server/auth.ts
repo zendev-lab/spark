@@ -7,7 +7,7 @@ import {
   userHasDaemonGrant,
 } from "@zendev-lab/spark-hub-coordination/hub-access";
 import { createId } from "@zendev-lab/spark-protocol";
-import type { Cookies } from "@sveltejs/kit";
+import { error, type Cookies } from "@sveltejs/kit";
 import type { DatabaseSync } from "node:sqlite";
 
 export const sessionCookieName = "spark_hub_session";
@@ -162,9 +162,8 @@ export function getCurrentHubSession(
 }
 
 /**
- * Exchange a one-time Hub access key for a member session. The member user is
- * reused by display name when one is already active; the token's daemon grants
- * are added to that user under the token creator's authority.
+ * Exchange a one-time Hub access key for a new member principal. Display names
+ * are presentation-only and never participate in authentication binding.
  */
 export function exchangeHubAccessToken(
   db: DatabaseSync,
@@ -246,13 +245,12 @@ export function ensureCurrentOwnerSession(
   _cookies: Cookies,
   sessionToken: string | null,
 ): string {
-  const hubSession = getCurrentHubSession(db, sessionToken);
-  if (hubSession) {
+  if (sessionToken !== null) {
+    const hubSession = getCurrentHubSession(db, sessionToken);
+    if (!hubSession || hubSession.role !== "owner") {
+      throw error(403, "Hub owner access is required.");
+    }
     return hubSession.userId;
-  }
-  const currentUserId = getCurrentUserId(db, sessionToken);
-  if (currentUserId) {
-    return currentUserId;
   }
 
   return ensureLocalSystemUser(db);
@@ -469,18 +467,6 @@ function insertHubSession(db: DatabaseSync, userId: string, now: Date): HubSessi
 
 function ensureHubMemberUser(db: DatabaseSync, memberName: string | null, nowIso: string): string {
   const displayName = memberName?.trim() || "Hub member";
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM users
-       WHERE role = 'member' AND status = 'active' AND display_name = ?
-       ORDER BY created_at ASC
-       LIMIT 1`,
-    )
-    .get(displayName) as { id: string } | undefined;
-  if (existing) {
-    return existing.id;
-  }
   const userId = createId("usr");
   db.prepare(
     `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)

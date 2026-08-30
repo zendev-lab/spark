@@ -359,6 +359,7 @@ test("channel sessions can inspect only Channel Sessions in the same daemon", as
   assert.deepEqual(calls.find((call) => call.method === "session.list")?.params, {
     scope: { kind: "daemon" },
     includeArchived: false,
+    callerSessionId: channelCurrent.sessionId,
   });
 
   await assert.rejects(

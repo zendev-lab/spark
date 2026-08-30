@@ -173,6 +173,7 @@ describe("migrations", () => {
       "0026",
       "0027",
       "0028",
+      "0029",
     ]);
 
     const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
@@ -207,7 +208,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(28);
+    expect(migrationCount.count).toBe(29);
     db.close();
   });
 
@@ -717,6 +718,49 @@ describe("migrations", () => {
         )
         .get("catok_member"),
     ).toEqual({ daemonIdsJson: '["rt_a"]', memberName: "teammate" });
+    db.close();
+  });
+
+  it("retires member authority created by display-name principal reuse", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0028"),
+    );
+    const now = "2026-08-30T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
+       VALUES ('usr_member', NULL, 'Hub member', 'member', 'active', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES ('rt_a', 'install-a', 'Daemon A', 'offline', '{}', '{}', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO user_daemon_grants
+        (id, user_id, runtime_id, granted_by_user_id, created_at)
+       VALUES ('udg_member', 'usr_member', 'rt_a', NULL, ?)`,
+    ).run(now);
+    db.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+       VALUES ('sess_member', 'usr_member', 'hash-member', ?, ?)`,
+    ).run(now, "2026-09-30T00:00:00.000Z");
+
+    migrate(db, migrations);
+
+    expect(db.prepare("SELECT status FROM users WHERE id = 'usr_member'").get()).toEqual({
+      status: "disabled",
+    });
+    expect(
+      db.prepare("SELECT revoked_at AS revokedAt FROM sessions WHERE id = 'sess_member'").get(),
+    ).toEqual({ revokedAt: expect.any(String) });
+    expect(
+      db
+        .prepare("SELECT revoked_at AS revokedAt FROM user_daemon_grants WHERE id = 'udg_member'")
+        .get(),
+    ).toEqual({ revokedAt: expect.any(String) });
     db.close();
   });
 

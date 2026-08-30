@@ -1164,6 +1164,9 @@ async function sessionExecutionIdentity(
   if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
     throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
   }
+  if (sessionContext.taskSession && !workspaceRoot) {
+    throw new Error("Task Session requires an authoritative workspace root");
+  }
   const taskExecutionScope =
     workspaceId && workspaceRoot && options.resolveSessionCwd && sessionContext.fleetWorker
       ? await resolveFleetExecutionScope({
@@ -1177,8 +1180,11 @@ async function sessionExecutionIdentity(
       : workspaceRoot && sessionContext.taskSession
         ? await resolveWorkspaceTaskExecutionScope({
             task,
+            workspaceId: sessionContext.workspaceId ?? task.workspaceId,
             workspaceRoot,
             executionSessionId: task.sessionId,
+            cwdArtifactRef: sessionContext.cwdArtifactRef,
+            resolveSessionCwd: options.resolveSessionCwd,
           })
         : undefined;
   return {
@@ -1290,11 +1296,14 @@ async function resolveFleetExecutionScope(input: {
 
 async function resolveWorkspaceTaskExecutionScope(input: {
   task: SparkDaemonSessionRunTask;
+  workspaceId?: string;
   workspaceRoot: string;
   executionSessionId: string;
+  cwdArtifactRef?: string;
+  resolveSessionCwd?: SparkDaemonTaskExecutorOptions["resolveSessionCwd"];
 }): Promise<SparkTaskExecutionScope | undefined> {
   const request = fleetTaskRequestMetadata(input.task);
-  if (!request) return undefined;
+  if (!request) throw new Error("Task Session requires authoritative task_execution metadata");
   const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
   if (!graph) throw new Error("Task execution scope requires the owning Workspace TaskGraph");
   const run = graph
@@ -1309,13 +1318,82 @@ async function resolveWorkspaceTaskExecutionScope(input: {
   ) {
     throw new Error("Task invocation no longer matches its authoritative TaskRun binding");
   }
-  const policy = graph.getTask(run.taskRef).executionPolicy;
-  if (policy?.isolation !== "workspace") return undefined;
+  const task = graph.getTask(run.taskRef);
+  const policy = task.executionPolicy;
+  if (!policy) throw new Error(`Task ${task.ref} has no executionPolicy`);
+  const binding = taskExecutionBinding(request, run.execution.ownerSessionId);
+  if (policy.isolation === "readonly") {
+    return Object.freeze({
+      isolation: "readonly",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [],
+    });
+  }
+  if (policy.isolation === "workspace") {
+    return Object.freeze({
+      isolation: "workspace",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [input.workspaceRoot],
+    });
+  }
+  if (policy.isolation === "isolated_results") {
+    if (!safeFleetJobId(request.jobId)) throw new Error("Task isolated_results jobId is unsafe");
+    const requestedRoot = join(input.workspaceRoot, ".spark", "task-results", request.jobId);
+    mkdirSync(requestedRoot, { recursive: true });
+    return Object.freeze({
+      isolation: "isolated_results",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [],
+      resultsRoot: realpathSync(requestedRoot),
+    });
+  }
+
+  if (!input.workspaceId || !input.resolveSessionCwd) {
+    throw new Error("Task isolated_worktree requires daemon workspace path resolution");
+  }
+  const sessionArtifactRef = input.cwdArtifactRef?.startsWith("artifact:")
+    ? (input.cwdArtifactRef as ArtifactRef)
+    : undefined;
+  if (!sessionArtifactRef) {
+    throw new Error("Task isolated_worktree requires an attached Task Artifact");
+  }
+  const primaryArtifactRef = policy.worktreeTarget?.primaryArtifactRef ?? sessionArtifactRef;
+  const writableArtifactRefs = policy.worktreeTarget
+    ? [...new Set(policy.worktreeTarget.writableArtifactRefs)].sort()
+    : sessionArtifactRef
+      ? [sessionArtifactRef]
+      : [];
+  if (!primaryArtifactRef || writableArtifactRefs.length === 0) {
+    throw new Error("Task isolated_worktree requires an attached Task Artifact");
+  }
+  if (
+    sessionArtifactRef !== primaryArtifactRef ||
+    !writableArtifactRefs.includes(primaryArtifactRef) ||
+    writableArtifactRefs.some((ref) => !task.artifactRefs.includes(ref))
+  ) {
+    throw new Error("Task isolated_worktree Session target diverges from executionPolicy");
+  }
+  const writableRoots: string[] = [];
+  for (const ref of writableArtifactRefs) {
+    const resolved = await input.resolveSessionCwd({
+      workspaceId: input.workspaceId,
+      cwdArtifactRef: ref,
+      requireAttached: true,
+    });
+    if (resolved.cwdArtifactRef !== ref) {
+      throw new Error(`Task worktree target resolved to a different Artifact: ${ref}`);
+    }
+    writableRoots.push(resolved.cwd);
+  }
   return Object.freeze({
-    isolation: "workspace",
-    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
-    writableArtifactRefs: [],
-    writableRoots: [input.workspaceRoot],
+    isolation: "isolated_worktree",
+    binding,
+    primaryArtifactRef,
+    writableArtifactRefs,
+    writableRoots,
   });
 }
 
@@ -1398,7 +1476,11 @@ function sessionExecutionPolicy(
   loop: SparkHostLoopContext | undefined,
   taskExecutionScope?: SparkTaskExecutionScope,
 ) {
-  const allowedTools = allowedToolsForSessionExecution(sessionContext, loop);
+  const loopAllowedTools =
+    sessionContext.surface !== "channel" && loop?.binding.workflowRunId && !loop.binding.reproId
+      ? ["workflow"]
+      : allowedToolsForSessionExecution(sessionContext, loop);
+  const allowedTools = taskScopedAllowedTools(loopAllowedTools, taskExecutionScope);
   return {
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
@@ -1418,10 +1500,35 @@ function sessionExecutionPolicy(
     ...(taskExecutionScope?.isolation === "readonly"
       ? { allowedToolEffects: ["read"] as const }
       : {}),
-    ...(sessionContext.surface !== "channel" && loop?.binding.workflowRunId && !loop.binding.reproId
-      ? { allowedTools: ["workflow"] }
+    ...(taskExecutionScope?.isolation === "isolated_worktree" ||
+    taskExecutionScope?.isolation === "isolated_results"
+      ? { allowedToolEffects: ["read", "network_read", "local_write"] as const }
       : {}),
   };
+}
+
+const READONLY_TASK_TOOLS = new Set(["read", "grep", "find", "context", "task_read"]);
+const ISOLATED_TASK_TOOLS = new Set([
+  ...READONLY_TASK_TOOLS,
+  "web_search",
+  "web_fetch",
+  "get_search_content",
+  "edit",
+  "write",
+]);
+
+function taskScopedAllowedTools(
+  allowedTools: string[] | undefined,
+  scope: SparkTaskExecutionScope | undefined,
+): string[] | undefined {
+  const ceiling =
+    scope?.isolation === "readonly"
+      ? READONLY_TASK_TOOLS
+      : scope?.isolation === "isolated_worktree" || scope?.isolation === "isolated_results"
+        ? ISOLATED_TASK_TOOLS
+        : undefined;
+  if (!ceiling) return allowedTools;
+  return (allowedTools ?? [...ceiling]).filter((tool) => ceiling.has(tool));
 }
 
 function allowedToolsForSessionExecution(
