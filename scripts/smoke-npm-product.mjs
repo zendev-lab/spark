@@ -56,6 +56,32 @@ function suppliedTarballs() {
   return count === 0 ? undefined : values;
 }
 
+async function assertLocalNativePayloads() {
+  if (supplied) return;
+  const nativeBinaryRoot = resolve(root, process.env.SPARK_NATIVE_BIN_DIR ?? "dist/native");
+  const missing = [];
+  for (const distribution of nativeNpmDistributions) {
+    const binary = resolve(nativeBinaryRoot, distribution.target, "spark");
+    try {
+      const metadata = await stat(binary);
+      if (!metadata.isFile()) missing.push(distribution.target);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      missing.push(distribution.target);
+    }
+  }
+  if (missing.length === 0) return;
+  const expectedTarballs = npmDistributions.length + nativeNpmDistributions.length;
+  throw new Error(
+    [
+      "[NATIVE_PAYLOADS_MISSING] Source smoke requires prebuilt native CLI payloads for every supported target.",
+      `Expected binaries under ${nativeBinaryRoot}.`,
+      `Missing targets: ${missing.join(", ")}.`,
+      `Run the release native-artifact stage first, set SPARK_NATIVE_BIN_DIR, or supply all ${expectedTarballs} exact release tarballs.`,
+    ].join("\n"),
+  );
+}
+
 function cleanPath(extra = []) {
   const repoPrefix = `${root}/`;
   const pathEntries = (process.env.PATH ?? "").split(delimiter).filter((entry) => {
@@ -337,6 +363,7 @@ async function countFiles(directory) {
   return count;
 }
 
+await assertLocalNativePayloads();
 const temporary = await temporaryRoot();
 try {
   let tarballs;

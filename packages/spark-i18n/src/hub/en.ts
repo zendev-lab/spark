@@ -579,7 +579,7 @@ const messages = {
     sideThread: {
       title: "Side Thread",
       description:
-        "A daemon-owned, isolated investigation attached to this conversation. Hub forwards the same control commands as the native TUI.",
+        "A daemon-owned, isolated investigation attached to this conversation. Every action is sent to the owning daemon; Hub does not run the investigation itself.",
       loading: "Loading Side Thread…",
       missing: "No Side Thread has been opened for this conversation.",
       unavailable: "The Side Thread is currently unavailable.",

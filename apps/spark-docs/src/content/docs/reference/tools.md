@@ -114,7 +114,8 @@ Hub snapshot.
 
 `ask({ toSessionId })` addresses structured questions to another Session.
 That Session answers with `ask({ action: "answer" })`. Session-addressed asks
-do not appear in Hub Inbox; User asks remain the Inbox / TUI / channel path.
+do not appear in Hub Inbox. User-addressed asks appear in the owning local Web
+conversation, Hub Inbox, or channel.
 
 Workflow child calls accept either a `role` selector or an exact `roleRef`, not
 both. Before approval, Spark resolves a selector to one exact Role ref and
@@ -168,8 +169,8 @@ Unknown or conflicting policy fails closed.
   cannot retain driver authority by itself.
 - Approval is execution authority, not presentation text. Unknown or
   conflicting policy fails closed.
-- Compatibility and Channel profiles may expose a smaller set than the native
-  TUI or Hub Session.
+- Compatibility and Channel profiles may expose a smaller set than a local Web
+  or Hub Session.
 
 A daemon Channel Session exposes exactly `session`, `ask`, `context`, and
 `todo`. Its `session` tool can list or send only within the same daemon scope.

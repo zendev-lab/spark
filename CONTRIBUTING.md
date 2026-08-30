@@ -116,8 +116,8 @@ the change:
 | Architecture exception non-growth against a Git revision | `pnpm run check:architecture-transition -- --base-ref <git-ref>` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
 | Write the gitignored architecture health JSON | `pnpm run report:architecture` |
-| Packed public product and clean installation | `pnpm run smoke` |
-| Release tarball and manifest | `pnpm run release:pack` |
+| Packed public product and clean installation (requires the [native release payloads](./.agents/notes/runbooks/releases.md#local-artifact-and-smoke-reproduction)) | `pnpm run smoke` |
+| Release tarballs and manifests (same native prerequisite) | `pnpm run release:pack` |
 | High and critical dependency advisories | `pnpm run audit` |
 | Advisory hygiene reports | `pnpm run report:hygiene` |
 
@@ -174,9 +174,8 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. The budget is closed at 41; the machine-readable inventory
-owns the current count and rationale. Raising or replacing that budget requires
-an architecture rationale and inventory change.
+boundary checks. The machine-readable inventory owns workspace-count limits and
+their rationale; do not duplicate those values in prose.
 
 ## Documentation ownership
 

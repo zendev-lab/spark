@@ -63,9 +63,9 @@ spark daemon auth login [provider]
 spark daemon model set <provider/model> --default --json
 ```
 
-或打开 `spark`，运行 `/login`，再用 `/model`。不可用模型仍会显示原因和登录动作，
-但不能成为 active。API Key 只应输入 Spark 的 secret prompt，不能写进仓库、
-命令历史或 Hub 注册命令。
+或启动 `spark web`，打开**设置**，在其中配置 provider 与模型。不可用模型仍会
+显示原因和登录动作，但不能成为 active。API Key 只应输入 Spark 的 secret 字段或
+prompt，不能写进仓库、命令历史或 Hub 注册命令。
 
 没有已认证模型时，Hub Web 会禁用会话提交。JSON CLI 提交会返回可处理的错误：
 
@@ -81,8 +81,8 @@ spark daemon model set <provider/model> --default --json
 
 配置 provider 后，只重试原提交一次。
 
-`spark daemon login` 是另一件事：它只授权本机连接 Hub。Provider 认证只存在于
-`spark daemon auth` 和对应的 TUI slash command。
+`spark daemon login` 是另一件事：它只授权本机连接 Hub。Provider 认证由 daemon
+持有，通过 `spark daemon auth`、本地 Web 与 Hub 的模型/provider 设置暴露。
 
 ## 3. 分别启动 daemon 和 Hub
 
@@ -204,9 +204,9 @@ fail closed，不能自动 replay。
 
 ## 7. 体验产品工作流
 
-在[本地 Web 工作台](/zh/guides/web/)或用 `spark run` 描述预期结果。Plan、
-Implement、inspect、Goal、Repro 和 Workflow 仍是 daemon 拥有的操作；用
-`spark daemon --help` 发现对应 CLI。
+在[本地 Web 工作台](/zh/guides/web/)或用 `spark run` 描述预期结果。一次性的
+`/plan`、`/execute`、`/fleet` 以及 Goal、Repro 和 Workflow 仍由 daemon
+持有；用 `spark daemon --help` 发现运维 CLI。
 
 这些界面应协同工作：
 
@@ -274,8 +274,8 @@ Settings。一个 binding 只能拥有一条 active Hub lease；要迁移时，�
 
 先运行 `spark daemon auth status --json` 和
 `spark daemon model list --all --json`。然后使用
-`spark daemon auth login <provider>`，或回到 TUI 运行 `/login`、再运行
-`/model`。只有 daemon 报告可用的已认证模型后，Hub Web 才应允许提交。
+`spark daemon auth login <provider>`，或打开本地 Web 的**设置**、Hub 的
+**模型与提供商**。只有 daemon 报告可用的已认证模型后，Hub Web 才应允许提交。
 
 ### Run 看起来卡住
 

@@ -179,9 +179,10 @@ unless `--overwrite` is explicit. Exit `0` means the transaction completed,
 including an all-skipped report; `1` is a read/parse/store failure and `2` is
 invalid CLI usage.
 
-Provider login exists only under `spark daemon auth login` (or `/login` inside
-the TUI). Reports contain provider IDs, credential kinds, counts, and reason
-codes, never credential values.
+Provider login is owned by the daemon and is exposed through
+`spark daemon auth login` and the provider settings in local Web or Hub.
+Reports contain provider IDs, credential kinds, counts, and reason codes, never
+credential values.
 
 ## Daemon-global Channels
 

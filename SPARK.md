@@ -5,8 +5,6 @@ created: 2026-05-18
 updated: 2026-08-23
 ---
 
-# `spark` 项目意图
-
 ## 起源
 
 `spark` 最初作为面向 Pi 产品的工作流套件起步，通过意图明确的用户命令与规范化工具，将项目意图、任务有向无环图、结构化提问、审查、证据制品、角色执行以及 `Cue` 执行能力组织为可追溯的本地工作流。仓库落地后，执行与会话中枢已迁移到 Spark daemon，产品面扩展为本地 Web 工作台、Hub 与消息通道。**Pi SDK** 中仅保留 `@earendil-works/pi-ai` 作为 `spark-llm-providers` 的模型 transport 内核；独立的 Pi 产品 extension facade、`pi-spark` 发现适配器、`pi-tui` 与原生 TUI 均已退场。产品组合由 daemon 内部模块唯一拥有。
@@ -83,7 +81,7 @@ updated: 2026-08-23
 
 ## 当前方向
 
-- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 保持独立 fallback；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，包预算固定为 38，不保留别名包。
+- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 保持独立 fallback；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
 - 公共 CLI argv 只使用 Optique 作为解析器。
 - 对齐跨表面的 ask、gate 与 submit 语义，让协议成为唯一判定来源。
 - 为本地 RPC 兼容层定义可验证的退出条件，不向兼容传输增加新行为。
@@ -91,8 +89,8 @@ updated: 2026-08-23
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
 - Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。
-  `spark-web-dsh` 作为独立的 DSH-hosted Spark 产品应用保留；包预算的当前值和理由
-  只由 `architecture/packages.json` 维护，新增 workspace 需要新的 architecture 决策。
+  `spark-web-dsh` 作为独立的 DSH-hosted Spark 产品应用保留；新增 workspace
+  必须更新 `architecture/packages.json` 并说明新的硬边界。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
   persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
   AgentLoop。transcript v4 已把模型可见内容迁入原生 DSH surface，并在 daemon

@@ -9,25 +9,18 @@ Side Thread 是 daemon 拥有、附属于父 Session 的只读子 Session 功能
 
 ## 基本流程
 
-在原生 TUI 中运行：
+在 Hub Web 中打开一个对话，点击对话标题栏里的**旁路线程**。尚未创建子 Session
+时先选择**开启旁路线程**，输入一个有界调查问题，例如“这个模块对 retry 有哪些
+假设？”，再选择**发送调查**。
 
-```text
-/btw show
-/btw ask 这个模块对 retry 有哪些假设？
-/btw handoff summary 把 retry 结论加入主会话上下文。
-```
-
-`show` 会创建或复用子会话，并显示它的 generation、状态、模型、thinking level、
-待处理工作和最近可见 exchange。
+对话框会显示 generation、状态、实际模型与 thinking level、待处理工作和最近可见
+exchange。结论确实属于主对话时，选择**回传摘要**或**回传完整记录**，并可补充主
+对话应如何使用该结论。
 
 ## 重置与配置
 
-```text
-/btw reset contextual
-/btw reset tangent
-/btw model inherit
-/btw thinking high
-```
+使用**重置代次**为新 generation 选择 contextual 或 tangent 模式。对话框也可为
+子 Session 单独设置 provider、model 和 thinking level；留空则继承父 Session。
 
 重置会先关闭当前子 Session incarnation 并封存有界关闭回执，再以同一个稳定 Session
 ID 开始新的 Side Thread generation 和 Session incarnation。模型和 thinking override
