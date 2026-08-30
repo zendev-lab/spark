@@ -14,7 +14,11 @@ import {
   type ChannelImageHostnameLookup,
   type ChannelImageSource,
 } from "./channel-images.ts";
-import { normalizeInfoflowContent, type InfoflowAttachment } from "./infoflow-content.ts";
+import {
+  normalizeInfoflowContent,
+  type InfoflowAttachment,
+  type InfoflowNormalizedContent,
+} from "./infoflow-content.ts";
 import { createInfoflowSdkOutbound, type InfoflowSdkOutbound } from "./infoflow-sdk-outbound.ts";
 import type { ChannelInteractionCapability } from "./interaction.ts";
 import { channelDeliveryNotSent, type ChannelDeliveryResult } from "./reply.ts";
@@ -816,100 +820,142 @@ function normalizeInfoflowSdkEvent(
     raw.message && typeof raw.message === "object" && !Array.isArray(raw.message)
       ? (raw.message as Record<string, unknown>)
       : null;
-  const chatType =
-    data.chatType === "private" || data.chatType === "group"
-      ? data.chatType
-      : raw.groupid != null || raw.groupId != null || message?.header
-        ? "group"
-        : raw.FromUserId != null || raw.fromUserId != null || raw.Content != null
-          ? "private"
-          : undefined;
-  if (chatType === "private") {
-    const userId = scalarString(raw.FromUserId ?? raw.fromUserId ?? raw.fromuserid).trim();
-    const content = normalizeInfoflowContent({
-      messageType: scalarString(
-        data.msgType ?? raw.MsgType ?? raw.msgType ?? raw.msgtype ?? event.type ?? "text",
-      ),
-      content: raw.Content ?? raw.content ?? data.content,
-    });
-    const text = content.text;
-    if (!userId || !text) return null;
-    const messageId = raw.MsgId ?? raw.msgId ?? raw.MsgId2 ?? raw.msgid2;
-    const senderName = raw.FromUserName ?? raw.fromUserName ?? raw.fromusername;
-    const eventType = raw.eventtype ?? raw.eventType;
-    return {
-      user_id: userId,
-      text,
-      chat_type: "private",
-      ...(messageId != null ? { message_id: scalarString(messageId) } : {}),
-      ...(content.messageReference ? { message_reference: content.messageReference } : {}),
-      ...(eventType != null ? { event_type: scalarString(eventType) } : {}),
-      ...(content.contentType ? { content_type: content.contentType } : {}),
-      ...(content.attachments.length > 0 ? { attachments: content.attachments } : {}),
-      ...(typeof senderName === "string" && senderName.trim()
-        ? { sender_name: senderName.trim() }
-        : {}),
-    };
-  }
-  if (chatType === "group") {
-    const header =
-      message?.header && typeof message.header === "object" && !Array.isArray(message.header)
-        ? (message.header as Record<string, unknown>)
-        : {};
-    const groupId = scalarString(raw.groupid ?? raw.groupId ?? header.toid).trim();
-    const userId = scalarString(
-      header.fromuserid ??
-        header.fromUserId ??
-        message?.FromUserId ??
-        message?.fromUserId ??
-        message?.fromuserid ??
-        raw.fromUserId ??
-        raw.fromuserid ??
-        raw.fromid,
-    ).trim();
-    const body = Array.isArray(message?.body)
-      ? message.body
-      : Array.isArray(raw.body)
-        ? raw.body
-        : Array.isArray(data.body)
-          ? data.body
-          : [];
-    const content = normalizeInfoflowContent({
-      messageType: scalarString(header.msgtype ?? data.msgType ?? event.type ?? "mixed"),
-      body,
-      content: data.content,
-    });
-    const mentionedSelf = detectInfoflowMentionedSelf(raw, header, body, options.agentId);
-    const text = content.text;
-    if (!groupId || !userId || !text) return null;
-    const messageId = header.messageid ?? header.msgid ?? header.clientmsgid ?? raw.msgid2;
-    const senderName =
-      header.fromusername ??
-      header.fromUserName ??
-      message?.FromUserName ??
-      message?.fromUserName ??
-      message?.fromusername ??
-      raw.fromUserName ??
-      raw.fromusername;
-    const eventType = raw.eventtype ?? raw.eventType;
-    return {
-      user_id: userId,
-      text,
-      chat_type: "group",
-      chat_id: groupId,
-      ...(messageId != null ? { message_id: scalarString(messageId) } : {}),
-      ...(content.messageReference ? { message_reference: content.messageReference } : {}),
-      ...(eventType != null ? { event_type: scalarString(eventType) } : {}),
-      ...(content.contentType ? { content_type: content.contentType } : {}),
-      ...(content.attachments.length > 0 ? { attachments: content.attachments } : {}),
-      ...(typeof senderName === "string" && senderName.trim()
-        ? { sender_name: senderName.trim() }
-        : {}),
-      ...(content.mentions.length > 0 ? { mentions: content.mentions } : {}),
-      ...(typeof mentionedSelf === "boolean" ? { mentioned_self: mentionedSelf } : {}),
-    };
-  }
+  const chatType = detectInfoflowSdkChatType(data, raw, message);
+  if (chatType === "private") return normalizePrivateInfoflowSdkEvent(event, data, raw);
+  if (chatType === "group")
+    return normalizeGroupInfoflowSdkEvent(event, data, raw, message, options);
   return null;
+}
+
+function detectInfoflowSdkChatType(
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  message: Record<string, unknown> | null,
+): "private" | "group" | undefined {
+  if (data.chatType === "private" || data.chatType === "group") return data.chatType;
+  if (raw.groupid != null || raw.groupId != null || message?.header) return "group";
+  if (raw.FromUserId != null || raw.fromUserId != null || raw.Content != null) return "private";
+  return undefined;
+}
+
+function firstPresent(...values: unknown[]): unknown {
+  return values.find((value) => value != null);
+}
+
+function firstArray(...values: unknown[]): unknown[] {
+  return values.find(Array.isArray) ?? [];
+}
+
+type InfoflowInboundAssembly = {
+  userId: string;
+  text: string;
+  chatType: "private" | "group";
+  groupId?: string;
+  messageId: unknown;
+  senderName: unknown;
+  eventType: unknown;
+  content: InfoflowNormalizedContent;
+};
+
+function assembleInfoflowInbound(input: InfoflowInboundAssembly): InfoflowNormalizedInbound {
+  const { content } = input;
+  return {
+    user_id: input.userId,
+    text: input.text,
+    chat_type: input.chatType,
+    ...(input.groupId !== undefined ? { chat_id: input.groupId } : {}),
+    ...(input.messageId != null ? { message_id: scalarString(input.messageId) } : {}),
+    ...(content.messageReference ? { message_reference: content.messageReference } : {}),
+    ...(input.eventType != null ? { event_type: scalarString(input.eventType) } : {}),
+    ...(content.contentType ? { content_type: content.contentType } : {}),
+    ...(content.attachments.length > 0 ? { attachments: content.attachments } : {}),
+    ...(typeof input.senderName === "string" && input.senderName.trim()
+      ? { sender_name: input.senderName.trim() }
+      : {}),
+  };
+}
+
+function normalizePrivateInfoflowSdkEvent(
+  event: EventMessage<NormalizedEventData>,
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): InfoflowNormalizedInbound | null {
+  const userId = scalarString(firstPresent(raw.FromUserId, raw.fromUserId, raw.fromuserid)).trim();
+  const content = normalizeInfoflowContent({
+    messageType: scalarString(
+      firstPresent(data.msgType, raw.MsgType, raw.msgType, raw.msgtype, event.type) ?? "text",
+    ),
+    content: firstPresent(raw.Content, raw.content, data.content),
+  });
+  const text = content.text;
+  if (!userId || !text) return null;
+  return assembleInfoflowInbound({
+    userId,
+    text,
+    chatType: "private",
+    messageId: firstPresent(raw.MsgId, raw.msgId, raw.MsgId2, raw.msgid2),
+    senderName: firstPresent(raw.FromUserName, raw.fromUserName, raw.fromusername),
+    eventType: firstPresent(raw.eventtype, raw.eventType),
+    content,
+  });
+}
+
+function normalizeGroupInfoflowSdkEvent(
+  event: EventMessage<NormalizedEventData>,
+  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  message: Record<string, unknown> | null,
+  options: { agentId?: string },
+): InfoflowNormalizedInbound | null {
+  const header =
+    message?.header && typeof message.header === "object" && !Array.isArray(message.header)
+      ? (message.header as Record<string, unknown>)
+      : {};
+  const groupId = scalarString(firstPresent(raw.groupid, raw.groupId, header.toid)).trim();
+  const userId = scalarString(
+    firstPresent(
+      header.fromuserid,
+      header.fromUserId,
+      message?.FromUserId,
+      message?.fromUserId,
+      message?.fromuserid,
+      raw.fromUserId,
+      raw.fromuserid,
+      raw.fromid,
+    ),
+  ).trim();
+  const body = firstArray(message?.body, raw.body, data.body);
+  const content = normalizeInfoflowContent({
+    messageType: scalarString(firstPresent(header.msgtype, data.msgType, event.type) ?? "mixed"),
+    body,
+    content: data.content,
+  });
+  const mentionedSelf = detectInfoflowMentionedSelf(raw, header, body, options.agentId);
+  const text = content.text;
+  if (!groupId || !userId || !text) return null;
+  const assembled = assembleInfoflowInbound({
+    userId,
+    text,
+    chatType: "group",
+    groupId,
+    messageId: firstPresent(header.messageid, header.msgid, header.clientmsgid, raw.msgid2),
+    senderName: firstPresent(
+      header.fromusername,
+      header.fromUserName,
+      message?.FromUserName,
+      message?.fromUserName,
+      message?.fromusername,
+      raw.fromUserName,
+      raw.fromusername,
+    ),
+    eventType: firstPresent(raw.eventtype, raw.eventType),
+    content,
+  });
+  return {
+    ...assembled,
+    ...(content.mentions.length > 0 ? { mentions: content.mentions } : {}),
+    ...(typeof mentionedSelf === "boolean" ? { mentioned_self: mentionedSelf } : {}),
+  };
 }
 
 /**
@@ -947,35 +993,42 @@ export function normalizeInfoflowInbound(
   }
 
   const userId = scalarString(
-    payload.FromUserId ??
-      payload.fromUserId ??
-      payload.fromuserid ??
-      payload.from ??
+    firstPresent(
+      payload.FromUserId,
+      payload.fromUserId,
+      payload.fromuserid,
+      payload.from,
       payload.user_id,
+    ),
   ).trim();
   const content = normalizeInfoflowContent({
-    messageType: scalarString(payload.MsgType ?? payload.msgType ?? payload.msgtype ?? "text"),
-    content: payload.Content ?? payload.content ?? payload.Text ?? payload.text ?? payload.mes,
+    messageType: scalarString(
+      firstPresent(payload.MsgType, payload.msgType, payload.msgtype) ?? "text",
+    ),
+    content: firstPresent(
+      payload.Content,
+      payload.content,
+      payload.Text,
+      payload.text,
+      payload.mes,
+    ),
   });
   const text = content.text;
   if (!userId || !text) return null;
-  const messageId = payload.MsgId ?? payload.msgid ?? payload.messageid;
-  const eventType = payload.eventtype ?? payload.eventType;
-  const senderName =
-    payload.FromUserName ?? payload.fromUserName ?? payload.fromusername ?? payload.sender_name;
-  return {
-    user_id: userId,
+  return assembleInfoflowInbound({
+    userId,
     text,
-    chat_type: "private",
-    ...(messageId != null ? { message_id: scalarString(messageId) } : {}),
-    ...(content.messageReference ? { message_reference: content.messageReference } : {}),
-    ...(eventType != null ? { event_type: scalarString(eventType) } : {}),
-    ...(content.contentType ? { content_type: content.contentType } : {}),
-    ...(content.attachments.length > 0 ? { attachments: content.attachments } : {}),
-    ...(typeof senderName === "string" && senderName.trim()
-      ? { sender_name: senderName.trim() }
-      : {}),
-  };
+    chatType: "private",
+    messageId: firstPresent(payload.MsgId, payload.msgid, payload.messageid),
+    senderName: firstPresent(
+      payload.FromUserName,
+      payload.fromUserName,
+      payload.fromusername,
+      payload.sender_name,
+    ),
+    eventType: firstPresent(payload.eventtype, payload.eventType),
+    content,
+  });
 }
 
 function detectInfoflowMentionedSelf(
