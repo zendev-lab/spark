@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一本地 Web / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-23
+updated: 2026-08-30
 ---
 
 ## 起源
