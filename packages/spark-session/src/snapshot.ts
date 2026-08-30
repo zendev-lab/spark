@@ -86,7 +86,7 @@ interface NativeSessionRecord {
   modifiedAt: string;
 }
 
-const SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
+const LEGACY_SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
 const SPARK_DSH_RECORD_EVENT_TYPE = "spark/record";
 
 interface NativeSessionSnapshotIndex {
@@ -126,7 +126,7 @@ export interface LoadSparkSessionSnapshotInput {
 
 export interface SparkSessionSnapshotReadStats {
   indexStatus: "hit" | "rebuilt";
-  rebuildReason?: "missing" | "stale" | "corrupt" | "raced";
+  rebuildReason?: "missing" | "stale" | "corrupt" | "raced" | "legacy";
   indexSaved: boolean;
   parsedTranscriptEntries: number;
   fullTranscriptRead: boolean;
@@ -136,6 +136,11 @@ export interface SparkSessionSnapshotTail {
   snapshot: SparkSessionView;
   totalMessages: number;
   read: SparkSessionSnapshotReadStats;
+}
+
+export interface SparkSessionSnapshotPageRead extends SparkSessionSnapshotTail {
+  startMessageIndex: number;
+  endMessageIndex: number;
 }
 
 export interface SparkSessionSnapshotIndexRefresh {
@@ -233,17 +238,32 @@ export async function refreshSparkSessionSnapshotIndex(input: {
 export async function loadSparkSessionSnapshotTail(
   input: LoadSparkSessionSnapshotInput & { messageLimit: number },
 ): Promise<SparkSessionSnapshotTail> {
+  return await loadSparkSessionSnapshotPage(input);
+}
+
+/** Read one indexed active-branch page using an exclusive message cursor. */
+export async function loadSparkSessionSnapshotPage(
+  input: LoadSparkSessionSnapshotInput & { messageLimit: number; beforeMessageId?: string },
+): Promise<SparkSessionSnapshotPageRead> {
   if (!Number.isInteger(input.messageLimit) || input.messageLimit < 1) {
     throw new Error("Spark session snapshot messageLimit must be a positive integer.");
   }
   const path = input.session.sessionPath;
   if (!path) {
+    if (input.beforeMessageId) {
+      throw new SparkSessionRegistryError(
+        "session_snapshot_cursor_not_found",
+        `session snapshot cursor is no longer available: ${input.beforeMessageId}`,
+      );
+    }
     const gitBranch = input.session.cwd
       ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(input.session.cwd)
       : undefined;
     return {
       snapshot: emptySessionSnapshot(input.session, gitBranch),
       totalMessages: 0,
+      startMessageIndex: 0,
+      endMessageIndex: 0,
       read: {
         indexStatus: "hit",
         indexSaved: true,
@@ -266,18 +286,29 @@ export async function loadSparkSessionSnapshotTail(
   }
 
   try {
-    return await projectSparkSessionSnapshotIndexTail(input, index, {
+    return await projectSparkSessionSnapshotIndexPage(input, index, {
       indexStatus,
       ...(loaded.reason ? { rebuildReason: loaded.reason } : {}),
       indexSaved,
       parsedTranscriptEntries: fullTranscriptEntries,
       fullTranscriptRead: fullTranscriptEntries > 0,
     });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof SparkSessionRegistryError &&
+      error.code === "session_snapshot_cursor_not_found"
+    ) {
+      throw error;
+    }
     const current = await transcriptCheckpoint(path);
-    const rebuildReason = sameTranscriptCheckpoint(index.checkpoint, current) ? "corrupt" : "raced";
+    const rebuildReason =
+      error instanceof LegacySnapshotIndexCoverageError
+        ? "legacy"
+        : sameTranscriptCheckpoint(index.checkpoint, current)
+          ? "corrupt"
+          : "raced";
     const rebuilt = await rebuildSparkSessionSnapshotIndex(path, input.session.sessionId);
-    return await projectSparkSessionSnapshotIndexTail(input, rebuilt.index, {
+    return await projectSparkSessionSnapshotIndexPage(input, rebuilt.index, {
       indexStatus: "rebuilt",
       rebuildReason,
       indexSaved: rebuilt.saved,
@@ -287,35 +318,70 @@ export async function loadSparkSessionSnapshotTail(
   }
 }
 
-async function projectSparkSessionSnapshotIndexTail(
-  input: LoadSparkSessionSnapshotInput & { messageLimit: number },
+class LegacySnapshotIndexCoverageError extends Error {}
+
+async function projectSparkSessionSnapshotIndexPage(
+  input: LoadSparkSessionSnapshotInput & { messageLimit: number; beforeMessageId?: string },
   index: NativeSessionSnapshotIndex,
   read: SparkSessionSnapshotReadStats,
-): Promise<SparkSessionSnapshotTail> {
+): Promise<SparkSessionSnapshotPageRead> {
   const path = input.session.sessionPath!;
-  const descriptors = index.messages.slice(-input.messageLimit);
-  const candidates = await readIndexedTranscriptEntries(path, index, descriptors);
-  const lastMessage = index.lastMessage
-    ? candidates.find((entry) => entry.id === index.lastMessage?.id)
-    : undefined;
+  const availableStart = index.totalMessages - index.messages.length;
+  const lastEntries = index.lastMessage
+    ? await readIndexedTranscriptEntries(path, index, [index.lastMessage])
+    : [];
+  const lastMessage = lastEntries[0];
   const interrupted = interruptedTurnMessage(
     lastMessage ? [lastMessage] : [],
     input.activity ?? "idle",
   );
-  const selectedEntries = interrupted ? candidates.slice(1) : candidates;
-  return await projectSparkSessionSnapshot(input, {
+  const totalMessages = index.totalMessages + (interrupted ? 1 : 0);
+  let endMessageIndex: number;
+  if (!input.beforeMessageId) {
+    endMessageIndex = totalMessages;
+  } else if (input.beforeMessageId === interrupted?.id) {
+    endMessageIndex = index.totalMessages;
+  } else {
+    const localCursor = index.messages.findIndex(({ id }) => id === input.beforeMessageId);
+    if (localCursor < 0) {
+      if (availableStart > 0) throw new LegacySnapshotIndexCoverageError();
+      throw new SparkSessionRegistryError(
+        "session_snapshot_cursor_not_found",
+        `session snapshot cursor is no longer available: ${input.beforeMessageId}`,
+      );
+    }
+    endMessageIndex = availableStart + localCursor;
+  }
+  const startMessageIndex = Math.max(0, endMessageIndex - input.messageLimit);
+  if (startMessageIndex < availableStart) throw new LegacySnapshotIndexCoverageError();
+  const descriptorStart = Math.min(startMessageIndex, index.totalMessages) - availableStart;
+  const descriptorEnd = Math.min(endMessageIndex, index.totalMessages) - availableStart;
+  const descriptors = index.messages.slice(descriptorStart, descriptorEnd);
+  const candidates = [
+    ...(await readIndexedTranscriptEntries(path, index, descriptors)),
+    ...lastEntries,
+  ];
+  const entriesById = new Map(candidates.map((entry) => [entry.id, entry]));
+  const selectedEntries = descriptors.map((descriptor) => {
+    const entry = entriesById.get(descriptor.id);
+    if (!entry) throw new Error(`Indexed transcript entry was not read: ${descriptor.id}`);
+    return entry;
+  });
+  const projected = await projectSparkSessionSnapshot(input, {
     header: index.header,
     modifiedAt: new Date(index.checkpoint.modifiedAtMs).toISOString(),
     activeLeafId: index.activeLeafId,
     lastMessage,
     selectedEntries,
     totalMessages: index.totalMessages,
+    includeInterruptedMessage: !input.beforeMessageId,
     usage: index.usage,
     read: {
       ...read,
       parsedTranscriptEntries: read.parsedTranscriptEntries + candidates.length,
     },
   });
+  return { ...projected, startMessageIndex, endMessageIndex };
 }
 
 async function projectSparkSessionSnapshot(
@@ -327,6 +393,7 @@ async function projectSparkSessionSnapshot(
     lastMessage?: NativeSessionEntry;
     selectedEntries: NativeSessionEntry[];
     totalMessages: number;
+    includeInterruptedMessage?: boolean;
     usage?: SparkSessionUsage;
     read: SparkSessionSnapshotReadStats;
   },
@@ -340,7 +407,10 @@ async function projectSparkSessionSnapshot(
     const message = messageView(entry, toolOutcomes);
     return message ? [message] : [];
   });
-  const messages = interrupted ? [...projectedMessages, interrupted] : projectedMessages;
+  const messages =
+    interrupted && projection.includeInterruptedMessage !== false
+      ? [...projectedMessages, interrupted]
+      : projectedMessages;
   const tools = toolCallViews(projection.selectedEntries, toolOutcomes);
   const metadata: SparkJsonObject = {
     sessionScope: input.session.scope,
@@ -532,7 +602,6 @@ function buildSparkSessionSnapshotIndex(
     .filter((entry) => isProjectableMessageEntry(entry))
     .map((entry) => requiredEntryLocation(record, entry.id))
     .reverse();
-  const messages = activeMessages.slice(-SNAPSHOT_INDEX_MESSAGE_LIMIT);
   const activePrompts = activeNewestFirst
     .flatMap((entry): SparkSessionPromptHistoryEntry[] => {
       const text = promptHistoryText(entry);
@@ -555,7 +624,7 @@ function buildSparkSessionSnapshotIndex(
     checkpoint: record.checkpoint,
     header: record.header,
     ...(activeNewestFirst[0]?.id ? { activeLeafId: activeNewestFirst[0].id } : {}),
-    messages,
+    messages: activeMessages,
     totalMessages: activeMessages.length,
     prompts,
     totalPrompts: activePrompts.length,
@@ -638,10 +707,13 @@ function parseSparkSessionSnapshotIndex(
   }
   const messages = value.messages.map((entry) => parseIndexEntryLocation(entry, checkpoint));
   const totalMessages = nonnegativeInteger(value.totalMessages);
+  const isLegacyTailSummary =
+    totalMessages !== undefined &&
+    messages.length === Math.min(totalMessages, LEGACY_SNAPSHOT_INDEX_MESSAGE_LIMIT);
   if (
-    messages.length > SNAPSHOT_INDEX_MESSAGE_LIMIT ||
     totalMessages === undefined ||
-    totalMessages < messages.length
+    totalMessages < messages.length ||
+    (messages.length !== totalMessages && !isLegacyTailSummary)
   ) {
     throw new Error("Spark session snapshot index message summary is invalid.");
   }

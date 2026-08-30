@@ -16,6 +16,9 @@ settings, search, export, Invocation detail, and diagnostics. It never reads
 random, read-only, non-persistent HTML; the PWA shell never caches Session,
 Artifact, or credential data.
 
+Session history starts with a bounded latest page. Earlier cursor pages seek
+only their indexed JSONL records instead of materializing the full transcript.
+
 ```bash
 spark web
 # http://127.0.0.1:4310/?token=…

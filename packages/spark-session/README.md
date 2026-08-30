@@ -16,6 +16,12 @@ transcript atomically, and registers the child only after the seed is durable.
 The `@zendev-lab/spark-session/transcript` subpath owns the DSH JSONL codec,
 v3-to-v4 migration, filesystem layout, and atomic replacement.
 
+Native snapshot paging uses a rebuildable active-branch location index while
+the JSONL transcript remains authoritative. Index hits validate the transcript
+checkpoint and entry hashes, then parse only the requested cursor page. Legacy
+tail-only indexes remain valid for covered pages and rebuild once an older
+cursor leaves their coverage.
+
 `@zendev-lab/spark-session/subagent` exports Role-bound spawn/fork providers
 for the official DSH HOST (`ctx.subagents`). Official `subagent` /
 `subagent_fork` map onto `createChild` then `send(kind=request)`. A child

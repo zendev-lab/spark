@@ -1258,6 +1258,23 @@ describe("daemon session control admission", () => {
         "running",
         "queued",
       ]);
+      const pendingCursor = page.snapshot.messages.at(-1)?.id;
+      expect(pendingCursor).toBe(`invocation:${queued.invocationId}`);
+      const beforePendingResponse = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-runtime-ws" },
+        {
+          kind: "session.snapshot.request",
+          scope: "any",
+          sessionId,
+          payload: { sessionId, messageLimit: 32, beforeMessageId: pendingCursor },
+        },
+      );
+      const beforePending = sparkSessionSnapshotPageSchema.parse(beforePendingResponse.result);
+      expect(beforePending.snapshot.messages.map(({ id }) => id)).toEqual([
+        `invocation:${running.invocationId}`,
+      ]);
+      expect(beforePending.history).toMatchObject({ laterMessages: 1, earlierMessages: 0 });
+      expect(beforePending.snapshot.pendingTurns).toHaveLength(3);
 
       store.complete(running.invocationId, {
         status: "succeeded",

@@ -50,8 +50,9 @@ import {
   loadSparkSessionMediaChunk,
   loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
-  loadSparkSessionSnapshotTail,
+  loadSparkSessionSnapshotPage,
   SparkSessionRegistryError,
+  type LoadSparkSessionSnapshotInput,
 } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
@@ -201,16 +202,7 @@ export async function executeSparkDaemonSessionControl(
         session,
         activity: projectedSession.activity,
       };
-      const window = parsed.beforeMessageId
-        ? boundedSessionSnapshot(
-            projectPendingSessionTurns(options.db, await loadSparkSessionSnapshot(snapshotInput)),
-            parsed,
-          )
-        : await loadLatestSessionSnapshotWindow(
-            options.db,
-            snapshotInput,
-            parsed.messageLimit ?? defaultSessionSnapshotMessages,
-          );
+      const window = await loadSessionSnapshotWindow(options.db, snapshotInput, parsed);
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
     }
@@ -1380,57 +1372,73 @@ function boundedTurnStreamPage(
   throw new Error("Invocation event exceeds the bounded runtime projection limit.");
 }
 
-function boundedSessionSnapshot(
-  snapshot: SparkSessionView,
+async function loadSessionSnapshotWindow(
+  db: DatabaseSync,
+  snapshotInput: LoadSparkSessionSnapshotInput,
   request: { messageLimit?: number; beforeMessageId?: string },
 ) {
-  const totalMessages = snapshot.messages.length;
-  const end = request.beforeMessageId
-    ? snapshot.messages.findIndex((message) => message.id === request.beforeMessageId)
-    : totalMessages;
-  if (end < 0) {
-    throw new SparkSessionRegistryError(
-      "session_snapshot_cursor_not_found",
-      `session snapshot cursor is no longer available: ${request.beforeMessageId}`,
-    );
+  const requestedLimit = request.messageLimit ?? defaultSessionSnapshotMessages;
+  let page;
+  try {
+    page = await loadSparkSessionSnapshotPage({
+      ...snapshotInput,
+      messageLimit: requestedLimit,
+      ...(request.beforeMessageId ? { beforeMessageId: request.beforeMessageId } : {}),
+    });
+  } catch (error) {
+    if (
+      request.beforeMessageId &&
+      error instanceof SparkSessionRegistryError &&
+      error.code === "session_snapshot_cursor_not_found"
+    ) {
+      return await loadPendingSessionSnapshotWindow(
+        db,
+        snapshotInput,
+        requestedLimit,
+        request.beforeMessageId,
+        error,
+      );
+    }
+    throw error;
   }
+  const projected = projectPendingSessionTurns(db, page.snapshot);
+  const pendingMessages = projected.messages.length - page.snapshot.messages.length;
+  const totalMessages = page.totalMessages + pendingMessages;
+  const snapshot = request.beforeMessageId
+    ? parseSparkSessionView({
+        ...projected,
+        messages: projected.messages.slice(0, page.snapshot.messages.length),
+      })
+    : projected;
   return boundedSessionSnapshotWindow(snapshot, {
     totalMessages,
-    availableStart: 0,
-    end,
-    requestedLimit: request.messageLimit ?? defaultSessionSnapshotMessages,
-  });
-}
-
-function boundedLatestSessionSnapshot(
-  snapshot: SparkSessionView,
-  totalMessages: number,
-  requestedLimit: number,
-) {
-  return boundedSessionSnapshotWindow(snapshot, {
-    totalMessages,
-    availableStart: Math.max(0, totalMessages - snapshot.messages.length),
-    end: totalMessages,
+    availableStart: page.startMessageIndex,
+    end: request.beforeMessageId ? page.endMessageIndex : totalMessages,
     requestedLimit,
   });
 }
 
-async function loadLatestSessionSnapshotWindow(
+async function loadPendingSessionSnapshotWindow(
   db: DatabaseSync,
-  snapshotInput: { sessionsRoot: string; session: SparkSessionState },
+  snapshotInput: LoadSparkSessionSnapshotInput,
   requestedLimit: number,
+  beforeMessageId: string,
+  cursorError: SparkSessionRegistryError,
 ) {
-  const tail = await loadSparkSessionSnapshotTail({
+  const page = await loadSparkSessionSnapshotPage({
     ...snapshotInput,
     messageLimit: requestedLimit,
   });
-  const snapshot = projectPendingSessionTurns(db, tail.snapshot);
-  const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
-  return boundedLatestSessionSnapshot(
-    snapshot,
-    tail.totalMessages + pendingMessages,
+  const snapshot = projectPendingSessionTurns(db, page.snapshot);
+  const cursorIndex = snapshot.messages.findIndex(({ id }) => id === beforeMessageId);
+  if (cursorIndex < 0) throw cursorError;
+  const pendingMessages = snapshot.messages.length - page.snapshot.messages.length;
+  return boundedSessionSnapshotWindow(snapshot, {
+    totalMessages: page.totalMessages + pendingMessages,
+    availableStart: page.startMessageIndex,
+    end: page.startMessageIndex + cursorIndex,
     requestedLimit,
-  );
+  });
 }
 
 function boundedSessionSnapshotWindow(
