@@ -72,9 +72,9 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Writable } from "node:stream";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 import {
   createSparkWebStartupAccessToken,
@@ -276,6 +276,81 @@ export function resolveInstalledDshPackageDir(
   throw new Error(
     `spark web: cannot locate installed @deepseek-ai/dsh package metadata for ${JSON.stringify(command)}`,
   );
+}
+
+interface DshProfileRuntime {
+  PROFILE_TEMPLATES: Record<string, readonly string[]>;
+  healProfilesModuleFallback(installAnchor: string, home?: string): void;
+  initProfile(dir: string, bundles: readonly string[]): void;
+  loadProfile(binName: string, name: string, installAnchor: string, home?: string): { dir: string };
+}
+
+/** Load the profile owner API from the same DSH installation Spark will boot. */
+async function loadDshProfileRuntime(dshPackageDir: string): Promise<DshProfileRuntime> {
+  const packagePath = resolveFromDirectory(dshPackageDir, "@deepseek-ai/dsh-app-boot");
+  if (packagePath === undefined) {
+    throw new Error(`spark web-dsh: cannot locate @deepseek-ai/dsh-app-boot from ${dshPackageDir}`);
+  }
+  const packageDir = dirname(packagePath);
+  let manifest: { name?: unknown; main?: unknown };
+  try {
+    manifest = JSON.parse(readFileSync(packagePath, "utf8")) as {
+      name?: unknown;
+      main?: unknown;
+    };
+  } catch (error) {
+    throw new Error(`spark web-dsh: cannot read DSH app-boot metadata at ${packagePath}`, {
+      cause: error,
+    });
+  }
+  if (manifest.name !== "@deepseek-ai/dsh-app-boot" || typeof manifest.main !== "string") {
+    throw new Error(`spark web-dsh: invalid DSH app-boot metadata at ${packagePath}`);
+  }
+  const entry = resolve(packageDir, manifest.main);
+  if (!existsSync(entry)) {
+    throw new Error(`spark web-dsh: DSH app-boot entry not found at ${entry}`);
+  }
+  const runtime = (await import(pathToFileURL(entry).href)) as Partial<DshProfileRuntime>;
+  const webTemplate = runtime.PROFILE_TEMPLATES?.web;
+  if (
+    !Array.isArray(webTemplate) ||
+    typeof runtime.healProfilesModuleFallback !== "function" ||
+    typeof runtime.initProfile !== "function" ||
+    typeof runtime.loadProfile !== "function"
+  ) {
+    throw new Error(
+      `spark web-dsh: installed @deepseek-ai/dsh-app-boot does not expose the profile runtime API`,
+    );
+  }
+  return runtime as DshProfileRuntime;
+}
+
+/**
+ * Ensure the upstream-owned DSH web profile exists without starting DSH.
+ * The upstream initializer only fills missing files; user patches and plugin
+ * dependencies remain untouched on every subsequent Spark boot.
+ */
+export async function ensureDshWebProfile(
+  profileDir: string,
+  dshPackageDir: string,
+): Promise<boolean> {
+  if (basename(profileDir) !== "web" || basename(dirname(profileDir)) !== "profiles") {
+    throw new Error(`spark web-dsh: expected a profiles/web directory; received ${profileDir}`);
+  }
+  const dshHome = dirname(dirname(profileDir));
+  const requiredFiles = ["package.json", "cordis.patch.yml", "pnpm-workspace.yaml"];
+  const initialized = requiredFiles.some((file) => !existsSync(join(profileDir, file)));
+  const runtime = await loadDshProfileRuntime(dshPackageDir);
+  const installAnchor = join(dshPackageDir, "package.json");
+  runtime.healProfilesModuleFallback(installAnchor, dshHome);
+  runtime.initProfile(profileDir, runtime.PROFILE_TEMPLATES.web!);
+  const profile = runtime.loadProfile("spark web-dsh", "web", installAnchor, dshHome);
+  if (resolve(profile.dir) !== resolve(profileDir)) {
+    throw new Error(
+      `spark web-dsh: DSH initialized an unexpected profile directory ${profile.dir}`,
+    );
+  }
+  return initialized;
 }
 
 function hashSourceTree(paths: readonly string[]): string {
@@ -1047,13 +1122,11 @@ export async function prepareSparkWebDispatch(
   profileDir: string = resolveDshProfileDir(),
 ): Promise<SparkWebDispatch> {
   const dshHome = dirname(dirname(profileDir));
-  if (!existsSync(join(profileDir, "cordis.patch.yml"))) {
-    throw new Error(
-      `spark web: DSH profile not found at ${profileDir} — run "dsh web" once to initialize it first`,
-    );
-  }
   const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
-  // Metadata and preset-source verification happen before any managed write.
+  if (await ensureDshWebProfile(profileDir, dshPackageDir)) {
+    process.stderr.write(`[spark web-dsh] initialized DSH web profile -> ${profileDir}\n`);
+  }
+  // Upstream profile bootstrap and metadata verification happen before any Spark-managed write.
   const skillDir = resolveCueSkillsDir();
   const presets = installManagedCuePresets(dshHome, dshPackageDir, skillDir);
   const retiredPresets = retireLegacyManagedCuePresets(dshHome);

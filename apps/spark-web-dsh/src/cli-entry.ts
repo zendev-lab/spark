@@ -19,8 +19,9 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
 Usage:
   spark-web-dsh [--host <host>] [--port <port>] [args...]
 
-The DSH profile must already exist. Spark's access proxy owns every listener;
-the DSH server itself stays on a private loopback port. Every normal request,
+Spark initializes the DSH web profile from the installed DSH release when it
+does not exist. Spark's access proxy owns every listener; the DSH server itself
+stays on a private loopback port. Every normal request,
 including one from a loopback peer, requires a daemon access token. Every
 startup prints a usable token and reachable local URLs after the listener is ready.
 Manually managed tokens remain available through spark daemon access create.

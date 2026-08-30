@@ -115,6 +115,10 @@ rule, local-IP trust semantics, and Spark Access page as native Web:
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
+On first use, Spark initializes the DSH `web` profile through the profile API
+from the installed DSH release; it does not start a separate DSH server or
+replace later user edits to the profile.
+
 This command also expands wildcard binds into immediately usable local URLs
 without opening a browser. Every launch starts or reconnects the daemon and
 uses the same tokenized-link flow as native Web.

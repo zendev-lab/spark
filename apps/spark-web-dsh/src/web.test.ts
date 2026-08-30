@@ -27,6 +27,7 @@ import {
   ensureDshToolFusionBundle,
   ensureDshToolWebBundle,
   ensureDshWebProviderBundle,
+  ensureDshWebProfile,
   ensureSparkFilesBundle,
   ensureSparkLlmBundle,
   ensureSparkPrivateWebServerBundle,
@@ -431,6 +432,88 @@ test("resolveCueSkillsDir fails closed for a missing or linked Skill", () => {
 
 test("resolveDshProfileDir honors DSH_HOME", () => {
   assert.equal(resolveDshProfileDir("/tmp/dsh-home"), "/tmp/dsh-home/profiles/web");
+});
+
+test("ensureDshWebProfile initializes a missing profile and preserves its user patch", async () => {
+  const home = mkdtempSync(join(tmpdir(), "spark-web-dsh-profile-"));
+  const profile = join(home, "profiles", "web");
+  const dshPackageDir = join(home, "installed", "@deepseek-ai", "dsh");
+  const appBootDir = join(dshPackageDir, "node_modules", "@deepseek-ai", "dsh-app-boot");
+  try {
+    mkdirSync(join(appBootDir, "lib"), { recursive: true });
+    writeFileSync(
+      join(dshPackageDir, "package.json"),
+      JSON.stringify({ name: "@deepseek-ai/dsh", version: "fixture-release" }),
+    );
+    writeFileSync(
+      join(appBootDir, "package.json"),
+      JSON.stringify({
+        name: "@deepseek-ai/dsh-app-boot",
+        type: "module",
+        main: "lib/index.js",
+      }),
+    );
+    writeFileSync(
+      join(appBootDir, "lib", "index.js"),
+      `import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+
+export const PROFILE_TEMPLATES = {
+  web: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"],
+};
+
+export function healProfilesModuleFallback(_anchor, dshHome) {
+  const dir = join(dshHome, "profiles", "node_modules");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, ".healed"), "ok\\n");
+}
+
+export function initProfile(dir, bundles) {
+  mkdirSync(dir, { recursive: true });
+  const files = {
+    "package.json": JSON.stringify({
+      name: \`dsh-profile-\${basename(dir)}\`,
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles } },
+    }, undefined, 2) + "\\n",
+    "cordis.patch.yml": "[]\\n",
+    "pnpm-workspace.yaml": "packages:\\n  - .\\n",
+  };
+  for (const [name, contents] of Object.entries(files)) {
+    const path = join(dir, name);
+    if (!existsSync(path)) writeFileSync(path, contents);
+  }
+}
+
+export function loadProfile(_binName, name, _anchor, dshHome) {
+  const dir = join(dshHome, "profiles", name);
+  for (const file of ["package.json", "cordis.patch.yml", "pnpm-workspace.yaml"]) {
+    if (!existsSync(join(dir, file))) throw new Error(\`missing profile file: \${file}\`);
+  }
+  return { dir };
+}
+`,
+    );
+
+    assert.equal(await ensureDshWebProfile(profile, dshPackageDir), true);
+    const manifest = JSON.parse(readFileSync(join(profile, "package.json"), "utf8")) as {
+      dsh: { profile: { bundles: string[] } };
+    };
+    assert.deepEqual(manifest.dsh.profile.bundles, [
+      "@deepseek-ai/dsh-base",
+      "@deepseek-ai/dsh-web-app",
+    ]);
+    assert.ok(existsSync(join(profile, "pnpm-workspace.yaml")));
+    assert.ok(existsSync(join(home, "profiles", "node_modules", ".healed")));
+
+    const userPatch = "- id: user-plugin\n  disabled: true\n";
+    writeFileSync(join(profile, "cordis.patch.yml"), userPatch);
+    assert.equal(await ensureDshWebProfile(profile, dshPackageDir), false);
+    assert.equal(readFileSync(join(profile, "cordis.patch.yml"), "utf8"), userPatch);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("sparkWebBootScript imports the dsh runtime without a CLI spawn", () => {
