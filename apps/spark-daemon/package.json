@@ -83,7 +83,6 @@
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
-    "es-toolkit": "catalog:",
     "sharp": "^0.35.3",
     "typebox": "catalog:",
     "ws": "catalog:"

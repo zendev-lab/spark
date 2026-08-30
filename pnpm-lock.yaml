@@ -45,9 +45,6 @@ catalogs:
     fast-check:
       specifier: 4.9.0
       version: 4.9.0
-    p-retry:
-      specifier: ^8.0.0
-      version: 8.0.0
     typebox:
       specifier: ^1.3.6
       version: 1.3.14
@@ -166,12 +163,6 @@ importers:
       '@zendev-lab/dsh-channel-transports':
         specifier: workspace:^
         version: link:packages/dsh-channel-transports
-      '@zendev-lab/dsh-cue':
-        specifier: workspace:^
-        version: link:packages/dsh-cue
-      '@zendev-lab/dsh-tool-fusion':
-        specifier: workspace:^
-        version: link:packages/dsh-tool-fusion
       '@zendev-lab/dsh-tool-web':
         specifier: workspace:^
         version: link:packages/dsh-tool-web
@@ -181,15 +172,9 @@ importers:
       '@zendev-lab/spark-ask':
         specifier: workspace:^
         version: link:packages/spark-ask
-      '@zendev-lab/spark-deployment':
-        specifier: workspace:^
-        version: link:packages/spark-deployment
       '@zendev-lab/spark-driver':
         specifier: workspace:^
         version: link:packages/spark-driver
-      '@zendev-lab/spark-files':
-        specifier: workspace:^
-        version: link:packages/spark-files
       '@zendev-lab/spark-graft':
         specifier: workspace:^
         version: link:packages/spark-graft
@@ -202,9 +187,6 @@ importers:
       '@zendev-lab/spark-llm-providers':
         specifier: workspace:^
         version: link:packages/spark-llm-providers
-      '@zendev-lab/spark-mcp':
-        specifier: workspace:^
-        version: link:packages/spark-mcp
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:packages/spark-memory
@@ -232,9 +214,6 @@ importers:
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:packages/spark-workflows
-      typebox:
-        specifier: 'catalog:'
-        version: 1.3.14
     devDependencies:
       '@codspeed/vitest-plugin':
         specifier: 5.7.1
@@ -248,9 +227,6 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.18
       '@zendev-lab/spark-daemon':
         specifier: workspace:*
         version: link:apps/spark-daemon
@@ -272,9 +248,6 @@ importers:
       dependency-cruiser:
         specifier: ^18.1.0
         version: 18.2.0
-      es-toolkit:
-        specifier: 'catalog:'
-        version: 1.50.0
       esbuild:
         specifier: ^0.28.0
         version: 0.28.2
@@ -284,9 +257,6 @@ importers:
       knip:
         specifier: ^6.27.0
         version: 6.32.2
-      p-retry:
-        specifier: 'catalog:'
-        version: 8.0.0
       publint:
         specifier: 0.3.23
         version: 0.3.23
@@ -492,9 +462,6 @@ importers:
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:../../packages/spark-workflows
-      es-toolkit:
-        specifier: 'catalog:'
-        version: 1.50.0
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.13.3)
@@ -678,9 +645,6 @@ importers:
       '@zendev-lab/spark-i18n':
         specifier: workspace:*
         version: link:../../packages/spark-i18n
-      '@zendev-lab/spark-platform-node':
-        specifier: workspace:*
-        version: link:../../packages/spark-platform-node
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
         version: link:../../packages/spark-protocol
@@ -1154,9 +1118,6 @@ importers:
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
         version: link:../spark-protocol
-      '@zendev-lab/spark-tasks':
-        specifier: workspace:*
-        version: link:../spark-tasks
       ws:
         specifier: 'catalog:'
         version: 8.21.3
@@ -1421,12 +1382,6 @@ importers:
 
   packages/spark-repro:
     dependencies:
-      '@zendev-lab/spark-driver':
-        specifier: workspace:^
-        version: link:../spark-driver
-      '@zendev-lab/spark-invocation':
-        specifier: workspace:^
-        version: link:../spark-invocation
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
@@ -6699,10 +6654,6 @@ packages:
   is-module@1.0.0:
     resolution: {integrity: sha512-51ypPSPCoTEIN9dy5Oy+h4pShgJmPCygKfyRCISBI+JoWT/2oJvK8QPxmwv7b/p239jXrm9M1mlQbyKJ5A152g==}
 
-  is-network-error@1.3.2:
-    resolution: {integrity: sha512-PhBY86zaxNZUuWP6h13Vu5oFe0XY6/UlKzQnYFELzGVHygP3MxmvTfYSG7GN3aIab/iWudSMgjSnG9Dq+nHrgA==}
-    engines: {node: '>=16'}
-
   is-number@7.0.0:
     resolution: {integrity: sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==}
     engines: {node: '>=0.12.0'}
@@ -7551,10 +7502,6 @@ packages:
   p-retry@4.6.2:
     resolution: {integrity: sha512-312Id396EbJdvRONlngUx0NydfrIQ5lsYu0znKVUzVvArzEIt08V1qhtyESbGVd1FGX7UKtiFp5uwKZdM8wIuQ==}
     engines: {node: '>=8'}
-
-  p-retry@8.0.0:
-    resolution: {integrity: sha512-kFVqH1HxOHp8LupNsOys7bSV09VYTRLxarH/mokO4Rqhk6wGi70E0jh4VzvVGXfEVNggHoHLAMWsQqHyU1Ey9A==}
-    engines: {node: '>=22'}
 
   p-timeout@7.0.1:
     resolution: {integrity: sha512-AxTM2wDGORHGEkPCt8yqxOTMgpfbEHqF51f/5fJCmwFC3C/zNcGT63SymH2ttOAaiIws2zVg4+izQCjrakcwHg==}
@@ -13851,8 +13798,6 @@ snapshots:
 
   is-module@1.0.0: {}
 
-  is-network-error@1.3.2: {}
-
   is-number@7.0.0: {}
 
   is-path-inside@4.0.0: {}
@@ -15003,10 +14948,6 @@ snapshots:
     dependencies:
       '@types/retry': 0.12.0
       retry: 0.13.1
-
-  p-retry@8.0.0:
-    dependencies:
-      is-network-error: 1.3.2
 
   p-timeout@7.0.1: {}
 

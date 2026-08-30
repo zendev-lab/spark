@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import * as nodePath from "node:path";
-import { autoStartDaemon, DEFAULT_CUED_AUTOSTART_TIMEOUT_MS } from "./daemon-start.ts";
+import { autoStartDaemon } from "./daemon-start.ts";
 import {
   CueClient,
   CueError,
@@ -455,5 +455,3 @@ export async function withCueIdempotentRetry<T>(
     }
   }
 }
-
-export { DEFAULT_CUED_AUTOSTART_TIMEOUT_MS };

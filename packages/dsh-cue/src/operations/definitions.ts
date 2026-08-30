@@ -393,7 +393,7 @@ export function resolveCueWorkingDirectory(
   return nodePath.isAbsolute(requestedCwd) ? requestedCwd : nodePath.resolve(baseCwd, requestedCwd);
 }
 
-export async function resolveCueExecTarget(
+async function resolveCueExecTarget(
   requestedCwd: string | undefined,
   ctx: CueOperationContext,
 ): Promise<{ cwd: string; ctx: CueOperationContext }> {

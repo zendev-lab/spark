@@ -694,5 +694,3 @@ function parseStringList(value: unknown, field: string): string[] {
   }
   return items;
 }
-
-export type { IncomingMessage, ChannelTransport };

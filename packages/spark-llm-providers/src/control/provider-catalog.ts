@@ -177,7 +177,7 @@ export function mergeSparkProviderSpecs(configured: readonly string[] | undefine
 }
 
 /** Canonicalize the retired private workspace specifier without retaining a package alias. */
-export function normalizeSparkProviderSpec(specifier: string): string {
+function normalizeSparkProviderSpec(specifier: string): string {
   const normalized = specifier.trim();
   if (normalized === LEGACY_SPARK_PROVIDER_PACKAGE) return CURRENT_SPARK_PROVIDER_PACKAGE;
   if (normalized.startsWith(`${LEGACY_SPARK_PROVIDER_PACKAGE}/`)) {

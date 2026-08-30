@@ -1204,7 +1204,7 @@ function cloneTaskPlan(plan: TaskPlan): TaskPlan {
   };
 }
 
-export function normalizeStringList(values: readonly string[] | undefined): string[] {
+function normalizeStringList(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
 }
 
@@ -1231,7 +1231,7 @@ export function normalizeTaskCancellation(
   };
 }
 
-export function normalizeTaskPlanRiskLevel(value: unknown): TaskPlan["riskLevel"] {
+function normalizeTaskPlanRiskLevel(value: unknown): TaskPlan["riskLevel"] {
   return value === "trivial" || value === "high" ? value : "normal";
 }
 
@@ -1735,7 +1735,7 @@ function todoIdFromContent(content: string, index: number): string {
   return `todo-${stableHash(`${index}:${content}`).slice(0, 12)}`;
 }
 
-export function stableHash(input: string): string {
+function stableHash(input: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
     hash ^= input.charCodeAt(i);
