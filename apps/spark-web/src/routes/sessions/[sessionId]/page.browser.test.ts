@@ -159,6 +159,34 @@ function sessionDataWithModels(sessionId: string) {
   return data;
 }
 
+function sessionDataWithReadableMessages(sessionId: string) {
+  const data = sessionData(sessionId);
+  const createdAt = "2026-08-24T07:03:45.382Z";
+  data.window.snapshot.messages = [
+    {
+      version: 4,
+      id: "user-message",
+      role: "user",
+      text: "Review [PR 189](https://github.com/zendev-lab/spark/pull/189)",
+      status: "done",
+      createdAt,
+      metadata: {},
+    },
+    {
+      version: 4,
+      id: "error-message",
+      role: "assistant",
+      text: 'OpenAI API error (404): {"message":"Unknown endpoint: POST /v1/responses","type":"not_found"}',
+      status: "error",
+      createdAt,
+      metadata: {},
+    },
+  ];
+  data.window.history.loadedMessages = 2;
+  data.window.history.totalMessages = 2;
+  return data;
+}
+
 function earlierPage(sessionId: string, messageId: string, text: string) {
   const page = sessionData(sessionId);
   page.window.snapshot.messages = [
@@ -191,6 +219,31 @@ afterEach(() => {
 });
 
 describe("Session page owner state", () => {
+  it("renders readable message metadata, safe user links, copy actions, and error details", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionDataWithReadableMessages("a") });
+
+    const link = screen.getByRole("link", { name: "PR 189" });
+    await expect
+      .element(link)
+      .toHaveAttribute("href", "https://github.com/zendev-lab/spark/pull/189");
+    await expect.element(screen.getByText("You", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("Spark", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("Done", { exact: true })).toBeVisible();
+    await expect
+      .element(screen.getByText("Unknown endpoint: POST /v1/responses", { exact: true }))
+      .toBeVisible();
+    await expect.element(screen.getByText("Technical details", { exact: true })).toBeVisible();
+    expect(screen.container.querySelectorAll('[title="Copy message"]')).toHaveLength(2);
+
+    const time = screen.container.querySelector<HTMLTimeElement>("time");
+    expect(time?.dateTime).toBe("2026-08-24T07:03:45.382Z");
+    expect(time?.textContent).not.toBe("2026-08-24T07:03:45.382Z");
+    expect(screen.container.querySelector(".composer-context .attach-button")).not.toBeNull();
+
+    await screen.unmount();
+  });
+
   it("keeps conversation settings available without crowding the composer", async () => {
     mocks.webRpc.mockResolvedValue({ waits: [] });
     const data = sessionData("a");

@@ -22,6 +22,7 @@
     ErrorPart,
     HumanInteractionPanel,
     ImagePart,
+    MessageActions,
     MessageShell,
     ModelSelector,
     NoticePart,
@@ -34,6 +35,7 @@
     ThinkingChainPart,
     ToolCallPart,
     visibleConversationParts,
+    visibleConversationPartText,
     type ConversationMessageView,
     type ConversationPartLabels,
     type SlashCommandSuggestion,
@@ -252,6 +254,39 @@
     context: workbenchCopy.contextUsage,
   });
   const statusLabel = (status: string) => data.messages.shared.status[status] ?? status;
+
+  function actorLabel(item: ConversationMessageView) {
+    if (item.actor === "user") return copy.you;
+    if (item.actor === "spark") return copy.spark;
+    return item.senderLabel ?? copy.agent;
+  }
+
+  function formatMessageTimestamp(value: string) {
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) return value;
+    return new Intl.DateTimeFormat(data.locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(timestamp);
+  }
+
+  function errorPresentation(source: string) {
+    const value = source.trim();
+    const jsonStart = value.indexOf("{");
+    if (jsonStart < 0) return { message: value, code: undefined, details: undefined };
+
+    try {
+      const payload = JSON.parse(value.slice(jsonStart)) as { message?: unknown };
+      if (typeof payload.message !== "string" || !payload.message.trim()) {
+        return { message: value, code: undefined, details: undefined };
+      }
+      const prefix = value.slice(0, jsonStart).replace(/:\s*$/u, "").trim();
+      const code = /\(([^()]+)\)$/u.exec(prefix)?.[1];
+      return { message: payload.message.trim(), code, details: value };
+    } catch {
+      return { message: value, code: undefined, details: undefined };
+    }
+  }
 
   async function refreshAsks(sessionId = snapshot.sessionId) {
     const refreshToken = ++askRefreshToken;
@@ -1112,9 +1147,17 @@
   <aside id="conversation-list-panel" class="context-panel conversation-list-panel" hidden={!conversationListOpen}>
     <header class="context-panel-header">
       <strong>{copy.conversationList}</strong>
-      <Button variant="ghost" size="compact" ariaLabel={copy.closeConversationList} onclick={() => (conversationListOpen = false)}>
-        <Icon name="close" size={15} />
-      </Button>
+      <div class="context-panel-header-actions">
+        <span class="context-panel-switch">
+          <Button variant="ghost" size="compact" ariaLabel={copy.openWorkDetails} onclick={toggleWorkDetails}>
+            <Icon name="workspace" size={15} />
+            <span>{copy.workDetails}</span>
+          </Button>
+        </span>
+        <Button variant="ghost" size="compact" ariaLabel={copy.closeConversationList} onclick={() => (conversationListOpen = false)}>
+          <Icon name="close" size={15} />
+        </Button>
+      </div>
     </header>
     <div class="context-panel-body">
       <SessionTree
@@ -1247,99 +1290,119 @@
   {/if}
   <ConversationViewport label={copy.transcript} followKey={snapshot.updatedAt} jumpToLatestLabel={copy.jumpToLatest}>
     {#each messages as item (item.id)}
+      {@const copyableText = visibleConversationPartText(item.parts)}
       <MessageShell
         id={item.id}
         actor={item.actor}
-        actorLabel={item.actor}
+        actorLabel={actorLabel(item)}
         timestamp={item.timestamp}
-        relativeTime={item.timestamp}
+        relativeTime={formatMessageTimestamp(item.timestamp)}
         status={item.status}
+        statusLabel={item.status ? statusLabel(item.status) : undefined}
       >
-        {#each visibleConversationParts(item.parts) as part, partIndex (`${item.id}:${part.type}:${partIndex}`)}
-          {#if part.type === "text"}
-            {#if item.actor === "spark"}
-              <SafeMarkdown source={part.text} streaming={part.streaming} />
-            {:else}
-              <p>{part.text}</p>
+        {#snippet children()}
+          {#each visibleConversationParts(item.parts) as part, partIndex (`${item.id}:${part.type}:${partIndex}`)}
+            {#if part.type === "text"}
+              {#if item.status === "error"}
+                {@const error = errorPresentation(part.text)}
+                <ErrorPart title={statusLabel("error")} message={error.message} code={error.code} />
+                {#if error.details}
+                  <details class="message-error-details">
+                    <summary>{data.messages.web.invocation.technicalDetails}</summary>
+                    <pre>{error.details}</pre>
+                  </details>
+                {/if}
+              {:else}
+                <SafeMarkdown source={part.text} streaming={part.streaming} />
+              {/if}
+            {:else if part.type === "image"}
+              <ImagePart
+                sessionId={snapshot.sessionId}
+                messageId={item.sourceMessageId ?? item.id}
+                contentIndex={part.contentIndex}
+                mediaType={part.mediaType}
+                name={part.name}
+                mediaHref={mediaHref(item, part.contentIndex)}
+              />
+            {:else if part.type === "reasoning" || part.type === "commentary"}
+              <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
+            {:else if part.type === "chain"}
+              <ThinkingChainPart
+                state={part.state}
+                steps={part.steps}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "tool"}
+              <ToolCallPart
+                callId={part.callId}
+                name={part.name}
+                state={part.state}
+                summary={part.summary}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "task"}
+              <TaskRunPart
+                taskRef={part.taskRef}
+                title={part.title}
+                state={part.state}
+                summary={part.summary}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "approval"}
+              <ApprovalPart
+                requestId={part.requestId}
+                title={part.title}
+                state={part.state}
+                kind={part.kind}
+                summary={part.summary}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "artifact"}
+              <ArtifactPart
+                artifactRef={part.artifactRef}
+                title={part.title}
+                kind={part.kind}
+                state={part.state}
+                summary={part.summary}
+                previewHref={part.previewHref}
+                previewLabel={partLabels.expand}
+                {statusLabel}
+              />
+            {:else if part.type === "error"}
+              <ErrorPart title={part.title} message={part.message} code={part.code} />
+            {:else if part.type === "notice"}
+              <NoticePart title={partLabels.budgetExhausted} message={partLabels.budgetExhaustedHint} />
+            {:else if part.type === "quote"}
+              <blockquote>{part.text}</blockquote>
+            {:else if part.type === "runtime"}
+              <p>{partLabels.runtimeControl}: {part.request}</p>
+            {:else if part.type === "unknown"}
+              <p>{partLabels.unknown}: {part.label}</p>
             {/if}
-          {:else if part.type === "image"}
-            <ImagePart
-              sessionId={snapshot.sessionId}
-              messageId={item.sourceMessageId ?? item.id}
-              contentIndex={part.contentIndex}
-              mediaType={part.mediaType}
-              name={part.name}
-              mediaHref={mediaHref(item, part.contentIndex)}
-            />
-          {:else if part.type === "reasoning" || part.type === "commentary"}
-            <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
-          {:else if part.type === "chain"}
-            <ThinkingChainPart
-              state={part.state}
-              steps={part.steps}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "tool"}
-            <ToolCallPart
-              callId={part.callId}
-              name={part.name}
-              state={part.state}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "task"}
-            <TaskRunPart
-              taskRef={part.taskRef}
-              title={part.title}
-              state={part.state}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "approval"}
-            <ApprovalPart
-              requestId={part.requestId}
-              title={part.title}
-              state={part.state}
-              kind={part.kind}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "artifact"}
-            <ArtifactPart
-              artifactRef={part.artifactRef}
-              title={part.title}
-              kind={part.kind}
-              state={part.state}
-              summary={part.summary}
-              previewHref={part.previewHref}
-              previewLabel={partLabels.expand}
-              {statusLabel}
-            />
-          {:else if part.type === "error"}
-            <ErrorPart title={part.title} message={part.message} code={part.code} />
-          {:else if part.type === "notice"}
-            <NoticePart title={partLabels.budgetExhausted} message={partLabels.budgetExhaustedHint} />
-          {:else if part.type === "quote"}
-            <blockquote>{part.text}</blockquote>
-          {:else if part.type === "runtime"}
-            <p>{partLabels.runtimeControl}: {part.request}</p>
-          {:else if part.type === "unknown"}
-            <p>{partLabels.unknown}: {part.label}</p>
+          {/each}
+          {#if memoryRefsInMessage(item).length > 0}
+            <div class="memory-feedback">
+              {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
+                <code>{memoryRef}</code>
+                <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}><Icon name="thumbs-up" size={14} /></Button>
+                <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}><Icon name="thumbs-down" size={14} /></Button>
+              {/each}
+            </div>
           {/if}
-        {/each}
-        {#if memoryRefsInMessage(item).length > 0}
-          <div class="memory-feedback">
-            {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
-              <code>{memoryRef}</code>
-              <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}><Icon name="thumbs-up" size={14} /></Button>
-              <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}><Icon name="thumbs-down" size={14} /></Button>
-            {/each}
-          </div>
-        {/if}
+        {/snippet}
+        {#snippet actions()}
+          {#if copyableText}
+            <MessageActions
+              text={copyableText}
+              copyLabel={copy.copyMessage}
+              copiedLabel={copy.copiedMessage}
+            />
+          {/if}
+        {/snippet}
       </MessageShell>
     {/each}
   </ConversationViewport>
@@ -1370,6 +1433,7 @@
   <form onsubmit={(event) => void submitPrompt(event)}>
     <Composer
       id="spark-web-composer"
+      rows={2}
       bind:value={prompt}
       placeholder={copy.prompt}
       submitLabel={copy.send}
@@ -1390,24 +1454,6 @@
         </div>
       {/snippet}
       {#snippet actions()}
-        <label class="attach-button">
-          <Icon name="file" size={14} />
-          <span>{copy.addFiles}</span>
-          <input type="file" multiple onchange={(event) => void addAttachments(event)} />
-        </label>
-        {#if activity.runningTurnId}
-          <Button
-            type="button"
-            variant="danger"
-            size="compact"
-            onclick={stopCurrentTurn}
-          >
-            <Icon name="stop" size={13} />
-            {copy.stop}
-          </Button>
-        {/if}
-      {/snippet}
-      {#snippet tools()}
         {#if slashActionBar}
           <SlashActionBar
             view={slashActionBar}
@@ -1424,6 +1470,24 @@
               prompt = `${suggestion.command} `;
             }}
           />
+        {/if}
+      {/snippet}
+      {#snippet tools()}
+        <label class="attach-button">
+          <Icon name="file" size={14} />
+          <span>{copy.addFiles}</span>
+          <input type="file" multiple onchange={(event) => void addAttachments(event)} />
+        </label>
+        {#if activity.runningTurnId}
+          <Button
+            type="button"
+            variant="danger"
+            size="compact"
+            onclick={stopCurrentTurn}
+          >
+            <Icon name="stop" size={13} />
+            {copy.stop}
+          </Button>
         {/if}
       {/snippet}
     </Composer>
@@ -1443,9 +1507,17 @@
   <aside id="session-work-details" class="context-panel work-details-panel" hidden={!workDetailsOpen}>
     <header class="context-panel-header">
       <strong>{copy.workDetails}</strong>
-      <Button variant="ghost" size="compact" ariaLabel={copy.closeWorkDetails} onclick={() => (workDetailsOpen = false)}>
-        <Icon name="close" size={15} />
-      </Button>
+      <div class="context-panel-header-actions">
+        <span class="context-panel-switch">
+          <Button variant="ghost" size="compact" ariaLabel={copy.openConversationList} onclick={toggleConversationList}>
+            <Icon name="message" size={15} />
+            <span>{copy.conversationList}</span>
+          </Button>
+        </span>
+        <Button variant="ghost" size="compact" ariaLabel={copy.closeWorkDetails} onclick={() => (workDetailsOpen = false)}>
+          <Icon name="close" size={15} />
+        </Button>
+      </div>
     </header>
     <SessionWorkPanel
       {snapshot}
@@ -1531,6 +1603,16 @@
 
   .context-panel-header strong {
     font-size: var(--text-body);
+  }
+
+  .context-panel-header-actions {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+  }
+
+  .context-panel-switch {
+    display: none;
   }
 
   .context-panel-body {
@@ -1750,6 +1832,28 @@
     font-size: 11px;
   }
 
+  .message-error-details {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .message-error-details summary {
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .message-error-details pre {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--rounded-md);
+    font-family: var(--font-mono);
+    margin: 7px 0 0;
+    max-height: 180px;
+    overflow: auto;
+    padding: 9px 10px;
+    white-space: pre-wrap;
+  }
+
   .thinking-control {
     align-items: center;
     color: var(--color-ink-muted);
@@ -1819,23 +1923,53 @@
     .workbench-shell.conversation-list-open,
     .workbench-shell.work-details-open {
       grid-template-columns: minmax(0, 1fr);
-      height: auto;
+      height: calc(100dvh - 53px);
+      overflow: hidden;
+      position: relative;
     }
 
     .context-panel {
-      border-bottom: 1px solid var(--color-border);
+      border: 0;
       border-inline: 0;
-      grid-row: 1;
-      max-height: 48dvh;
+      inset: 0;
+      max-height: none;
+      position: absolute;
+      z-index: 30;
+    }
+
+    .context-panel-switch {
+      display: inline-flex;
+    }
+
+    .workbench-shell.conversation-list-open .conversation-view-controls,
+    .workbench-shell.work-details-open .conversation-view-controls {
+      display: none;
     }
 
     .workbench {
-      grid-row: 2;
-      height: 72dvh;
+      height: 100%;
+      padding-inline: 12px;
     }
 
-    .conversation-view-controls span {
+    .conversation-view-controls {
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: none;
+    }
+
+    .conversation-view-controls::-webkit-scrollbar {
       display: none;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls > details {
+      flex: 0 0 auto;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls summary {
+      min-height: var(--control-height-touch);
+      width: auto;
     }
 
     .conversation-settings-panel,
