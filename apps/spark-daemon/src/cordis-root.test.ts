@@ -357,7 +357,7 @@ describe("spark daemon Cordis root", () => {
     });
     let calls = 0;
     let nativeToolNames: string[] = [];
-    const persistedReservationsAtModelStart: string[] = [];
+    const persistedInvocationEventsAtModelStart: number[] = [];
     const llm: SparkTurnLlm = {
       async *stream(options) {
         calls += 1;
@@ -366,11 +366,8 @@ describe("spark daemon Cordis root", () => {
           .trim()
           .split("\n")
           .map((line) => JSON.parse(line) as { type?: string; data?: unknown })
-          .filter((event) => event.type === "spark/invocation")
-          .at(-1)?.data as { invocationId?: string; attemptEpoch?: number } | undefined;
-        persistedReservationsAtModelStart.push(
-          `${persisted?.invocationId}:${persisted?.attemptEpoch}`,
-        );
+          .filter((event) => event.type === "spark/invocation");
+        persistedInvocationEventsAtModelStart.push(persisted.length);
         const text = `native reply ${calls}`;
         yield { type: "block-start", index: 0, blockType: "text" };
         yield { type: "text-delta", index: 0, text };
@@ -481,55 +478,13 @@ describe("spark daemon Cordis root", () => {
       expect(secondMessages).toHaveLength(6);
       expect(secondMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(2);
       expect(JSON.stringify(second.entries)).toContain("native reply 2");
-      const beforeDuplicateEvents = (await readFile(seed.path, "utf8"))
+      const transcriptEvents = (await readFile(seed.path, "utf8"))
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as { type?: string; data?: unknown });
-      const beforeDuplicate = beforeDuplicateEvents.filter(
-        (event) => event.type === "spark/invocation",
-      );
-      expect(beforeDuplicate).toEqual([
-        expect.objectContaining({
-          data: expect.objectContaining({ invocationId: "inv_shared_1", attemptEpoch: 1 }),
-        }),
-        expect.objectContaining({
-          data: expect.objectContaining({ invocationId: "inv_shared_2", attemptEpoch: 1 }),
-        }),
-      ]);
-
-      await expect(runInvocation("inv_shared_2", "duplicate attempt")).resolves.toMatchObject({
-        status: "failed",
-        errorCode: "SPARK_INVOCATION_TURN_ALREADY_RESERVED",
-      });
-      await expect(
-        runInvocation("inv_shared_2", "same attempt after owner transfer", 1, 2),
-      ).resolves.toMatchObject({
-        status: "failed",
-        errorCode: "SPARK_INVOCATION_TURN_ALREADY_RESERVED",
-      });
+      expect(transcriptEvents.filter((event) => event.type === "spark/invocation")).toEqual([]);
       expect(calls).toBe(2);
-      const afterDuplicateEvents = (await readFile(seed.path, "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as { type?: string });
-      expect(afterDuplicateEvents.filter((event) => event.type === "turn/start")).toHaveLength(
-        beforeDuplicateEvents.filter((event) => event.type === "turn/start").length,
-      );
-
-      await runInvocation("inv_shared_2", "replacement attempt", 2);
-      expect(calls).toBe(3);
-      const invocationEvents = (await readFile(seed.path, "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as { type?: string; ignorable?: boolean; data?: unknown })
-        .filter((event) => event.type === "spark/invocation");
-      expect(invocationEvents).toHaveLength(3);
-      expect(invocationEvents.every((event) => event.ignorable === true)).toBe(true);
-      expect(persistedReservationsAtModelStart).toEqual([
-        "inv_shared_1:1",
-        "inv_shared_2:1",
-        "inv_shared_2:2",
-      ]);
+      expect(persistedInvocationEventsAtModelStart).toEqual([0, 0]);
     } finally {
       await root.dispose();
     }

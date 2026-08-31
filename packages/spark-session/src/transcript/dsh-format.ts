@@ -45,11 +45,6 @@ import {
   type SparkDshProjectionMessageMetaData,
 } from "@zendev-lab/spark-session/dsh-message-projection";
 import {
-  SPARK_INVOCATION_EVENT_TYPE,
-  type SparkInvocationEventData,
-} from "@zendev-lab/spark-invocation";
-
-import {
   CURRENT_SPARK_SESSION_VERSION,
   type SparkCompactionEntry,
   type SparkCustomMessageEntry,
@@ -104,7 +99,6 @@ declare module "@deepseek-ai/dsh-session" {
     "spark/meta": SparkDshSessionMetaData;
     "spark/record": SparkDshStoredRecordData;
     "spark/message-meta": SparkDshMessageMetaData;
-    [SPARK_INVOCATION_EVENT_TYPE]: SparkInvocationEventData;
   }
 }
 

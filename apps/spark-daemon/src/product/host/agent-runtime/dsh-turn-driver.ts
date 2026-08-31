@@ -41,10 +41,7 @@ import {
 } from "@zendev-lab/spark-llm-providers/pi-ai-stream";
 
 import type { SparkPromptItem } from "./prompt-items.ts";
-import {
-  createSparkInvocationPlugin,
-  reserveSparkInvocationTurn,
-} from "@zendev-lab/spark-invocation/plugin";
+import { createSparkInvocationPlugin } from "@zendev-lab/spark-invocation/plugin";
 import { isPlainRecord } from "./tool-dispatch.ts";
 import type { SparkTurnLlm } from "./turn-llm.ts";
 
@@ -265,10 +262,9 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       input.signal.addEventListener("abort", cancelAgent, { once: true });
     }
     if (input.invocation) {
-      reserveSparkInvocationTurn(handle.agent.session, input.invocation);
-      const persisted = await handle.agent.ctx.sessions.flush(handle.agent.session);
-      if (!persisted) {
-        throw new Error("Spark Invocation reservation has no Session persistence owner");
+      const materialized = await handle.agent.ctx.sessions.flush(handle.agent.session);
+      if (!materialized) {
+        throw new Error("Spark Invocation Session has no persistence owner");
       }
       input.signal.throwIfAborted();
     }
