@@ -15,6 +15,7 @@ import {
   type LocalRpcServiceOutput,
   type LocalRpcServiceRequest,
 } from "../types.ts";
+import { requireChannelPeerAccess } from "./session.ts";
 
 type TurnRequest = Extract<
   LocalRpcServiceRequest,
@@ -52,6 +53,12 @@ export async function handleTurnRequest(
       return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "turn.status": {
+      const invocation = new SparkInvocationStore(db).require(request.params.invocationId);
+      await requireChannelPeerAccess(
+        ctx,
+        request.params.callerSessionId,
+        invocation.sessionId ?? undefined,
+      );
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         { kind: "turn.status.request", scope: "any", payload: { ...request.params } },
@@ -59,6 +66,12 @@ export async function handleTurnRequest(
       return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "turn.result": {
+      const invocation = new SparkInvocationStore(db).require(request.params.invocationId);
+      await requireChannelPeerAccess(
+        ctx,
+        request.params.callerSessionId,
+        invocation.sessionId ?? undefined,
+      );
       return invocationResult(new SparkInvocationStore(db), request.params.invocationId);
     }
     case "invocation.list": {

@@ -11,6 +11,8 @@ import { goto } from "$app/navigation";
 import { createSlashHandlers, type SlashHandlerDeps } from "./slash-handlers";
 import type { SparkActionView } from "@zendev-lab/spark-protocol";
 
+const scrollIntoView = vi.fn();
+
 function action(intent: "status.inspect" | "session.inspect" | "queue.inspect"): SparkActionView {
   return {
     id: intent,
@@ -54,7 +56,8 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
-  HTMLElement.prototype.scrollIntoView = vi.fn();
+  scrollIntoView.mockReset();
+  HTMLElement.prototype.scrollIntoView = scrollIntoView;
 });
 
 describe("session slash activity routing", () => {
@@ -121,6 +124,10 @@ describe("session slash activity routing", () => {
       expect(activityPaneOpen).toBe(true);
       expect(mobileDetails.open).toBe(true);
       expect(document.activeElement).toBe(target);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "auto",
+        block: "nearest",
+      });
     },
   );
 });

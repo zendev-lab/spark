@@ -813,6 +813,12 @@
     outline: none;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .group-disclosure {
+      transition: none;
+    }
+  }
+
   .session-item:hover {
     background: var(--color-surface-soft);
     color: var(--color-ink);

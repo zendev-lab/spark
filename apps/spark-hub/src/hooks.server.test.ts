@@ -184,6 +184,33 @@ describe("Hub remote access boundary", () => {
     expect(resolve).toHaveBeenCalledOnce();
   });
 
+  it("does not refresh an explicitly invalid access token", async () => {
+    remoteAccess.remoteAccessDecision.mockReturnValue({ required: true });
+    auth.getCurrentHubSession.mockReturnValue(null);
+    auth.refreshHubSession.mockReturnValue({
+      userId: "usr_owner",
+      sessionId: "sess_refreshed",
+      sessionToken: "spark_hub_access_refreshed",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      refreshToken: "spark_hub_refresh_rotated",
+      refreshExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    const event = requestEvent(new URL("https://spark.example/settings"), {
+      headers: { accept: "application/json" },
+    });
+    vi.mocked(event.cookies.get).mockImplementation((name) =>
+      name === "spark_hub_session" ? "spark_hub_sess_stale" : "spark_hub_refresh_valid",
+    );
+    const resolve = vi.fn();
+
+    const response = await handle({ event, resolve } as Parameters<Handle>[0]);
+
+    expect(response.status).toBe(401);
+    expect(auth.refreshHubSession).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(event.locals.sessionToken).toBe("spark_hub_sess_stale");
+  });
+
   it("lets local requests through without a hub session", async () => {
     const url = new URL("http://127.0.0.1/settings");
     const event = requestEvent(url, { headers: { accept: "text/html" } });

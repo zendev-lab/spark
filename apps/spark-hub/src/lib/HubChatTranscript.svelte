@@ -108,7 +108,11 @@
   $effect(() => {
     if (!transcriptElement || !stickToBottom || transcriptScrollSignal.length === 0) return;
     queueMicrotask(() => {
-      transcriptElement?.scrollTo({ top: transcriptElement.scrollHeight, behavior: "smooth" });
+      if (!transcriptElement) return;
+      const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth";
+      transcriptElement.scrollTo({ top: transcriptElement.scrollHeight, behavior });
     });
   });
 
@@ -568,6 +572,15 @@
     46%,
     100% {
       opacity: 0.15;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse,
+    .streaming-caret {
+      animation: none;
+      opacity: 1;
+      transform: none;
     }
   }
 </style>

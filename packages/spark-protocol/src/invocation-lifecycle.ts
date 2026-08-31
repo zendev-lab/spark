@@ -96,6 +96,7 @@ export const sparkTurnSubmitResultSchema = z.object({
 
 export const sparkTurnStatusRequestSchema = z.object({
   invocationId: sparkInvocationIdSchema,
+  callerSessionId: z.string().trim().min(1).optional(),
 });
 
 export const sparkInvocationListRequestSchema = z.object({

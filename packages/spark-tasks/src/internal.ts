@@ -514,154 +514,150 @@ export function normalizeTaskExecutionPolicy(
   policy: Partial<TaskExecutionPolicy> | undefined,
   kind: TaskKind = "generic",
 ): TaskExecutionPolicy {
+  validateTaskExecutionPolicy(policy);
+  const input = policy ?? {};
+  const sessionLifetime =
+    input.sessionLifetime ?? (input.continuity === "fresh" ? "task_run" : "task_revision");
+  const continuity =
+    input.continuity ?? (sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision");
+  const worktreeTarget = normalizeTaskWorktreeTarget(input.worktreeTarget);
+  const resources = normalizeTaskResourceRequest(input.resources);
+  const timeoutMs = normalizeOptionalPositiveInteger(input.timeoutMs);
+  const normalized: TaskExecutionPolicy = {
+    sessionLifetime,
+    continuity,
+    isolation: input.isolation ?? defaultTaskIsolation(kind),
+    comparison: input.comparison ?? "single_side",
+    concurrencyKeys: [...new Set(normalizeStringList(input.concurrencyKeys))],
+    maxAttempts: input.maxAttempts ?? 2,
+  };
+  if (input.sessionRetention === "owner_terminal") normalized.sessionRetention = "owner_terminal";
+  if (input.completionGate) normalized.completionGate = input.completionGate;
+  if (resources) normalized.resources = resources;
+  if (worktreeTarget) normalized.worktreeTarget = worktreeTarget;
+  if (timeoutMs !== undefined) normalized.timeoutMs = timeoutMs;
+  return normalized;
+}
+
+function validateTaskExecutionPolicy(policy: Partial<TaskExecutionPolicy> | undefined): void {
   if (policy !== undefined && (!policy || typeof policy !== "object" || Array.isArray(policy))) {
     throw new Error("task executionPolicy must be an object");
   }
+  const input = policy ?? {};
+  assertOptionalChoice(
+    input.sessionLifetime,
+    ["task_run", "task_revision"],
+    "task executionPolicy.sessionLifetime is invalid",
+  );
+  assertOptionalChoice(
+    input.continuity,
+    ["fresh", "reuse_within_revision"],
+    "task executionPolicy.continuity is invalid",
+  );
+  assertOptionalChoice(
+    input.sessionRetention,
+    ["task_terminal", "owner_terminal"],
+    "task executionPolicy.sessionRetention is invalid",
+  );
   if (
-    policy?.sessionLifetime !== undefined &&
-    policy.sessionLifetime !== "task_run" &&
-    policy.sessionLifetime !== "task_revision"
-  ) {
-    throw new Error("task executionPolicy.sessionLifetime is invalid");
-  }
-  if (
-    policy?.continuity !== undefined &&
-    policy.continuity !== "fresh" &&
-    policy.continuity !== "reuse_within_revision"
-  ) {
-    throw new Error("task executionPolicy.continuity is invalid");
-  }
-  if (
-    policy?.sessionRetention !== undefined &&
-    policy.sessionRetention !== "task_terminal" &&
-    policy.sessionRetention !== "owner_terminal"
-  ) {
-    throw new Error("task executionPolicy.sessionRetention is invalid");
-  }
-  if (
-    policy?.sessionLifetime !== undefined &&
-    policy?.continuity !== undefined &&
-    (policy.sessionLifetime === "task_run") !== (policy.continuity === "fresh")
+    input.sessionLifetime !== undefined &&
+    input.continuity !== undefined &&
+    (input.sessionLifetime === "task_run") !== (input.continuity === "fresh")
   ) {
     throw new Error("task executionPolicy sessionLifetime conflicts with legacy continuity");
   }
+  assertOptionalChoice(
+    input.isolation,
+    ["workspace", "isolated_worktree", "isolated_results", "readonly"],
+    "task executionPolicy.isolation is invalid",
+  );
+  assertOptionalChoice(
+    input.comparison,
+    ["reference", "target", "paired", "single_side"],
+    "task executionPolicy.comparison is invalid",
+  );
+  assertOptionalChoice(
+    input.completionGate,
+    ["artifact_lens", "task_evidence"],
+    "task executionPolicy.completionGate is invalid",
+  );
   if (
-    policy?.isolation !== undefined &&
-    policy.isolation !== "workspace" &&
-    policy.isolation !== "isolated_worktree" &&
-    policy.isolation !== "isolated_results" &&
-    policy.isolation !== "readonly"
-  ) {
-    throw new Error("task executionPolicy.isolation is invalid");
-  }
-  if (
-    policy?.comparison !== undefined &&
-    policy.comparison !== "reference" &&
-    policy.comparison !== "target" &&
-    policy.comparison !== "paired" &&
-    policy.comparison !== "single_side"
-  ) {
-    throw new Error("task executionPolicy.comparison is invalid");
-  }
-  if (
-    policy?.completionGate !== undefined &&
-    policy.completionGate !== "artifact_lens" &&
-    policy.completionGate !== "task_evidence"
-  ) {
-    throw new Error("task executionPolicy.completionGate is invalid");
-  }
-  if (
-    policy?.concurrencyKeys !== undefined &&
-    (!Array.isArray(policy.concurrencyKeys) ||
-      policy.concurrencyKeys.some((key) => typeof key !== "string"))
+    input.concurrencyKeys !== undefined &&
+    (!Array.isArray(input.concurrencyKeys) ||
+      input.concurrencyKeys.some((key) => typeof key !== "string"))
   ) {
     throw new Error("task executionPolicy.concurrencyKeys must be strings");
   }
+  assertOptionalInteger(
+    input.maxAttempts,
+    1,
+    "task executionPolicy.maxAttempts must be a positive integer",
+  );
+  assertOptionalInteger(
+    input.timeoutMs,
+    1,
+    "task executionPolicy.timeoutMs must be a positive integer",
+  );
   if (
-    policy?.maxAttempts !== undefined &&
-    (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1)
-  ) {
-    throw new Error("task executionPolicy.maxAttempts must be a positive integer");
-  }
-  if (
-    policy?.timeoutMs !== undefined &&
-    (!Number.isInteger(policy.timeoutMs) || policy.timeoutMs < 1)
-  ) {
-    throw new Error("task executionPolicy.timeoutMs must be a positive integer");
-  }
-  if (
-    policy?.resources !== undefined &&
-    (!policy.resources || typeof policy.resources !== "object" || Array.isArray(policy.resources))
+    input.resources !== undefined &&
+    (!input.resources || typeof input.resources !== "object" || Array.isArray(input.resources))
   ) {
     throw new Error("task executionPolicy.resources must be an object");
   }
-  if (
-    policy?.resources?.gpuCount !== undefined &&
-    (!Number.isInteger(policy.resources.gpuCount) || policy.resources.gpuCount < 0)
-  ) {
-    throw new Error("task executionPolicy.resources.gpuCount must be a non-negative integer");
+  const resources = input.resources;
+  if (!resources) return;
+  assertOptionalInteger(
+    resources.gpuCount,
+    0,
+    "task executionPolicy.resources.gpuCount must be a non-negative integer",
+  );
+  assertOptionalPositiveNumber(
+    resources.minGpuMemoryGiB,
+    "task executionPolicy.resources.minGpuMemoryGiB must be positive",
+  );
+  if (resources.exclusiveNode !== undefined && typeof resources.exclusiveNode !== "boolean") {
+    throw new Error("task executionPolicy.resources.exclusiveNode must be a boolean");
   }
-  if (
-    policy?.resources?.minGpuMemoryGiB !== undefined &&
-    (!Number.isFinite(policy.resources.minGpuMemoryGiB) || policy.resources.minGpuMemoryGiB <= 0)
-  ) {
-    throw new Error("task executionPolicy.resources.minGpuMemoryGiB must be positive");
+}
+
+function normalizeTaskResourceRequest(
+  input: TaskExecutionPolicy["resources"],
+): TaskExecutionPolicy["resources"] {
+  if (!input) return undefined;
+  const gpuCount = input.gpuCount ?? 0;
+  const minGpuMemoryGiB = normalizeOptionalPositiveNumber(input.minGpuMemoryGiB);
+  const topologyClass = normalizeOptionalString(input.topologyClass);
+  if (gpuCount === 0 && minGpuMemoryGiB === undefined && !topologyClass && !input.exclusiveNode) {
+    return undefined;
   }
-  const sessionLifetime =
-    policy?.sessionLifetime ?? (policy?.continuity === "fresh" ? "task_run" : "task_revision");
-  const continuity =
-    policy?.continuity ?? (sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision");
-  const worktreeTarget = normalizeTaskWorktreeTarget(policy?.worktreeTarget);
-  const isolation =
-    policy?.isolation === "workspace" ||
-    policy?.isolation === "isolated_worktree" ||
-    policy?.isolation === "isolated_results" ||
-    policy?.isolation === "readonly"
-      ? policy.isolation
-      : kind === "implement"
-        ? "isolated_worktree"
-        : kind === "research" || kind === "review" || kind === "plan"
-          ? "readonly"
-          : "isolated_results";
-  const comparison =
-    policy?.comparison === "reference" ||
-    policy?.comparison === "target" ||
-    policy?.comparison === "paired" ||
-    policy?.comparison === "single_side"
-      ? policy.comparison
-      : "single_side";
-  const gpuCount = policy?.resources?.gpuCount ?? 0;
-  const minGpuMemoryGiB = normalizeOptionalPositiveNumber(policy?.resources?.minGpuMemoryGiB);
-  const topologyClass = normalizeOptionalString(policy?.resources?.topologyClass);
-  const resources =
-    gpuCount > 0 ||
-    minGpuMemoryGiB !== undefined ||
-    topologyClass ||
-    policy?.resources?.exclusiveNode
-      ? {
-          gpuCount,
-          ...(minGpuMemoryGiB !== undefined ? { minGpuMemoryGiB } : {}),
-          ...(topologyClass ? { topologyClass } : {}),
-          ...(policy?.resources?.exclusiveNode ? { exclusiveNode: true } : {}),
-        }
-      : undefined;
   return {
-    sessionLifetime,
-    ...(policy?.sessionRetention === "owner_terminal"
-      ? { sessionRetention: "owner_terminal" as const }
-      : {}),
-    continuity,
-    isolation,
-    comparison,
-    ...(policy?.completionGate ? { completionGate: policy.completionGate } : {}),
-    ...(resources ? { resources } : {}),
-    ...(worktreeTarget ? { worktreeTarget } : {}),
-    concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],
-    ...(normalizeOptionalPositiveInteger(policy?.timeoutMs) !== undefined
-      ? { timeoutMs: normalizeOptionalPositiveInteger(policy?.timeoutMs) }
-      : {}),
-    maxAttempts: policy?.maxAttempts ?? 2,
+    gpuCount,
+    ...(minGpuMemoryGiB !== undefined ? { minGpuMemoryGiB } : {}),
+    ...(topologyClass ? { topologyClass } : {}),
+    ...(input.exclusiveNode ? { exclusiveNode: true } : {}),
   };
+}
+
+function assertOptionalChoice(value: unknown, choices: readonly unknown[], message: string): void {
+  if (value !== undefined && !choices.includes(value)) throw new Error(message);
+}
+
+function assertOptionalInteger(value: unknown, minimum: number, message: string): void {
+  if (value !== undefined && (!Number.isInteger(value) || Number(value) < minimum)) {
+    throw new Error(message);
+  }
+}
+
+function assertOptionalPositiveNumber(value: unknown, message: string): void {
+  if (value !== undefined && (!Number.isFinite(value) || Number(value) <= 0)) {
+    throw new Error(message);
+  }
+}
+
+function defaultTaskIsolation(kind: TaskKind): TaskExecutionPolicy["isolation"] {
+  if (kind === "implement") return "isolated_worktree";
+  if (kind === "research" || kind === "review" || kind === "plan") return "readonly";
+  return "isolated_results";
 }
 
 function normalizeTaskWorktreeTarget(

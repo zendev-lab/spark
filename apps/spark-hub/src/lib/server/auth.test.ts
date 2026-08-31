@@ -55,6 +55,91 @@ describe("local owner auth", () => {
     db.close();
   });
 
+  it("accepts an active owner session", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const session = createOwnerSession(db, "Local Owner", null);
+
+    expect(
+      ensureCurrentOwnerSession(
+        db,
+        createCookieCapture(sessionCookieName) as unknown as Cookies,
+        session.sessionToken,
+      ),
+    ).toBe(session.userId);
+    db.close();
+  });
+
+  it("rejects an active member session instead of upgrading it to the local owner", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    seedRuntime(db, "rt_a");
+    const grant = createHubAccessToken(db, {
+      daemonIds: ["rt_a"],
+      memberName: "teammate",
+      createdAt: seedNow,
+    });
+    const session = exchangeHubAccessToken(db, grant.token, new Date("2026-07-20T00:00:01.000Z"));
+
+    expectOwnerAccessDenied(() =>
+      ensureCurrentOwnerSession(
+        db,
+        createCookieCapture(sessionCookieName) as unknown as Cookies,
+        session.sessionToken,
+      ),
+    );
+    db.close();
+  });
+
+  it.each(["", "spark_hub_sess_invalid"])(
+    "rejects invalid explicit session %j without creating a local owner",
+    (sessionToken) => {
+      const db = openMemoryDatabase();
+      migrate(db);
+
+      expectOwnerAccessDenied(() =>
+        ensureCurrentOwnerSession(
+          db,
+          createCookieCapture(sessionCookieName) as unknown as Cookies,
+          sessionToken,
+        ),
+      );
+      expect(db.prepare("SELECT COUNT(*) AS count FROM users").get()).toEqual({ count: 0 });
+      db.close();
+    },
+  );
+
+  it.each(["revoked", "expired", "disabled"] as const)(
+    "rejects a %s explicit owner session",
+    (state) => {
+      const db = openMemoryDatabase();
+      migrate(db);
+      const session = createOwnerSession(db, "Local Owner", null);
+      if (state === "revoked") {
+        db.prepare("UPDATE sessions SET revoked_at = ? WHERE token_hash = ?").run(
+          seedNow,
+          hashSecret(session.sessionToken),
+        );
+      } else if (state === "expired") {
+        db.prepare("UPDATE sessions SET expires_at = ? WHERE token_hash = ?").run(
+          "2026-01-01T00:00:00.000Z",
+          hashSecret(session.sessionToken),
+        );
+      } else {
+        db.prepare("UPDATE users SET status = 'disabled' WHERE id = ?").run(session.userId);
+      }
+
+      expectOwnerAccessDenied(() =>
+        ensureCurrentOwnerSession(
+          db,
+          createCookieCapture(sessionCookieName) as unknown as Cookies,
+          session.sessionToken,
+        ),
+      );
+      db.close();
+    },
+  );
+
   it("grants the first owner every daemon that already registered", () => {
     const db = openMemoryDatabase();
     migrate(db);
@@ -160,7 +245,7 @@ describe("remote access auth", () => {
     db.close();
   });
 
-  it("reuses an active member with the same display name and unions its daemon grants", () => {
+  it("keeps same-name access keys on distinct member principals", () => {
     const db = openMemoryDatabase();
     migrate(db);
     seedRuntime(db, "rt_a");
@@ -183,9 +268,38 @@ describe("remote access auth", () => {
       new Date("2026-07-20T00:00:02.000Z"),
     );
 
-    expect(second.userId).toBe(first.userId);
+    expect(second.userId).not.toBe(first.userId);
     expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_a" })).toBe(true);
-    expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_b" })).toBe(true);
+    expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_b" })).toBe(false);
+    expect(userHasDaemonGrant(db, { userId: second.userId, runtimeId: "rt_a" })).toBe(false);
+    expect(userHasDaemonGrant(db, { userId: second.userId, runtimeId: "rt_b" })).toBe(true);
+    db.close();
+  });
+
+  it("keeps unnamed access keys on distinct member principals", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    seedRuntime(db, "rt_a");
+    seedRuntime(db, "rt_b");
+    const firstKey = createHubAccessToken(db, {
+      daemonIds: ["rt_a"],
+      createdAt: seedNow,
+    });
+    const secondKey = createHubAccessToken(db, {
+      daemonIds: ["rt_b"],
+      createdAt: seedNow,
+    });
+
+    const first = exchangeHubAccessToken(db, firstKey.token, new Date("2026-07-20T00:00:01.000Z"));
+    const second = exchangeHubAccessToken(
+      db,
+      secondKey.token,
+      new Date("2026-07-20T00:00:02.000Z"),
+    );
+
+    expect(second.userId).not.toBe(first.userId);
+    expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_b" })).toBe(false);
+    expect(userHasDaemonGrant(db, { userId: second.userId, runtimeId: "rt_a" })).toBe(false);
     db.close();
   });
 
@@ -374,4 +488,14 @@ function createCookieCapture(expectedName: string) {
   };
 
   return capture;
+}
+
+function expectOwnerAccessDenied(action: () => unknown) {
+  let thrown: unknown;
+  try {
+    action();
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toMatchObject({ status: 403 });
 }

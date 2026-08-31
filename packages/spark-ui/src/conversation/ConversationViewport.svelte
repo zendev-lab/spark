@@ -271,13 +271,17 @@
 
     activeNavigationId = id;
     initialScrollComplete = true;
-    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth";
-    element.scrollTo({ top: Math.max(0, target.offsetTop - 18), behavior });
+    element.scrollTo({
+      top: Math.max(0, target.offsetTop - 18),
+      behavior: preferredScrollBehavior(),
+    });
   }
 
-  function scrollToLatest(behavior: ScrollBehavior = "smooth") {
+  function preferredScrollBehavior(): ScrollBehavior {
+    return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  }
+
+  function scrollToLatest(behavior: ScrollBehavior = preferredScrollBehavior()) {
     if (!viewport) return;
     cancelScheduledFollow();
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });

@@ -35,7 +35,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
     event.locals.sessionToken = event.cookies.get(sessionCookieName) ?? null;
     let hubSession = getCurrentHubSession(db, event.locals.sessionToken);
-    if (!hubSession) {
+    if (!hubSession && event.locals.sessionToken === null) {
       const refreshed = refreshHubSession(db, event.cookies.get(sessionRefreshCookieName) ?? null);
       if (refreshed) {
         setHubSessionCookies(event.cookies, refreshed, {

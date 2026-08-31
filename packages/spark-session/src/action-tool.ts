@@ -110,10 +110,20 @@ export async function executeSparkSessionAction(
   const request = deps.request ?? defaultDaemonRequest;
   assertChannelActionAllowed(action, ctx);
   const channelDaemonId = await currentChannelDaemonId(ctx, request, signal);
+  const channelCallerSessionId = channelDaemonId
+    ? await requireCurrentSessionId(ctx, "channel peer access")
+    : undefined;
 
   switch (action) {
     case "list": {
-      const requestParams = await listRequest(params, ctx, request, signal, channelDaemonId);
+      const requestParams = await listRequest(
+        params,
+        ctx,
+        request,
+        signal,
+        channelDaemonId,
+        channelCallerSessionId,
+      );
       const records = parseSparkSessionProjections(
         await request("session.list", requestParams, { signal }),
       );
@@ -158,7 +168,7 @@ export async function executeSparkSessionAction(
     }
     case "get": {
       const sessionId = await targetSessionId(params.sessionId, ctx, "get");
-      const record = await requestSession(request, sessionId, signal);
+      const record = await requestSession(request, sessionId, signal, channelCallerSessionId);
       if (channelDaemonId) {
         assertChannelDaemonTarget(record, channelDaemonId, "get");
       }
@@ -293,7 +303,12 @@ export async function executeSparkSessionAction(
         message && typeof rawPayload.text !== "string" && typeof rawPayload.body !== "string"
           ? { ...rawPayload, body: message }
           : rawPayload;
-      const targetSession = await requestSession(request, toSessionId, signal);
+      const targetSession = await requestSession(
+        request,
+        toSessionId,
+        signal,
+        channelCallerSessionId,
+      );
       if (channelDaemonId) {
         assertChannelDaemonTarget(targetSession, channelDaemonId, action);
       }
@@ -411,11 +426,18 @@ export async function executeSparkSessionAction(
       }
       const sessionId = requiredString(params.sessionId, "session lookup requires sessionId");
       if (channelDaemonId) {
-        const record = await requestSession(request, sessionId, signal);
+        const record = await requestSession(request, sessionId, signal, channelCallerSessionId);
         assertChannelDaemonTarget(record, channelDaemonId, "lookup");
       }
       const projection = parseSparkSessionPeerProjection(
-        await request("session.lookup", { sessionId }, { signal }),
+        await request(
+          "session.lookup",
+          {
+            sessionId,
+            ...(channelCallerSessionId ? { callerSessionId: channelCallerSessionId } : {}),
+          },
+          { signal },
+        ),
       );
       return sessionResult(renderPeerProjection(projection), {
         action,
@@ -430,13 +452,25 @@ export async function executeSparkSessionAction(
       const timeoutMs = normalizeRequestTimeoutMs(params.timeoutMs);
       if (channelDaemonId) {
         const status = sparkTurnStatusResultSchema.parse(
-          await request("turn.status", { invocationId }, { signal }),
+          await request(
+            "turn.status",
+            {
+              invocationId,
+              ...(channelCallerSessionId ? { callerSessionId: channelCallerSessionId } : {}),
+            },
+            { signal },
+          ),
         );
         const targetSessionId = status.sessionId?.trim();
         if (!targetSessionId) {
           throw new Error("session wait could not resolve the invocation Session");
         }
-        const record = await requestSession(request, targetSessionId, signal);
+        const record = await requestSession(
+          request,
+          targetSessionId,
+          signal,
+          channelCallerSessionId,
+        );
         assertChannelDaemonTarget(record, channelDaemonId, "wait");
       }
       const completion = await waitForRequestResult({
@@ -444,6 +478,7 @@ export async function executeSparkSessionAction(
         invocationId,
         timeoutMs,
         signal,
+        callerSessionId: channelCallerSessionId,
         sleep: deps.sleep,
         now: deps.now,
       });
@@ -507,6 +542,7 @@ async function listRequest(
   request: SparkSessionDaemonRequest,
   signal: AbortSignal,
   channelDaemonId?: string,
+  channelCallerSessionId?: string,
 ): Promise<SparkSessionListRequest> {
   const includeArchived = optionalBoolean(params.includeArchived, false, "includeArchived");
   const query = optionalString(params.query, "query");
@@ -524,6 +560,7 @@ async function listRequest(
     }
     return {
       scope: { kind: "daemon" },
+      callerSessionId: channelCallerSessionId,
       ...filters,
     };
   }
@@ -557,8 +594,15 @@ async function requestSession(
   request: SparkSessionDaemonRequest,
   sessionId: string,
   signal: AbortSignal,
+  callerSessionId?: string,
 ): Promise<SparkSessionProjection> {
-  return parseSparkSessionProjection(await request("session.get", { sessionId }, { signal }));
+  return parseSparkSessionProjection(
+    await request(
+      "session.get",
+      { sessionId, ...(callerSessionId ? { callerSessionId } : {}) },
+      { signal },
+    ),
+  );
 }
 
 function assertChannelActionAllowed(
@@ -927,6 +971,7 @@ async function waitForRequestResult(input: {
   invocationId: string;
   timeoutMs: number;
   signal: AbortSignal;
+  callerSessionId?: string;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   now?: () => number;
 }): Promise<RequestCompletion> {
@@ -937,7 +982,10 @@ async function waitForRequestResult(input: {
     status = sparkTurnStatusResultSchema.parse(
       await input.request(
         "turn.status",
-        { invocationId: input.invocationId },
+        {
+          invocationId: input.invocationId,
+          ...(input.callerSessionId ? { callerSessionId: input.callerSessionId } : {}),
+        },
         { signal: input.signal },
       ),
     );
@@ -945,7 +993,10 @@ async function waitForRequestResult(input: {
       const result = sparkTurnResultSchema.parse(
         await input.request(
           "turn.result",
-          { invocationId: input.invocationId },
+          {
+            invocationId: input.invocationId,
+            ...(input.callerSessionId ? { callerSessionId: input.callerSessionId } : {}),
+          },
           { signal: input.signal },
         ),
       );

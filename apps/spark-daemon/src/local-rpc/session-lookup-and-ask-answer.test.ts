@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
+import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { SparkDaemonHumanInteractionBroker } from "../core/human-interactions.ts";
 import { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
@@ -227,6 +228,164 @@ describe("session lookup and session ask answers", () => {
         result: { outcome: "accepted" },
       });
       expect(waits.listEvidenceAnswerEvents("hreq-session")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("isolates channel peer operations by immutable account and external identity", async () => {
+    const { root, paths, db } = createFixture(roots);
+    const sparkHome = join(root, ".spark");
+    const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
+      daemonId: "channel-principal-test",
+      daemonCwd: root,
+      resolveChannelSessionCwd: async (sessionId) => {
+        const cwd = join(root, "channels", sessionId);
+        mkdirSync(cwd, { recursive: true });
+        return cwd;
+      },
+    });
+    const caller = await sessionRegistry.resolveChannelSession({
+      adapterAccountIdentity: "account:a",
+      adapterId: "info-a",
+      externalKey: "infoflow:user:shared",
+    });
+    const otherAccount = await sessionRegistry.resolveChannelSession({
+      adapterAccountIdentity: "account:b",
+      adapterId: "info-b",
+      externalKey: "infoflow:user:shared",
+    });
+    const otherExternalKey = await sessionRegistry.resolveChannelSession({
+      adapterAccountIdentity: "account:a",
+      adapterId: "info-a",
+      externalKey: "infoflow:user:other",
+    });
+    const invocations = new SparkInvocationStore(db);
+    const ownInvocation = invocations.submit({
+      sessionId: caller.sessionId,
+      prompt: "own work",
+      task: { type: "session.run", sessionId: caller.sessionId, prompt: "own work" },
+    });
+    invocations.claimNext("channel-principal-executor");
+    invocations.complete(ownInvocation.invocationId, {
+      status: "succeeded",
+      result: { assistantText: "own result" },
+    });
+    const foreignInvocation = invocations.submit({
+      sessionId: otherExternalKey.sessionId,
+      prompt: "foreign work",
+      task: {
+        type: "session.run",
+        sessionId: otherExternalKey.sessionId,
+        prompt: "foreign work",
+      },
+    });
+    invocations.claimNext("channel-principal-executor");
+    invocations.complete(foreignInvocation.invocationId, {
+      status: "succeeded",
+      result: { assistantText: "foreign secret" },
+    });
+    const options = {
+      sessionRegistry,
+      mailStore: new SparkSessionMailStore({ sparkHome }),
+    };
+
+    try {
+      const listed = await request(
+        paths,
+        db,
+        "session.list",
+        { scope: { kind: "daemon" }, callerSessionId: caller.sessionId },
+        options,
+      );
+      expect(listed).toMatchObject({
+        ok: true,
+        result: [{ sessionId: caller.sessionId }],
+      });
+      expect(JSON.stringify(listed)).not.toContain(otherAccount.sessionId);
+      expect(JSON.stringify(listed)).not.toContain(otherExternalKey.sessionId);
+
+      for (const [method, params] of [
+        ["session.get", { sessionId: otherAccount.sessionId, callerSessionId: caller.sessionId }],
+        [
+          "session.lookup",
+          { sessionId: otherExternalKey.sessionId, callerSessionId: caller.sessionId },
+        ],
+        [
+          "turn.status",
+          { invocationId: foreignInvocation.invocationId, callerSessionId: caller.sessionId },
+        ],
+        [
+          "turn.result",
+          { invocationId: foreignInvocation.invocationId, callerSessionId: caller.sessionId },
+        ],
+      ] as const) {
+        await expectCode(request(paths, db, method, params, options), "session_scope_mismatch");
+      }
+
+      const ownResult = await request(
+        paths,
+        db,
+        "turn.result",
+        { invocationId: ownInvocation.invocationId, callerSessionId: caller.sessionId },
+        options,
+      );
+      expect(ownResult).toMatchObject({
+        ok: true,
+        result: { assistantText: "own result" },
+      });
+
+      await expectCode(
+        request(
+          paths,
+          db,
+          "session.send",
+          {
+            toSessionId: otherAccount.sessionId,
+            fromSessionId: caller.sessionId,
+            kind: "request",
+            intent: "work.request",
+            payload: {},
+            idempotencyKey: "channel-cross-principal",
+            body: "interrupt foreign work",
+            origin: { surface: "channel", host: "channel" },
+            originBinding: {
+              adapter: "infoflow",
+              adapterId: "info-a",
+              adapterAccountIdentity: "account:a",
+              externalKey: "infoflow:user:shared",
+              recipient: "user:shared",
+            },
+            onActive: "interrupt",
+            source: "tool",
+          },
+          options,
+        ),
+        "session_mail_workspace_scope_mismatch",
+      );
+      await expectCode(
+        request(
+          paths,
+          db,
+          "session.send",
+          {
+            toSessionId: otherAccount.sessionId,
+            fromSessionId: caller.sessionId,
+            kind: "notification",
+            intent: "session.notification",
+            payload: {},
+            idempotencyKey: "channel-origin-spoof",
+            body: "persist foreign mail",
+            origin: { surface: "local", host: "session" },
+            source: "tool",
+          },
+          options,
+        ),
+        "session_mail_origin_binding_required",
+      );
+      expect(await options.mailStore.list(otherAccount.sessionId, { includeAcked: true })).toEqual(
+        [],
+      );
     } finally {
       db.close();
     }

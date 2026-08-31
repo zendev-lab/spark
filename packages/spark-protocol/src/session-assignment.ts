@@ -629,6 +629,7 @@ export const sparkSessionForkRequestSchema = sparkManagedChildSessionRequestSche
 
 const sparkSessionListRequestBaseSchema = z
   .object({
+    callerSessionId: z.string().trim().min(1).optional(),
     includeArchived: z.boolean().optional(),
     parentSessionId: z.string().trim().min(1).optional(),
     query: z.string().trim().min(1).max(256).optional(),

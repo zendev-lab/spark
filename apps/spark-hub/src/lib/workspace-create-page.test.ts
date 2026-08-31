@@ -1,6 +1,6 @@
 import type { Cookies } from "@sveltejs/kit";
 import { render } from "svelte/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDictionary } from "$lib/i18n";
 import Page from "../routes/(console)/workspaces/new/+page.svelte";
@@ -154,6 +154,11 @@ describe("workspace creation page behavior", () => {
 });
 
 describe("workspace registration action behavior", () => {
+  beforeEach(() => {
+    mocks.ensureCurrentOwnerSession.mockReset();
+    mocks.ensureCurrentOwnerSession.mockReturnValue("owner-test");
+  });
+
   it("uses token enrollment even when a caller submits a retired device mode", async () => {
     const { actions } = await import("../routes/(console)/workspaces/new/+page.server.ts");
     const cookies = {
@@ -193,5 +198,31 @@ describe("workspace registration action behavior", () => {
       }),
     );
     expect(cookies.set).toHaveBeenCalled();
+  });
+
+  it("checks owner authority before creating a workspace", async () => {
+    const forbidden = Object.assign(new Error("Hub owner access is required."), { status: 403 });
+    mocks.ensureCurrentOwnerSession.mockImplementationOnce(() => {
+      throw forbidden;
+    });
+    const { actions } = await import("../routes/(console)/workspaces/new/+page.server.ts");
+    const cookies = {
+      get: vi.fn(() => undefined),
+      set: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as Cookies;
+    const request = new Request("https://spark.test/workspaces/new?/createWorkspace", {
+      method: "POST",
+      body: new URLSearchParams(),
+    });
+
+    await expect(
+      actions.createWorkspace?.({
+        cookies,
+        locals: { sessionToken: "member-session" },
+        request,
+      } as never),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(mocks.ensureCurrentOwnerSession).toHaveBeenCalledWith({}, cookies, "member-session");
   });
 });

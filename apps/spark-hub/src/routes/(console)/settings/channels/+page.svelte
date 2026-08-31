@@ -250,7 +250,7 @@
     statusMessage = null;
     submitState = "idle";
     queueMicrotask(() => {
-      editorSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+      editorSection?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
       document.getElementById("credentials-title")?.focus({ preventScroll: true });
     });
   }
@@ -263,9 +263,13 @@
     errorMessage = null;
     submitState = "idle";
     queueMicrotask(() => {
-      editorSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+      editorSection?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
       document.getElementById("channel-adapter")?.focus({ preventScroll: true });
     });
+  }
+
+  function preferredScrollBehavior(): ScrollBehavior {
+    return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
   }
 
   const handleEnhance: SubmitFunction = () => {
