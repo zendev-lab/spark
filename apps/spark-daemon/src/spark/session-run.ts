@@ -719,10 +719,15 @@ async function withEffectiveTaskProfile(
     task.thinkingLevel ??
     sessionContext.session?.thinkingLevel ??
     (await inheritedSessionThinkingLevel(sessionContext.session, registry));
+  const maxOutputTokens =
+    task.maxOutputTokens ??
+    sessionContext.session?.maxOutputTokens ??
+    (await inheritedSessionMaxOutputTokens(sessionContext.session, registry));
   return {
     ...task,
     model: `${model.providerName}/${model.modelId}`,
     ...(thinkingLevel ? { thinkingLevel } : {}),
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
   };
 }
 
@@ -1200,6 +1205,7 @@ async function sessionExecutionIdentity(
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
+    ...(task.maxOutputTokens ? { maxOutputTokens: task.maxOutputTokens } : {}),
     reset: task.reset,
     ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
   };
@@ -2182,6 +2188,22 @@ async function inheritedSessionThinkingLevel(
   return undefined;
 }
 
+async function inheritedSessionMaxOutputTokens(
+  session: SparkSessionState | undefined,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+) {
+  let current = session;
+  const visited = new Set<string>();
+  while (current) {
+    const supervisorId = sparkSessionParentId(current.lineage);
+    if (!supervisorId || visited.has(supervisorId)) return undefined;
+    visited.add(supervisorId);
+    current = await registry?.get?.(supervisorId);
+    if (current?.maxOutputTokens) return current.maxOutputTokens;
+  }
+  return undefined;
+}
+
 function recordInvocationReceiptContext(
   task: SparkDaemonSessionRunTask,
   context: SessionInvocationContext,
@@ -2211,6 +2233,7 @@ function recordInvocationReceiptContext(
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
+    ...(task.maxOutputTokens ? { maxOutputTokens: task.maxOutputTokens } : {}),
     toolPolicyDigest: contentHash(JSON.stringify(policy)),
     authorizationSource: {
       kind: invocation.parentInvocationId

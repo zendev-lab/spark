@@ -65,7 +65,20 @@ explicit Role bind — created by `session spawn|fork` — is a subagent. That
 word is presentation language, not a second runtime type. Official DSH
 `subagent` / `subagent_fork` tools are a compatibility mapping onto
 `session spawn|fork` plus `session send`; the native session tool remains
-callable on its own. Their active state
+callable on its own. A daemon-backed Agent receives a creation-time snapshot
+of every currently enabled and available model. The fresh-child `subagent`
+tool exposes DSH's provider/model/reasoning selection fields; an omitted route
+inherits the parent Session and an explicit pair is revalidated against the
+daemon catalog when the child is created. `subagent_fork` keeps the parent
+route so its inherited transcript prefix remains reusable. The daemon
+atomically freezes the selected provider, model, supported reasoning level, and effective output
+ceiling on the child Session. That ceiling is the minimum of the requested or
+inherited limit and the model catalog limit, then each model call applies its
+context-safety limit. The tool result waits for the child Invocation's durable
+terminal state; disposal requests cancellation and waits for the child to go
+idle. A Web-only fallback without daemon execution authority advertises no
+AgentOptions support and rejects execution instead of creating a local owner.
+Their active state
 comes from queued/running Invocations, not UI timers. Native session view
 `status` uses the same three values (`idle`, `queued`, `running`); a queued
 Invocation is not collapsed to `running`. Owned temporary children

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import type { Context } from "@deepseek-ai/cordis";
 import { test } from "vitest";
 
 import {
@@ -41,6 +43,54 @@ test("Spark product composition registers capabilities and its DSH agent plugins
     host.getAllTools().some((tool) => tool.name === "cue_exec"),
     false,
   );
+});
+
+test("Spark product composition snapshots enabled model routes into subagent plugins", () => {
+  const plugins = loadSparkProductAgentPlugins({
+    subagentModels: [
+      { provider: "test", model: "small" },
+      { provider: "test", model: "large" },
+    ],
+  });
+  assert.deepEqual(
+    plugins.map((plugin) => plugin.name),
+    [
+      "dsh-tool-cue",
+      "dsh-tool-fusion",
+      "dsh-tool-web",
+      "spark-subagent-model-selection-policy",
+      "spark-tool-subagent-spawn",
+      "spark-tool-subagent-fork",
+    ],
+  );
+
+  const events: Array<{ type: string; data: unknown }> = [];
+  const policy = plugins.find(
+    (plugin) => plugin.name === "spark-subagent-model-selection-policy",
+  ) as { apply(ctx: Context): void };
+  const ctx = {
+    agent: {
+      session: {
+        events,
+        append(type: string, data: unknown) {
+          events.push({ type, data });
+        },
+      },
+    },
+  } as unknown as Context;
+  policy.apply(ctx);
+  policy.apply(ctx);
+  assert.deepEqual(events, [
+    {
+      type: "subagent/model-selection-policy",
+      data: {
+        allowedModels: [
+          { provider: "test", model: "small" },
+          { provider: "test", model: "large" },
+        ],
+      },
+    },
+  ]);
 });
 
 test("Spark product composition rejects a required capability registration failure", async () => {

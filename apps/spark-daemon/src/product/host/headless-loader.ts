@@ -80,6 +80,7 @@ export interface SparkHeadlessSessionRunInput {
   prompt: SparkHeadlessUserContent;
   model?: string;
   thinkingLevel?: string;
+  maxOutputTokens?: number;
   reset?: boolean;
   /** Internal transcript metadata for daemon-owned hidden execution. */
   sessionVisibility?: "internal";

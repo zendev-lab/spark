@@ -136,6 +136,8 @@ export interface SparkDaemonSessionRunTask {
   model?: string;
   /** Thinking/reasoning intensity frozen when this turn is enqueued. */
   thinkingLevel?: string;
+  /** Positive per-request output ceiling frozen when this turn is enqueued. */
+  maxOutputTokens?: number;
   reset?: boolean;
   /** Set when a successor daemon resumes an interrupted running turn. */
   resumeFromInterrupt?: boolean;
@@ -282,6 +284,7 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
         : undefined,
     model: nonEmptyString(task.model),
     thinkingLevel: nonEmptyString(task.thinkingLevel),
+    maxOutputTokens: positiveIntegerOrUndefined(task.maxOutputTokens, "maxOutputTokens"),
     reset: typeof task.reset === "boolean" ? task.reset : undefined,
     resumeFromInterrupt:
       typeof task.resumeFromInterrupt === "boolean" ? task.resumeFromInterrupt : undefined,
@@ -650,4 +653,12 @@ function requiredRecord(value: unknown, field: string): Record<string, unknown> 
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function positiveIntegerOrUndefined(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new Error(`daemon task ${field} must be a positive safe integer`);
+  }
+  return Number(value);
 }

@@ -58,6 +58,26 @@ lifetime, or wire role.
 - Transcript wire stays `system | user | assistant | tool`. `user` is the
   human; `assistant` is the bound Role or Skill Agent identity.
 
+The daemon-backed official DSH spawn/fork providers advertise
+`agentOptions: true`; a host without daemon execution authority advertises
+`false` and cannot execute a child locally. Each new Agent receives a snapshot
+of the daemon model control's currently enabled and available routes. Omitted
+spawn routing inherits the parent Session profile. The official fresh-child
+tool owns the one model-selection surface in an Agent scope; the fork tool
+keeps the parent route for inherited-prefix reuse. An explicit spawn route is
+revalidated at child creation, so a route disabled between tool rendering and
+admission fails closed. The child registry record atomically freezes model,
+thinking level, and optional positive `maxOutputTokens`; the Invocation task
+and receipt freeze the same effective ceiling. The catalog remains owned only
+by `spark-llm-providers`; Session state stores a selected ref and ceiling, not
+a mutable copy of that catalog. The official
+`subagent/model-selection-policy` event is an immutable creation-time
+authorization snapshot, not a second directory owner. It and the model-hidden
+`subagent/descriptor` event are persisted in the same JSONL and survive Spark
+v4 rewrites through the existing `spark/record` bridge. Native DSH header
+`origin`, parent id, `delegationDepth`, and `agentPreset` metadata also survive
+round trips so nested recursion limits do not reset after restart.
+
 Role definition representation and catalog ownership are in
 [`../../../packages/spark-roles/README.md`](../../../packages/spark-roles/README.md).
 The dated mapping that registers Spark spawn/fork providers on official

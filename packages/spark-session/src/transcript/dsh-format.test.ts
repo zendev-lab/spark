@@ -246,6 +246,117 @@ describe("native DSH transcript v4", () => {
     await expect(store.load(record.path)).resolves.toMatchObject({ entries: record.entries });
   });
 
+  it("preserves the official subagent descriptor through Spark rewrites", async () => {
+    const { store, record } = await fixture("subagent-descriptor");
+    store.appendSubagentDescriptor(record, {
+      version: 3,
+      mode: "one-shot",
+      provider: "spawn",
+      label: "Review",
+    });
+    store.appendSubagentModelSelection(record, [
+      { provider: "test", model: "reviewer" },
+      { provider: "test", model: "executor" },
+    ]);
+    record.header = {
+      ...record.header,
+      parentSessionId: "sess_parent",
+      origin: "subagent",
+      delegationDepth: 2,
+      agentPreset: "spark-standard",
+    };
+
+    await store.save(record);
+    const loaded = await store.load(record.path);
+    expect(loaded.entries).toEqual(record.entries);
+    await store.save(loaded);
+    const rewritten = decodeSparkDshSessionJsonl(await readFile(record.path, "utf8"));
+
+    expect(rewritten?.events.filter((event) => event.type === "subagent/descriptor")).toEqual([
+      expect.objectContaining({
+        data: expect.objectContaining({ provider: "spawn", label: "Review" }),
+      }),
+    ]);
+    expect(rewritten?.events.filter((event) => event.type === "spark/record")).toHaveLength(2);
+    expect(
+      rewritten?.events.filter((event) => event.type === "subagent/model-selection-policy"),
+    ).toEqual([
+      expect.objectContaining({
+        data: {
+          allowedModels: [
+            { provider: "test", model: "reviewer" },
+            { provider: "test", model: "executor" },
+          ],
+        },
+      }),
+    ]);
+    expect(rewritten?.header).toMatchObject({
+      parentSession: "sess_parent",
+      origin: "subagent",
+      delegationDepth: 2,
+      agentPreset: "spark-standard",
+    });
+    await expect(store.load(record.path)).resolves.toMatchObject({
+      header: {
+        parentSessionId: "sess_parent",
+        origin: "subagent",
+        delegationDepth: 2,
+        agentPreset: "spark-standard",
+      },
+      entries: record.entries,
+    });
+  });
+
+  it("bridges official subagent events written directly by DSH before a Spark rewrite", async () => {
+    const { store, record } = await fixture("native-subagent-events");
+    await store.save(record);
+    const document = decodeSparkDshSessionJsonl(await readFile(record.path, "utf8"));
+    expect(document).toBeDefined();
+    if (!document) return;
+    const events: SparkDshSessionEvent[] = [
+      ...document.events,
+      {
+        type: "subagent/descriptor",
+        seq: document.events.length,
+        time: Date.parse("2026-08-20T00:00:01.000Z"),
+        data: { version: 3, mode: "one-shot", provider: "spawn", label: "Review" },
+      },
+      {
+        type: "subagent/model-selection-policy",
+        seq: document.events.length + 1,
+        time: Date.parse("2026-08-20T00:00:02.000Z"),
+        data: {
+          allowedModels: [
+            { provider: "test", model: "reviewer" },
+            { provider: "test", model: "executor" },
+          ],
+        },
+      },
+    ];
+
+    const projected = dshDocumentToSparkRecord(record.path, { ...document, events });
+    expect(projected.entries).toMatchObject([
+      { type: "subagent_descriptor", descriptor: { provider: "spawn", label: "Review" } },
+      {
+        type: "subagent_model_selection",
+        allowedModels: [
+          { provider: "test", model: "reviewer" },
+          { provider: "test", model: "executor" },
+        ],
+      },
+    ]);
+
+    await store.save(projected);
+    const rewritten = decodeSparkDshSessionJsonl(await readFile(record.path, "utf8"));
+    expect(rewritten?.events.filter((event) => event.type === "subagent/descriptor")).toHaveLength(
+      1,
+    );
+    expect(
+      rewritten?.events.filter((event) => event.type === "subagent/model-selection-policy"),
+    ).toHaveLength(1);
+    await expect(store.load(record.path)).resolves.toMatchObject({ entries: projected.entries });
+  });
+
   it("refuses an unknown required event and torn JSONL", async () => {
     const { store, record } = await fixture("invalid");
     record.entries = [message("u1", null, { role: "user", content: "hello" })];

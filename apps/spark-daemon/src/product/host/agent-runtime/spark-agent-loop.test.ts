@@ -361,6 +361,27 @@ test("SparkAgentLoop sends the effective output budget to its hook and provider"
   assert.ok((providerBudget ?? model.maxTokens) < model.maxTokens);
 });
 
+test("SparkAgentLoop applies the frozen Session output ceiling before context safety", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-session-output-budget" });
+  const model = { ...TEST_MODEL, contextWindow: 8_000, maxTokens: 4_000 };
+  let providerBudget: number | undefined;
+  const loop = new SparkAgentLoop({
+    host,
+    getModel: () => model,
+    maxOutputTokens: 512,
+    llm: asSparkTurnLlm((streamModel, context, options) => {
+      providerBudget = options?.maxTokens;
+      return makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
+      })(streamModel, context, options);
+    }),
+  });
+
+  await loop.submitWithOutcome("bounded response");
+
+  assert.equal(providerBudget, 512);
+});
+
 test("SparkAgentLoop runs final provider preflight after tool and prompt assembly", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-provider-preflight" });
   host.registerTool({

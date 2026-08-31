@@ -63,6 +63,8 @@ export const sparkSessionModelSelectionSchema = z.object({
   model: sparkModelRefSchema.optional(),
   /** Absent means this session inherits the host/default thinking level. */
   thinkingLevel: sparkThinkingLevelSchema.optional(),
+  /** Per-request output ceiling inherited by child Sessions unless overridden. */
+  maxOutputTokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
 export const sparkModelControlSnapshotSchema = z.object({

@@ -5,6 +5,8 @@
  * root registry/mailbox surface while remaining under the same Session owner.
  */
 
+import type { SubagentDescriptorData } from "@deepseek-ai/dsh-subagent";
+
 export const CURRENT_SPARK_SESSION_VERSION = 4;
 
 export interface SparkSessionHeader {
@@ -14,6 +16,12 @@ export interface SparkSessionHeader {
   timestamp: string;
   cwd: string;
   parentSession?: string;
+  /** Native DSH lineage id when `parentSession` is retained as a Spark path. */
+  parentSessionId?: string;
+  seedLength?: number;
+  origin?: "subagent";
+  delegationDepth?: number;
+  agentPreset?: string;
   /** Internal transcripts are addressable only by their owning subsystem. */
   visibility?: "internal";
   /** Diagnostic purpose for an internal transcript; never a public session kind. */
@@ -108,6 +116,18 @@ export interface SparkSessionInfoEntry extends SparkSessionEntryBase {
   name?: string;
 }
 
+/** Bridge record for the official model-hidden DSH child identity event. */
+export interface SparkSubagentDescriptorEntry extends SparkSessionEntryBase {
+  type: "subagent_descriptor";
+  descriptor: SubagentDescriptorData;
+}
+
+/** Creation-time route snapshot consumed by the official DSH subagent tool. */
+export interface SparkSubagentModelSelectionEntry extends SparkSessionEntryBase {
+  type: "subagent_model_selection";
+  allowedModels: Array<{ provider: string; model: string }>;
+}
+
 export type SparkSessionEntry =
   | SparkSessionMessageEntry
   | SparkThinkingLevelChangeEntry
@@ -117,7 +137,9 @@ export type SparkSessionEntry =
   | SparkCustomEntry
   | SparkCustomMessageEntry
   | SparkLabelEntry
-  | SparkSessionInfoEntry;
+  | SparkSessionInfoEntry
+  | SparkSubagentDescriptorEntry
+  | SparkSubagentModelSelectionEntry;
 
 export type SparkSessionFileEntry = SparkSessionHeader | SparkSessionEntry;
 
@@ -154,6 +176,11 @@ export interface NewSparkSessionOptions {
   timestamp?: string;
   visibility?: "internal";
   purpose?: "side_thread" | "loop_tick";
+  parentSessionId?: string;
+  seedLength?: number;
+  origin?: "subagent";
+  delegationDepth?: number;
+  agentPreset?: string;
 }
 
 export interface SparkSessionAtomicWriteOptions {

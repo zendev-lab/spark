@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
+import * as dshToolSubagent from "@deepseek-ai/dsh-tool-subagent";
 import type { SparkDshToolPolicyMetadata, SparkHostAPI } from "@zendev-lab/spark-invocation";
 import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
 
@@ -232,8 +233,46 @@ export function loadSparkProductCapabilities(): SparkProductCapability[] {
   return SPARK_PRODUCT_CAPABILITIES.map((capability) => ({ ...capability }));
 }
 
-export function loadSparkProductAgentPlugins(): Plugin[] {
-  return [SPARK_CUE_TOOL_PLUGIN, SPARK_FUSION_PLUGIN, SPARK_WEB_PLUGIN];
+export function loadSparkProductAgentPlugins(options?: {
+  subagentModels: Array<{ provider: string; model: string }>;
+}): Plugin[] {
+  const base = [SPARK_CUE_TOOL_PLUGIN, SPARK_FUSION_PLUGIN, SPARK_WEB_PLUGIN];
+  if (!options) return base;
+  const routes = options.subagentModels.map((route) => ({ ...route }));
+  const modelSelection = routes.length > 0;
+  const policy: Plugin = {
+    name: "spark-subagent-model-selection-policy",
+    apply(ctx) {
+      if (!modelSelection) return;
+      const agent = ctx.agent;
+      if (!agent) throw new Error("Spark subagent model policy requires an Agent scope");
+      if (agent.session.events.some((event) => event.type === "subagent/model-selection-policy")) {
+        return;
+      }
+      agent.session.append("subagent/model-selection-policy", { allowedModels: routes });
+    },
+  };
+  const subagent = (provider: "spawn" | "fork", toolName: string, selectable: boolean): Plugin => ({
+    name: `spark-tool-subagent-${provider}`,
+    inject: dshToolSubagent.inject,
+    apply(ctx) {
+      dshToolSubagent.apply(ctx, {
+        provider,
+        toolName,
+        backgroundMode: "one-shot",
+        maxDepth: 3,
+        ...(modelSelection && selectable ? { modelSelectionSettings: true } : {}),
+      });
+    },
+  });
+  return [
+    ...base,
+    policy,
+    subagent("spawn", "subagent", true),
+    // DSH exposes one shared list_subagent_models tool per Agent scope. Forks
+    // retain the parent route to preserve inherited-prefix reuse.
+    subagent("fork", "subagent_fork", false),
+  ];
 }
 
 export interface SparkProductDshToolSurface {

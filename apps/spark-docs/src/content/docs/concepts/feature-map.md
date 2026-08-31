@@ -105,6 +105,9 @@ feature creates a read-only child Session. Feishu, Infoflow, and QQ Bot
 conversations resolve to daemon-global root Channel Sessions without requiring
 a Workspace or creating another execution owner. Sessions can send requests or
 notifications and receive completion summaries through their Inbox.
+Daemon-backed subagents select only from the Agent's creation-time
+`enabledModels` snapshot; the daemon revalidates and freezes their route,
+reasoning level, and output ceiling before admission.
 
 See [collaboration](/guides/collaboration/), [daemon-global Channels](/guides/channels/),
 and [Side Threads](/guides/side-threads/).

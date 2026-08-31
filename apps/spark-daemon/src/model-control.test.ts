@@ -127,6 +127,125 @@ describe("daemon model control", () => {
     await expect(control.effectiveThinkingLevel("sess_thinking")).resolves.toBe("medium");
   });
 
+  it("inherits and clamps the complete subagent model profile", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-subagent-model-control-"));
+    roots.push(root);
+    const sessionRegistry = createDaemonSessionRegistry(root, {
+      daemonId: "install-subagent-model-control",
+      daemonCwd: root,
+    });
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator("ws_demo");
+    if (administrator.scope.kind !== "workspace") throw new Error("Missing workspace fixture");
+    await sessionRegistry.create({
+      sessionId: "sess_parent",
+      scope: administrator.scope,
+      supervisorSessionId: administrator.sessionId,
+      model: selectedModel,
+      thinkingLevel: "medium",
+      maxOutputTokens: 4_096,
+    });
+    const providerControl = fakeProviderControl();
+    const providerSnapshot = await providerControl.snapshot();
+    const unavailableEnabledModel = providerSnapshot.models[0];
+    if (!unavailableEnabledModel) throw new Error("Missing enabled model fixture");
+    unavailableEnabledModel.available = false;
+    const control = createSparkDaemonModelControl({ providerControl, sessionRegistry });
+
+    await expect(control.resolveSubagentOptions!("sess_parent")).resolves.toMatchObject({
+      model: selectedModel,
+      thinkingLevel: "medium",
+      maxOutputTokens: 4_096,
+      enabledModels: [
+        { provider: "baidu-oneapi", model: "ernie-4.5" },
+        { provider: "baidu-oneapi", model: "ernie-4.6" },
+      ],
+    });
+    unavailableEnabledModel.available = true;
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", {
+        provider: model.providerName,
+        model: model.modelId,
+        reasoningEffort: "low" as never,
+        maxTokens: 16_384,
+      }),
+    ).resolves.toMatchObject({
+      model,
+      thinkingLevel: "low",
+      maxOutputTokens: 8_192,
+      enabledModels: expect.arrayContaining([
+        { provider: "baidu-oneapi", model: "ernie-4.5" },
+        { provider: "baidu-oneapi", model: "ernie-4.6" },
+      ]),
+    });
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", { maxTokens: 2_048 }),
+    ).resolves.toMatchObject({
+      model: selectedModel,
+      thinkingLevel: "medium",
+      maxOutputTokens: 2_048,
+    });
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", {
+        provider: model.providerName,
+        model: model.modelId,
+      }),
+    ).resolves.toMatchObject({
+      model,
+      thinkingLevel: "high",
+      maxOutputTokens: 4_096,
+    });
+  });
+
+  it("revalidates explicit subagent routes and supported reasoning at creation time", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-subagent-model-revalidation-"));
+    roots.push(root);
+    const sessionRegistry = createDaemonSessionRegistry(root, {
+      daemonId: "install-subagent-model-revalidation",
+      daemonCwd: root,
+    });
+    await createDaemonWorkspaceSession(sessionRegistry, {
+      sessionId: "sess_parent",
+      workspaceId: "ws_demo",
+    });
+    const providerControl = fakeProviderControl(undefined, undefined, ["baidu-oneapi/ernie-4.5"]);
+    const providerSnapshot = await providerControl.snapshot();
+    const nonReasoning = providerSnapshot.models[0];
+    if (!nonReasoning) throw new Error("Missing model fixture");
+    nonReasoning.reasoning = false;
+    const control = createSparkDaemonModelControl({ providerControl, sessionRegistry });
+
+    await expect(control.resolveSubagentOptions!("sess_parent")).resolves.toMatchObject({
+      model,
+      thinkingLevel: "off",
+    });
+
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", {
+        provider: selectedModel.providerName,
+        model: selectedModel.modelId,
+      }),
+    ).rejects.toMatchObject({ code: "model_not_enabled" });
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", {
+        provider: model.providerName,
+        model: model.modelId,
+        reasoningEffort: "high" as never,
+      }),
+    ).rejects.toMatchObject({ code: "model_unavailable" });
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", {
+        provider: model.providerName,
+      }),
+    ).rejects.toMatchObject({ code: "model_not_found" });
+    await expect(
+      control.resolveSubagentOptions!("sess_parent", {
+        provider: model.providerName,
+        model: model.modelId,
+        reasoningEffort: "unsupported" as never,
+      }),
+    ).rejects.toMatchObject({ code: "model_not_found" });
+  });
+
   it("maps OAuth interaction state without credential material", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-model-oauth-"));
     roots.push(root);
