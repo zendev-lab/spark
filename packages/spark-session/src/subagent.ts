@@ -31,7 +31,6 @@ export type SparkSubagentRoleRef = `role:${string}`;
 export type SparkSubagentErrorCode =
   | "invalid_role_ref"
   | "invalid_parent_session"
-  | "invalid_mode"
   | "missing_subagent_host"
   | "subagent_execution_unavailable"
   | "subagent_depth_exceeded";
@@ -68,7 +67,6 @@ export interface SparkSubagentHostTerminal {
 
 export interface SparkSubagentHostRun {
   sessionId: string;
-  invocationId?: string;
   result: Promise<SparkSubagentHostTerminal>;
   cancel(reason: string): void | Promise<void>;
   waitForIdle(): Promise<void>;
@@ -166,17 +164,16 @@ function createProvider(
           `subagent depth ${delegationDepth} exceeds maximum ${request.maxDepth}`,
         );
       }
+      const name = optionalText(request.label);
       const run = await host.start({
         parentSessionId,
         roleRef: roleRefFromDshRequest(request),
         mode,
-        ...(optionalText(request.label) ? { name: optionalText(request.label) } : {}),
-        prompt: request.prompt.map((block) => structuredClone(block)),
-        ...(request.agentOptions
-          ? { agentOptions: normalizeAgentOptions(request.agentOptions) }
-          : {}),
+        ...(name ? { name } : {}),
+        prompt: request.prompt,
+        ...(request.agentOptions ? { agentOptions: request.agentOptions } : {}),
         delegationDepth,
-        descriptor: structuredClone(request.descriptor),
+        descriptor: request.descriptor,
         signal: request.signal,
       });
       return publishedRun(run);
@@ -189,14 +186,11 @@ function publishedRun(run: SparkSubagentHostRun): SubagentRun {
   return {
     id: SessionId(run.sessionId),
     localAgent: undefined,
-    result: run.result.then((terminal): SubagentResult => ({
-      output: terminal.output.map((block) => structuredClone(block)),
-      ...(terminal.structured !== undefined
-        ? { structured: structuredClone(terminal.structured) }
-        : {}),
-      ...(terminal.diagnostic ? { diagnostic: boundedDiagnostic(terminal.diagnostic) } : {}),
-      stopReason: terminal.stopReason,
-    })),
+    result: run.result.then((terminal): SubagentResult =>
+      terminal.diagnostic
+        ? { ...terminal, diagnostic: boundedDiagnostic(terminal.diagnostic) }
+        : terminal,
+    ),
     dispose() {
       disposed ??= Promise.resolve(run.cancel("DSH subagent run disposed")).then(
         async () => await run.waitForIdle(),
@@ -206,33 +200,13 @@ function publishedRun(run: SparkSubagentHostRun): SubagentRun {
   };
 }
 
-function normalizeAgentOptions(options: AgentOptions): AgentOptions {
-  const provider = optionalText(options.provider);
-  const model = optionalText(options.model);
-  const reasoningEffort = optionalText(
-    options.reasoningEffort === undefined ? undefined : String(options.reasoningEffort),
-  );
-  const maxTokens = options.maxTokens;
-  if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens <= 0)) {
-    throw new Error("subagent AgentOptions.maxTokens must be a positive safe integer");
-  }
-  return {
-    ...(provider ? { provider } : {}),
-    ...(model ? { model } : {}),
-    ...(reasoningEffort
-      ? { reasoningEffort: reasoningEffort as AgentOptions["reasoningEffort"] }
-      : {}),
-    ...(maxTokens ? { maxTokens } : {}),
-  };
-}
-
 function normalizeRoleRef(value: string): SparkSubagentRoleRef {
   const roleRef = typeof value === "string" ? value.trim() : "";
   if (!/^role:.+/u.test(roleRef)) {
     throw new SparkSubagentError("invalid_role_ref", "subagent start requires a role:* ref");
   }
   const id = roleRef.slice("role:".length).trim();
-  if (!id || HUMAN_ROLE_IDS.has(id.toLowerCase()) || HUMAN_ROLE_IDS.has(id)) {
+  if (!id || HUMAN_ROLE_IDS.has(id.toLowerCase())) {
     throw new SparkSubagentError("invalid_role_ref", "human operator is not a Role");
   }
   return roleRef as SparkSubagentRoleRef;

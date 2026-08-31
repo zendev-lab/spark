@@ -74,7 +74,6 @@ export function createSparkDaemonSubagentHost(input: {
       });
       return {
         sessionId: session.sessionId,
-        invocationId,
         result,
         cancel: async (reason) => await input.cancel(invocationId, reason),
         waitForIdle: async () => await input.waitForSessionIdle(session.sessionId),

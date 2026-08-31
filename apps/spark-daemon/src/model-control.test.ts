@@ -144,10 +144,12 @@ describe("daemon model control", () => {
       thinkingLevel: "medium",
       maxOutputTokens: 4_096,
     });
-    const control = createSparkDaemonModelControl({
-      providerControl: fakeProviderControl(),
-      sessionRegistry,
-    });
+    const providerControl = fakeProviderControl();
+    const providerSnapshot = await providerControl.snapshot();
+    const unavailableEnabledModel = providerSnapshot.models[0];
+    if (!unavailableEnabledModel) throw new Error("Missing enabled model fixture");
+    unavailableEnabledModel.available = false;
+    const control = createSparkDaemonModelControl({ providerControl, sessionRegistry });
 
     await expect(control.resolveSubagentOptions!("sess_parent")).resolves.toMatchObject({
       model: selectedModel,
@@ -158,6 +160,7 @@ describe("daemon model control", () => {
         { provider: "baidu-oneapi", model: "ernie-4.6" },
       ],
     });
+    unavailableEnabledModel.available = true;
     await expect(
       control.resolveSubagentOptions!("sess_parent", {
         provider: model.providerName,

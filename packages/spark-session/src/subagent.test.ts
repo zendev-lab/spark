@@ -28,7 +28,6 @@ function recordingHost(
       starts.push(input);
       return {
         sessionId: `sess_${starts.length}`,
-        invocationId: `inv_${starts.length}`,
         result: Promise.resolve({
           output: [{ type: "text", text: "child result" }],
           stopReason: "completed",

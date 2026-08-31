@@ -282,18 +282,10 @@ class DaemonModelControl implements SparkDaemonModelControl {
       );
     }
     const maxOutputTokens = minDefined(requestedMax, entry.maxTokens);
-    const enabledModels = (snapshot.enabledModels ?? [])
-      .filter((model) =>
-        snapshot.providers.some((provider) =>
-          provider.models.some(
-            (candidate) =>
-              candidate.available &&
-              candidate.model.providerName === model.providerName &&
-              candidate.model.modelId === model.modelId,
-          ),
-        ),
-      )
-      .map((model) => ({ provider: model.providerName, model: model.modelId }));
+    const enabledModels = (snapshot.enabledModels ?? []).map((model) => ({
+      provider: model.providerName,
+      model: model.modelId,
+    }));
     return {
       model: entry.model,
       thinkingLevel: thinking.data,
