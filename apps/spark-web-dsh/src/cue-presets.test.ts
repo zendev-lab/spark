@@ -23,8 +23,9 @@ import {
 const dshPackageDir = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
-  "presets",
-  "upstream-package",
+  "node_modules",
+  "@deepseek-ai",
+  "dsh",
 );
 const skillDir = cueSkillsRoot;
 
@@ -95,7 +96,7 @@ describe("packaged preset sources", () => {
 
 describe("managed Cue-first presets", () => {
   it("verifies the installed package metadata", () => {
-    expect(readDshPackageVersion(dshPackageDir)).toBe("fixture-release");
+    expect(readDshPackageVersion(dshPackageDir)).toBe("0.1.2-alpha.2");
   });
 
   it("rejects invalid package metadata without duplicating the supported release", () => {
@@ -154,13 +155,13 @@ describe("managed Cue-first presets", () => {
         expect(composition).not.toContain("backgroundMode: continuable");
         const marker = readFileSync(join(item.path, ".spark-managed.json"), "utf8");
         expect(marker).toContain("@zendev-lab/spark-web-dsh");
-        expect(marker).toContain('"dshVersion": "fixture-release"');
+        expect(marker).toContain('"dshVersion": "0.1.2-alpha.2"');
       }
       expect(readFileSync(join(first[0]!.path, "preset.yml"), "utf8")).toContain(
         "name: Spark Standard",
       );
       expect(readFileSync(join(first[1]!.path, "preset.yml"), "utf8")).toContain("name: Spark PTC");
-      // Only the PTC preset composes the Code Mode presentation row.
+      // Only the PTC preset composes the PTC presentation row.
       expect(readFileSync(join(first[0]!.path, "agent.cordis.yml"), "utf8")).not.toContain(
         "id: tool-presentation",
       );

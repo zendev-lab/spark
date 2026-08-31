@@ -6,10 +6,12 @@ packages:
 verifyDepsBeforeRun: warn
 
 allowBuilds:
+  "@deepseek-ai/dsh-subprocess-local": true
   "@google/genai": true
   better-sqlite3: true
   esbuild: true
   koffi: true
+  node-pty: true
   protobufjs: true
   sharp: true
   workerd: true
@@ -37,40 +39,54 @@ catalog:
 
 catalogs:
   dsh:
-    "@deepseek-ai/dsh-agent": &dsh-version "0.1.1-rc.2"
-    "@deepseek-ai/dsh-agent-loop": *dsh-version
-    "@deepseek-ai/dsh-attachment": *dsh-version
-    "@deepseek-ai/dsh-attachment-local": *dsh-version
-    "@deepseek-ai/dsh-brand": *dsh-version
-    "@deepseek-ai/dsh-code-runtime": *dsh-version
-    "@deepseek-ai/dsh-code-runtime-worker-thread": *dsh-version
-    "@deepseek-ai/dsh-fs": *dsh-version
-    "@deepseek-ai/dsh-invariants": *dsh-version
-    "@deepseek-ai/dsh-home-paths": *dsh-version
-    "@deepseek-ai/dsh-llm": *dsh-version
-    "@deepseek-ai/dsh-sandbox": *dsh-version
-    "@deepseek-ai/dsh-sandbox-policy": *dsh-version
-    "@deepseek-ai/dsh-scope": *dsh-version
-    "@deepseek-ai/dsh-schedule": *dsh-version
-    "@deepseek-ai/dsh-session": *dsh-version
-    "@deepseek-ai/dsh-session-persistence": *dsh-version
-    "@deepseek-ai/dsh-skill": *dsh-version
-    "@deepseek-ai/dsh-skill-filesystem": *dsh-version
-    "@deepseek-ai/dsh-settings": *dsh-version
-    "@deepseek-ai/dsh-shell-env": *dsh-version
-    "@deepseek-ai/dsh-subagent": *dsh-version
-    "@deepseek-ai/dsh-system-prompt": *dsh-version
-    "@deepseek-ai/dsh-timeout": *dsh-version
-    "@deepseek-ai/dsh-tool-skill": *dsh-version
-    "@deepseek-ai/dsh-tools": *dsh-version
-    "@deepseek-ai/dsh-user-approval": *dsh-version
-    "@deepseek-ai/dsh-web": *dsh-version
+    "@deepseek-ai/dsh": &dsh-version "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-agent": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-api-session-controller": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-agent-loop": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-attachment": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-attachment-local": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-brand": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-code-runtime": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-code-runtime-worker-thread": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-fs": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-invariants": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-home-paths": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-llm": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-sandbox": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-sandbox-policy": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-scope": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-schedule": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-session": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-session-persistence": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-session-projection": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-skill": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-skill-filesystem": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-settings": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-shell-env": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-subagent": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-system-prompt": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-timeout": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-tool-skill": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-tools": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-util-values": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-user-approval": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-web": "0.1.2-alpha.2"
 
 minimumReleaseAgeExclude:
   - "@types/node"
   - "@earendil-works/*"
   - "@deepseek-ai/dsh-*"
   - "@zendev-lab/cue@0.1.2"
+  - "@deepseek-ai/cordis@4.0.2"
+  - "@deepseek-ai/cosmokit@1.8.3"
+  - "@deepseek-ai/schemastery@3.18.2"
+  - "@deepseek-ai/cordis-plugin-group@1.0.2"
+  - "@deepseek-ai/cordis-plugin-hmr@1.0.17"
+  - "@deepseek-ai/cordis-plugin-include@1.0.7"
+  - "@deepseek-ai/cordis-plugin-loader@1.0.3"
+  - "@deepseek-ai/cordis-plugin-timer@1.1.4"
+  - "@deepseek-ai/dsh@0.1.2-alpha.2"
 
 overrides:
   "@deepseek-ai/dsh-user-approval": "catalog:dsh"
@@ -97,6 +113,9 @@ overrides:
 
 peerDependencyRules:
   allowedVersions:
+    # DSH alpha.2 ships React 19 but its renderer's compatibility shim retains
+    # the older use-sync-external-store peer declaration.
+    "use-sync-external-store>react": "19"
     # kysely-codegen 0.20 works with the v13 N-API build; remove this exception
     # once its published peer range includes better-sqlite3 13.
     "kysely-codegen>better-sqlite3": "13"

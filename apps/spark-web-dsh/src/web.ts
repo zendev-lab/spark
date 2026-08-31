@@ -1,10 +1,11 @@
 /**
  * `spark web` — Spark-owned boot of the DeepSeek Harness web profile.
  *
- * The profile is booted directly: a plain `node` child imports the installed
- * `@deepseek-ai/dsh` package's `profile-boot-*` module and calls `runProfile`
- * — no `dsh` CLI on the PATH, no dsh-managed wrapper. On top of the stock
- * profile Spark owns nine additions:
+ * Spark initializes the profile through the public app-boot configuration API,
+ * installs its managed bundles and presets, then starts the exact installed
+ * DSH release through its public `dsh --profile web --patch ...` CLI. The CLI
+ * entry is resolved from this package's direct dependency, never from PATH.
+ * On top of the stock profile Spark owns nine additions:
  *
  * 1. **spark-llm plugin, loaded automatically.** The provider bundle is built
  *    from `@zendev-lab/spark-llm-providers` (esbuild, host externals resolved by the DSH
@@ -41,16 +42,6 @@
  * 9. **Host plugin HMR disabled by default**, because this compatibility server
  *    prebuilds bundles and keeps long-lived reload state out of the process.
  *
- * Boot independence notes:
- *
- * - The child runs with `--expose-internals` so the cordis loader resolves
- *   bare plugin specifiers through Node's internal ESM loader. Its documented
- *   fallback, the `node-addon-require-builtin` native addon, breaks under
- *   pnpm store-link layouts (its optional platform package is unreachable
- *   from the loader's real location) and takes down every bare loader entry.
- * - Boot failures print the full AggregateError / cause chain; the loader's
- *   one-line summary names no failing entry and is not actionable.
- *
  * Everything else is forwarded to the web app (ports, trusted hosts, app
  * args).
  */
@@ -73,7 +64,7 @@ import { homedir, tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 import {
@@ -86,10 +77,7 @@ import {
 } from "@zendev-lab/spark-daemon-client";
 import { startSparkWebDshAuthProxy } from "./auth-proxy.ts";
 import { installManagedCuePresets, retireLegacyManagedCuePresets } from "./cue-presets.ts";
-import {
-  SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY,
-  SPARK_WEB_DSH_PROXY_HEADER,
-} from "./private-webserver.ts";
+import { SPARK_WEB_DSH_PROXY_HEADER } from "./private-webserver.ts";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -231,57 +219,57 @@ export function resolveSparkFilesPackageDir(): string {
   return resolvePackageDir("@zendev-lab/spark-files");
 }
 
-function packageRootFrom(start: string, expectedName: string): string | undefined {
-  let current = start;
-  while (true) {
-    const packagePath = join(current, "package.json");
-    if (existsSync(packagePath)) {
-      try {
-        const metadata = JSON.parse(readFileSync(packagePath, "utf8")) as { name?: unknown };
-        if (metadata.name === expectedName) return current;
-      } catch {
-        // Keep walking: an unrelated or malformed package is not the DSH install.
-      }
-    }
-    const parent = dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
+export const SUPPORTED_DSH_VERSION = "0.1.2-alpha.2";
+
+/** Resolve and verify the exact direct `@deepseek-ai/dsh` dependency. */
+export function resolveInstalledDshPackageDir(): string {
+  const dir = resolvePackageDir("@deepseek-ai/dsh");
+  const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+    name?: unknown;
+    version?: unknown;
+  };
+  if (manifest.name !== "@deepseek-ai/dsh" || manifest.version !== SUPPORTED_DSH_VERSION) {
+    throw new Error(
+      `spark web: expected @deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}, found ${String(manifest.name)}@${String(manifest.version)}`,
+    );
   }
+  return dir;
 }
 
-function executableOnPath(command: string): string | undefined {
-  if (command.includes("/")) return existsSync(command) ? command : undefined;
-  for (const entry of (process.env.PATH ?? "").split(":")) {
-    const candidate = join(entry, command);
-    if (existsSync(candidate)) return candidate;
+/** Resolve the public CLI entry declared by the verified DSH manifest. */
+export function resolveDshCliEntry(dshPackageDir = resolveInstalledDshPackageDir()): string {
+  const manifest = JSON.parse(readFileSync(join(dshPackageDir, "package.json"), "utf8")) as {
+    name?: unknown;
+    version?: unknown;
+    bin?: unknown;
+  };
+  const bin =
+    typeof manifest.bin === "object" && manifest.bin !== null
+      ? (manifest.bin as Record<string, unknown>).dsh
+      : manifest.bin;
+  if (
+    manifest.name !== "@deepseek-ai/dsh" ||
+    manifest.version !== SUPPORTED_DSH_VERSION ||
+    typeof bin !== "string"
+  ) {
+    throw new Error(`spark web: installed @deepseek-ai/dsh has no supported public dsh CLI`);
   }
-  return undefined;
-}
-
-/** Resolve the actual installed `@deepseek-ai/dsh` package owning the CLI. */
-export function resolveInstalledDshPackageDir(
-  command = process.env.SPARK_DSH_COMMAND?.trim() || "dsh",
-  searchFrom = process.cwd(),
-): string {
-  const installed = resolveFromDirectory(searchFrom, "@deepseek-ai/dsh");
-  if (installed !== undefined) return dirname(installed);
-  const executable = executableOnPath(command);
-  if (executable !== undefined) {
-    const realExecutable = realpathSync(executable);
-    const direct = packageRootFrom(dirname(realExecutable), "@deepseek-ai/dsh");
-    if (direct !== undefined) return direct;
-    const nested = resolveFromDirectory(dirname(realExecutable), "@deepseek-ai/dsh");
-    if (nested !== undefined) return dirname(nested);
-  }
-  throw new Error(
-    `spark web: cannot locate installed @deepseek-ai/dsh package metadata for ${JSON.stringify(command)}`,
-  );
+  const entry = resolve(dshPackageDir, bin);
+  if (!existsSync(entry)) throw new Error(`spark web: DSH CLI entry not found at ${entry}`);
+  return entry;
 }
 
 interface DshProfileRuntime {
-  PROFILE_TEMPLATES: Record<string, readonly string[]>;
-  healProfilesModuleFallback(installAnchor: string, home?: string): void;
-  initProfile(dir: string, bundles: readonly string[]): void;
+  PROFILE_TEMPLATES: Record<
+    string,
+    { bundles: readonly string[]; patchReload: "live" | "startup" }
+  >;
+  healProfilesModuleFallback(options: {
+    installAnchor: string;
+    profile?: { dir: string };
+    home?: string;
+  }): Promise<void>;
+  initProfile(dir: string, bundles: readonly string[], patchReload?: "live" | "startup"): void;
   loadProfile(binName: string, name: string, installAnchor: string, home?: string): { dir: string };
 }
 
@@ -313,7 +301,7 @@ async function loadDshProfileRuntime(dshPackageDir: string): Promise<DshProfileR
   const runtime = (await import(pathToFileURL(entry).href)) as Partial<DshProfileRuntime>;
   const webTemplate = runtime.PROFILE_TEMPLATES?.web;
   if (
-    !Array.isArray(webTemplate) ||
+    !Array.isArray(webTemplate?.bundles) ||
     typeof runtime.healProfilesModuleFallback !== "function" ||
     typeof runtime.initProfile !== "function" ||
     typeof runtime.loadProfile !== "function"
@@ -342,14 +330,15 @@ export async function ensureDshWebProfile(
   const initialized = requiredFiles.some((file) => !existsSync(join(profileDir, file)));
   const runtime = await loadDshProfileRuntime(dshPackageDir);
   const installAnchor = join(dshPackageDir, "package.json");
-  runtime.healProfilesModuleFallback(installAnchor, dshHome);
-  runtime.initProfile(profileDir, runtime.PROFILE_TEMPLATES.web!);
+  const template = runtime.PROFILE_TEMPLATES.web!;
+  runtime.initProfile(profileDir, template.bundles, template.patchReload);
   const profile = runtime.loadProfile("spark web-dsh", "web", installAnchor, dshHome);
   if (resolve(profile.dir) !== resolve(profileDir)) {
     throw new Error(
       `spark web-dsh: DSH initialized an unexpected profile directory ${profile.dir}`,
     );
   }
+  await runtime.healProfilesModuleFallback({ installAnchor, profile, home: dshHome });
   return initialized;
 }
 
@@ -405,6 +394,37 @@ export async function ensureSparkPrivateWebServerBundle(
   }
   throw new Error(
     `spark web: private WebServer entry not found at ${sourceEntry} or ${packagedEntry}`,
+  );
+}
+
+/** Install the inner DSH cookie bridge into the active profile. */
+export async function ensureSparkPrivateInnerAuthBundle(
+  profileDir: string,
+  packageDir = resolveSparkWebDshPackageDir(),
+): Promise<string> {
+  const bundle = join(profileDir, "plugins", "spark-private-inner-auth", "index.mjs");
+  mkdirSync(dirname(bundle), { recursive: true });
+  const sourceEntry = join(packageDir, "src", "private-inner-auth.ts");
+  if (existsSync(sourceEntry)) {
+    await build({
+      entryPoints: [sourceEntry],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      outfile: bundle,
+      external: ["@deepseek-ai/*"],
+      logLevel: "silent",
+    });
+    return bundle;
+  }
+  const packagedEntry = join(packageDir, "lib", "spark-private-inner-auth.mjs");
+  if (existsSync(packagedEntry)) {
+    writeFileSync(bundle, readFileSync(packagedEntry));
+    return bundle;
+  }
+  throw new Error(
+    `spark web: private inner-auth entry not found at ${sourceEntry} or ${packagedEntry}`,
   );
 }
 
@@ -665,6 +685,24 @@ export async function ensureSparkSessionSubagentBundle(
 const SPARK_WEB_DHS_PACKAGE = "@zendev-lab/spark-web-dsh";
 const SPARK_WEB_PACKAGE = "@zendev-lab/spark-web-dsh";
 
+function packageRootFrom(start: string, expectedName: string): string | undefined {
+  let current = start;
+  while (true) {
+    const packagePath = join(current, "package.json");
+    if (existsSync(packagePath)) {
+      try {
+        const metadata = JSON.parse(readFileSync(packagePath, "utf8")) as { name?: unknown };
+        if (metadata.name === expectedName) return current;
+      } catch {
+        // Keep walking: an unrelated or malformed package is not the requested install.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
 /** Locate this application's package root (the DSH client plugin lives here). */
 export function resolveSparkWebDshPackageDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -791,143 +829,52 @@ function linkClientIntoProfile(profileDir: string, packageDir: string): void {
   symlinkSync(packageDir, target, "junction");
 }
 
-/**
- * Flatten one boot failure into printable lines: AggregateError inner errors
- * and `cause` chains, depth-capped and total-bounded so a loader blowup stays
- * readable. The generated boot script embeds this exact implementation via
- * `Function#toString`, so the child process and the unit tests run one and
- * the same code. Keep it self-contained: no module-scope references.
- */
-export function sparkWebBootErrorLines(error: unknown, limit = 40): string[] {
-  const lines: string[] = [];
-  const seen = new Set<unknown>();
-  const visit = (failure: unknown, depth: number): void => {
-    if (lines.length >= limit || seen.has(failure)) return;
-    seen.add(failure);
-    lines.push(
-      `${"  ".repeat(Math.min(depth, 6))}${failure instanceof Error ? failure.message : String(failure)}`,
-    );
-    if (failure instanceof AggregateError) {
-      for (const inner of failure.errors) visit(inner, depth + 1);
-    }
-    if (failure instanceof Error && failure.cause !== undefined) visit(failure.cause, depth + 1);
-  };
-  visit(error, 0);
-  if (lines.length >= limit) lines.push("… (further nested failures truncated)");
-  return lines;
-}
-
-/**
- * A boot script that starts the DSH web profile **without the `dsh` CLI**:
- * it locates the installed `@deepseek-ai/dsh` package, imports its
- * `profile-boot-*.js` entry (the module the `dsh` binary runs) and invokes
- * `runProfile` directly. The script lives inside the profile so its bare
- * imports (`@deepseek-ai/dsh-app-boot`, ...) resolve from the profile's
- * node_modules. It is always spawned through `process.execPath`, so the PATH
- * never needs to contain `dsh`.
- */
-export function sparkWebBootScript(
-  patchFiles: readonly string[],
+/** Compose the public DSH CLI invocation without placing secrets in argv. */
+export function sparkWebDshCliArgs(
+  cliEntry: string,
+  patches: readonly string[],
   webArgs: readonly string[],
-): string {
-  const lines = [
-    "// Generated by spark web — boots the DSH web profile without the dsh CLI.",
-    'import { readFileSync, readdirSync } from "node:fs";',
-    'import { join } from "node:path";',
-    'import { pathToFileURL } from "node:url";',
-    'import { loadLayeredEnv } from "@deepseek-ai/dsh-app-boot";',
-    "",
-    `const patchFiles = [${patchFiles.map((file) => JSON.stringify(file)).join(", ")}];`,
-    `const webArgs = [${webArgs.map((arg) => JSON.stringify(arg)).join(", ")}];`,
-    'const proxyCredential = readFileSync(3, "utf8");',
-    'if (proxyCredential.length < 32) throw new Error("spark web: private proxy credential is unavailable");',
-    `Reflect.set(globalThis, Symbol.for(${JSON.stringify(SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY)}), proxyCredential);`,
-    "",
-    "const dshPackageDir = process.argv[2];",
-    'const libDir = join(dshPackageDir, "lib");',
-    "// Sorted: the package ships a re-export shim next to the real module (both",
-    "// export runProfile); a deterministic pick keeps boots reproducible.",
-    "const entry = readdirSync(libDir)",
-    '  .filter((file) => file.startsWith("profile-boot-") && file.endsWith(".js"))',
-    "  .sort()[0];",
-    "if (entry === undefined) {",
-    "  throw new Error(`spark web: no profile-boot module found under ${libDir}`);",
-    "}",
-    "const { runProfile } = await import(pathToFileURL(join(libDir, entry)).href);",
-    "",
-    `const sparkWebBootErrorLines = ${sparkWebBootErrorLines.toString()};`,
-    "",
-    "try {",
-    "  await runProfile({",
-    '    environment: loadLayeredEnv("spark"),',
-    '    profile: "web",',
-    "    patchFiles,",
-    "    args: webArgs,",
-    "  });",
-    "} catch (error) {",
-    "  let deepest = error;",
-    "  while (deepest instanceof Error && deepest.cause !== undefined) deepest = deepest.cause;",
-    '  if (deepest instanceof Error && deepest.code === "EADDRINUSE") {',
-    '    const target = /address already in use (.+)/.exec(deepest.message ?? "")?.[1];',
-    "    console.error(target === undefined",
-    '      ? "spark web: cannot start the web server because its port is already in use."',
-    "      : `spark web: cannot start the web server — ${target} is already in use.`);",
-    '    console.error("spark web: pick a free port with --port <port> (default 3080 is taken by a running harness).");',
-    "    process.exitCode = 1;",
-    "  } else {",
-    "    // Loader failures arrive as an AggregateError whose top-level message",
-    "    // names no failing entry; print the whole chain so the report is actionable.",
-    '    console.error("spark web: server failed to start; failure chain:");',
-    "    for (const line of sparkWebBootErrorLines(error)) {",
-    "      console.error(`spark web:   ${line}`);",
-    "    }",
-    "    process.exitCode = 1;",
-    "  }",
-    "}",
+): string[] {
+  return [
+    cliEntry,
+    "--profile",
+    "web",
+    ...patches.flatMap((patch) => ["--patch", patch]),
+    ...webArgs,
   ];
-  return lines.join("\n");
 }
 
-/** The `dsh` package directory a profile's node_modules can resolve. */
-export function resolveDshPackageDir(profileDir: string): string {
-  const pkgJson = resolveFromDirectory(profileDir, "@deepseek-ai/dsh");
-  if (pkgJson === undefined) {
-    throw new Error(`spark web: cannot locate @deepseek-ai/dsh from ${profileDir}`);
-  }
-  return dirname(pkgJson);
-}
-
-/**
- * Process arguments for the boot child. `--expose-internals` is the cordis
- * loader's first-class path for resolving bare plugin specifiers: it uses
- * Node's internal ESM loader instead of the optional
- * `node-addon-require-builtin` native addon, whose platform binding is not
- * reliably resolvable under pnpm store-link layouts (without it, every bare
- * loader entry fails inside one opaque AggregateError). The child is the DSH
- * host process itself, which the loader already expects to run this way.
- */
-export function sparkWebBootNodeArgs(scriptPath: string, dshPackageDir: string): string[] {
-  return ["--expose-internals", scriptPath, dshPackageDir];
-}
-
-/** Spawn the DSH web profile through bare node running the boot script. */
+/** Spawn the exact installed DSH release through its public CLI. */
 export async function runSparkWebDirect(
-  profileDir: string,
+  cliEntry: string,
   patches: readonly string[],
   webArgs: readonly string[],
   proxyCredential: string,
+  onInnerCookie: (cookie: string) => void = () => {},
 ): Promise<number> {
-  const dshPackageDir = resolveDshPackageDir(profileDir);
-  const scriptPath = join(profileDir, "plugins", "spark-web-boot.mjs");
-  mkdirSync(dirname(scriptPath), { recursive: true });
-  writeFileSync(scriptPath, sparkWebBootScript(patches, webArgs));
   return await new Promise<number>((resolve) => {
-    const child = spawn(process.execPath, sparkWebBootNodeArgs(scriptPath, dshPackageDir), {
-      stdio: ["inherit", "inherit", "inherit", "pipe"],
+    const child = spawn(process.execPath, sparkWebDshCliArgs(cliEntry, patches, webArgs), {
+      stdio: ["inherit", "inherit", "inherit", "pipe", "pipe"],
     });
     const credentialPipe = child.stdio[3] as Writable | null;
     credentialPipe?.on("error", () => {});
     credentialPipe?.end(proxyCredential);
+    const innerAuthPipe = child.stdio[4] as Readable | null;
+    let innerAuth = "";
+    innerAuthPipe?.setEncoding("utf8");
+    innerAuthPipe?.on("data", (chunk: string) => {
+      innerAuth += chunk;
+      if (innerAuth.length > 8192) child.kill("SIGTERM");
+    });
+    innerAuthPipe?.on("end", () => {
+      try {
+        onInnerCookie(innerAuth.trim());
+      } catch {
+        process.stderr.write("spark web: DSH inner authentication handoff failed\n");
+        child.kill("SIGTERM");
+      }
+    });
+    innerAuthPipe?.on("error", () => child.kill("SIGTERM"));
     child.on("error", (error: NodeJS.ErrnoException) => {
       const detail = error.code === "ENOENT" ? "node was not found" : error.message;
       process.stderr.write(`spark web: failed to start the web server: ${detail}\n`);
@@ -950,8 +897,8 @@ export async function runSparkWebDirect(
  *
  * - `spark-llm`, `dsh-cue`, `dsh-tool-cue`, `dsh-tool-fusion`,
  *   `dsh-web-provider`, and `spark-session-subagent` host plugins
- *   (paths relative to the profile root, so the DSH loader resolves them
- *   without an install);
+ *   (absolute file URLs under the profile root, so their meaning does not
+ *   change when the public DSH CLI loads this temporary patch file);
  * - stock `llm-pi-ai` disabled so `spark-llm-providers` owns provider configuration and
  *   credentials without a competing configurable-provider directory;
  * - stock in-process spawn/fork backends disabled so Spark providers own those
@@ -972,56 +919,61 @@ export function composeSparkWebPatch(profileDir: string): SparkWebPatch {
   // adds what is missing).
   const userPatchPath = join(profileDir, "cordis.patch.yml");
   const userPatch = existsSync(userPatchPath) ? readFileSync(userPatchPath, "utf8") : "";
+  const managedPlugin = (id: string) =>
+    JSON.stringify(pathToFileURL(join(profileDir, "plugins", id, "index.mjs")).href);
   const rows = [
     "- insert:",
     "    # Process-private DSH carrier; only Spark's outer proxy has its credential.",
     "    - id: spark-private-webserver",
-    "      name: ./plugins/spark-private-webserver/index.mjs",
+    `      name: ${managedPlugin("spark-private-webserver")}`,
     "      inject: [webStartup]",
     "      config:",
     "        host: 127.0.0.1",
     "        port: !!js ctx.webStartup.port ?? 3080",
+    "    # Mint DSH's inner-only browser cookie onto inherited fd 4.",
+    "    - id: spark-private-inner-auth",
+    `      name: ${managedPlugin("spark-private-inner-auth")}`,
   ];
   if (!userPatch.includes("id: spark-llm")) {
     rows.push(
       "    # Spark-owned LLM providers, loaded automatically by `spark web`.",
       "    - id: spark-llm",
-      "      name: ./plugins/spark-llm/index.mjs",
+      `      name: ${managedPlugin("spark-llm")}`,
     );
   }
   if (!userPatch.includes("id: dsh-cue")) {
     rows.push(
       "    # Host-neutral Cue execution service, managed by `spark web`.",
       "    - id: dsh-cue",
-      "      name: ./plugins/dsh-cue/index.mjs",
+      `      name: ${managedPlugin("dsh-cue")}`,
     );
   }
   if (!userPatch.includes("id: dsh-tool-cue")) {
     rows.push(
       "    # Cue-first command, script, job, and scope tools, managed by `spark web`.",
       "    - id: dsh-tool-cue",
-      "      name: ./plugins/dsh-tool-cue/index.mjs",
+      `      name: ${managedPlugin("dsh-tool-cue")}`,
     );
   }
   if (!userPatch.includes("id: dsh-tool-fusion")) {
     rows.push(
       "    # Bounded multi-model deliberation, managed by `spark web`.",
       "    - id: dsh-tool-fusion",
-      "      name: ./plugins/dsh-tool-fusion/index.mjs",
+      `      name: ${managedPlugin("dsh-tool-fusion")}`,
     );
   }
   if (!userPatch.includes("id: dsh-web-provider")) {
     rows.push(
       "    # Provider-neutral Brave search and safe local fetch on ctx.web.",
       "    - id: dsh-web-provider",
-      "      name: ./plugins/dsh-web-provider/index.mjs",
+      `      name: ${managedPlugin("dsh-web-provider")}`,
     );
   }
   if (!userPatch.includes("id: spark-session-subagent")) {
     rows.push(
       "    # Spark Role-bound spawn/fork providers on the official HOST.",
       "    - id: spark-session-subagent",
-      "      name: ./plugins/spark-session-subagent/index.mjs",
+      `      name: ${managedPlugin("spark-session-subagent")}`,
     );
   }
   if (!userPatch.includes("@deepseek-ai/dsh-tool-fs")) {
@@ -1043,6 +995,14 @@ export function composeSparkWebPatch(profileDir: string): SparkWebPatch {
     // roots.
     rows.push("- id: agent-presets", "  config:", "    default: spark-standard");
   }
+  rows.push(
+    "- id: web-runtime",
+    "  config:",
+    "    openBrowser: false",
+    "    printUrl: false",
+    "    surfaceContext: true",
+    "    trustedHosts: !!js ctx.webStartup.trustedHosts",
+  );
   rows.push(
     "- id: session-persistence-jsonl",
     "  config:",
@@ -1107,6 +1067,8 @@ export function composeWebArgs(args: SparkWebArgs, port = args.port ?? 3080): st
  * bundles, compose the patch overlay, and return the `dsh web` argument list.
  */
 export interface SparkWebDispatch {
+  /** Public CLI entry from the exact installed DSH package. */
+  dshCliEntry: string;
   /** The DSH profile the web server will be booted from. */
   profileDir: string;
   /** Patch overlay files for the managed host and client plugin rows. */
@@ -1122,7 +1084,7 @@ export async function prepareSparkWebDispatch(
   profileDir: string = resolveDshProfileDir(),
 ): Promise<SparkWebDispatch> {
   const dshHome = dirname(dirname(profileDir));
-  const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
+  const dshPackageDir = resolveInstalledDshPackageDir();
   if (await ensureDshWebProfile(profileDir, dshPackageDir)) {
     process.stderr.write(`[spark web-dsh] initialized DSH web profile -> ${profileDir}\n`);
   }
@@ -1135,6 +1097,7 @@ export async function prepareSparkWebDispatch(
     process.stderr.write(`[spark web] built Spark file plugin bundle -> ${files.bundle}\n`);
   }
   await ensureSparkPrivateWebServerBundle(profileDir);
+  await ensureSparkPrivateInnerAuthBundle(profileDir);
   for (const preset of presets) {
     if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);
   }
@@ -1196,6 +1159,7 @@ export async function prepareSparkWebDispatch(
   const childArgs: SparkWebArgs = { ...args, host: undefined };
   const patch = composeSparkWebPatch(profileDir);
   return {
+    dshCliEntry: resolveDshCliEntry(dshPackageDir),
     profileDir,
     patches: [patch.path],
     webArgs: composeWebArgs(childArgs, targetPort),
@@ -1232,10 +1196,11 @@ export async function runSparkWeb(args: SparkWebArgs): Promise<number> {
     startupAccess = await createSparkWebStartupAccessToken("spark web-dsh");
     const readinessController = new AbortController();
     const directRun = runSparkWebDirect(
-      prepared.profileDir,
+      prepared.dshCliEntry,
       prepared.patches,
       prepared.webArgs,
       prepared.proxy.credential,
+      (cookie) => proxy.setInnerCookie(cookie),
     );
     const startup = await Promise.race([
       directRun.then((code) => ({ outcome: "exit" as const, code })),
@@ -1243,6 +1208,7 @@ export async function runSparkWeb(args: SparkWebArgs): Promise<number> {
         prepared.proxy.targetPort,
         prepared.proxy.credential,
         readinessController.signal,
+        () => proxy.innerCookie(),
       ).then(() => ({ outcome: "ready" as const })),
     ]);
     if (startup.outcome === "exit") {
@@ -1278,11 +1244,20 @@ export async function waitForSparkWebDshReady(
   port: number,
   proxyCredential: string,
   signal?: AbortSignal,
+  getInnerCookie?: () => string | undefined,
 ): Promise<void> {
   while (!signal?.aborted) {
+    const innerCookie = getInnerCookie?.();
+    if (getInnerCookie !== undefined && innerCookie === undefined) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+      continue;
+    }
     try {
       const response = await fetch(`http://127.0.0.1:${port}/`, {
-        headers: { [SPARK_WEB_DSH_PROXY_HEADER]: proxyCredential },
+        headers: {
+          [SPARK_WEB_DSH_PROXY_HEADER]: proxyCredential,
+          ...(innerCookie === undefined ? {} : { cookie: innerCookie }),
+        },
         signal: AbortSignal.timeout(500),
       });
       await response.body?.cancel();

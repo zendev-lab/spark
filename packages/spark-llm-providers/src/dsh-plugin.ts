@@ -32,12 +32,9 @@
  * (`BAIDU_ONEAPI_BASE_URL` / `BAIDU_ONEAPI_OPENAI_BASE_URL`); a settings
  * override for the endpoint is a future extension, not a v1 promise.
  */
-import {
-  settingsNamespace,
-  installSettingsSection,
-  deepEqualJson,
-} from "@deepseek-ai/dsh-settings";
 import { assertUsableApiKey } from "@deepseek-ai/dsh-llm";
+import type {} from "@deepseek-ai/dsh-settings";
+import { deepEqualJson } from "@deepseek-ai/dsh-util-values";
 import z from "@deepseek-ai/schemastery";
 import { anthropicMessagesApi, openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import type { Context } from "@deepseek-ai/cordis";
@@ -68,7 +65,7 @@ const DEFAULT_API_KEY_ENV = "BAIDU_ONEAPI_API_KEY";
  * Models editor selects a layout from schema capabilities instead of ns text.
  */
 export const DSH_MODELS_SETTINGS_NAMESPACE = "llm-pi-ai";
-const NS = settingsNamespace(DSH_MODELS_SETTINGS_NAMESPACE);
+const NS = DSH_MODELS_SETTINGS_NAMESPACE;
 
 /** One provider route's editable profile; the Models page renders this shape. */
 const providerProfile = z.object({
@@ -250,20 +247,22 @@ export function apply(ctx: Context, config: SparkLlmConfig): void {
   };
   ensureDirectory();
 
-  installSettingsSection(ctx, NS, Config, config, {
-    setSource: (source: () => SparkLlmConfig) => {
-      current = source;
-    },
-    onChange: () => {
-      try {
-        ensureDirectory();
-      } catch (error) {
-        ctx.logger.error(
-          "spark-llm: keeping the previous configurable-provider directory after a refused update",
-        );
-        ctx.logger.error(error);
-      }
-    },
+  ctx.inject(["settings"], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, NS, Config, config, {
+      setSource: (source: () => SparkLlmConfig) => {
+        current = source;
+      },
+      onChange: () => {
+        try {
+          ensureDirectory();
+        } catch (error) {
+          ctx.logger.error(
+            "spark-llm: keeping the previous configurable-provider directory after a refused update",
+          );
+          ctx.logger.error(error);
+        }
+      },
+    });
   });
 }
 

@@ -121,6 +121,10 @@ export interface SparkWebDshAuthProxyOptions {
 
 export interface SparkWebDshAuthProxy {
   server: Server;
+  /** Accept the inner-only DSH cookie received over the child pipe. */
+  setInnerCookie(cookie: string): void;
+  /** Current inner-only DSH cookie, absent until the child profile settles. */
+  innerCookie(): string | undefined;
   close(): Promise<void>;
 }
 
@@ -131,6 +135,7 @@ export async function startSparkWebDshAuthProxy(
   const targetHost = options.targetHost ?? "127.0.0.1";
   const verify = options.verify ?? verifySparkWebDshTokenWithDaemon;
   const lanAddresses = [...(options.lanAddresses ?? resolveSparkWebDshLanAddresses())];
+  let innerCookie: string | undefined;
 
   const authenticate = async (request: IncomingMessage): Promise<AuthenticatedRequest> => {
     const url = new URL(request.url ?? "/", "http://proxy.invalid");
@@ -211,6 +216,7 @@ export async function startSparkWebDshAuthProxy(
         options.targetPort,
         lanAddresses,
         options.proxyCredential,
+        innerCookie,
       );
     })().catch(() => {
       if (!response.headersSent) writePlain(response, 502, "spark web-dsh proxy failure");
@@ -246,7 +252,7 @@ export async function startSparkWebDshAuthProxy(
         options.targetPort,
         lanAddresses,
       );
-      prepareUpstreamHeaders(upstreamHeaders, options.proxyCredential);
+      prepareUpstreamHeaders(upstreamHeaders, options.proxyCredential, innerCookie);
       const upstream = netConnect(options.targetPort, targetHost, () => {
         upstream.write(
           `${request.method} ${upstreamPath(request.url)} HTTP/${request.httpVersion}\r\n`,
@@ -275,6 +281,16 @@ export async function startSparkWebDshAuthProxy(
 
   return {
     server,
+    setInnerCookie(cookie) {
+      if (!/^dsh-auth-[A-Za-z0-9_-]+=[A-Za-z0-9._-]+$/u.test(cookie) || cookie.length > 4096) {
+        throw new Error("spark web-dsh: invalid DSH inner authentication cookie");
+      }
+      if (innerCookie !== undefined && innerCookie !== cookie) {
+        throw new Error("spark web-dsh: DSH inner authentication cookie changed during one run");
+      }
+      innerCookie = cookie;
+    },
+    innerCookie: () => innerCookie,
     close: () =>
       new Promise((resolveClose) => {
         server.close(() => resolveClose());
@@ -354,6 +370,7 @@ function proxyHttpRequest(
   targetPort: number,
   lanAddresses: readonly string[],
   proxyCredential: string,
+  innerCookie: string | undefined,
 ): void {
   const headers = normalizeSparkWebDshLanHeaders(
     request.headers,
@@ -361,7 +378,7 @@ function proxyHttpRequest(
     targetPort,
     lanAddresses,
   );
-  prepareUpstreamHeaders(headers, proxyCredential);
+  prepareUpstreamHeaders(headers, proxyCredential, innerCookie);
   const upstream = httpRequest(
     {
       host: targetHost,
@@ -383,24 +400,32 @@ function proxyHttpRequest(
 }
 
 function upstreamPath(rawUrl: string | undefined): string {
-  const url = new URL(rawUrl ?? "/", "http://proxy.invalid");
-  url.searchParams.delete(SPARK_WEB_DSH_TOKEN_QUERY);
-  return `${url.pathname}${url.search}`;
+  // Query-carried Spark tokens are consumed by the outer 303 branch and never
+  // reach this function. Preserve every byte here: DSH's client-module loader
+  // uses `/plugins/??a,b&rev=...`, which URLSearchParams would re-encode into a
+  // different route.
+  return rawUrl ?? "/";
 }
 
-function prepareUpstreamHeaders(headers: IncomingHttpHeaders, proxyCredential: string): void {
+function prepareUpstreamHeaders(
+  headers: IncomingHttpHeaders,
+  proxyCredential: string,
+  innerCookie: string | undefined,
+): void {
   headers[SPARK_WEB_DSH_PROXY_HEADER] = proxyCredential;
   delete headers[SPARK_WEB_DSH_TOKEN_HEADER];
   const cookie = firstHeaderValue(headers.cookie);
-  if (cookie === undefined) return;
-  const retained = cookie
+  const retained = (cookie ?? "")
     .split(";")
+    .map((part) => part.trim())
     .filter((part) => {
       const separator = part.indexOf("=");
-      return separator < 0 || part.slice(0, separator).trim() !== SPARK_WEB_DSH_TOKEN_COOKIE;
-    })
-    .join(";");
-  if (retained.trim()) headers.cookie = retained;
+      if (separator < 0) return part !== "";
+      const name = part.slice(0, separator).trim();
+      return name !== SPARK_WEB_DSH_TOKEN_COOKIE && !name.startsWith("dsh-auth-");
+    });
+  if (innerCookie !== undefined) retained.push(innerCookie);
+  if (retained.length > 0) headers.cookie = retained.join("; ");
   else delete headers.cookie;
 }
 

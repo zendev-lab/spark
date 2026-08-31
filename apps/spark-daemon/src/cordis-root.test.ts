@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { cueSkillsRoot } from "@zendev-lab/cue";
@@ -286,7 +286,7 @@ describe("spark daemon Cordis root", () => {
     const signal = new AbortController().signal;
     try {
       const created = await root.ctx.tools.execute({
-        callId: CallId("schedule-create"),
+        callId: ToolCallId("schedule-create"),
         name: "schedule_create",
         arguments: { prompt: "Review native schedule", after_seconds: 3_600 },
         agent: handle.agent,
@@ -305,7 +305,7 @@ describe("spark daemon Cordis root", () => {
       });
 
       const listed = await root.ctx.tools.execute({
-        callId: CallId("schedule-list"),
+        callId: ToolCallId("schedule-list"),
         name: "schedule_list",
         arguments: {},
         agent: handle.agent,
@@ -317,7 +317,7 @@ describe("spark daemon Cordis root", () => {
       });
 
       const deleted = await root.ctx.tools.execute({
-        callId: CallId("schedule-delete"),
+        callId: ToolCallId("schedule-delete"),
         name: "schedule_delete",
         arguments: { id: "schedule-1" },
         agent: handle.agent,

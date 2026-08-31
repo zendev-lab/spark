@@ -4,7 +4,7 @@
  * dsh-llm StreamChunk is the live wire. These helpers keep the bundled pi-ai
  * provider runners working without a public reverse dsh↔pi bridge.
  */
-import type { CallId } from "@deepseek-ai/dsh-llm";
+import type { ToolCallId } from "@deepseek-ai/dsh-llm";
 import {
   createAssistantMessage,
   createToolResultMessage,
@@ -223,10 +223,10 @@ function contentIndexOf(event: AssistantMessageEvent): number {
   return "contentIndex" in event ? event.contentIndex : 0;
 }
 
-function toolCallIdFromPartial(event: AssistantMessageEvent): CallId | undefined {
+function toolCallIdFromPartial(event: AssistantMessageEvent): ToolCallId | undefined {
   if (!("partial" in event) || !event.partial || !("contentIndex" in event)) return undefined;
   const part = event.partial.content[event.contentIndex];
-  if (part?.type === "toolCall") return part.id as CallId;
+  if (part?.type === "toolCall") return part.id as ToolCallId;
   return undefined;
 }
 
@@ -262,7 +262,7 @@ function* chunksForPiEvent(event: AssistantMessageEvent): Iterable<StreamChunk> 
       return;
     case "toolcall_start":
     case "toolcall_delta": {
-      const id = toolCallIdFromPartial(event) ?? (`spark-tool-${String(index)}` as CallId);
+      const id = toolCallIdFromPartial(event) ?? (`spark-tool-${String(index)}` as ToolCallId);
       yield tagChunk(
         {
           type: "tool-call-delta",
@@ -281,7 +281,7 @@ function* chunksForPiEvent(event: AssistantMessageEvent): Iterable<StreamChunk> 
           index,
           block: {
             type: "tool-call",
-            id: event.toolCall.id as CallId,
+            id: event.toolCall.id as ToolCallId,
             name: event.toolCall.name,
             arguments: JSON.stringify(event.toolCall.arguments ?? {}),
           },
@@ -431,7 +431,7 @@ function piMessageToDshMessages(message: Message): GenerateOptions["messages"] {
     const toolResult = message as ToolResultMessage;
     return [
       createToolResultMessage({
-        callId: toolResult.toolCallId as CallId,
+        callId: toolResult.toolCallId as ToolCallId,
         content: textBlocksFromUnknown(toolResult.content),
         isError: Boolean(toolResult.isError),
       }),
@@ -499,7 +499,7 @@ function assistantContentToBlocks(content: AssistantMessage["content"]) {
       const toolCall = part as ToolCall;
       return {
         type: "tool-call" as const,
-        id: toolCall.id as CallId,
+        id: toolCall.id as ToolCallId,
         name: toolCall.name,
         arguments: JSON.stringify(toolCall.arguments ?? {}),
       };
@@ -549,7 +549,7 @@ function* assistantMessageToChunks(
       yield {
         type: "tool-call-delta",
         index,
-        id: toolCall.id as CallId,
+        id: toolCall.id as ToolCallId,
         name: toolCall.name,
         argumentsDelta: args,
       };
@@ -558,7 +558,7 @@ function* assistantMessageToChunks(
         index,
         block: {
           type: "tool-call",
-          id: toolCall.id as CallId,
+          id: toolCall.id as ToolCallId,
           name: toolCall.name,
           arguments: args,
         },

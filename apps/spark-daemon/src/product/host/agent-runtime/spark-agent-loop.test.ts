@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
-import { defineTool, type JsonValue } from "@deepseek-ai/dsh-tools";
+import { defineTool } from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 
 import type {
   AssistantMessage,

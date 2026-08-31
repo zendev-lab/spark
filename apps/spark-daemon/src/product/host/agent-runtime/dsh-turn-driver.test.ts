@@ -1,17 +1,22 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { test, vi } from "vitest";
 
 import { Context } from "@deepseek-ai/cordis";
 import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LlmRuntime, {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   createUserMessage,
   type GenerateOptions,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
 import SessionStore, { SessionId } from "@deepseek-ai/dsh-session";
+import SessionProjectionRegistry from "@deepseek-ai/dsh-session-projection";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, { defineTool } from "@deepseek-ai/dsh-tools";
 import {
@@ -31,6 +36,7 @@ import {
   installSparkConsentPlugin,
   runSparkDshTurn,
 } from "./dsh-turn-driver.ts";
+import { createSparkDaemonSessionPersistencePlugin } from "../../../session-persistence.ts";
 
 class ScriptedAdapter extends LlmAdapter {
   calls = 0;
@@ -42,7 +48,7 @@ class ScriptedAdapter extends LlmAdapter {
   async *stream() {
     this.calls += 1;
     if (this.calls === 1) {
-      const id = CallId("call-ping-1");
+      const id = ToolCallId("call-ping-1");
       yield { type: "block-start" as const, index: 0, blockType: "tool-call" as const };
       yield {
         type: "tool-call-delta" as const,
@@ -74,11 +80,20 @@ class ScriptedAdapter extends LlmAdapter {
 
 async function mountLoop(ctx: Context): Promise<void> {
   await ctx.plugin(SessionStore);
+  await ctx.plugin(SessionProjectionRegistry);
   await ctx.plugin(LlmRuntime);
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
   await ctx.plugin(AgentRegistry);
   await ctx.plugin(AgentLoop, { agents: [] });
+}
+
+async function mountSessionPersistence(ctx: Context): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "spark-dsh-turn-driver-"));
+  ctx.effect(() => async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  await ctx.plugin(createSparkDaemonSessionPersistencePlugin(root));
 }
 
 test("dsh-agent-loop drives a scripted ping tool to a terminal assistant message", async () => {
@@ -233,10 +248,11 @@ test("runSparkDshTurn rejects pre-start cancellation without creating an Agent",
 test("runSparkDshTurn starts no model work when the Invocation Session cannot materialize", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
+  await mountSessionPersistence(ctx);
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
-  ctx.on("session/flush", async () => {
+  vi.spyOn(ctx.sessionPersistence, "ensureMaterialized").mockImplementation(async () => {
     throw new Error("session materialization failed");
   });
   const controller = new AbortController();
@@ -342,11 +358,12 @@ test("runSparkDshTurn starts no model work without a Session persistence owner",
 test("runSparkDshTurn starts no model work when cancellation arrives during Session materialization", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
+  await mountSessionPersistence(ctx);
   const controller = new AbortController();
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
-  ctx.on("session/flush", async () => {
+  vi.spyOn(ctx.sessionPersistence, "ensureMaterialized").mockImplementation(async () => {
     controller.abort(new Error("abort during Session materialization"));
   });
 
@@ -460,7 +477,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
       const requestIndex = requests.length;
       return (async function* () {
         if (requestIndex === 1) {
-          const id = CallId("native-probe-call");
+          const id = ToolCallId("native-probe-call");
           yield { type: "block-start", index: 0, blockType: "tool-call" };
           yield {
             type: "tool-call-delta",
@@ -630,7 +647,7 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
       const index = requests.length;
       return (async function* () {
         if (index === 1) {
-          const id = CallId("auxiliary-probe-call");
+          const id = ToolCallId("auxiliary-probe-call");
           yield { type: "block-start", index: 0, blockType: "tool-call" };
           yield {
             type: "tool-call-delta",
@@ -704,7 +721,7 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
 test("runSparkDshTurn isolates sparkInvocation across concurrent Agents", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
-  ctx.on("session/flush", async () => undefined);
+  await mountSessionPersistence(ctx);
   const seen = new Set<string>();
   const model: Model<string> = {
     id: "concurrent-execution-model",

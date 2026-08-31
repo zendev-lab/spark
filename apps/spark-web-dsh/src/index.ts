@@ -1,3 +1,10 @@
+import type {
+  SessionFollowFrame,
+  SessionFollowRequest,
+  SessionPage,
+  SessionPageRequest,
+} from "@deepseek-ai/dsh-api-session-controller";
+import { RemoteError } from "@deepseek-ai/dsh-typert-protocol";
 import { open, stat } from "node:fs/promises";
 import { constants as zstdConstants, zstdDecompressSync } from "node:zlib";
 
@@ -26,16 +33,11 @@ export const MAX_HISTORY_RESPONSE_BYTES_ENV = "SPARK_WEB_MAX_HISTORY_RESPONSE_BY
 const DEFAULT_HISTORY_MESSAGES = 50;
 const ZSTD_MAGIC = 0xfd2fb528;
 
-interface HistoryRequest {
-  rpcId: unknown;
-  payload: {
-    sessionId: string;
-    beforeSeq?: number;
-    maxMessages?: number;
-  };
-}
-
-type HistoryHandler = (request: HistoryRequest) => Promise<unknown>;
+type PageHandler = (request: SessionPageRequest, signal: AbortSignal) => Promise<SessionPage>;
+type FollowHandler = (
+  request: SessionFollowRequest,
+  signal: AbortSignal,
+) => AsyncIterable<SessionFollowFrame>;
 
 interface SessionHeader {
   id: string;
@@ -69,10 +71,9 @@ interface SparkWebFileSystem {
 }
 
 interface SparkWebHostContext {
-  apiProxy: {
-    sessions: {
-      history: HistoryHandler;
-    };
+  sessionController: {
+    page: PageHandler;
+    follow: FollowHandler;
   };
   fs: SparkWebFileSystem;
   sessions: {
@@ -88,7 +89,7 @@ interface SparkWebHostContext {
   };
 }
 
-export const inject = ["apiProxy", "fs", "sessionPersistence", "sessions"];
+export const inject = ["fs", "sessionController", "sessionPersistence", "sessions"];
 
 /**
  * Prevent recursive DSH consumers from entering directory symlink cycles.
@@ -405,56 +406,28 @@ export function estimateHistoryResponseBytes(
 
 const COMPACT_HISTORY_EVENT_TYPES = new Set(["user/message", "assistant/message", "tool/result"]);
 
-interface SuccessfulHistoryWireResponse {
-  rpcId?: unknown;
-  result: {
-    ok: true;
-    value: {
-      events: Array<{ event: { type?: unknown }; view?: unknown }>;
-      hasMore: boolean;
-      projections?: unknown;
-      [key: string]: unknown;
-    };
-  };
-}
-
-function successfulHistoryWireResponse(
-  response: unknown,
-): SuccessfulHistoryWireResponse | undefined {
-  if (typeof response !== "object" || response === null) return undefined;
-  const result = (response as { result?: unknown }).result;
-  if (typeof result !== "object" || result === null || (result as { ok?: unknown }).ok !== true) {
-    return undefined;
-  }
-  const value = (result as { value?: unknown }).value;
-  if (typeof value !== "object" || value === null) return undefined;
-  const events = (value as { events?: unknown }).events;
-  if (!Array.isArray(events)) return undefined;
-  return response as SuccessfulHistoryWireResponse;
-}
-
 /**
- * Collapse a raw DSH page to the durable message surface. Token chunks carry
- * cumulative partial snapshots and dominate large responses, while the final
- * user/message, assistant/message, and tool/result events already contain the
- * transcript content needed for a history preview. Views are omitted because
- * they can duplicate large tool payloads and are optional on the wire.
+ * Collapse a DSH page or follow snapshot to the durable message surface.
+ * Packed chunk rows carry cumulative partial snapshots and dominate large
+ * responses, while the final message and tool-result events retain the
+ * transcript content needed for a bounded history preview.
  */
 export function compactHistoryResponse(response: unknown): unknown {
-  const wire = successfulHistoryWireResponse(response);
-  if (wire === undefined) return response;
-  const events = wire.result.value.events
-    .filter((entry) => COMPACT_HISTORY_EVENT_TYPES.has(String(entry.event.type)))
-    .map((entry) => ({ event: entry.event }));
+  if (typeof response !== "object" || response === null) return response;
+  const records = (response as { records?: unknown }).records;
+  if (!Array.isArray(records)) return response;
   return {
-    ...wire,
-    result: {
-      ...wire.result,
-      value: {
-        ...wire.result.value,
-        events,
-      },
-    },
+    ...response,
+    records: records.filter((record) => {
+      if (typeof record !== "object" || record === null) return false;
+      if ((record as { type?: unknown }).type !== "event") return false;
+      const event = (record as { event?: unknown }).event;
+      return (
+        typeof event === "object" &&
+        event !== null &&
+        COMPACT_HISTORY_EVENT_TYPES.has(String((event as { type?: unknown }).type))
+      );
+    }),
   };
 }
 
@@ -502,53 +475,46 @@ function historyPreviewWithin(response: unknown, maxResponseBytes: number): obje
   return undefined;
 }
 
-function historyRefusal(request: HistoryRequest, message: string): unknown {
-  return {
-    rpcId: request.rpcId,
-    result: {
-      ok: false,
-      error: {
-        code: "internal",
-        message,
-        details: {},
-      },
-    },
-  };
+function historyRefusal(message: string): RemoteError {
+  return new RemoteError("gateway/internal", message, {});
 }
 
-function isSuccessfulHistoryResponse(response: unknown): boolean {
-  if (typeof response !== "object" || response === null) return false;
-  const result = (response as { result?: unknown }).result;
-  return typeof result === "object" && result !== null && (result as { ok?: unknown }).ok === true;
+function sessionIdOf(address: SessionPageRequest["address"]): string {
+  return address.kind === "session" ? address.sessionId : address.childSessionId;
 }
 
-function withPageSize(request: HistoryRequest, maxMessages: number): HistoryRequest {
+function pageRequestWithSize(request: SessionPageRequest, maxMessages: number): SessionPageRequest {
   return {
     ...request,
-    payload: {
-      ...request.payload,
-      maxMessages,
-    },
+    maxMessages,
   };
 }
 
-async function boundedHistory(
-  request: HistoryRequest,
+function followRequestWithSize(
+  request: SessionFollowRequest,
+  maxMessages: number,
+): SessionFollowRequest {
+  return { ...request, maxMessages };
+}
+
+async function boundedPage(
+  request: SessionPageRequest,
+  signal: AbortSignal,
   initialPageSize: number,
   maxResponseBytes: number,
-  upstreamHistory: HistoryHandler,
+  upstreamPage: PageHandler,
   logger: SparkWebHostContext["logger"],
-): Promise<unknown> {
+): Promise<SessionPage> {
+  const sessionId = sessionIdOf(request.address);
   let pageSize = initialPageSize;
   for (;;) {
-    const response = await upstreamHistory(withPageSize(request, pageSize));
-    if (!isSuccessfulHistoryResponse(response)) return response;
+    const response = await upstreamPage(pageRequestWithSize(request, pageSize), signal);
 
     const estimatedBytes = estimateHistoryResponseBytes(response, maxResponseBytes);
     if (estimatedBytes <= maxResponseBytes) {
-      if (pageSize < (request.payload.maxMessages ?? DEFAULT_HISTORY_MESSAGES)) {
+      if (pageSize < (request.maxMessages ?? DEFAULT_HISTORY_MESSAGES)) {
         logger?.warn(
-          `spark web reduced history page for ${request.payload.sessionId} to ${pageSize} messages (${estimatedBytes} estimated response bytes)`,
+          `spark web reduced history page for ${sessionId} to ${pageSize} messages (${estimatedBytes} estimated response bytes)`,
         );
       }
       return response;
@@ -558,21 +524,18 @@ async function boundedHistory(
     const compactedBytes = estimateHistoryResponseBytes(compacted, maxResponseBytes);
     if (compactedBytes <= maxResponseBytes) {
       logger?.warn(
-        `spark web compacted history page for ${request.payload.sessionId} at ${pageSize} messages (${compactedBytes} estimated response bytes)`,
+        `spark web compacted history page for ${sessionId} at ${pageSize} messages (${compactedBytes} estimated response bytes)`,
       );
-      return compacted;
+      return compacted as SessionPage;
     }
 
     if (pageSize === 1) {
       const preview = historyPreviewWithin(compacted, maxResponseBytes);
       if (preview !== undefined) {
-        logger?.warn(
-          `spark web truncated oversized one-message history preview for ${request.payload.sessionId}`,
-        );
-        return preview;
+        logger?.warn(`spark web truncated oversized one-message history preview for ${sessionId}`);
+        return preview as unknown as SessionPage;
       }
-      return historyRefusal(
-        request,
+      throw historyRefusal(
         "the newest history message cannot be represented within the Spark Web response budget",
       );
     }
@@ -580,90 +543,181 @@ async function boundedHistory(
   }
 }
 
+async function historyArtifactBytes(
+  ctx: SparkWebHostContext,
+  sessionId: string,
+  artifactFence: number,
+  signal: AbortSignal,
+): Promise<number | undefined> {
+  const live = ctx.sessions.get(sessionId);
+  let meta = live?.header;
+  if (meta === undefined) {
+    try {
+      meta = (await ctx.sessionPersistence.list()).find((candidate) => candidate.id === sessionId);
+    } catch (error) {
+      throw historyRefusal(
+        `history metadata is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  if (signal.aborted) throw new RemoteError("gateway/cancelled", "history request cancelled", {});
+  if (meta === undefined) return undefined;
+
+  const location = ctx.sessionPersistence.locate(meta);
+  if (location === undefined) {
+    if (live === undefined) {
+      throw historyRefusal(
+        "history is unavailable because its storage backend cannot provide a bounded artifact",
+      );
+    }
+    return undefined;
+  }
+
+  try {
+    if (live !== undefined) return (await stat(location.path)).size;
+    const footprint = await coldHistoryArtifactFootprint(location.path, artifactFence);
+    if (!footprint.exceedsLimit) return footprint.physicalBytes;
+    const measured =
+      footprint.decodedBytes === undefined
+        ? `${footprint.physicalBytes} physical bytes`
+        : `${footprint.decodedBytes} decoded bytes (${footprint.physicalBytes} physical bytes)`;
+    ctx.logger?.warn(
+      `spark web refused cold history for ${sessionId}: artifact ${measured} exceeds ${artifactFence}`,
+    );
+    throw historyRefusal(
+      `this history is too large to open safely (${measured}; Spark Web limit ${artifactFence}). ` +
+        `Start a new session or raise ${MAX_COLD_HISTORY_ARTIFACT_BYTES_ENV} explicitly.`,
+    );
+  } catch (error) {
+    if (error instanceof RemoteError) throw error;
+    if (live !== undefined) return undefined;
+    throw historyRefusal(
+      `history size could not be checked safely: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function boundedFollowFrame(
+  frame: SessionFollowFrame,
+  maxResponseBytes: number,
+): SessionFollowFrame | undefined {
+  if (estimateHistoryResponseBytes(frame, maxResponseBytes) <= maxResponseBytes) return frame;
+  const compacted = compactHistoryResponse(frame);
+  if (estimateHistoryResponseBytes(compacted, maxResponseBytes) <= maxResponseBytes) {
+    return compacted as SessionFollowFrame;
+  }
+  return historyPreviewWithin(compacted, maxResponseBytes) as SessionFollowFrame | undefined;
+}
+
+async function closeFollowIterator(iterator: AsyncIterator<SessionFollowFrame>): Promise<void> {
+  await iterator.return?.();
+}
+
+async function* boundedFollow(
+  request: SessionFollowRequest,
+  signal: AbortSignal,
+  initialPageSize: number,
+  maxResponseBytes: number,
+  upstreamFollow: FollowHandler,
+  logger: SparkWebHostContext["logger"],
+): AsyncIterable<SessionFollowFrame> {
+  const sessionId = sessionIdOf(request.address);
+  let pageSize = initialPageSize;
+  let iterator: AsyncIterator<SessionFollowFrame> | undefined;
+  let opening: SessionFollowFrame | undefined;
+
+  for (;;) {
+    iterator = upstreamFollow(followRequestWithSize(request, pageSize), signal)[
+      Symbol.asyncIterator
+    ]();
+    const first = await iterator.next();
+    if (first.done) return;
+    opening = boundedFollowFrame(first.value, maxResponseBytes);
+    if (opening !== undefined) break;
+    await closeFollowIterator(iterator);
+    iterator = undefined;
+    if (pageSize === 1) {
+      throw historyRefusal(
+        "the opening history snapshot cannot be represented within the Spark Web response budget",
+      );
+    }
+    pageSize = Math.max(1, Math.floor(pageSize / 2));
+  }
+
+  if (pageSize < (request.maxMessages ?? DEFAULT_HISTORY_MESSAGES)) {
+    logger?.warn(`spark web reduced follow snapshot for ${sessionId} to ${pageSize} messages`);
+  }
+  try {
+    yield opening;
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done) return;
+      const frame = boundedFollowFrame(next.value, maxResponseBytes);
+      if (frame === undefined) {
+        throw historyRefusal(
+          "a live history frame cannot be represented within the Spark Web response budget",
+        );
+      }
+      yield frame;
+    }
+  } finally {
+    await closeFollowIterator(iterator);
+  }
+}
+
 export function apply(ctx: SparkWebHostContext): void {
   const artifactFence = maxColdHistoryArtifactBytes();
   const responseFence = maxHistoryResponseBytes();
-  const sessionsApi = ctx.apiProxy.sessions;
-  const upstreamHistory = sessionsApi.history.bind(sessionsApi);
+  const controller = ctx.sessionController;
+  const upstreamPage = controller.page.bind(controller);
+  const upstreamFollow = controller.follow.bind(controller);
   const restoreFileListing = installSymlinkTraversalGuard(ctx.fs);
 
-  const guardedHistory: HistoryHandler = async (request) => {
-    const live = ctx.sessions.get(request.payload.sessionId);
-    let meta = live?.header;
-    if (meta === undefined) {
-      try {
-        meta = (await ctx.sessionPersistence.list()).find(
-          (candidate) => candidate.id === request.payload.sessionId,
-        );
-      } catch (error) {
-        if (live === undefined) {
-          return historyRefusal(
-            request,
-            `history metadata is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-    }
-
-    let artifactBytes: number | undefined;
-    let coldArtifactExceedsFence = false;
-    let decodedArtifactBytes: number | undefined;
-    if (meta !== undefined) {
-      const location = ctx.sessionPersistence.locate(meta);
-      if (location === undefined && live === undefined) {
-        return historyRefusal(
-          request,
-          "history is unavailable because its storage backend cannot provide a bounded artifact",
-        );
-      }
-      if (location !== undefined) {
-        try {
-          if (live === undefined) {
-            const footprint = await coldHistoryArtifactFootprint(location.path, artifactFence);
-            artifactBytes = footprint.physicalBytes;
-            decodedArtifactBytes = footprint.decodedBytes;
-            coldArtifactExceedsFence = footprint.exceedsLimit;
-          } else {
-            artifactBytes = (await stat(location.path)).size;
-          }
-        } catch (error) {
-          if (live === undefined) {
-            return historyRefusal(
-              request,
-              `history size could not be checked safely: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-      }
-    }
-
-    if (live === undefined && artifactBytes !== undefined && coldArtifactExceedsFence) {
-      const measured =
-        decodedArtifactBytes === undefined
-          ? `${artifactBytes} physical bytes`
-          : `${decodedArtifactBytes} decoded bytes (${artifactBytes} physical bytes)`;
-      ctx.logger?.warn(
-        `spark web refused cold history for ${request.payload.sessionId}: artifact ${measured} exceeds ${artifactFence}`,
-      );
-      return historyRefusal(
-        request,
-        `this history is too large to open safely (${measured}; Spark Web limit ${artifactFence}). ` +
-          `Start a new session or raise ${MAX_COLD_HISTORY_ARTIFACT_BYTES_ENV} explicitly.`,
-      );
-    }
-
-    const requestedMessages = request.payload.maxMessages ?? DEFAULT_HISTORY_MESSAGES;
+  const guardedPage: PageHandler = async (request, signal) => {
+    const artifactBytes = await historyArtifactBytes(
+      ctx,
+      sessionIdOf(request.address),
+      artifactFence,
+      signal,
+    );
     const initialPageSize = predictedHistoryPageSize(
-      requestedMessages,
+      request.maxMessages ?? DEFAULT_HISTORY_MESSAGES,
       artifactBytes,
       artifactFence,
     );
-    return boundedHistory(request, initialPageSize, responseFence, upstreamHistory, ctx.logger);
+    return boundedPage(request, signal, initialPageSize, responseFence, upstreamPage, ctx.logger);
   };
 
-  sessionsApi.history = guardedHistory;
+  const guardedFollow: FollowHandler = (request, signal) => {
+    const stream = async function* () {
+      const artifactBytes = await historyArtifactBytes(
+        ctx,
+        sessionIdOf(request.address),
+        artifactFence,
+        signal,
+      );
+      const initialPageSize = predictedHistoryPageSize(
+        request.maxMessages ?? DEFAULT_HISTORY_MESSAGES,
+        artifactBytes,
+        artifactFence,
+      );
+      yield* boundedFollow(
+        request,
+        signal,
+        initialPageSize,
+        responseFence,
+        upstreamFollow,
+        ctx.logger,
+      );
+    };
+    return stream();
+  };
+
+  controller.page = guardedPage;
+  controller.follow = guardedFollow;
   ctx.effect?.(() => () => {
-    if (sessionsApi.history === guardedHistory) sessionsApi.history = upstreamHistory;
+    if (controller.page === guardedPage) controller.page = upstreamPage;
+    if (controller.follow === guardedFollow) controller.follow = upstreamFollow;
     restoreFileListing();
   });
 }

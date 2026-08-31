@@ -81,16 +81,22 @@ spark web-dsh --host 0.0.0.0 --port 8888
 DSH server 本身始终锁定在随机回环端口，并由一次性进程凭据保护；所有监听地址都由
 Spark 外层 access proxy 提供服务。该 proxy 与 native Web 使用相同的认证规则和
 Spark Access 页面：回环与远端 peer 都使用同一套 daemon-owned access token，本机接口
-IPv4 自动发现。每次启动 `spark web-dsh` 都会启动或重连 daemon，
+IPv4 自动发现。DSH 自身的浏览器 credential 只作为内层回环网关细节：子进程通过公开
+Connection API 铸造绑定 authority 的 cookie，再经继承 pipe 交给 proxy；它不会进入
+argv、环境变量、进程输出或浏览器可见 URL，因此浏览器不会遇到第二次登录。
+每次启动 `spark web-dsh` 都会启动或重连 daemon，
 打印带新建进程 token 的 URL，并像 native Web 一样在正常退出时吊销；打开链接后的 cookie
 提升与地址栏清理也和 native Web 相同。Host、Origin
 与 Fetch Metadata 检查仍先于 token 校验；API
 与 WebSocket 保持 transport-level 认证错误，daemon 不可达时 fail closed。
 
 DSH 宿主应用会恢复 Spark LLM 与 Cue 插件，并将经过校验的 `cue` Skill 快照挂入
-DSH Skill 目录。它会处理明文 HTTP UUID 和远程 credential onboarding，
+DSH Skill 目录。首次使用时，Spark 会初始化已安装 DSH 的 `web` profile、安装托管
+preset，随后通过精确锁定的公开 DSH CLI，以 `--profile web` 和 Spark patch overlay
+启动。它会处理明文 HTTP UUID 和远程 credential onboarding，
 并在 DSH 将完整 transcript 载入内存前拒绝过大的冷历史文件。对于可以安全读取的
-历史，它会预估并缩小初始页、限制响应字节数、压缩重复的 token chunk；即使
+历史，它会在公开 Session Controller 的 `page` / `follow` 边界预估并缩小初始页、
+限制响应字节数、压缩重复的 token chunk；即使
 单条最终消息仍很大，也会返回带截断标记的预览，而不是等待请求超时。
 DSH 文件系统列举中的目录符号链接会显示为不可继续遍历的条目，从而阻止递归
 消费方沿符号链接环无限下钻；通过符号链接路径显式读写文件的行为不变。

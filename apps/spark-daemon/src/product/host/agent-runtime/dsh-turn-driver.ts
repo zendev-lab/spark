@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import { type AgentHandle } from "@deepseek-ai/dsh-agent";
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   LlmError,
   createUserMessage,
@@ -262,10 +262,10 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       input.signal.addEventListener("abort", cancelAgent, { once: true });
     }
     if (input.invocation) {
-      const materialized = await handle.agent.ctx.sessions.flush(handle.agent.session);
-      if (!materialized) {
+      if (!persistence) {
         throw new Error("Spark Invocation Session has no persistence owner");
       }
+      await persistence.ensureMaterialized(handle.agent.session);
       input.signal.throwIfAborted();
     }
     handle.agent.followup(
@@ -700,7 +700,7 @@ function* dshChunksFromAssistant(message: AssistantMessage): Iterable<StreamChun
   for (const part of message.content) {
     if (part.type === "toolCall") {
       const toolCall = part as ToolCall;
-      const id = CallId(String(toolCall.id));
+      const id = ToolCallId(String(toolCall.id));
       const args = JSON.stringify(toolCall.arguments ?? {});
       yield { type: "block-start", index, blockType: "tool-call" };
       yield {

@@ -3,7 +3,6 @@ import { test } from "vitest";
 
 import {
   createSparkPrivateWebServerClass,
-  SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY,
   SPARK_WEB_DSH_PROXY_HEADER,
   takeSparkWebDshProxyCredential,
 } from "./private-webserver.ts";
@@ -65,12 +64,20 @@ function request(credential?: string): FakeRequest {
   };
 }
 
-test("private proxy credential is consumed from the boot handoff exactly once", () => {
-  const key = Symbol.for(SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY);
-  Reflect.set(globalThis, key, CREDENTIAL);
-  assert.equal(takeSparkWebDshProxyCredential(), CREDENTIAL);
-  assert.equal(Reflect.has(globalThis, key), false);
-  assert.throws(takeSparkWebDshProxyCredential, /credential is unavailable/u);
+test("private proxy credential is read only from the inherited descriptor", () => {
+  let seenFd: number | undefined;
+  assert.equal(
+    takeSparkWebDshProxyCredential(7, (fd) => {
+      seenFd = fd;
+      return CREDENTIAL;
+    }),
+    CREDENTIAL,
+  );
+  assert.equal(seenFd, 7);
+  assert.throws(
+    () => takeSparkWebDshProxyCredential(7, () => "short"),
+    /credential is unavailable/u,
+  );
 });
 
 test("private WebServer guards HTTP, fallback, and upgrade handlers", async () => {

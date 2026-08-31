@@ -371,7 +371,9 @@ export function verifySparkPresetSources(root: string = sparkPresetSourceRoot())
     "agent-presets",
   );
   for (const fixture of readdirSync(fixtureRoot)) {
-    const composition = readFileSync(join(fixtureRoot, fixture, "agent.cordis.yml"), "utf8");
+    const compositionPath = join(fixtureRoot, fixture, "agent.cordis.yml");
+    if (!existsSync(compositionPath)) continue;
+    const composition = readFileSync(compositionPath, "utf8");
     for (const match of composition.matchAll(/name: ["'](@deepseek-ai\/[^"']+)["']/gu)) {
       fixtureNames.add(match[1]!);
     }

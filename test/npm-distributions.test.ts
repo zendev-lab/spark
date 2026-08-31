@@ -12,6 +12,8 @@ test("published web-dsh keeps the host and client plugin exports", () => {
     "./executable": "./bin/spark-web-dsh",
     "./package.json": "./package.json",
   });
+  assert.ok("declaredRuntimePackages" in webDsh);
+  assert.deepEqual(webDsh.declaredRuntimePackages, ["@deepseek-ai/dsh"]);
   assert.deepEqual(webDsh.dsh, {
     client: {
       platform: "web",
