@@ -33,7 +33,7 @@ The managed `spark-standard` and `spark-ptc` presets use Spark's versioned
 `read`/`write`/`edit` adapter over DSH `ctx.fs`. Writes retain DSH sandbox
 confinement and require the opaque version returned by `read` (or `missing` for
 create-only); impossible sandbox-escalation arguments are absent from both
-Native and Code Mode schemas. Upstream `read_image` remains available.
+Native and PTC schemas. Upstream `read_image` remains available.
 
 ```sh
 spark web-dsh
@@ -46,6 +46,12 @@ listener and the actual network boundary. Requests from an actual loopback peer
 require the same daemon-owned `daemon-user` token as every other peer, even when
 the listener binds `0.0.0.0`; local non-loopback IPv4 authorities are discovered
 automatically.
+
+DSH's browser credential remains an inner-loopback gateway detail. The child
+mints its authority-bound cookie through the public Connection API and hands
+it to the outer proxy through inherited fd 4; the value never enters argv,
+the environment, process output, or a browser-visible URL. Browsers therefore
+authenticate only once, at Spark's daemon-owned boundary.
 
 Document navigation without a valid token opens the same Spark Access page as native
 `spark web`. Every launch starts or reconnects the daemon, expands a wildcard

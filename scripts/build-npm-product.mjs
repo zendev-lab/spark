@@ -88,6 +88,7 @@ async function runtimeDependencies(distribution) {
     root,
     distribution.directory,
     distribution.exactDependencies,
+    distribution.declaredRuntimePackages,
   );
   const exact = Object.fromEntries(
     distribution.exactDependencies.map((name) => [name, releaseVersion]),

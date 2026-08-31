@@ -81,9 +81,10 @@ export class SparkJsonlSessionFiles {
     }
     const sparkMeta = events.find((event) => event.type === "spark/meta");
     if (
-      !sparkMeta ||
-      !isRecord(sparkMeta.data) ||
-      sparkMeta.data.sparkVersion !== CURRENT_SPARK_SESSION_VERSION
+      events.length > 0 &&
+      (!sparkMeta ||
+        !isRecord(sparkMeta.data) ||
+        sparkMeta.data.sparkVersion !== CURRENT_SPARK_SESSION_VERSION)
     ) {
       throw new Error(`Spark JSONL persistence refuses pre-v4 transcript: ${path}`);
     }
@@ -128,6 +129,17 @@ export class SparkJsonlSessionFiles {
     } finally {
       await handle.close();
     }
+    this.paths.set(meta.id, path);
+  }
+
+  async materializeHeader(meta: SparkDshSessionHeader): Promise<void> {
+    const existing = this.paths.get(meta.id) ?? (await this.findPath(meta.id));
+    if (existing) {
+      this.paths.set(meta.id, existing);
+      return;
+    }
+    const path = this.canonicalPath(meta);
+    await writeJsonLinesAtomically(path, [meta]);
     this.paths.set(meta.id, path);
   }
 

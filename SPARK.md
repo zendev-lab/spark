@@ -19,7 +19,7 @@ updated: 2026-08-30
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - `/plan`、`/execute`、`/fleet` 是 daemon 在 turn 提交通道上解析的一次性命令：仅向当前 Invocation 注入工作意图指导，不改变工具集合、sandbox、审批、授权或 admission，不持久化，普通下一轮恢复中性。持久 Session mode 已整体废除；fleet 协调复用现有 TaskGraph、TaskRun、资源调度器与 Session Registry，worker 只消费 Task 已关联的 `git_change` worktree，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
-- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，默认进入托管的 Cue-first `spark-standard` mode 并提供 Code Mode 的 `spark-ptc`；受支持 DSH release 在 boot 时把 preset 发现 root 固定为内置 root，因此 stock preset 仍由 DSH 自身挂载，独占发现有待 DSH 支持可配置 roots。
+- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，默认进入托管的 Cue-first `spark-standard` mode 并提供 PTC Mode 的 `spark-ptc`；受支持 DSH release 在 boot 时把 preset 发现 root 固定为内置 root，因此 stock preset 仍由 DSH 自身挂载，独占发现有待 DSH 支持可配置 roots。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm-providers` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 daemon 内部产品模块静态组合 Spark 策略与受支持的 DSH/Cordis 插件；不新增 `spark-base`、Spark extension 发现路径或 Spark-owned `package.json#pi`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
@@ -98,8 +98,9 @@ updated: 2026-08-30
   Session ID create/resume Agent，flush 后释放 handle，并用 Invocation 隔离的
   provider route 避免共享 registry 冲突。daemon 的既有 ExecutionAttempt 是唯一
   attempt owner；`ctx.sparkInvocation` 以不可变 Cordis service 暴露
-  `Invocation → Attempt → Turn` 关联，同一 attempt 只能保留一个 Turn，关联以
-  可忽略的 `spark/invocation` 事件写入 DSH log。模型/tool 驱动、投影与 host facade
+  `Invocation → Attempt → Turn` 关联，同一 attempt 只能保留一个 Turn。该关联只由
+  daemon attempt store 与 epoch fence 持久化；新 DSH log 不再写重复的
+  `spark/invocation` 事件，旧的可忽略事件仍可读取。模型/tool 驱动、投影与 host facade
   已收回 daemon 内部 product composition。`spark-driver` 仍拥有 goal/tick；不接入
   `dsh-llm-pi-ai` 或 `dsh-goal`。Invocation / channel / fleet / retry 数据权威仍是
   Spark SQLite。

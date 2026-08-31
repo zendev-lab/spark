@@ -116,8 +116,12 @@ cross-scope, or disappeared paths fail closed.
 Canonical Session transcripts are DSH session JSONL. The daemon product host's
 `SparkSessionStore` is the transition codec: transcript v4 writes model-visible
 content as native DSH surface events. It does not duplicate active messages in
-`spark/record`; ignorable Spark events carry only projection metadata,
-non-model records, and inactive branches. The daemon implements `PersistenceBackend` only;
+`spark/record`. The only Spark extension event types written are ignorable
+`spark/meta`, `spark/record`, and `spark/message-meta`: they carry projection
+metadata, non-model records, and inactive branches. `spark/invocation` is a
+read-only legacy event; attempt admission, retry, cancellation, and recovery are
+owned by the daemon attempt store and epoch fence. The daemon implements
+`PersistenceBackend` only;
 `dsh-session-persistence` owns the coordinator. Before admission, daemon startup
 backs up and journals the idempotent v3 to v4 hard cut. Session projections
 remain Spark-owned.

@@ -71,6 +71,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-web",
       "@zendev-lab/spark-web-dsh",
     ],
+    declaredRuntimePackages: [],
     exports: {},
   },
   {
@@ -103,6 +104,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-web",
       "@zendev-lab/spark-web-dsh",
     ],
+    declaredRuntimePackages: [],
     exports: {
       "./acp-executable": "./bin/spark-acp",
       "./mcp-executable": "./bin/spark-mcp",
@@ -128,6 +130,7 @@ export const npmDistributions = [
     },
     files: ["bin", "dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
+    declaredRuntimePackages: [],
     exports: {
       "./entrypoint": "./dist/spark-daemon.js",
       "./executable": "./bin/spark-daemon",
@@ -150,6 +153,7 @@ export const npmDistributions = [
     },
     files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
+    declaredRuntimePackages: [],
     exports: { "./executable": "./bin/spark-hub" },
     migrationSource: resolve(root, "packages/spark-hub-storage-sqlite/src/migrations"),
   },
@@ -166,6 +170,7 @@ export const npmDistributions = [
     },
     files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
+    declaredRuntimePackages: [],
     exports: { "./executable": "./bin/spark-web" },
   },
   {
@@ -181,6 +186,9 @@ export const npmDistributions = [
     },
     files: ["bin", "dist", "lib", "presets", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
+    // The public DSH CLI is resolved from the installed package at runtime, so
+    // its literal package name does not appear in the esbuild output.
+    declaredRuntimePackages: ["@deepseek-ai/dsh"],
     dsh: webDshManifest.dsh,
     exports: {
       ".": "./lib/index.js",

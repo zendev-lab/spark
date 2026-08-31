@@ -1,11 +1,7 @@
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import {
-  defineTool,
-  type JsonValue,
-  type ParameterSchemaSpec,
-  type ToolDefinition,
-} from "@deepseek-ai/dsh-tools";
+import { defineTool, type ParameterSchemaSpec, type ToolDefinition } from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import type {} from "@deepseek-ai/dsh-system-prompt";
 
 import {

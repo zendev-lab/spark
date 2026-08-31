@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Context, type Plugin } from "@deepseek-ai/cordis";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import WebRuntime, { type WebSearchProvider } from "@deepseek-ai/dsh-web";
@@ -132,7 +132,7 @@ async function execute(
   args: Record<string, unknown>,
 ): Promise<{ text: string; details: unknown }> {
   const result = await ctx.tools.execute({
-    callId: CallId(`${name}-${Math.random()}`),
+    callId: ToolCallId(`${name}-${Math.random()}`),
     name,
     arguments: args,
     signal: new AbortController().signal,

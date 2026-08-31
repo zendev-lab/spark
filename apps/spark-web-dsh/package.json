@@ -30,6 +30,10 @@
     "verify:presets": "node scripts/verify-presets.mjs"
   },
   "dependencies": {
+    "@deepseek-ai/dsh": "catalog:dsh",
+    "@deepseek-ai/dsh-api-session-controller": "catalog:dsh",
+    "@deepseek-ai/dsh-session-persistence": "catalog:dsh",
+    "@deepseek-ai/dsh-typert-protocol": "catalog:dsh",
     "@zendev-lab/cue": "catalog:",
     "@zendev-lab/dsh-cue": "workspace:^",
     "@zendev-lab/dsh-tool-cue": "workspace:^",

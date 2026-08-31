@@ -13,6 +13,7 @@ import {
 import { SPARK_WEB_DSH_PROXY_HEADER } from "./private-webserver.ts";
 
 const PRIVATE_PROXY_CREDENTIAL = "test-private-proxy-credential";
+const INNER_COOKIE = "dsh-auth-test=v1.body.signature";
 
 function listenLoopback(server: Server): Promise<number> {
   return new Promise((resolveListen, rejectListen) => {
@@ -60,6 +61,7 @@ async function startProxy(
     verify,
     lanAddresses: ["127.0.0.1"],
   });
+  proxy.setInnerCookie(INNER_COOKIE);
   return {
     port: (proxy.server.address() as AddressInfo).port,
     close: () => proxy.close(),
@@ -291,6 +293,13 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
     });
     assert.equal(cookieAuth.status, 200);
 
+    const comboPath = "/plugins/??@deepseek-ai/a/client.js,@zendev-lab/b/client.js&rev=abc123";
+    const combo = await rawRequest(proxy.port, {
+      path: comboPath,
+      headers: { "x-spark-web-token": "sdu_good" },
+    });
+    assert.equal(combo.status, 200);
+
     const navigation = await rawRequest(proxy.port, {
       path: "/?token=sdu_good&lang=zh",
       headers: {
@@ -311,10 +320,12 @@ test("proxy forwards header/cookie auth and keeps query tokens navigation-only",
     assert.deepEqual(upstream.seen, [
       `GET /api/sessions host=127.0.0.1:${upstream.port}`,
       `GET / host=127.0.0.1:${upstream.port}`,
+      `GET ${comboPath} host=127.0.0.1:${upstream.port}`,
     ]);
     assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_PROXY_HEADER], PRIVATE_PROXY_CREDENTIAL);
     assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_TOKEN_HEADER], undefined);
-    assert.equal(upstream.headers[1]?.cookie, "theme=dark");
+    assert.equal(upstream.headers[0]?.cookie, INNER_COOKIE);
+    assert.equal(upstream.headers[1]?.cookie, `theme=dark; ${INNER_COOKIE}`);
   } finally {
     await proxy.close();
     upstream.server.close();
@@ -358,6 +369,7 @@ test("WebSocket upgrades require header or cookie auth and reject query tokens",
     assert.deepEqual(upstream.seen, [`GET /socket?channel=main host=127.0.0.1:${upstream.port}`]);
     assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_PROXY_HEADER], PRIVATE_PROXY_CREDENTIAL);
     assert.equal(upstream.headers[0]?.[SPARK_WEB_DSH_TOKEN_HEADER], undefined);
+    assert.equal(upstream.headers[0]?.cookie, INNER_COOKIE);
   } finally {
     await proxy.close();
     upstream.server.close();

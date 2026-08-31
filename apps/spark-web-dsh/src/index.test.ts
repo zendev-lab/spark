@@ -13,6 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
+import type {
+  SessionFollowFrame,
+  SessionFollowRequest,
+  SessionPageRequest,
+} from "@deepseek-ai/dsh-api-session-controller";
+import { RemoteError } from "@deepseek-ai/dsh-typert-protocol";
 import { test } from "vitest";
 
 import {
@@ -33,12 +39,19 @@ function inertFileSystem() {
   };
 }
 
-interface Request {
-  rpcId: unknown;
-  payload: {
-    sessionId: string;
-    beforeSeq?: number;
-    maxMessages?: number;
+type Request = SessionPageRequest;
+
+const signal = new AbortController().signal;
+
+async function* inertFollow(_request: unknown, _signal: AbortSignal) {
+  // No frames are needed by page-only tests.
+}
+
+function pageRequest(sessionId: string, maxMessages: number): Request {
+  return {
+    address: { kind: "session", sessionId: sessionId as never },
+    throughSeq: 100,
+    maxMessages,
   };
 }
 
@@ -85,22 +98,21 @@ async function temporaryZstdArtifact(
   };
 }
 
-function successfulResponse(request: Request, text = "ok"): unknown {
+function successfulResponse(_request: Request, text = "ok") {
   return {
-    rpcId: request.rpcId,
-    result: {
-      ok: true,
-      value: {
-        events: [{ event: { type: "assistant/message", seq: 1, data: { text } } }],
-        hasMore: true,
+    records: [
+      {
+        type: "event" as const,
+        event: { type: "assistant/message", seq: 1, time: 1, data: { text } },
       },
-    },
+    ],
+    hasMore: true,
   };
 }
 
 test("spark-web-dsh host half exposes safety policies with the filesystem dependency", () => {
   assert.equal(typeof apply, "function");
-  assert.deepEqual(inject, ["apiProxy", "fs", "sessionPersistence", "sessions"]);
+  assert.deepEqual(inject, ["fs", "sessionController", "sessionPersistence", "sessions"]);
 });
 
 test("filesystem listing stops at directory symlinks instead of following a cycle", async () => {
@@ -197,35 +209,35 @@ test("bounded JSON estimator matches the actual UTF-8 wire size", () => {
 
 test("history compaction drops cumulative chunks and optional views", () => {
   const response = {
-    rpcId: "rpc",
-    result: {
-      ok: true,
-      value: {
-        events: [
-          {
-            event: {
-              type: "assistant/chunk",
-              seq: 1,
-              data: { chunk: { sparkEvent: { partial: "x".repeat(10_000) } } },
-            },
-          },
-          {
-            event: { type: "assistant/message", seq: 2, data: { text: "final" } },
-            view: { duplicated: "x".repeat(10_000) },
-          },
-        ],
-        hasMore: true,
+    records: [
+      {
+        type: "chunks",
+        event: {
+          type: "chunkrow/assistant",
+          seq: 1,
+          time: 1,
+          data: { chunk: { sparkEvent: { partial: "x".repeat(10_000) } } },
+        },
       },
-    },
+      {
+        type: "event",
+        event: {
+          type: "assistant/message",
+          seq: 2,
+          time: 2,
+          data: { text: "final" },
+        },
+      },
+    ],
+    hasMore: true,
   };
   const compacted = compactHistoryResponse(response) as {
-    result: { value: { events: Array<{ event: { type: string }; view?: unknown }> } };
+    records: Array<{ event: { type: string } }>;
   };
   assert.deepEqual(
-    compacted.result.value.events.map((entry) => entry.event.type),
+    compacted.records.map((entry) => entry.event.type),
     ["assistant/message"],
   );
-  assert.equal(compacted.result.value.events[0]?.view, undefined);
   assert.ok(estimateHistoryResponseBytes(compacted) < estimateHistoryResponseBytes(response));
 });
 
@@ -240,13 +252,12 @@ test.sequential("cold artifacts over the physical fence are refused before histo
       async () => {
         let calls = 0;
         const ctx = {
-          apiProxy: {
-            sessions: {
-              history: async (request: Request) => {
-                calls += 1;
-                return successfulResponse(request);
-              },
+          sessionController: {
+            page: async (request: Request, _signal: AbortSignal) => {
+              calls += 1;
+              return successfulResponse(request);
             },
+            follow: inertFollow,
           },
           fs: inertFileSystem(),
           sessions: { get: () => undefined },
@@ -256,12 +267,11 @@ test.sequential("cold artifacts over the physical fence are refused before histo
           },
         };
         apply(ctx);
-        const response = (await ctx.apiProxy.sessions.history({
-          rpcId: "rpc",
-          payload: { sessionId: "cold", maxMessages: 50 },
-        })) as { result: { ok: boolean; error: { message: string } } };
-        assert.equal(response.result.ok, false);
-        assert.match(response.result.error.message, /too large to open safely/);
+        await assert.rejects(
+          ctx.sessionController.page(pageRequest("cold", 50), signal),
+          (error: unknown) =>
+            error instanceof RemoteError && /too large to open safely/u.test(error.message),
+        );
         assert.equal(calls, 0);
       },
     );
@@ -285,13 +295,12 @@ test.sequential("high-compression cold artifacts are refused before history load
       async () => {
         let calls = 0;
         const ctx = {
-          apiProxy: {
-            sessions: {
-              history: async (request: Request) => {
-                calls += 1;
-                return successfulResponse(request);
-              },
+          sessionController: {
+            page: async (request: Request, _signal: AbortSignal) => {
+              calls += 1;
+              return successfulResponse(request);
             },
+            follow: inertFollow,
           },
           fs: inertFileSystem(),
           sessions: { get: () => undefined },
@@ -301,12 +310,10 @@ test.sequential("high-compression cold artifacts are refused before history load
           },
         };
         apply(ctx);
-        const response = (await ctx.apiProxy.sessions.history({
-          rpcId: "rpc",
-          payload: { sessionId: "cold", maxMessages: 50 },
-        })) as { result: { ok: boolean; error: { message: string } } };
-        assert.equal(response.result.ok, false);
-        assert.match(response.result.error.message, /decoded bytes/);
+        await assert.rejects(
+          ctx.sessionController.page(pageRequest("cold", 50), signal),
+          (error: unknown) => error instanceof RemoteError && /decoded bytes/u.test(error.message),
+        );
         assert.equal(calls, 0);
       },
     );
@@ -326,13 +333,12 @@ test.sequential("large live artifacts are preflighted at two messages", async ()
       async () => {
         const pageSizes: number[] = [];
         const ctx = {
-          apiProxy: {
-            sessions: {
-              history: async (request: Request) => {
-                pageSizes.push(request.payload.maxMessages ?? 50);
-                return successfulResponse(request);
-              },
+          sessionController: {
+            page: async (request: Request, _signal: AbortSignal) => {
+              pageSizes.push(request.maxMessages ?? 50);
+              return successfulResponse(request);
             },
+            follow: inertFollow,
           },
           fs: inertFileSystem(),
           sessions: { get: () => ({ header: { id: "live" } }) },
@@ -342,11 +348,8 @@ test.sequential("large live artifacts are preflighted at two messages", async ()
           },
         };
         apply(ctx);
-        const response = (await ctx.apiProxy.sessions.history({
-          rpcId: "rpc",
-          payload: { sessionId: "live", maxMessages: 50 },
-        })) as { result: { ok: boolean } };
-        assert.equal(response.result.ok, true);
+        const response = await ctx.sessionController.page(pageRequest("live", 50), signal);
+        assert.equal(response.hasMore, true);
         assert.deepEqual(pageSizes, [2]);
       },
     );
@@ -366,13 +369,71 @@ test.sequential("oversized prepared pages back off until the response fits", asy
       async () => {
         const pageSizes: number[] = [];
         const ctx = {
-          apiProxy: {
-            sessions: {
-              history: async (request: Request) => {
-                const pageSize = request.payload.maxMessages ?? 50;
-                pageSizes.push(pageSize);
-                return successfulResponse(request, "x".repeat(pageSize * 100));
-              },
+          sessionController: {
+            page: async (request: Request, _signal: AbortSignal) => {
+              const pageSize = request.maxMessages ?? 50;
+              pageSizes.push(pageSize);
+              return successfulResponse(request, "x".repeat(pageSize * 100));
+            },
+            follow: inertFollow,
+          },
+          fs: inertFileSystem(),
+          sessions: { get: () => ({ header: { id: "live" } }) },
+          sessionPersistence: {
+            list: async () => [],
+            locate: () => ({ path: artifact.path }),
+          },
+        };
+        apply(ctx);
+        const response = await ctx.sessionController.page(pageRequest("live", 10), signal);
+        assert.equal(response.hasMore, true);
+        assert.deepEqual(pageSizes, [10, 5, 2]);
+      },
+    );
+  } finally {
+    await artifact.dispose();
+  }
+});
+
+test.sequential("follow retries its opening snapshot and bounds later frames", async () => {
+  const artifact = await temporaryArtifact(1);
+  try {
+    await withEnvironment(
+      {
+        SPARK_WEB_MAX_COLD_HISTORY_ARTIFACT_BYTES: "1024",
+        SPARK_WEB_MAX_HISTORY_RESPONSE_BYTES: "500",
+      },
+      async () => {
+        const pageSizes: number[] = [];
+        const ctx = {
+          sessionController: {
+            page: async (request: Request, _signal: AbortSignal) => successfulResponse(request),
+            follow: async function* (
+              request: SessionFollowRequest,
+              _signal: AbortSignal,
+            ): AsyncIterable<SessionFollowFrame> {
+              const pageSize = request.maxMessages ?? 50;
+              pageSizes.push(pageSize);
+              yield {
+                type: "snapshot" as const,
+                header: { id: "live", version: 4 },
+                cursor: 1,
+                records: successfulResponse(
+                  pageRequest("live", pageSize),
+                  "x".repeat(pageSize * 100),
+                ).records,
+                hasMore: true,
+                projections: {},
+              } as unknown as SessionFollowFrame;
+              yield {
+                type: "event" as const,
+                event: {
+                  type: "assistant/message",
+                  seq: 2,
+                  time: 2,
+                  data: { text: "live" },
+                },
+              };
             },
           },
           fs: inertFileSystem(),
@@ -383,12 +444,19 @@ test.sequential("oversized prepared pages back off until the response fits", asy
           },
         };
         apply(ctx);
-        const response = (await ctx.apiProxy.sessions.history({
-          rpcId: "rpc",
-          payload: { sessionId: "live", maxMessages: 10 },
-        })) as { result: { ok: boolean } };
-        assert.equal(response.result.ok, true);
+        const frames = [];
+        for await (const frame of ctx.sessionController.follow(
+          { address: pageRequest("live", 10).address, maxMessages: 10 },
+          signal,
+        )) {
+          frames.push(frame);
+        }
         assert.deepEqual(pageSizes, [10, 5, 2]);
+        assert.deepEqual(
+          frames.map((frame) => frame.type),
+          ["snapshot", "event"],
+        );
+        assert.ok(frames.every((frame) => estimateHistoryResponseBytes(frame) <= 500));
       },
     );
   } finally {
@@ -406,10 +474,10 @@ test.sequential("a huge final message is returned as a marked preview instead of
       },
       async () => {
         const ctx = {
-          apiProxy: {
-            sessions: {
-              history: async (request: Request) => successfulResponse(request, "x".repeat(50_000)),
-            },
+          sessionController: {
+            page: async (request: Request, _signal: AbortSignal) =>
+              successfulResponse(request, "x".repeat(50_000)),
+            follow: inertFollow,
           },
           fs: inertFileSystem(),
           sessions: { get: () => ({ header: { id: "live" } }) },
@@ -419,17 +487,10 @@ test.sequential("a huge final message is returned as a marked preview instead of
           },
         };
         apply(ctx);
-        const response = (await ctx.apiProxy.sessions.history({
-          rpcId: "rpc",
-          payload: { sessionId: "live", maxMessages: 1 },
-        })) as {
-          result: {
-            ok: boolean;
-            value: { events: Array<{ event: { data: { text: string } } }> };
-          };
+        const response = (await ctx.sessionController.page(pageRequest("live", 1), signal)) as {
+          records: Array<{ event: { data: { text: string } } }>;
         };
-        assert.equal(response.result.ok, true);
-        assert.match(response.result.value.events[0]!.event.data.text, /truncated by Spark Web/);
+        assert.match(response.records[0]!.event.data.text, /truncated by Spark Web/);
         assert.ok(estimateHistoryResponseBytes(response) <= 10_000);
       },
     );

@@ -1,5 +1,5 @@
 # The `spark-ptc` agent preset: Spark's Cue-first coding agent presented as
-# Code Mode — the model composes tool calls through a generated TypeScript SDK
+# PTC mode — the model composes tool calls through a generated TypeScript SDK
 # instead of issuing one call per action. Everything in `spark-standard`
 # applies; the `tool-presentation` row at the end is the delta.
 #
@@ -178,10 +178,10 @@
   name: "../../profiles/web/plugins/dsh-tool-web/index.mjs"
 # ── presentation ────────────────────────────────────────────────────────────
 
-# Code Mode for this agent alone. The row waits for the host's `codeRuntime`
+# PTC mode for this agent alone. The row waits for the host's `codeRuntime`
 # rather than assuming it: a deployment that composes no TypeScript runtime
 # fails this preset at mount, naming this id, instead of at the first request.
 - id: tool-presentation
   name: "@deepseek-ai/dsh-agent-tool-presentation"
   config:
-    mode: code
+    mode: ptc

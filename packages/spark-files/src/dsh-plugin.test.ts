@@ -142,7 +142,7 @@ describe("Spark DSH file tools", () => {
     expect(rawContext.systemPrompt.section).toHaveBeenCalledTimes(3);
   });
 
-  it("projects one escalation-free schema into Native and Code Mode", () => {
+  it("projects one escalation-free schema into Native and PTC", () => {
     const { context } = harness();
     const tools = createDshFileToolDefinitions(context);
     const read = named(tools, "read");

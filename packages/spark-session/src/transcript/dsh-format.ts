@@ -15,10 +15,11 @@ import {
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
   DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
   DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
+  DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS,
   saveImageFile,
 } from "@deepseek-ai/dsh-attachment-local";
 import {
-  CallId,
+  ToolCallId,
   MessageId,
   freezeMessage,
   type AssistantMessage,
@@ -117,6 +118,7 @@ const IMAGE_LIMITS = {
 };
 
 const IMAGE_NORMALIZATION_POLICY = {
+  maxPixels: DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS,
   maxDimension: DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
   maxBytes: DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
 };
@@ -470,7 +472,7 @@ class SparkDshTranscriptWriter {
   private appendAssistantMessage(
     message: AssistantMessage,
     usage: TokenUsage | undefined,
-    toolCalls: readonly { id: ReturnType<typeof CallId>; name: string; arguments: string }[],
+    toolCalls: readonly { id: ReturnType<typeof ToolCallId>; name: string; arguments: string }[],
     intent: SurfaceIntent | "append",
   ): SparkDshSessionEvent {
     if (this.openStep !== undefined) this.interruptCurrentTurn();
@@ -611,7 +613,7 @@ type ConvertedSparkMessage =
       kind: "assistant";
       message: AssistantMessage;
       usage?: TokenUsage;
-      toolCalls: Array<{ id: ReturnType<typeof CallId>; name: string; arguments: string }>;
+      toolCalls: Array<{ id: ReturnType<typeof ToolCallId>; name: string; arguments: string }>;
     })
   | (ConvertedMessageBase & { kind: "tool"; message: ToolResultMessage });
 
@@ -663,7 +665,7 @@ async function convertSparkMessage(
     };
   }
 
-  const callId = CallId(
+  const callId = ToolCallId(
     typeof entry.message.toolCallId === "string" && entry.message.toolCallId
       ? entry.message.toolCallId
       : `legacy:${entry.id}`,
@@ -713,7 +715,7 @@ async function convertContent(
       blocks.push({ type: "reasoning", text: value.thinking });
       blockMeta.push(jsonData(omit(value, ["type", "thinking"])));
     } else if (value.type === "toolCall" && typeof value.name === "string") {
-      const id = CallId(
+      const id = ToolCallId(
         typeof value.id === "string" && value.id ? value.id : `${entryId}:${index}`,
       );
       const argumentsJson = JSON.stringify(value.arguments ?? {});

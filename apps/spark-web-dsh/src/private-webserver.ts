@@ -1,8 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 export const SPARK_WEB_DSH_PROXY_HEADER = "x-spark-web-dsh-proxy";
-export const SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY =
-  "@zendev-lab/spark-web-dsh/private-proxy-credential";
 
 interface SparkPrivateHttpRequest {
   headers: Record<string, string | string[] | undefined>;
@@ -37,11 +36,12 @@ interface SparkPrivateWebServer {
 
 type SparkPrivateWebServerConstructor = new (...args: never[]) => SparkPrivateWebServer;
 
-/** Consume the boot-pipe credential once; later plugins and subprocesses cannot recover it. */
-export function takeSparkWebDshProxyCredential(): string {
-  const key = Symbol.for(SPARK_WEB_DSH_PROXY_CREDENTIAL_KEY);
-  const credential = Reflect.get(globalThis, key);
-  Reflect.deleteProperty(globalThis, key);
+/** Read the process-private proxy credential from Spark's inherited pipe. */
+export function takeSparkWebDshProxyCredential(
+  fd = 3,
+  read = (source: number): string => readFileSync(source, "utf8"),
+): string {
+  const credential = read(fd);
   if (typeof credential !== "string" || credential.length < 32) {
     throw new Error("spark web-dsh: private proxy credential is unavailable");
   }

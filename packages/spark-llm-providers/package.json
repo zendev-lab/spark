@@ -26,14 +26,15 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-attachment": "catalog:dsh",
     "@deepseek-ai/dsh-brand": "catalog:dsh",
     "@deepseek-ai/dsh-invariants": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
     "@deepseek-ai/dsh-settings": "catalog:dsh",
     "@deepseek-ai/dsh-timeout": "catalog:dsh",
-    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-util-values": "catalog:dsh",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@earendil-works/pi-ai": "^0.84.0",
     "@zendev-lab/spark-invocation": "workspace:^",
     "@zendev-lab/spark-platform-node": "workspace:^",

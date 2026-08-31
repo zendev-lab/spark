@@ -12,6 +12,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -461,6 +462,21 @@ try {
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
   const web = installedBin(webRoot, "@zendev-lab/spark-web", "spark-web");
   const webDsh = installedBin(webDshRoot, "@zendev-lab/spark-web-dsh", "spark-web-dsh");
+  const installedWebDshManifest = JSON.parse(
+    await readFile(
+      resolve(webDshRoot, "node_modules", "@zendev-lab", "spark-web-dsh", "package.json"),
+      "utf8",
+    ),
+  );
+  const webDshRequire = createRequire(
+    resolve(webDshRoot, "node_modules", "@zendev-lab", "spark-web-dsh", "package.json"),
+  );
+  const installedDshManifest = JSON.parse(
+    await readFile(webDshRequire.resolve("@deepseek-ai/dsh/package.json"), "utf8"),
+  );
+  if (installedWebDshManifest.dependencies?.["@deepseek-ai/dsh"] !== installedDshManifest.version) {
+    throw new Error("spark-web-dsh did not install its exact public DSH CLI runtime dependency");
+  }
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),

@@ -103,8 +103,9 @@ token 规则、本机 IP trust 语义和 Spark Access 页面：
 spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
-首次使用时，Spark 会通过已安装 DSH 版本提供的 profile API 初始化 `web`
-profile；该过程不会另行启动 DSH server，后续也不会覆盖用户对 profile 的修改。
+首次使用时，Spark 会从已安装 DSH 版本初始化 `web` profile 并安装托管 preset，
+随后以 `dsh --profile web --patch ...` 启动精确锁定的公开 DSH CLI；无需预先手工
+运行 `dsh web`，后续也不会覆盖用户对 profile 的修改。
 
 该命令同样不会自动打开浏览器，并会把 wildcard bind 展开成带 token、可直接访问的本机 URL。
 每次启动都会启动或重连 daemon，并使用与 native Web 相同的 token 链接流程。

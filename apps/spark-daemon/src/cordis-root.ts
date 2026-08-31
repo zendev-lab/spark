@@ -20,6 +20,7 @@ import LlmRuntime from "@deepseek-ai/dsh-llm";
 import SandboxPolicy from "@deepseek-ai/dsh-sandbox-policy";
 import * as ScheduleRuntime from "@deepseek-ai/dsh-schedule";
 import { SessionStore } from "@deepseek-ai/dsh-session";
+import SessionProjectionRegistry from "@deepseek-ai/dsh-session-projection";
 import * as ShellEnv from "@deepseek-ai/dsh-shell-env";
 import SkillRegistry from "@deepseek-ai/dsh-skill";
 import * as SkillFileSystem from "@deepseek-ai/dsh-skill-filesystem";
@@ -206,6 +207,7 @@ async function mountSparkDshRuntime(
   options: { dshHome: string; sessionsRoot?: string; cueSkillRoot: string },
 ): Promise<void> {
   await ctx.plugin(SessionStore);
+  await ctx.plugin(SessionProjectionRegistry);
   if (options.sessionsRoot) {
     await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
   }
