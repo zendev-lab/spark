@@ -2,64 +2,87 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import { Context } from "@deepseek-ai/cordis";
-import SessionStore, { SessionId } from "@deepseek-ai/dsh-session";
+import type { Agent } from "@deepseek-ai/dsh-agent";
+import { SessionId } from "@deepseek-ai/dsh-session";
+import type { ResolvedSubagentStartRequest, SubagentProvider } from "@deepseek-ai/dsh-subagent";
 
 import {
   apply,
-  createSparkSessionStoreSubagentHost,
   createSparkSessionSubagentProviders,
+  createUnavailableSparkSubagentHost,
   inject,
   name,
   roleRefFromDshRequest,
   type SparkSubagentHost,
+  type SparkSubagentHostStartRequest,
   type SparkSubagentRegistry,
-  type SparkSubagentSendRequest,
-  type SparkSubagentStartRequest,
-  type SparkSubagentStartResult,
-  type SparkSessionSubagentProvider,
 } from "./subagent.ts";
 
 function recordingHost(
-  children: SparkSubagentStartRequest[] = [],
-  sends: SparkSubagentSendRequest[] = [],
+  starts: SparkSubagentHostStartRequest[] = [],
+  lifecycle: string[] = [],
 ): SparkSubagentHost {
   return {
-    async createChild(input) {
-      children.push(input);
+    agentOptions: true,
+    async start(input) {
+      starts.push(input);
       return {
-        sessionId: `sess_${children.length}`,
-        roleRef: input.roleRef,
-        mode: input.mode,
-      } satisfies SparkSubagentStartResult;
-    },
-    async send(input) {
-      sends.push(input);
-      return { sessionId: input.sessionId, invocationId: `inv_${sends.length}` };
+        sessionId: `sess_${starts.length}`,
+        invocationId: `inv_${starts.length}`,
+        result: Promise.resolve({
+          output: [{ type: "text", text: "child result" }],
+          stopReason: "completed",
+        }),
+        cancel(reason) {
+          lifecycle.push(`cancel:${reason}`);
+        },
+        async waitForIdle() {
+          lifecycle.push("idle");
+        },
+      };
     },
   };
 }
 
 function fakeRegistry(): {
   registry: SparkSubagentRegistry;
-  providers: Map<string, SparkSessionSubagentProvider>;
+  providers: Map<string, SubagentProvider>;
 } {
-  const providers = new Map<string, SparkSessionSubagentProvider>();
+  const providers = new Map<string, SubagentProvider>();
   return {
     providers,
     registry: {
       registerProvider(provider) {
         providers.set(provider.name, provider);
-        return () => {
-          providers.delete(provider.name);
-        };
+        return () => providers.delete(provider.name);
       },
     },
   };
 }
 
-test("registers spawn and fork providers on the official HOST", () => {
-  const children: SparkSubagentStartRequest[] = [];
-  const providers = createSparkSessionSubagentProviders(recordingHost(children));
+function request(
+  input: Partial<ResolvedSubagentStartRequest> & { parentSessionId?: string } = {},
+): ResolvedSubagentStartRequest {
+  const parentSessionId = input.parentSessionId ?? "sess_admin";
+  const parent = {
+    id: SessionId(parentSessionId),
+    options: {},
+    session: {
+      id: SessionId(parentSessionId),
+      header: { delegationDepth: 0 },
+    },
+  } as unknown as Agent;
+  return {
+    prompt: [],
+    parent,
+    signal: new AbortController().signal,
+    descriptor: { version: 3, mode: "one-shot", provider: "spawn" },
+    ...input,
+  } as ResolvedSubagentStartRequest;
+}
+
+test("registers spawn and fork providers with daemon AgentOptions support", () => {
+  const providers = createSparkSessionSubagentProviders(recordingHost());
   assert.deepEqual(
     providers.map((provider) => [provider.name, provider.inheritsParentContext]),
     [
@@ -67,119 +90,97 @@ test("registers spawn and fork providers on the official HOST", () => {
       ["fork", true],
     ],
   );
+  assert.equal(providers[0]?.capabilities.agentOptions, true);
   assert.equal(providers[0]?.capabilities.persona, true);
-  assert.equal("prepareContinuable" in providers[0]!, false);
 });
 
-test("spawn start creates a Role-bound child and sends the prompt", async () => {
-  const children: SparkSubagentStartRequest[] = [];
-  const sends: SparkSubagentSendRequest[] = [];
-  const [spawn] = createSparkSessionSubagentProviders(recordingHost(children, sends));
-  const run = await spawn!.start({
-    parent: { session: { id: " sess_admin " } },
-    persona: "reviewer",
-    label: " Audit ",
-    prompt: [{ type: "text", text: " Review the diff. " }],
-  });
-  const settled = await run.result;
+test("start passes official AgentOptions and resolves the durable terminal result", async () => {
+  const starts: SparkSubagentHostStartRequest[] = [];
+  const lifecycle: string[] = [];
+  const [spawn] = createSparkSessionSubagentProviders(recordingHost(starts, lifecycle));
+  const run = await spawn!.start(
+    request({
+      persona: "reviewer",
+      label: " Audit ",
+      prompt: [{ type: "text", text: "Review the diff." }],
+      agentOptions: {
+        provider: "baidu-oneapi",
+        model: "grok-4.6",
+        reasoningEffort: "high" as never,
+        maxTokens: 2048,
+      },
+    }),
+  );
   assert.equal(String(run.id), "sess_1");
-  assert.equal(run.localAgent, undefined);
-  assert.equal(settled.stopReason, "completed");
-  assert.match(settled.output[0]?.text ?? "", /session create\+send/);
-  assert.match(settled.output[0]?.text ?? "", /inv_1/);
-  assert.deepEqual(children, [
-    {
-      parentSessionId: "sess_admin",
-      roleRef: "role:builtin-reviewer",
-      mode: "spawn",
-      name: "Audit",
-    },
-  ]);
-  assert.deepEqual(sends, [
-    {
-      parentSessionId: "sess_admin",
-      sessionId: "sess_1",
-      body: "Review the diff.",
-    },
-  ]);
-});
-
-test("fork start keeps fork mode and maps a missing persona to builtin executor", async () => {
-  const children: SparkSubagentStartRequest[] = [];
-  const sends: SparkSubagentSendRequest[] = [];
-  const providers = createSparkSessionSubagentProviders(recordingHost(children, sends));
-  const fork = providers[1]!;
-  await fork.start({ parent: { session: { id: "sess_admin" } } });
-  assert.equal(children[0]?.mode, "fork");
-  assert.equal(children[0]?.roleRef, "role:builtin-executor");
-  assert.equal(sends.length, 0);
-});
-
-test("rejects a human persona and an empty parent identity before calling the host", async () => {
-  const children: SparkSubagentStartRequest[] = [];
-  const [spawn] = createSparkSessionSubagentProviders(recordingHost(children));
-  await assert.rejects(
-    async () => await spawn!.start({ parent: { session: { id: "sess_admin" } }, persona: "you" }),
-    { name: "SparkSubagentError", code: "invalid_role_ref" },
+  assert.deepEqual(await run.result, {
+    output: [{ type: "text", text: "child result" }],
+    stopReason: "completed",
+  });
+  assert.deepEqual(
+    starts.map(({ signal: _signal, descriptor: _descriptor, ...start }) => start),
+    [
+      {
+        parentSessionId: "sess_admin",
+        roleRef: "role:builtin-reviewer",
+        mode: "spawn",
+        name: "Audit",
+        prompt: [{ type: "text", text: "Review the diff." }],
+        agentOptions: {
+          provider: "baidu-oneapi",
+          model: "grok-4.6",
+          reasoningEffort: "high",
+          maxTokens: 2048,
+        },
+        delegationDepth: 1,
+      },
+    ],
   );
-  await assert.rejects(
-    async () => await spawn!.start({ parent: { session: { id: "  " } }, persona: "executor" }),
-    { name: "SparkSubagentError", code: "invalid_parent_session" },
-  );
-  assert.equal(children.length, 0);
+  await run.dispose();
+  await run.dispose();
+  assert.deepEqual(lifecycle, ["cancel:DSH subagent run disposed", "idle"]);
 });
 
-test("apply() registers providers onto ctx.subagents", async () => {
-  const children: SparkSubagentStartRequest[] = [];
+test("fork inherits context and enforces the official depth cap", async () => {
+  const starts: SparkSubagentHostStartRequest[] = [];
+  const fork = createSparkSessionSubagentProviders(recordingHost(starts))[1]!;
+  await fork.start(request());
+  assert.equal(starts[0]?.mode, "fork");
+  assert.equal(starts[0]?.roleRef, "role:builtin-executor");
+  await assert.rejects(async () => await fork.start(request({ maxDepth: 0 })), {
+    name: "SparkSubagentError",
+    code: "subagent_depth_exceeded",
+  });
+});
+
+test("Web fallback advertises no AgentOptions and never creates a local child", async () => {
+  const [spawn] = createSparkSessionSubagentProviders(createUnavailableSparkSubagentHost());
+  assert.equal(spawn!.capabilities.agentOptions, false);
+  await assert.rejects(async () => await spawn!.start(request()), {
+    name: "SparkSubagentError",
+    code: "subagent_execution_unavailable",
+  });
+});
+
+test("apply registers providers onto the official ctx.subagents service", async () => {
   const { registry, providers } = fakeRegistry();
   const ctx = new Context();
   ctx.provide("subagents", registry);
-  apply(ctx, { host: recordingHost(children) });
+  apply(ctx, { host: recordingHost() });
   assert.equal(name, "spark-session-subagent");
   assert.deepEqual(inject, ["subagents"]);
   assert.deepEqual([...providers.keys()], ["spawn", "fork"]);
-  const run = await providers.get("spawn")!.start({
-    parent: { session: { id: "sess_admin" } },
-    persona: "explorer",
-  });
-  assert.equal(String(run.id), "sess_1");
   await ctx.fiber.dispose();
 });
 
-test("DSH SessionStore host spawns a live child and send appends the prompt", async () => {
-  const ctx = new Context();
-  await ctx.plugin(SessionStore);
-  const host = createSparkSessionStoreSubagentHost(ctx);
-  const parent = ctx.sessions.create();
-  const started = await host.createChild({
-    parentSessionId: String(parent.id),
-    roleRef: "role:builtin-executor",
-    mode: "spawn",
-  });
-  const child = ctx.sessions.get(SessionId(started.sessionId));
-  assert.equal(started.mode, "spawn");
-  assert.equal(child?.header.origin, "subagent");
-  assert.equal(String(child?.header.parentSession), String(parent.id));
-  await host.send({
-    parentSessionId: String(parent.id),
-    sessionId: started.sessionId,
-    body: "Review the diff.",
-  });
-  assert.equal(
-    child?.events.some(
-      (event) =>
-        event.type === "user/message" && JSON.stringify(event.data).includes("Review the diff."),
-    ),
-    true,
-  );
-  await ctx.fiber.dispose();
-});
-
-test("roleRefFromDshRequest maps persona aliases onto Role refs", () => {
+test("roleRefFromDshRequest maps supported persona aliases onto Role refs", () => {
   assert.equal(roleRefFromDshRequest({}), "role:builtin-executor");
   assert.equal(roleRefFromDshRequest({ persona: "explorer" }), "role:builtin-explorer");
   assert.equal(
     roleRefFromDshRequest({ persona: "role:builtin-reviewer" }),
     "role:builtin-reviewer",
   );
+  assert.throws(() => roleRefFromDshRequest({ persona: "you" }), {
+    name: "SparkSubagentError",
+    code: "invalid_role_ref",
+  });
 });

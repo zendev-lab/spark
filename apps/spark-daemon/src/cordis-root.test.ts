@@ -495,26 +495,36 @@ describe("spark daemon Cordis root", () => {
     const root = await createSparkDaemonCordisRoot(fakeStores(), {
       sessionsRoot: await sessionsRoot(),
       subagentHost: {
-        async createChild(input) {
+        agentOptions: true,
+        async start(input) {
           created.push(input.roleRef);
           return {
             sessionId: "sess_child",
-            roleRef: input.roleRef,
-            mode: input.mode,
+            invocationId: "inv_child",
+            result: Promise.resolve({ output: [], stopReason: "completed" }),
+            cancel() {},
+            async waitForIdle() {},
           };
-        },
-        async send(input) {
-          return { sessionId: input.sessionId, invocationId: "inv_child" };
         },
       },
     });
     try {
       expect(root.ctx.subagents.list()).toEqual(["spawn", "fork"]);
+      expect(root.ctx.subagentModelSelection.current()).toEqual({
+        enabled: false,
+        allowedModels: [],
+      });
       const spawn = root.ctx.subagents.getProvider("spawn");
       expect(spawn?.inheritsParentContext).toBe(false);
       const run = await spawn!.start({
-        parent: { session: { id: "sess_admin" } },
+        parent: {
+          options: {},
+          session: { id: "sess_admin", header: { delegationDepth: 0 } },
+        },
         persona: "executor",
+        prompt: [],
+        descriptor: { version: 3, mode: "one-shot", provider: "spawn" },
+        signal: new AbortController().signal,
       } as never);
       expect(String(run.id)).toBe("sess_child");
       expect(created).toEqual(["role:builtin-executor"]);

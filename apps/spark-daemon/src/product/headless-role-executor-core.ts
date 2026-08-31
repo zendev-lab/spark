@@ -101,6 +101,7 @@ export interface SparkHeadlessSessionRunResult {
   sessionPath: string;
   newMessageCount: number;
   assistantText: string;
+  stopReason?: AssistantMessage["stopReason"];
   stderr: string;
   jsonEvents: unknown[];
   eventsStreamed?: boolean;
@@ -281,6 +282,7 @@ export async function runSparkHeadlessSession(
     // hang detection instead of a short hard stream deadline so long tool/model
     // turns can finish, and interrupted work can resume after restart.
     streamTimeoutMs: 0,
+    ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
     // A daemon-owned human interaction may wait until the user responds. Model
     // streams and tool calls keep their normal per-operation deadlines so a
     // genuinely wedged provider or tool cannot occupy the session forever.
@@ -382,6 +384,7 @@ export async function runSparkHeadlessSession(
       sessionPath: result.sessionPath,
       newMessageCount: result.newMessageCount,
       assistantText: result.assistantText,
+      ...(result.assistant?.stopReason ? { stopReason: result.assistant.stopReason } : {}),
       stderr: renderDiagnostics(services.diagnostics),
       jsonEvents,
       ...(input.onEvent ? { eventsStreamed: true } : {}),

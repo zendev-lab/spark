@@ -230,6 +230,7 @@ export interface SparkInvocationReceiptContext {
   effectiveRoleRevision?: string;
   model?: SparkModelRef;
   thinkingLevel?: SparkThinkingLevel;
+  maxOutputTokens?: number;
   toolPolicyDigest?: string;
   authorizationSource: {
     kind: string;
@@ -1386,6 +1387,7 @@ export class SparkInvocationStore {
       effectiveRoleRevision: context.effectiveRoleRevision,
       model: context.model,
       thinkingLevel: context.thinkingLevel,
+      maxOutputTokens: context.maxOutputTokens,
       toolPolicyDigest: context.toolPolicyDigest,
       authorizationSource: context.authorizationSource,
       inputRefs: context.inputRefs ?? [],

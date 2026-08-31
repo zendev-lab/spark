@@ -284,13 +284,19 @@ export async function createSparkCliHostServices(
     host: runtime,
     llm: llmComposition.llm,
     dshContext: options.dshContext,
-    agentPlugins: loadSparkProductAgentPlugins(),
+    agentPlugins: loadSparkProductAgentPlugins({
+      subagentModels: modelSelector
+        .listItems()
+        .filter((item) => item.available)
+        .map((item) => ({ provider: item.providerName, model: item.modelId })),
+    }),
     getModel: () => {
       const model = providerRegistry.buildActiveModel();
       if (!model) throw new Error("No active Spark model selected");
       return model as Model<string>;
     },
     getReasoning: () => config.activeThinkingLevel,
+    maxOutputTokens: options.maxOutputTokens,
     beforeProviderRequest: ({ model, estimate, requestedOutputTokens }) => {
       const contextWindow = positiveFiniteInteger(model.contextWindow);
       if (!contextWindow) return;

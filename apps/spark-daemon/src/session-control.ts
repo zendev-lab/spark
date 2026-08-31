@@ -478,6 +478,7 @@ export async function executeSparkDaemonSessionControl(
       // change can manufacture an idempotency conflict.
       const model = await effectiveTurnModel(options, parsed.sessionId, parsed.model);
       const thinkingLevel = await effectiveTurnThinkingLevel(options, parsed.sessionId);
+      const maxOutputTokens = await effectiveTurnMaxOutputTokens(options, parsed.sessionId);
       let submitted;
       let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
@@ -490,6 +491,7 @@ export async function executeSparkDaemonSessionControl(
             prompt: parsed.prompt,
             ...(model ? { model } : {}),
             ...(thinkingLevel ? { thinkingLevel } : {}),
+            ...(maxOutputTokens ? { maxOutputTokens } : {}),
             ...(parsed.reset !== undefined ? { reset: parsed.reset } : {}),
             ...(route.cwd ? { cwd: route.cwd } : {}),
             ...(request.workspaceBindingId
@@ -1095,7 +1097,12 @@ async function effectiveTurnModel(
     ) {
       throw new Error(`Invalid frozen Spark model: ${requestedModel}`);
     }
-    return requestedModel;
+    if (!options.modelControl) return requestedModel;
+    const validated = options.modelControl.validateModel
+      ? await options.modelControl.validateModel(modelRefFromSelector(requestedModel))
+      : modelRefFromSelector(requestedModel);
+    await options.modelControl.prepareModel(validated);
+    return `${validated.providerName}/${validated.modelId}`;
   }
   if (!options.modelControl) return undefined;
   const session = await options.sessionRegistry?.get(sessionId);
@@ -1118,6 +1125,9 @@ async function effectiveTurnModel(
     model = await inheritedSessionSetting(options.sessionRegistry, session, "model");
   }
   model ??= await options.modelControl.effectiveModel();
+  if (options.modelControl.validateModel) {
+    model = await options.modelControl.validateModel(model);
+  }
   await options.modelControl.prepareModel(model);
   return `${model.providerName}/${model.modelId}`;
 }
@@ -1135,7 +1145,18 @@ async function effectiveTurnThinkingLevel(
   );
 }
 
-async function inheritedSessionSetting<K extends "model" | "thinkingLevel">(
+async function effectiveTurnMaxOutputTokens(
+  options: SparkDaemonSessionControlOptions,
+  sessionId: string,
+): Promise<number | undefined> {
+  const session = await options.sessionRegistry?.get(sessionId);
+  return (
+    session?.maxOutputTokens ??
+    (await inheritedSessionSetting(options.sessionRegistry, session, "maxOutputTokens"))
+  );
+}
+
+async function inheritedSessionSetting<K extends "model" | "thinkingLevel" | "maxOutputTokens">(
   registry: DaemonSessionRegistry | undefined,
   session: SparkSessionState | undefined,
   setting: K,

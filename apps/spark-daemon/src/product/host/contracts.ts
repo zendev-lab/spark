@@ -106,6 +106,8 @@ export interface SparkCliHostServicesOptions {
   systemPrompt?: string;
   noPromptTemplates?: boolean;
   streamTimeoutMs?: number;
+  /** Per-request model output ceiling frozen by the daemon Session owner. */
+  maxOutputTokens?: number;
   streamIdleTimeoutMs?: number;
   toolTimeoutMs?: number;
   interactionTimeoutMs?: number;

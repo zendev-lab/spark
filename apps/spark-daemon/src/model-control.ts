@@ -3,10 +3,12 @@ import type {
   SparkProviderControlAuthSnapshot,
   SparkProviderControlSnapshot,
 } from "@zendev-lab/spark-llm-providers/control";
+import type { AgentOptions } from "@deepseek-ai/dsh-agent";
 import {
   DEFAULT_SPARK_THINKING_LEVEL,
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+  sparkThinkingLevelSchema,
   requireSparkEnabledModelsWriteIntent,
   type SparkAuthImportReport,
   type SparkAuthFlow,
@@ -59,12 +61,25 @@ export interface SparkDaemonModelControl {
   effectiveModel(sessionId?: string): Promise<SparkModelRef>;
   effectiveThinkingLevel(sessionId?: string): Promise<SparkThinkingLevel | undefined>;
   prepareModel(model: SparkModelRef): Promise<void>;
+  validateModel?(model: SparkModelRef): Promise<SparkModelRef>;
+  resolveSubagentOptions?(
+    parentSessionId: string,
+    options?: AgentOptions,
+  ): Promise<SparkResolvedSubagentProfile>;
   testModel(model: SparkModelRef): Promise<SparkModelConnectivityTestResult>;
   generateSessionName?(input: {
     prompt: string;
     model: SparkModelRef;
     signal?: AbortSignal;
   }): Promise<string | undefined>;
+}
+
+export interface SparkResolvedSubagentProfile {
+  model: SparkModelRef;
+  thinkingLevel: SparkThinkingLevel;
+  maxOutputTokens?: number;
+  /** Detached creation-time policy snapshot; the provider catalog remains authoritative. */
+  enabledModels: Array<{ provider: string; model: string }>;
 }
 
 export function createSparkDaemonModelControl(options: {
@@ -209,6 +224,82 @@ class DaemonModelControl implements SparkDaemonModelControl {
 
   async prepareModel(model: SparkModelRef): Promise<void> {
     await this.#providerControl.prepareModel(modelValue(model));
+  }
+
+  async validateModel(model: SparkModelRef): Promise<SparkModelRef> {
+    return requireAvailableModel(await this.snapshot(), model).model;
+  }
+
+  async resolveSubagentOptions(
+    parentSessionId: string,
+    options: AgentOptions = {},
+  ): Promise<SparkResolvedSubagentProfile> {
+    const snapshot = await this.snapshot(parentSessionId);
+    const parentModel = snapshot.session?.model ?? snapshot.defaultModel;
+    if (!parentModel) {
+      throw new SparkDaemonControlError(
+        "model_not_found",
+        "No Spark provider/model is registered for subagent inheritance.",
+      );
+    }
+    const provider = options.provider?.trim() || parentModel.providerName;
+    const modelId = options.model?.trim() || parentModel.modelId;
+    if ((options.provider === undefined) !== (options.model === undefined)) {
+      throw new SparkDaemonControlError(
+        "model_not_found",
+        "Subagent model selection must provide provider and model together.",
+      );
+    }
+    const entry = requireAvailableModel(snapshot, { providerName: provider, modelId });
+    const routeChanged = provider !== parentModel.providerName || modelId !== parentModel.modelId;
+    const requestedThinking =
+      options.reasoningEffort === undefined
+        ? !routeChanged && snapshot.session?.thinkingLevel
+          ? snapshot.session.thinkingLevel
+          : entry.reasoning
+            ? DEFAULT_SPARK_THINKING_LEVEL
+            : "off"
+        : String(options.reasoningEffort);
+    const thinking = sparkThinkingLevelSchema.safeParse(requestedThinking);
+    if (!thinking.success) {
+      throw new SparkDaemonControlError(
+        "model_not_found",
+        `Unsupported Spark reasoning level: ${requestedThinking}`,
+      );
+    }
+    if (thinking.data !== "off" && !entry.reasoning) {
+      throw new SparkDaemonControlError(
+        "model_unavailable",
+        `Spark model ${modelValue(entry.model)} does not support reasoning effort.`,
+      );
+    }
+    const parent = await this.#sessionRegistry.get(parentSessionId);
+    const requestedMax = options.maxTokens ?? parent?.maxOutputTokens;
+    if (requestedMax !== undefined && (!Number.isSafeInteger(requestedMax) || requestedMax <= 0)) {
+      throw new SparkDaemonControlError(
+        "model_unavailable",
+        "Subagent maxTokens must be a positive safe integer.",
+      );
+    }
+    const maxOutputTokens = minDefined(requestedMax, entry.maxTokens);
+    const enabledModels = (snapshot.enabledModels ?? [])
+      .filter((model) =>
+        snapshot.providers.some((provider) =>
+          provider.models.some(
+            (candidate) =>
+              candidate.available &&
+              candidate.model.providerName === model.providerName &&
+              candidate.model.modelId === model.modelId,
+          ),
+        ),
+      )
+      .map((model) => ({ provider: model.providerName, model: model.modelId }));
+    return {
+      model: entry.model,
+      thinkingLevel: thinking.data,
+      ...(maxOutputTokens ? { maxOutputTokens } : {}),
+      enabledModels,
+    };
   }
 
   async testModel(model: SparkModelRef): Promise<SparkModelConnectivityTestResult> {
@@ -402,6 +493,7 @@ function modelControlSnapshot(
             sessionId,
             ...(session?.model ? { model: session.model } : {}),
             ...(session?.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+            ...(session?.maxOutputTokens ? { maxOutputTokens: session.maxOutputTokens } : {}),
           },
         }
       : {}),
@@ -539,6 +631,12 @@ function modelRefFromValue(
 
 function modelValue(model: SparkModelRef): string {
   return `${model.providerName}/${model.modelId}`;
+}
+
+function minDefined(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.min(left, right);
 }
 
 function flowStatus(phase: SparkOAuthFlowSnapshot["phase"]): SparkAuthFlow["status"] {

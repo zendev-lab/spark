@@ -1904,6 +1904,7 @@ describe("daemon session control admission", () => {
       sessionId: "session-fallback",
       workspaceId: "workspace-fallback",
       cwd: root,
+      maxOutputTokens: 777,
     });
 
     const effectiveModel = vi.fn(async () => ({ providerName: "openai", modelId: "gpt-4o" }));
@@ -1927,7 +1928,10 @@ describe("daemon session control admission", () => {
         },
       );
       const invocation = new SparkInvocationStore(db).require(submitted.invocationId!);
-      expect(invocation.task).toMatchObject({ model: "openai/gpt-4o" });
+      expect(invocation.task).toMatchObject({
+        model: "openai/gpt-4o",
+        maxOutputTokens: 777,
+      });
       expect(effectiveModel).toHaveBeenCalledTimes(1);
     } finally {
       db.close();

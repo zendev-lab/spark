@@ -653,6 +653,8 @@ export interface SparkAgentLoopOptions {
    * When set, forwarded as `options.reasoning` (including `"off"`).
    */
   getReasoning?: () => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+  /** Host-frozen output ceiling applied before the context-window safety clamp. */
+  maxOutputTokens?: number;
   /**
    * Final host guard after lifecycle/skill/tool assembly and before opening the
    * provider stream. Throwing returns the normal typed failed outcome, allowing
@@ -708,6 +710,7 @@ export class SparkAgentLoop {
   private readonly beforeProviderRequest:
     | ((request: SparkBeforeProviderRequest) => void | Promise<void>)
     | undefined;
+  private readonly maxOutputTokens: number | undefined;
   private systemPrompt: string;
   private readonly promptCacheOptions: SparkPromptCacheOptions;
   private readonly promptManifestOptions: SparkPromptManifestOptions;
@@ -767,6 +770,7 @@ export class SparkAgentLoop {
     this.approvalRejectAction = normalizeApprovalRejectAction(options.approvalRejectAction);
     this.reviewToolApproval = options.reviewToolApproval;
     this.getReasoning = options.getReasoning;
+    this.maxOutputTokens = normalizeOptionalPositiveInteger(options.maxOutputTokens);
     this.beforeProviderRequest = options.beforeProviderRequest;
     this.host.setSessionId?.(this.viewSessionId);
     this.host.setTriggerTurnHandler(() => this.triggerNextTurn());
@@ -1495,10 +1499,14 @@ export class SparkAgentLoop {
     this.lastPromptManifest = manifest;
     this.publish({ type: "prompt_manifest", manifest });
     const estimate = estimateSparkProviderContextTokens(preparedContext);
+    const configuredOutputTokens = Math.min(
+      model.maxTokens,
+      this.maxOutputTokens ?? model.maxTokens,
+    );
     const requestedOutputTokens = resolveSparkProviderOutputTokens(
       estimate.tokens,
       model.contextWindow,
-      model.maxTokens,
+      configuredOutputTokens,
     );
     await this.beforeProviderRequest?.({
       model,
@@ -2812,6 +2820,14 @@ function formatAssistantUsageSummary(assistant: AssistantMessage): string | unde
 
 export { SparkAgentLoop as SparkTurnRunner };
 export { encodeSparkAuxiliaryModelRoute };
+
+function normalizeOptionalPositiveInteger(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error("maxOutputTokens must be a positive safe integer");
+  }
+  return value;
+}
 
 function renderToolApprovalRejection(
   toolName: string,

@@ -27,6 +27,7 @@ import * as SkillFileSystem from "@deepseek-ai/dsh-skill-filesystem";
 import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
+import SubagentModelSelectionSettings from "@deepseek-ai/dsh-tool-subagent/model-selection-settings";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import WebRuntime from "@deepseek-ai/dsh-web";
 import { cueSkillsRoot } from "@zendev-lab/cue";
@@ -167,6 +168,7 @@ export async function createSparkDaemonCordisRoot(
       cueSkillRoot: resolveCueSkillRoot(options.cueSkillRoot),
     });
     await ctx.plugin(SubagentRuntime);
+    await ctx.plugin(SubagentModelSelectionSettings, { enabled: false, allowedModels: [] });
     if (options.subagentHost) {
       await ctx.plugin(sparkSessionSubagentPlugin, { host: options.subagentHost });
     }

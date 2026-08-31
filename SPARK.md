@@ -136,5 +136,9 @@ updated: 2026-08-30
   作为 HOST（`ctx.subagents`），`spark-session` 注册 spawn/fork provider。
   daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）；
   spark-web-dsh 插入同一插件并关掉 stock in-process spawn/fork。不重写
-  `ctx.subagents`，不新增 `dsh-spark` 包。compaction 与 jobs 仍是后续 owner
-  决策。
+  `ctx.subagents`，不新增 `dsh-spark` 包。DSH 精确锁定 `0.1.2-alpha.2` 后，
+  daemon-backed provider 使用官方 `AgentOptions` 与终态 `result`：新 Agent 获取
+  创建时的完整 `enabledModels` 快照，子 Session 原子固化路由、reasoning 与输出
+  上限；fresh spawn 使用官方模型选择面，fork 保持父路由以复用继承前缀；dispose
+  通过 daemon 取消并等待静止；Web fallback 不获得本地执行权。
+  compaction 与 jobs 仍是后续 owner 决策。

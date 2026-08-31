@@ -139,6 +139,9 @@ catalogs:
     '@deepseek-ai/dsh-tool-skill':
       specifier: 0.1.2-alpha.2
       version: 0.1.2-alpha.2
+    '@deepseek-ai/dsh-tool-subagent':
+      specifier: 0.1.2-alpha.2
+      version: 0.1.2-alpha.2
     '@deepseek-ai/dsh-tools':
       specifier: 0.1.2-alpha.2
       version: 0.1.2-alpha.2
@@ -387,6 +390,9 @@ importers:
       '@deepseek-ai/dsh-tool-skill':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-agent@0.1.2-alpha.2(de969efc173e356795ed4d6dbfa9fb01))(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-skill@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))))(@deepseek-ai/dsh-tools@0.1.2-alpha.2(1121451e7f334db134f1e0d3fbe914bd))
+      '@deepseek-ai/dsh-tool-subagent':
+        specifier: catalog:dsh
+        version: 0.1.2-alpha.2(07d44e0661bc23971fbd2acc7ba9fadd)
       '@deepseek-ai/dsh-tools':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(1121451e7f334db134f1e0d3fbe914bd)
@@ -1492,6 +1498,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: 4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@deepseek-ai/dsh-agent':
+        specifier: catalog:dsh
+        version: 0.1.2-alpha.2(de969efc173e356795ed4d6dbfa9fb01)
       '@deepseek-ai/dsh-attachment-local':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-attachment@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-brand@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-home-paths@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@types/node@24.13.3)
@@ -1501,6 +1510,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
+      '@deepseek-ai/dsh-subagent':
+        specifier: catalog:dsh
+        version: 0.1.2-alpha.2(015c6aae6a515e00a19794e437147bd4)
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../spark-daemon-client

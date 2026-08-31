@@ -93,6 +93,8 @@ Session 上。具有 child lineage 的 Session 就是 subsession；带显式 Rol
 飞书、如流（Infoflow）和 QQ Bot 对话无需 Workspace，直接解析为 daemon 全局
 root Channel Session，也不会产生第二个执行所有者。Session 可以发送 request
 或 notification，并通过 Inbox 接收完成摘要。
+daemon-backed subagent 只能从 Agent 创建时的 `enabledModels` 快照中选择模型；
+daemon 会在准入前重新校验并固化路由、reasoning 等级和输出上限。
 
 详情见[协作](/zh/guides/collaboration/)、
 [Daemon 全局 Channel](/zh/guides/channels/)和 [Side Threads](/zh/guides/side-threads/)。

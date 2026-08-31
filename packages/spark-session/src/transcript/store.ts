@@ -31,6 +31,7 @@ import {
   type SparkSessionRecord,
   type SparkSessionStoreOptions,
   type SparkSessionAtomicWriteOptions,
+  type SparkSubagentDescriptorEntry,
 } from "./types.ts";
 
 export type { SparkSessionAtomicWriteOptions } from "./types.ts";
@@ -61,6 +62,13 @@ export class SparkSessionStore {
       timestamp,
       cwd: this.cwd,
       ...(options.parentSession ? { parentSession: options.parentSession } : {}),
+      ...(options.parentSessionId ? { parentSessionId: options.parentSessionId } : {}),
+      ...(options.seedLength !== undefined ? { seedLength: options.seedLength } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
+      ...(options.delegationDepth !== undefined
+        ? { delegationDepth: options.delegationDepth }
+        : {}),
+      ...(options.agentPreset ? { agentPreset: options.agentPreset } : {}),
       ...(options.visibility ? { visibility: options.visibility } : {}),
       ...(options.purpose ? { purpose: options.purpose } : {}),
     };
@@ -261,6 +269,26 @@ export class SparkSessionStore {
 
   appendModelChange(record: SparkSessionRecord, provider: string, modelId: string): string {
     return appendEntry(record, { type: "model_change", provider, modelId });
+  }
+
+  appendSubagentDescriptor(
+    record: SparkSessionRecord,
+    descriptor: SparkSubagentDescriptorEntry["descriptor"],
+  ): string {
+    return appendEntry(record, {
+      type: "subagent_descriptor",
+      descriptor: structuredClone(descriptor),
+    });
+  }
+
+  appendSubagentModelSelection(
+    record: SparkSessionRecord,
+    allowedModels: Array<{ provider: string; model: string }>,
+  ): string {
+    return appendEntry(record, {
+      type: "subagent_model_selection",
+      allowedModels: allowedModels.map((route) => ({ ...route })),
+    });
   }
 
   appendCustomEntry<T = unknown>(record: SparkSessionRecord, customType: string, data?: T): string {
