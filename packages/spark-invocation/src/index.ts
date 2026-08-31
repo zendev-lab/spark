@@ -738,16 +738,6 @@ export interface SparkInvocationAttempt {
   readonly correlationId: string;
 }
 
-export const SPARK_INVOCATION_EVENT_TYPE = "spark/invocation" as const;
-
-/** Ignorable DSH transcript correlation record for one admitted attempt. */
-export interface SparkInvocationEventData {
-  readonly invocationId: string;
-  readonly attemptEpoch: number;
-  readonly daemonGeneration: number;
-  readonly correlationId: string;
-}
-
 /** Role revision frozen when the daemon admitted an Invocation. */
 export interface SparkInvocationRole {
   readonly ref?: string;

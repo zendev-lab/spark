@@ -176,7 +176,7 @@ test("Spark consent plugin denies a tool before execute", async () => {
   assert.ok(events.includes("tool/result"));
 });
 
-test("runSparkDshTurn rejects pre-start cancellation without reserving a Turn", async () => {
+test("runSparkDshTurn rejects pre-start cancellation without creating an Agent", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
   const events: string[] = [];
@@ -230,14 +230,14 @@ test("runSparkDshTurn rejects pre-start cancellation without reserving a Turn", 
   }
 });
 
-test("runSparkDshTurn starts no model work when the Invocation reservation cannot persist", async () => {
+test("runSparkDshTurn starts no model work when the Invocation Session cannot materialize", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
   ctx.on("session/flush", async () => {
-    throw new Error("reservation persistence failed");
+    throw new Error("session materialization failed");
   });
   const controller = new AbortController();
 
@@ -251,15 +251,15 @@ test("runSparkDshTurn starts no model work when the Invocation reservation canno
             throw new Error("LLM must not start");
           },
         },
-        sessionId: "reservation-persistence-failure",
+        sessionId: "session-materialization-failure",
         invocation: createSparkInvocationService({
           cwd: "/tmp",
-          sessionId: "reservation-persistence-failure",
-          invocationId: "inv_reservation_persistence_failure",
+          sessionId: "session-materialization-failure",
+          invocationId: "inv_session_materialization_failure",
           attempt: {
             epoch: 1,
             daemonGeneration: 1,
-            correlationId: "attempt:inv_reservation_persistence_failure:1",
+            correlationId: "attempt:inv_session_materialization_failure:1",
           },
           signal: controller.signal,
         }),
@@ -278,10 +278,10 @@ test("runSparkDshTurn starts no model work when the Invocation reservation canno
           roundtrips: () => 0,
         },
       }),
-      /reservation persistence failed/,
+      /session materialization failed/,
     );
     assert.equal(llmCalls, 0);
-    assert.equal(events.filter((event) => event === "spark/invocation").length, 1);
+    assert.equal(events.includes("spark/invocation"), false);
     assert.equal(events.includes("turn/start"), false);
   } finally {
     await ctx.fiber.dispose();
@@ -304,15 +304,15 @@ test("runSparkDshTurn starts no model work without a Session persistence owner",
             throw new Error("LLM must not start");
           },
         },
-        sessionId: "reservation-persistence-missing",
+        sessionId: "session-persistence-missing",
         invocation: createSparkInvocationService({
           cwd: "/tmp",
-          sessionId: "reservation-persistence-missing",
-          invocationId: "inv_reservation_persistence_missing",
+          sessionId: "session-persistence-missing",
+          invocationId: "inv_session_persistence_missing",
           attempt: {
             epoch: 1,
             daemonGeneration: 1,
-            correlationId: "attempt:inv_reservation_persistence_missing:1",
+            correlationId: "attempt:inv_session_persistence_missing:1",
           },
           signal: controller.signal,
         }),
@@ -331,7 +331,7 @@ test("runSparkDshTurn starts no model work without a Session persistence owner",
           roundtrips: () => 0,
         },
       }),
-      /has no Session persistence owner/,
+      /has no persistence owner/,
     );
     assert.equal(llmCalls, 0);
   } finally {
@@ -339,7 +339,7 @@ test("runSparkDshTurn starts no model work without a Session persistence owner",
   }
 });
 
-test("runSparkDshTurn starts no model work when cancellation arrives during reservation flush", async () => {
+test("runSparkDshTurn starts no model work when cancellation arrives during Session materialization", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
   const controller = new AbortController();
@@ -347,7 +347,7 @@ test("runSparkDshTurn starts no model work when cancellation arrives during rese
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
   ctx.on("session/flush", async () => {
-    controller.abort(new Error("abort during reservation flush"));
+    controller.abort(new Error("abort during Session materialization"));
   });
 
   try {
@@ -360,15 +360,15 @@ test("runSparkDshTurn starts no model work when cancellation arrives during rese
             throw new Error("LLM must not start");
           },
         },
-        sessionId: "reservation-flush-cancellation",
+        sessionId: "session-materialization-cancellation",
         invocation: createSparkInvocationService({
           cwd: "/tmp",
-          sessionId: "reservation-flush-cancellation",
-          invocationId: "inv_reservation_flush_cancellation",
+          sessionId: "session-materialization-cancellation",
+          invocationId: "inv_session_materialization_cancellation",
           attempt: {
             epoch: 1,
             daemonGeneration: 1,
-            correlationId: "attempt:inv_reservation_flush_cancellation:1",
+            correlationId: "attempt:inv_session_materialization_cancellation:1",
           },
           signal: controller.signal,
         }),
@@ -387,10 +387,10 @@ test("runSparkDshTurn starts no model work when cancellation arrives during rese
           roundtrips: () => 0,
         },
       }),
-      /abort during reservation flush/,
+      /abort during Session materialization/,
     );
     assert.equal(llmCalls, 0);
-    assert.equal(events.filter((event) => event === "spark/invocation").length, 1);
+    assert.equal(events.includes("spark/invocation"), false);
     assert.equal(events.includes("turn/start"), false);
     assert.equal(events.includes("user/message"), false);
   } finally {

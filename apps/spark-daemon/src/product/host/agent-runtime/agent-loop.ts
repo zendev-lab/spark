@@ -80,13 +80,7 @@ import {
   type ToolExecutionRetryability,
 } from "@zendev-lab/spark-invocation";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
-export {
-  SPARK_INVOCATION_EVENT_TYPE,
-  SparkInvocationTurnAlreadyReservedError,
-  createSparkInvocationPlugin,
-  reserveSparkInvocationTurn,
-  type SparkInvocationEventData,
-} from "@zendev-lab/spark-invocation/plugin";
+export { createSparkInvocationPlugin } from "@zendev-lab/spark-invocation/plugin";
 
 import {
   compactToolResultContent,
