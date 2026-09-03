@@ -1,4 +1,4 @@
-name: "CE - Hygiene Reports"
+name: "CE - Hygiene"
 
 on:
   schedule:
