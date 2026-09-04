@@ -11,7 +11,6 @@ apps.
 ```sh
 spark
 spark web
-spark web-dsh --host 0.0.0.0
 spark run --wait --json "headless Spark prompt"
 spark daemon auth import pi --json
 spark daemon model status --json
@@ -24,7 +23,6 @@ The dispatcher does not own browser rendering, daemon execution, provider/model 
 
 - `spark` to this help text.
 - `spark web ...` to the local loopback browser workbench.
-- `spark web-dsh ...` to the Spark product workbench hosted by DeepSeek Harness.
 - `spark run ...` and `spark bg ...` to daemon-native headless execution.
 - `spark daemon ...` to daemon execution, authentication, model, session, and
   administration surfaces.
@@ -33,11 +31,12 @@ The dispatcher does not own browser rendering, daemon execution, provider/model 
 Spark 0.2 rejects the former Pi-style `--print`, `--mode`, `--list-models`,
 root session aliases, and resource-management commands. Provider authentication
 is under `spark daemon auth`; `spark daemon login` remains machine connectivity
-for daemon/Hub. The former `spark tui` surface has been removed.
+for daemon/Hub. The former `spark tui` and `spark web-dsh` surfaces have been
+removed.
 
 Unknown subcommands fail loudly. If npm did not install the optional package for
 the current macOS/Linux architecture, the resolver exits with
 `NATIVE_PACKAGE_MISSING`; it never falls back to a Node root dispatcher. A
-generated complete installation injects exact daemon, Hub, web, and DSH
-compatibility app entrypoints. Source checkouts fingerprint the Cargo sources,
+generated complete installation injects exact daemon, Hub, and web
+app entrypoints. Source checkouts fingerprint the Cargo sources,
 run an incremental build when necessary, and then execute the same Rust parser.

@@ -282,6 +282,7 @@ a future package as current state.
 - `spark web-dsh` is removed only after an explicit manual approval naming that
   application. Feature parity, low usage, passing CI, or native Web becoming the
   default is not by itself removal authorization.
+  ([Approved and executed on 2026-09-04](./2026-09-04-retire-spark-web-dsh.md).)
 
 ## Acceptance boundary
 
@@ -307,3 +308,5 @@ are true:
   DSH as the independent fallback; and
 - Web DSH remains installed until the separately required manual retirement
   approval is recorded.
+  ([Approval recorded 2026-09-04](./2026-09-04-retire-spark-web-dsh.md);
+  Web DSH is now retired.)

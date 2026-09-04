@@ -19,7 +19,7 @@ Hub browser authority is progressive and must remain separated:
    credential, canonically recorded in `daemon_credentials`. They are never
    browser credentials.
 3. **Daemon-user credentials** (`daemon-user` family) authorize direct Native
-   Web / Web DSH access and are owned and verified by the daemon. The Hub must
+   Web access and are owned and verified by the daemon. The Hub must
    not issue, return, or forward them, and a `hub-user` session cannot log in
    to those surfaces.
 

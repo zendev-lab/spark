@@ -26,7 +26,6 @@ spark hub --help
 | --- | --- | --- |
 | `spark` | 打印帮助，或调用前台、后台、安装、诊断和版本工作流 | `spark --help` |
 | `spark web` | 启动绑定 daemon 的本地回环浏览器工作台 | `spark web --help` |
-| `spark web-dsh` | 启动基于 DeepSeek Harness 宿主的 Spark 产品工作台 | `spark web-dsh --help` |
 | `spark daemon` | 操作 daemon 拥有的执行、会话、工作区、模型、认证和 Channel 状态 | `spark daemon --help` |
 | `spark hub` | 运行和管理 Hub 协调与 Web 表面 | `spark hub --help` |
 | ACP 与 MCP adapter | 通过配置好的 Spark adapter 连接兼容客户端 | 阅读[协作与客户端](/zh/guides/collaboration/) |
@@ -93,22 +92,6 @@ spark daemon access revoke <token-id> [--json]
 API 与 WebSocket 不返回 HTML
 登录页，未认证时仍保持 transport-level 401/503。缺失、错误、过期、已吊销 token
 不会暴露具体状态；daemon 不可达时 fail closed。
-
-额外的 `spark web-dsh` 命令会启动独立打包、基于 DSH 宿主的 Spark 产品应用，不会修改
-`spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留。DSH server 锁定在回环
-地址，由 Spark access proxy 对外暴露；该 proxy 与 native Web 复用相同的全 peer
-token 规则、本机 IP trust 语义和 Spark Access 页面：
-
-```bash
-spark web-dsh --host 0.0.0.0 --port 8888
-```
-
-首次使用时，Spark 会从已安装 DSH 版本初始化 `web` profile 并安装托管 preset，
-随后以 `dsh --profile web --patch ...` 启动精确锁定的公开 DSH CLI；无需预先手工
-运行 `dsh web`，后续也不会覆盖用户对 profile 的修改。
-
-该命令同样不会自动打开浏览器，并会把 wildcard bind 展开成带 token、可直接访问的本机 URL。
-每次启动都会启动或重连 daemon，并使用与 native Web 相同的 token 链接流程。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读

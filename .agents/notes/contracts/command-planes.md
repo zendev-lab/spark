@@ -187,7 +187,6 @@ payloads from the same monorepo and release tag:
 | Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
 | Spark Web | `@zendev-lab/spark-web` | `spark-web` | local daemon browser workbench; depends on the matching daemon package |
 | Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
-| Spark DSH Web | `@zendev-lab/spark-web-dsh` | `spark-web-dsh` | optional DSH compatibility workbench |
 
 The split does **not** move implementation ownership out of the private source
 workspaces or create another repository. Reusable behavior remains in private

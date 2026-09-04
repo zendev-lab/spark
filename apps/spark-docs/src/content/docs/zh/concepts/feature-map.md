@@ -103,7 +103,7 @@ daemon 会在准入前重新校验并固化路由、reasoning 等级和输出上
 
 - Provider、模型选择和推理强度属于共享运行时控制。
 - Memory、受限 context provider、产品 Artifact 和内部 Evidence 以不同可见性保存结果。
-- Saved workflow 扩展可重复流程。Fusion 属于 daemon 与 DSH Web 的受支持产品组合；
+- Saved workflow 扩展可重复流程。Fusion 属于 daemon 的受支持产品组合；
   Graft 只保留 Pi 兼容路径，不再是可发现的 Spark 产品扩展。
 - 托管更新、备份、访问 key、workspace 注册、诊断和恢复支持更复杂的运行场景。
 
