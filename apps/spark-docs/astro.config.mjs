@@ -18,7 +18,6 @@ export default defineConfig({
       },
       description:
         "Install, operate, and understand Spark across its CLI, local web workbench, daemon, and Hub surfaces.",
-      tagline: "User documentation for the Spark coding-agent suite.",
       favicon: "/spark.svg",
       editLink: {
         baseUrl: "https://github.com/zendev-lab/spark/edit/main/apps/spark-docs/",
