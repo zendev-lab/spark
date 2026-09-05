@@ -1,11 +1,11 @@
-import type { ProjectRef } from "@zendev-lab/spark-core";
+import type { ProjectRef } from "@zendev-lab/spark-invocation";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   ASK_BEFORE_GUESSING,
   MAIN_SESSION_SCHEDULING_FIRST,
   MUST_ASK_ON_PROBLEMS,
   renderModePrompt,
-} from "./mode/index.ts";
+} from "./spark-directive-prompts.ts";
 import {
   renderSparkUltracodeWorkflowGuidance,
   renderSparkWorkflowGuidance,

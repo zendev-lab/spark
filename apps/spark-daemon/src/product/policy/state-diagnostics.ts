@@ -5,13 +5,15 @@ import { resolveEvidenceBlobPath } from "@zendev-lab/spark-artifacts";
 import type { EvidenceKind } from "@zendev-lab/spark-artifacts";
 import {
   nowIso,
-  sparkStateRootPath,
   type EvidenceRef,
   type RunRef,
   type ProjectRef,
-  type SparkStateRootContext,
   type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import {
+  sparkStateRootPath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import type { WorkflowRunStatus } from "@zendev-lab/spark-workflows";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { listSparkStateFiles, readJsonObject, statIfPresent } from "./state-housekeeping-files.ts";

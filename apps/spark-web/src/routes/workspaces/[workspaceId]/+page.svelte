@@ -1,7 +1,22 @@
 <script lang="ts">
-  import { tick } from "svelte";
   import { goto } from "$app/navigation";
-  import { parseSparkModelValue } from "@zendev-lab/spark-protocol";
+  import { parseSparkModelValue, sparkThinkingLevelOptions } from "@zendev-lab/spark-protocol";
+  import {
+    Button,
+    Checkbox,
+    Dialog,
+    Field,
+    Input,
+    Notice,
+    PageHeader,
+    PageLayout,
+    Panel,
+    Select,
+    StatusPill,
+    Textarea,
+    type SelectGroup,
+  } from "@zendev-lab/spark-ui";
+  import { DialogClose, DialogTitle } from "@zendev-lab/spark-ui/headless";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import { Artifact } from "@zendev-lab/spark-ui/workbench";
   import {
@@ -19,7 +34,6 @@
   let createdSessionId = $state<string | null>(null);
   let sessionName = $state("");
   let roleRef = $state("role:builtin-executor");
-  let sessionMode = $state<"plan" | "execute" | "fleet">("plan");
   let modelValue = $state("");
   let thinkingLevel = $state<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">("high");
   let cwdArtifactRef = $state("");
@@ -27,7 +41,6 @@
   let directoryOpen = $state(false);
   let directoryLoading = $state(false);
   let directoryError = $state("");
-  let directoryDialog = $state<HTMLDialogElement>();
   let directoryReturnFocus: HTMLElement | null = null;
   let directoryRequestToken = 0;
   let directoryView = $state<{
@@ -65,6 +78,74 @@
   const sessions = $derived(
     ordinarySessionsForWorkspace(data.sessions as SparkWebSession[], data.workspace.id),
   );
+  let roleGroups = $derived<SelectGroup[]>([
+    {
+      id: "roles",
+      options: data.roleCatalog.roles.map((role) => ({
+        value: role.ref,
+        label: `${role.id} · ${role.source}`,
+      })),
+    },
+  ]);
+  let modelGroups = $derived<SelectGroup[]>([
+    {
+      id: "models",
+      options: [
+        { value: "", label: copy.inheritDefault },
+        ...data.modelCatalog.providers.flatMap((provider) =>
+          provider.models.map((entry) => ({
+            value: `${entry.model.providerName}/${entry.model.modelId}`,
+            label: `${entry.model.modelLabel ?? entry.model.modelId} · ${provider.label}`,
+            disabled: !entry.available,
+          })),
+        ),
+      ],
+    },
+  ]);
+  let roleModelGroups = $derived<SelectGroup[]>([
+    {
+      id: "role-models",
+      options: [
+        { value: "", label: copy.noModelSetting },
+        ...modelGroups[0]!.options.filter((option) => option.value),
+      ],
+    },
+  ]);
+  let thinkingGroups = $derived.by((): SelectGroup[] => {
+    const labels = data.messages.shared.workbench.slashActions.actions as Record<string, string>;
+    return [
+      {
+        id: "thinking-levels",
+        options: sparkThinkingLevelOptions.map((level) => ({
+          value: level,
+          label: labels[`thinking-${level}`] ?? level,
+        })),
+      },
+    ];
+  });
+  let cwdGroups = $derived<SelectGroup[]>([
+    {
+      id: "working-directories",
+      options: [
+        { value: "", label: copy.workspaceDefault },
+        ...data.artifactCatalog.artifacts
+          .filter((artifact) => artifact.kind === "git_change")
+          .map((artifact) => ({
+            value: artifact.ref,
+            label: `${artifact.title} · ${copy.owningWorktree}`,
+          })),
+      ],
+    },
+  ]);
+  let sourceGroups = $derived<SelectGroup[]>([
+    {
+      id: "model-source",
+      options: [
+        { value: "project", label: copy.project },
+        { value: "user", label: copy.user },
+      ],
+    },
+  ]);
 
   $effect(() => {
     data.workspace.id;
@@ -79,7 +160,6 @@
     createdSessionId = null;
     sessionName = "";
     roleRef = "role:builtin-executor";
-    sessionMode = "plan";
     modelValue = "";
     thinkingLevel = "high";
     cwdArtifactRef = "";
@@ -127,7 +207,6 @@
     }
     const requestedName = sessionName.trim();
     const requestedRoleRef = roleRef;
-    const requestedSessionMode = sessionMode;
     const requestedCwdArtifactRef = cwdArtifactRef;
     const requestedCwdRelativePath = cwdRelativePath;
     const requestedThinkingLevel = thinkingLevel;
@@ -155,10 +234,6 @@
 
     if (ownsPage()) createdSessionId = created.sessionId;
     try {
-      await webRpc("session.mode.set", {
-        sessionId: created.sessionId,
-        mode: requestedSessionMode,
-      });
       if (requestedModel) {
         await webRpc("session.model.set", {
           sessionId: created.sessionId,
@@ -215,8 +290,6 @@
       }
       directoryView = view;
       directoryOpen = true;
-      await tick();
-      directoryDialog?.focus();
     } catch (caught) {
       if (
         requestToken !== directoryRequestToken ||
@@ -235,10 +308,22 @@
     }
   }
 
-  async function closeDirectory() {
+  function closeDirectory() {
     directoryOpen = false;
-    await tick();
-    directoryReturnFocus?.focus();
+  }
+
+  function restoreDirectoryFocus(open: boolean) {
+    if (!open) requestAnimationFrame(() => directoryReturnFocus?.focus());
+  }
+
+  function toggleRoleSkill(skill: string, checked: boolean) {
+    selectedRoleSkills = checked
+      ? [...selectedRoleSkills, skill]
+      : selectedRoleSkills.filter((candidate) => candidate !== skill);
+  }
+
+  function controlId(prefix: string, value: string) {
+    return `${prefix}-${value.replaceAll(/[^a-zA-Z0-9_-]/g, "-")}`;
   }
 
   function parentDirectory(path: string): string {
@@ -411,111 +496,83 @@
 </script>
 
 {#snippet artifactActions(view: { id: string })}
-  <button type="button" class="secondary" onclick={() => void openArtifact(view.id)} disabled={artifactLoading}>{copy.preview}</button>
+  <Button variant="secondary" size="compact" onclick={() => void openArtifact(view.id)} disabled={artifactLoading}>{copy.preview}</Button>
 {/snippet}
 
-<section class="page">
-  <header>
-    <div>
-      <p class="crumb"><a href="/">{data.messages.web.shell.workspaces}</a></p>
-      <h1>{data.workspace.displayName}</h1>
-      <p>{data.workspace.localPath}</p>
-    </div>
-    <button type="button" onclick={() => (showCreate = !showCreate)} disabled={creating}>
+{#snippet pageActions()}
+  <Button onclick={() => (showCreate = !showCreate)} disabled={creating}>
       {showCreate ? copy.hideSessionForm : copy.newSession}
-    </button>
-  </header>
+  </Button>
+{/snippet}
+
+<PageLayout width="wide">
+  <p class="crumb"><a href="/">← {data.messages.web.shell.workspaces}</a></p>
+  <PageHeader title={data.workspace.displayName} lede={data.workspace.localPath} actions={pageActions} />
   {#if showCreate}
-    <form class="session-create" onsubmit={(event) => { event.preventDefault(); void createSession(); }}>
-      <h2>{copy.context}</h2>
-      <label>{copy.name}<input type="text" bind:value={sessionName} placeholder={data.messages.web.home.optional} /></label>
-      <label>{copy.role}<select bind:value={roleRef}>{#each data.roleCatalog.roles as role (role.ref)}<option value={role.ref}>{role.id} · {role.source}</option>{/each}</select></label>
-      <label>{copy.mode}<select aria-label={copy.mode} bind:value={sessionMode}><option value="plan">{copy.plan}</option><option value="execute">{copy.execute}</option><option value="fleet">{copy.fleet}</option></select></label>
-      <label>{copy.model}<select bind:value={modelValue}><option value="">{copy.inheritDefault}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
-      <label>{copy.thinking}<select bind:value={thinkingLevel}><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
-      <label>{copy.workingDirectory}<select bind:value={cwdArtifactRef} onchange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }}><option value="">{copy.workspaceDefault}</option>{#each data.artifactCatalog.artifacts.filter((artifact) => artifact.kind === "git_change") as artifact}<option value={artifact.ref}>{artifact.title} · {copy.owningWorktree}</option>{/each}</select><button type="button" class="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</button>{#if cwdRelativePath}<small>{copy.selected}: {cwdRelativePath}</small>{/if}</label>
-      <button type="submit" disabled={creating || createdSessionId !== null}>{creating ? copy.creating : copy.createSession}</button>
-      <p class="hint">{copy.directoryHint}</p>
-    </form>
+    <Panel title={copy.context} compact>
+      <form class="session-create" onsubmit={(event) => { event.preventDefault(); void createSession(); }}>
+        <Field id="session-name" label={copy.name} reserveMeta={false}><Input id="session-name" bind:value={sessionName} placeholder={data.messages.web.home.optional} /></Field>
+        <Field id="session-role" label={copy.role} reserveMeta={false}><Select id="session-role" bind:value={roleRef} groups={roleGroups} label={copy.role} /></Field>
+        <Field id="session-model" label={copy.model} reserveMeta={false}><Select id="session-model" bind:value={modelValue} groups={modelGroups} label={copy.model} /></Field>
+        <Field id="session-thinking" label={copy.thinking} reserveMeta={false}><Select id="session-thinking" bind:value={thinkingLevel} groups={thinkingGroups} label={copy.thinking} /></Field>
+        <Field id="session-cwd" label={copy.workingDirectory} hint={cwdRelativePath ? `${copy.selected}: ${cwdRelativePath}` : copy.directoryHint}>
+          <div class="directory-field">
+            <Select id="session-cwd" bind:value={cwdArtifactRef} groups={cwdGroups} label={copy.workingDirectory} onValueChange={() => { cwdRelativePath = ""; directoryView = null; directoryOpen = false; directoryLoading = false; directoryError = ""; directoryRequestToken += 1; }} />
+            <Button variant="secondary" onclick={() => void browseDirectory(cwdRelativePath)} disabled={directoryLoading}>{directoryLoading ? copy.loading : copy.browseSubdirectory}</Button>
+          </div>
+        </Field>
+        <div class="form-actions"><Button type="submit" loading={creating} disabled={createdSessionId !== null}>{creating ? copy.creating : copy.createSession}</Button></div>
+      </form>
+    </Panel>
   {/if}
-  {#if directoryError}<p class="error" role="alert">{directoryError}</p>{/if}
-  {#if directoryOpen && directoryView}
-    <dialog bind:this={directoryDialog} open class="directory-picker" aria-label={copy.chooseDirectory} tabindex="-1" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closeDirectory(); } }}>
-      <header><div><h2>{copy.chooseDirectory}</h2><code>{directoryView.current.relativePath || "."}</code></div><button type="button" class="secondary" onclick={() => void closeDirectory()}>{copy.close}</button></header>
-      <div class="directory-actions">
-        <button type="button" class="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>{copy.up}</button>
-        <button type="button" onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; void closeDirectory(); }}>{copy.useDirectory}</button>
-      </div>
-      <ul>
-        {#each directoryView.entries as entry (entry.ref)}
-          <li><button type="button" class="directory-entry" disabled={!entry.selectable} title={entry.blockedReason} onclick={() => void browseDirectory(entry.relativePath)}><span>{entry.kind === "symlink" ? "↪" : entry.kind === "directory" ? "▸" : "·"}</span><strong>{entry.name}</strong>{#if entry.blockedReason}<small>{entry.blockedReason}</small>{/if}</button></li>
+  {#if directoryError}<Notice tone="danger" message={directoryError} />{/if}
+  {#if createError}<Notice tone="danger" message={createError} />{/if}
+  {#if createdSessionId}
+    <Button variant="secondary" href={`/sessions/${createdSessionId}`}>{copy.openCreatedSession}</Button>
+  {/if}
+  <Panel title={data.messages.web.sessions.title} badge={String(sessions.length)} compact padded={sessions.length === 0}>
+    {#if sessions.length === 0}
+      <p class="empty">{copy.noSessions}</p>
+    {:else}
+      <ul class="session-list">
+        {#each sessions as session (session.sessionId)}
+          <li><a href="/sessions/{session.sessionId}">{session.name ?? session.sessionId}</a><StatusPill label={session.activity ?? "idle"} status={session.activity ?? "idle"} /></li>
         {/each}
       </ul>
-    </dialog>
-  {/if}
-  {#if createError}
-    <p class="error">{createError}</p>
-  {/if}
-  {#if createdSessionId}
-    <p><a href={`/sessions/${createdSessionId}`}>{copy.openCreatedSession}</a></p>
-  {/if}
-  {#if sessions.length === 0}
-    <p>{copy.noSessions}</p>
-  {:else}
-    <ul>
-      {#each sessions as session (session.sessionId)}
-        <li>
-          <a href="/sessions/{session.sessionId}">{session.name ?? session.sessionId}</a>
-          <span>{session.activity}</span>
-        </li>
-      {/each}
-    </ul>
-  {/if}
+    {/if}
+  </Panel>
 
   <details class="role-create">
     <summary>{copy.roleCreate}</summary>
     <form onsubmit={(event) => { event.preventDefault(); void createRole(); }}>
-      <label>{copy.roleId}<input type="text" pattern="[a-z0-9]+([-_/][a-z0-9]+)*" bind:value={roleId} required /></label>
-      <label>{copy.description}<input type="text" bind:value={roleDescription} required /></label>
-      <label>{copy.modelType}<input type="text" bind:value={roleModelType} required /></label>
-      <fieldset><legend>{copy.skills}</legend><div class="skill-grid">{#each data.skillCatalog.skills as skill (skill.name)}<label class="checkbox"><input type="checkbox" bind:group={selectedRoleSkills} value={skill.name} /><span><strong>{skill.name}</strong><small>{skill.description}</small></span></label>{/each}</div></fieldset>
-      <label>{copy.systemPrompt}<textarea rows="8" bind:value={rolePrompt} required></textarea></label>
-      <button type="submit" disabled={roleCreating}>{roleCreating ? copy.creatingRole : copy.createRole}</button>
-      {#if roleStatus}<p role="status">{roleStatus}</p>{/if}
-      <p class="hint">{copy.roleHint}</p>
+      <Field id="role-id" label={copy.roleId} required reserveMeta={false}><Input id="role-id" pattern="[a-z0-9]+([-_/][a-z0-9]+)*" bind:value={roleId} required /></Field>
+      <Field id="role-description" label={copy.description} required reserveMeta={false}><Input id="role-description" bind:value={roleDescription} required /></Field>
+      <Field id="role-model-type" label={copy.modelType} required reserveMeta={false}><Input id="role-model-type" bind:value={roleModelType} required /></Field>
+      <fieldset><legend>{copy.skills}</legend><div class="skill-grid">{#each data.skillCatalog.skills as skill (skill.name)}<Checkbox id={controlId("role-skill", skill.name)} label={skill.name} description={skill.description} checked={selectedRoleSkills.includes(skill.name)} onchange={(event) => toggleRoleSkill(skill.name, event.currentTarget.checked)} />{/each}</div></fieldset>
+      <Field id="role-system-prompt" label={copy.systemPrompt} hint={copy.roleHint} required><Textarea id="role-system-prompt" rows={8} bind:value={rolePrompt} required /></Field>
+      <Button type="submit" loading={roleCreating}>{roleCreating ? copy.creatingRole : copy.createRole}</Button>
+      {#if roleStatus}<Notice tone="success" message={roleStatus} />{/if}
     </form>
   </details>
 
-  <section class="role-models" aria-labelledby="role-model-settings-heading">
-    <header>
-      <div>
-        <h2 id="role-model-settings-heading">{copy.roleModels}</h2>
-        <p>{copy.roleModelsHint}</p>
-      </div>
-    </header>
+  <Panel title={copy.roleModels} note={copy.roleModelsHint} id="role-model-settings-heading">
     <div class="role-model-grid">
       {#each data.roleCatalog.roles as role (role.ref)}
         {@const source = roleModelSource[role.ref] ?? "project"}
         {@const current = modelSetting(role.modelType, source)}
         <article>
           <header><div><strong>{role.id}</strong><code>{role.modelType}</code></div><small>{copy.effectiveModel}: {modelSetting(role.modelType, "project")?.model ?? modelSetting(role.modelType, "user")?.model ?? copy.noModelSetting}</small></header>
-          <label>{copy.source}<select value={source} onchange={(event) => (roleModelSource[role.ref] = (event.currentTarget as HTMLSelectElement).value as "project" | "user")}><option value="project">{copy.project}</option><option value="user">{copy.user}</option></select></label>
-          <label>{copy.model}<select value={roleModelSelection[role.ref] ?? current?.model ?? ""} onchange={(event) => (roleModelSelection[role.ref] = (event.currentTarget as HTMLSelectElement).value)}><option value="">{copy.noModelSetting}</option>{#each data.modelCatalog.providers as provider}{#each provider.models as entry (entry.model.modelId)}<option value={`${entry.model.providerName}/${entry.model.modelId}`} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {provider.label}</option>{/each}{/each}</select></label>
-          <div class="role-model-actions"><button type="button" class="secondary" disabled={Boolean(roleModelBusy)} onclick={() => void inspectRoleModel(role.ref)}>{copy.inspectModel}</button><button type="button" disabled={Boolean(roleModelBusy) || !(roleModelSelection[role.ref] ?? current?.model)} onclick={() => { if (!roleModelSelection[role.ref] && current?.model) roleModelSelection[role.ref] = current.model; void saveRoleModel(role.ref); }}>{copy.saveModel}</button><button type="button" class="secondary danger" disabled={Boolean(roleModelBusy) || !current} onclick={() => void deleteRoleModel(role.ref)}>{copy.deleteModel}</button></div>
+          <Field id={controlId("role-source", role.ref)} label={copy.source} reserveMeta={false}><Select id={controlId("role-source", role.ref)} value={source} groups={sourceGroups} label={copy.source} onValueChange={(value) => (roleModelSource[role.ref] = value as "project" | "user")} /></Field>
+          <Field id={controlId("role-model", role.ref)} label={copy.model} reserveMeta={false}><Select id={controlId("role-model", role.ref)} value={roleModelSelection[role.ref] ?? current?.model ?? ""} groups={roleModelGroups} label={copy.model} onValueChange={(value) => (roleModelSelection[role.ref] = value)} /></Field>
+          <div class="role-model-actions"><Button variant="secondary" size="compact" disabled={Boolean(roleModelBusy)} onclick={() => void inspectRoleModel(role.ref)}>{copy.inspectModel}</Button><Button size="compact" disabled={Boolean(roleModelBusy) || !(roleModelSelection[role.ref] ?? current?.model)} onclick={() => { if (!roleModelSelection[role.ref] && current?.model) roleModelSelection[role.ref] = current.model; void saveRoleModel(role.ref); }}>{copy.saveModel}</Button><Button variant="danger" size="compact" disabled={Boolean(roleModelBusy) || !current} onclick={() => void deleteRoleModel(role.ref)}>{copy.deleteModel}</Button></div>
         </article>
       {/each}
     </div>
-    {#if roleModelStatus}<p role="status">{roleModelStatus}</p>{/if}
-  </section>
+    {#if roleModelStatus}<Notice tone="success" message={roleModelStatus} />{/if}
+  </Panel>
 
-  <section class="artifacts" aria-labelledby="artifact-center-heading">
-    <header>
-      <div>
-        <h2 id="artifact-center-heading">{copy.artifacts}</h2>
-        <p>{data.artifactCatalog.total} {data.artifactCatalog.total === 1 ? copy.daemonOwnedArtifact : copy.daemonOwnedArtifacts}</p>
-      </div>
-    </header>
-    {#if artifactError}<p class="error" role="alert">{artifactError}</p>{/if}
+  <Panel title={copy.artifacts} note={`${data.artifactCatalog.total} ${data.artifactCatalog.total === 1 ? copy.artifactCountLabel : copy.artifactCountLabels}`} id="artifact-center-heading">
+    {#if artifactError}<Notice tone="danger" message={artifactError} />{/if}
     {#if data.artifactCatalog.artifacts.length === 0}
       <p>{copy.noArtifacts}</p>
     {:else}
@@ -530,29 +587,40 @@
         {/each}
       </div>
     {/if}
-  </section>
+  </Panel>
 
   {#if artifactContent}
-    <section class="artifact-preview" aria-label={`Artifact preview: ${artifactContent.title}`}>
+    <Panel title={artifactContent.title} badge={artifactContent.ref} compact>
       <header>
-        <div><h2>{artifactContent.title}</h2><code>{artifactContent.ref}</code></div>
-        <button type="button" class="secondary" onclick={() => (artifactContent = null)}>{copy.close}</button>
+        <Button variant="secondary" size="compact" onclick={() => (artifactContent = null)}>{copy.close}</Button>
       </header>
       {#if artifactContent.format === "markdown"}
         <SafeMarkdown source={artifactContent.content} />
       {:else}
         <pre>{artifactContent.content}</pre>
       {/if}
+    </Panel>
+  {/if}
+</PageLayout>
+
+<Dialog bind:open={directoryOpen} width="min(680px, calc(100vw - 32px))" maxHeight="min(720px, calc(100dvh - 32px))" layout="grid" overflow="hidden" mobile="sheet" onOpenChangeComplete={restoreDirectoryFocus}>
+  {#if directoryView}
+    <section class="directory-picker" aria-label={copy.chooseDirectory}>
+      <header><div><DialogTitle class="directory-title">{copy.chooseDirectory}</DialogTitle><code>{directoryView.current.relativePath || "."}</code></div><DialogClose class="dialog-close" aria-label={copy.close}>{copy.close}</DialogClose></header>
+      <div class="directory-actions">
+        <Button variant="secondary" disabled={!directoryView.current.relativePath} onclick={() => void browseDirectory(parentDirectory(directoryView!.current.relativePath))}>{copy.up}</Button>
+        <Button onclick={() => { cwdArtifactRef = directoryView!.cwdArtifactRef ?? ""; cwdRelativePath = directoryView!.current.relativePath; closeDirectory(); }}>{copy.useDirectory}</Button>
+      </div>
+      <ul>
+        {#each directoryView.entries as entry (entry.ref)}
+          <li><Button variant="ghost" class="directory-entry" disabled={!entry.selectable} title={entry.blockedReason} onclick={() => void browseDirectory(entry.relativePath)}><span>{entry.kind === "symlink" ? "↪" : entry.kind === "directory" ? "▸" : "·"}</span><strong>{entry.name}</strong>{#if entry.blockedReason}<small>{entry.blockedReason}</small>{/if}</Button></li>
+        {/each}
+      </ul>
     </section>
   {/if}
-</section>
+</Dialog>
 
 <style>
-  .page {
-    padding: 24px;
-    display: grid;
-    gap: 16px;
-  }
   header {
     display: flex;
     justify-content: space-between;
@@ -562,10 +630,6 @@
   .crumb {
     margin: 0 0 8px;
     font-size: 0.85rem;
-  }
-  header p {
-    margin: 4px 0 0;
-    color: var(--color-ink-muted);
   }
   ul {
     list-style: none;
@@ -586,57 +650,17 @@
     color: inherit;
     text-decoration: none;
   }
-  button {
-    background: var(--color-primary);
-    color: var(--color-on-primary);
-    border: 0;
-    border-radius: 8px;
-    padding: 8px 12px;
-  }
-  .error {
-    color: var(--color-danger, #f87171);
-  }
   .session-create,
   .role-create form {
     display: grid;
     gap: 12px;
-    padding: 16px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
   }
+  .role-create form > :global(.ui-button) { justify-self: start; }
   .session-create {
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   }
-  .session-create h2,
-  .session-create .hint {
-    grid-column: 1 / -1;
-    margin: 0;
-  }
-  .session-create label,
-  .role-create label {
-    display: grid;
-    gap: 6px;
-    color: var(--color-ink-muted);
-    font-size: 0.88rem;
-  }
-  .session-create input,
-  .role-create input,
-  select,
-  textarea {
-    min-width: 0;
-    padding: 8px 10px;
-    background: var(--color-canvas, var(--color-surface));
-    color: var(--color-ink);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    font: inherit;
-  }
-  .hint,
-  .role-create small {
-    color: var(--color-ink-muted);
-    font-size: 0.82rem;
-  }
+  .form-actions { align-items: end; display: flex; }
+  .directory-field { align-items: start; display: grid; gap: var(--spacing-xs); grid-template-columns: minmax(0, 1fr) auto; }
   .role-create summary {
     cursor: pointer;
     font-weight: 650;
@@ -654,17 +678,7 @@
     max-height: 240px;
     overflow: auto;
   }
-  .checkbox {
-    grid-template-columns: auto 1fr !important;
-    align-items: start;
-  }
-  .checkbox span {
-    display: grid;
-    gap: 2px;
-  }
-  .role-models,
-  .role-models article,
-  .role-models label {
+  .role-model-grid article {
     display: grid;
     gap: 8px;
   }
@@ -673,18 +687,17 @@
     gap: 10px;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   }
-  .role-models article {
-    background: var(--color-surface);
+  .role-model-grid article {
+    background: var(--color-surface-soft);
     border: 1px solid var(--color-border);
     border-radius: 10px;
     padding: 12px;
   }
-  .role-models article header div {
+  .role-model-grid article header div {
     display: grid;
     gap: 3px;
   }
-  .role-models article small,
-  .role-models label {
+  .role-model-grid article small {
     color: var(--color-ink-muted);
     font-size: 0.82rem;
   }
@@ -693,47 +706,42 @@
     flex-wrap: wrap;
     gap: 6px;
   }
-  .directory-picker {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    box-shadow: var(--shadow-card-raised);
+  :global(.directory-picker) {
     display: grid;
-    gap: 10px;
-    max-height: 60vh;
-    overflow: auto;
-    padding: 16px;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    min-height: 320px;
   }
-  .directory-picker h2 {
-    margin: 0;
+  :global(.directory-picker > header) {
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--spacing-lg) var(--spacing-xl);
   }
-  .directory-actions {
+  :global(.directory-title) { font-size: var(--text-section-title); font-weight: var(--weight-section-title); margin: 0; }
+  :global(.dialog-close) { background: transparent; border: 0; border-radius: var(--rounded-md); color: var(--color-ink-muted); cursor: pointer; padding: var(--spacing-xs); }
+  :global(.dialog-close:hover) { background: var(--color-surface-soft); }
+  :global(.directory-actions) {
     display: flex;
-    gap: 8px;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md) var(--spacing-xl);
   }
-  .directory-picker li {
-    padding: 0;
-  }
-  .directory-entry {
-    align-items: center;
+  :global(.directory-picker ul) { border-top: 1px solid var(--color-border); gap: 0; overflow: auto; padding: var(--spacing-xs); }
+  :global(.directory-picker li) {
     background: transparent;
     border: 0;
-    color: var(--color-ink);
+    padding: 0;
+  }
+  :global(.directory-entry.ui-button) {
     display: grid;
-    gap: 8px;
+    gap: var(--spacing-xs);
     grid-template-columns: auto 1fr auto;
+    justify-content: stretch;
     text-align: start;
     width: 100%;
   }
-  .directory-entry:disabled {
-    color: var(--color-ink-muted);
-    cursor: not-allowed;
-  }
-  .artifacts, .artifact-preview { display: grid; gap: 12px; }
-  .artifacts h2, .artifact-preview h2 { margin: 0; }
+  .session-list { gap: 0; }
+  .session-list li { border: 0; border-top: 1px solid var(--color-border); border-radius: 0; }
+  .session-list li:first-child { border-top: 0; }
   .artifact-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-  .artifact-preview { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; }
-  .artifact-preview pre { font-family: var(--font-mono); margin: 0; max-height: 60vh; overflow: auto; white-space: pre-wrap; }
-  button.secondary { background: transparent; border: 1px solid var(--color-border); color: var(--color-ink); }
-  button.secondary.danger { border-color: var(--color-danger); color: var(--color-danger); }
+  pre { font-family: var(--font-mono); margin: 0; max-height: 60vh; overflow: auto; white-space: pre-wrap; }
+  .empty { color: var(--color-ink-muted); margin: 0; }
+  @media (max-width: 640px) { .session-create { grid-template-columns: 1fr; } .directory-field { grid-template-columns: 1fr; } }
 </style>

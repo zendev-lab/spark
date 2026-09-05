@@ -1,11 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
-import {
-  defineTool,
-  type JsonValue,
-  type ParameterSchemaSpec,
-  type ToolDefinition,
-} from "@deepseek-ai/dsh-tools";
+import { defineTool, type ParameterSchemaSpec, type ToolDefinition } from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 
 import { deliberateSparkFusion } from "./deliberate.ts";
 import {

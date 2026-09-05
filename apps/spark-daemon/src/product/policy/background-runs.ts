@@ -1,4 +1,4 @@
-import type { ProjectRef, RunRef, TaskRef } from "@zendev-lab/spark-core";
+import type { ProjectRef, RunRef, TaskRef } from "@zendev-lab/spark-invocation";
 import type {
   WorkflowRunAcknowledgeResult,
   WorkflowRunControlStatus,
@@ -6,7 +6,7 @@ import type {
 import {
   listActiveSparkRoleRunProcesses,
   type KillSparkRoleRunProcessResult,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   collectBackgroundChildRuns,

@@ -56,6 +56,30 @@ function drainPendingDeliveryPages(
 }
 
 describe("SparkInvocationStore", () => {
+  it("projects the frozen output ceiling into the durable Invocation receipt", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ sessionId: "session-budget", prompt: "bounded" });
+      const receipt = store.recordReceiptContext(invocation.invocationId, {
+        lifetime: "scoped",
+        originKind: "session",
+        maxOutputTokens: 1_024,
+        authorizationSource: { kind: "session" },
+      });
+
+      expect(receipt).toMatchObject({
+        invocationId: invocation.invocationId,
+        sessionId: "session-budget",
+        maxOutputTokens: 1_024,
+      });
+      expect(store.invocationReceipt(invocation.invocationId)).toMatchObject({
+        maxOutputTokens: 1_024,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("reports session activity from durable queued and running invocations", () => {
     const { db, store } = createStore();
     try {

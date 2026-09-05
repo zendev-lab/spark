@@ -54,18 +54,16 @@ type WorkspaceRequest = Extract<
   }
 >;
 
+type WorkspaceRequestFor<Method extends WorkspaceRequest["method"]> = Extract<
+  WorkspaceRequest,
+  { method: Method }
+>;
+
 export async function handleWorkspaceRequest(
   ctx: LocalRpcDispatchContext,
   request: WorkspaceRequest,
 ): Promise<LocalRpcServiceOutput<WorkspaceRequest>> {
-  const {
-    paths,
-    db,
-    options,
-    ensureRegistration,
-    verifyWorkspaceConnection,
-    unbindWorkspaceFromHub,
-  } = ctx;
+  const { paths, db, options } = ctx;
   switch (request.method) {
     case "workspace.list":
       return parseLocalRpcServiceOutput(request.method, {
@@ -76,26 +74,10 @@ export async function handleWorkspaceRequest(
       });
     case "workspace.directory.list":
       return await listWorkspaceDirectory(ctx, request.params);
-    case "workspace.ensure-local": {
-      // Compatibility method name: resolve/re-attach an explicit registration only.
-      const workspace = ensureLocalWorkspace(db, request.params);
-      if (options.sessionRegistry) {
-        await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
-      }
-      return parseLocalRpcServiceOutput(request.method, workspace);
-    }
+    case "workspace.ensure-local":
+      return ensureLocalWorkspaceRequest(ctx, request);
     case "workspace.resolve-session-cwd":
-      try {
-        return parseLocalRpcServiceOutput(
-          request.method,
-          await resolveSessionCwdOwner(db, request.params.cwd),
-        );
-      } catch (error) {
-        if (error instanceof SessionCwdResolutionError) {
-          throw new SparkDaemonControlError("workspace_cwd_invalid", error.message);
-        }
-        throw error;
-      }
+      return resolveWorkspaceSessionCwd(ctx, request);
     case "workspace.relocate":
       return (options.relocateSparkDaemonHub ?? relocateSparkDaemonHub)(paths, db, request.params, {
         onUplinkReconfigure: options.onUplinkReconfigure,
@@ -105,184 +87,19 @@ export async function handleWorkspaceRequest(
         pending: pendingWorkspaceTransfers(options.leaseTransfers, request.params.workspaceId),
         observedAt: new Date().toISOString(),
       };
-    case "workspace.transfer.respond": {
-      const transfers = options.leaseTransfers;
-      if (!transfers) {
-        throw new SparkDaemonControlError(
-          "workspace_transfer_unavailable",
-          "Lease transfer broker is not available on this daemon.",
-        );
-      }
-      const settlement = transfers.respond(
-        request.params.transferId,
-        request.params.decision,
-        request.params.source === "tui" || request.params.source === "cli"
-          ? request.params.source
-          : "unknown",
-      );
-      if (!settlement) {
-        throw new SparkDaemonControlError(
-          "workspace_transfer_not_found",
-          `Unknown or already settled lease transfer: ${request.params.transferId}`,
-        );
-      }
-      return settlement;
-    }
-    case "workspace.register": {
-      // A workspace-scoped one-time token is explicit authority to move the
-      // Hub projection to another daemon-owned directory. Preserve the
-      // daemon-local workspace id so existing sessions keep resolving after
-      // correcting or intentionally changing its path.
-      const allowLocalPathRebind = Boolean(request.params.registrationToken);
-      const scheduled = scheduledSparkDaemonHubOrigin(
-        paths,
-        request.params.registrationToken ? request.params.serverUrl : undefined,
-      );
-      if (request.params.registrationToken && scheduled.ambiguous) {
-        throw new SparkDaemonControlError(
-          "workspace_registration_failed",
-          "This daemon has multiple Hub origins. Pass --server-url to select which origin to project onto.",
-        );
-      }
-      const hubUrl = request.params.registrationToken ? (scheduled.serverUrl ?? "").trim() : "";
-      const planned = planWorkspaceRegistration(db, {
-        ...request.params,
-        serverUrl: hubUrl,
-        ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
-      });
-      if (request.params.registrationToken && !hubUrl) {
-        throw new SparkDaemonControlError(
-          "workspace_registration_failed",
-          "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
-        );
-      }
-      if (!hubUrl) {
-        const workspace = registerWorkspace(db, {
-          ...request.params,
-          serverUrl: "",
-          ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
-        });
-        if (options.sessionRegistry) {
-          await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
-        }
-        return parseLocalRpcServiceOutput(request.method, workspace);
-      }
-      if (planned.previousServerUrl && planned.previousServerBindingId) {
-        await unbindWorkspaceFromHub(paths, {
-          serverUrl: planned.previousServerUrl,
-          bindingId: planned.previousServerBindingId,
-          // Credentials were already provisioned for this origin. This only
-          // permits completing the explicit local rebind on a trusted legacy
-          // HTTP Hub; new target registration keeps its own URL guard.
-          allowInsecureHttp: true,
-        });
-      }
-      const serviceRegistration = await ensureRegistration(paths, {
-        serverUrl: planned.serverUrl,
-        ...(request.params.allowInsecureHttp ? { allowInsecureHttp: true } : {}),
-        workspaceRegistration: {
-          localWorkspaceKey: planned.localWorkspaceKey,
-          localPath: planned.localPath,
-          displayName: planned.displayName,
-          workspaceName: planned.workspaceName,
-          workspaceSlug: planned.workspaceSlug,
-        },
-        ...(request.params.registrationToken
-          ? { registrationToken: request.params.registrationToken }
-          : {}),
-      });
-      if (!serviceRegistration.workspaceBinding) {
-        throw new SparkDaemonControlError(
-          "workspace_registration_failed",
-          "Workspace registration did not return a server workspace connection.",
-        );
-      }
-      await verifyWorkspaceConnection({
-        config: serviceRegistration.config,
-        workspaceBinding: serviceRegistration.workspaceBinding,
-        localPath: planned.localPath,
-      });
-      const workspace = registerWorkspace(db, {
-        ...request.params,
-        serverUrl: planned.serverUrl,
-        ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
-        ...(request.params.registrationToken
-          ? { consumedRegistrationToken: request.params.registrationToken }
-          : {}),
-        ...(serviceRegistration.config.runtimeId && serviceRegistration.config.runtimeToken
-          ? {
-              serverCredential: {
-                runtimeId: serviceRegistration.config.runtimeId,
-                runtimeToken: serviceRegistration.config.runtimeToken,
-                ...(serviceRegistration.config.runtimeTokenExpiresAt
-                  ? { runtimeTokenExpiresAt: serviceRegistration.config.runtimeTokenExpiresAt }
-                  : {}),
-                ...(serviceRegistration.config.refreshToken
-                  ? { refreshToken: serviceRegistration.config.refreshToken }
-                  : {}),
-                ...(serviceRegistration.config.refreshTokenExpiresAt
-                  ? { refreshTokenExpiresAt: serviceRegistration.config.refreshTokenExpiresAt }
-                  : {}),
-              },
-            }
-          : {}),
-        ...(serviceRegistration.workspaceBinding
-          ? {
-              serverWorkspaceId: serviceRegistration.workspaceBinding.workspaceId,
-              serverBindingId: serviceRegistration.workspaceBinding.bindingId,
-              serverStatus: serviceRegistration.workspaceBinding.status,
-            }
-          : {}),
-      });
-      if (planned.previousServerUrl) {
-        options.onUplinkReconfigure?.(planned.previousServerUrl);
-      }
-      options.onUplinkReconfigure?.(workspace.serverUrl);
-      if (options.sessionRegistry) {
-        await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
-      }
-      return parseLocalRpcServiceOutput(request.method, {
-        ...workspace,
-        ...(serviceRegistration.workspaceAuthorization
-          ? { workspaceAuthorization: serviceRegistration.workspaceAuthorization }
-          : {}),
-      });
-    }
-    case "workspace.attach": {
-      const workspace = attachWorkspace(db, { id: request.params.id });
-      options.onUplinkReconfigure?.(workspace.serverUrl);
-      if (options.sessionRegistry) {
-        await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
-      }
-      return parseLocalRpcServiceOutput(request.method, workspace);
-    }
+    case "workspace.transfer.respond":
+      return respondWorkspaceTransfer(ctx, request);
+    case "workspace.register":
+      return registerWorkspaceRequest(ctx, request);
+    case "workspace.attach":
+      return attachWorkspaceRequest(ctx, request);
     case "workspace.stop": {
       const workspace = stopWorkspace(db, { id: request.params.id });
       options.onUplinkReconfigure?.(workspace.serverUrl);
       return parseLocalRpcServiceOutput(request.method, workspace);
     }
-    case "workspace.lifecycle": {
-      const { dryRun: _dryRun, ...mutation } = request.params;
-      const plan = planWorkspaceLifecycleMutation(db, mutation);
-      if (request.params.dryRun) {
-        return parseLocalRpcServiceOutput(request.method, plan);
-      }
-      if (
-        mutation.action === "unregister" &&
-        !plan.workspace.lifecycle &&
-        plan.workspace.serverUrl &&
-        plan.workspace.serverBindingId
-      ) {
-        await unbindWorkspaceFromHub(paths, {
-          serverUrl: plan.workspace.serverUrl,
-          bindingId: plan.workspace.serverBindingId,
-          allowInsecureHttp: true,
-        });
-      }
-      const result = applyWorkspaceLifecycleMutation(db, mutation);
-      options.onUplinkReconfigure?.(plan.workspace.serverUrl);
-      return parseLocalRpcServiceOutput(request.method, result);
-    }
+    case "workspace.lifecycle":
+      return mutateWorkspaceLifecycle(ctx, request);
     case "workspace.client.attach": {
       const client = attachWorkspaceClient(db, request.params);
       return parseLocalRpcServiceOutput(request.method, workspaceClientResult(db, client));
@@ -302,6 +119,243 @@ export async function handleWorkspaceRequest(
     default:
       return unreachableWorkspaceRequest(request);
   }
+}
+
+async function ensureLocalWorkspaceRequest(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.ensure-local">,
+) {
+  // Compatibility method name: resolve/re-attach an explicit registration only.
+  const workspace = ensureLocalWorkspace(ctx.db, request.params);
+  if (ctx.options.sessionRegistry) {
+    await ensureWorkspaceAdministratorSession(ctx.db, ctx.options.sessionRegistry, workspace.id);
+  }
+  return parseLocalRpcServiceOutput(request.method, workspace);
+}
+
+async function resolveWorkspaceSessionCwd(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.resolve-session-cwd">,
+) {
+  try {
+    return parseLocalRpcServiceOutput(
+      request.method,
+      await resolveSessionCwdOwner(ctx.db, request.params.cwd),
+    );
+  } catch (error) {
+    if (error instanceof SessionCwdResolutionError) {
+      throw new SparkDaemonControlError("workspace_cwd_invalid", error.message);
+    }
+    throw error;
+  }
+}
+
+function respondWorkspaceTransfer(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.transfer.respond">,
+) {
+  const transfers = ctx.options.leaseTransfers;
+  if (!transfers) {
+    throw new SparkDaemonControlError(
+      "workspace_transfer_unavailable",
+      "Lease transfer broker is not available on this daemon.",
+    );
+  }
+  const settlement = transfers.respond(
+    request.params.transferId,
+    request.params.decision,
+    request.params.source === "tui" || request.params.source === "cli"
+      ? request.params.source
+      : "unknown",
+  );
+  if (!settlement) {
+    throw new SparkDaemonControlError(
+      "workspace_transfer_not_found",
+      `Unknown or already settled lease transfer: ${request.params.transferId}`,
+    );
+  }
+  return settlement;
+}
+
+async function registerWorkspaceRequest(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.register">,
+) {
+  const registration = planWorkspaceRegistrationRequest(ctx, request);
+  if (!registration.hubUrl) {
+    return registerLocalWorkspaceRequest(ctx, request, registration.allowLocalPathRebind);
+  }
+  return registerHubWorkspaceRequest(ctx, request, registration);
+}
+
+function planWorkspaceRegistrationRequest(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.register">,
+) {
+  // A workspace-scoped one-time token is explicit authority to move the
+  // Hub projection to another daemon-owned directory. Preserve the
+  // daemon-local workspace id so existing sessions keep resolving after
+  // correcting or intentionally changing its path.
+  const allowLocalPathRebind = Boolean(request.params.registrationToken);
+  const scheduled = scheduledSparkDaemonHubOrigin(
+    ctx.paths,
+    request.params.registrationToken ? request.params.serverUrl : undefined,
+  );
+  if (request.params.registrationToken && scheduled.ambiguous) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_failed",
+      "This daemon has multiple Hub origins. Pass --server-url to select which origin to project onto.",
+    );
+  }
+  const hubUrl = request.params.registrationToken ? (scheduled.serverUrl ?? "").trim() : "";
+  const planned = planWorkspaceRegistration(ctx.db, {
+    ...request.params,
+    serverUrl: hubUrl,
+    ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
+  });
+  if (request.params.registrationToken && !hubUrl) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_failed",
+      "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
+    );
+  }
+  return { allowLocalPathRebind, hubUrl, planned };
+}
+
+async function registerLocalWorkspaceRequest(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.register">,
+  allowLocalPathRebind: boolean,
+) {
+  const workspace = registerWorkspace(ctx.db, {
+    ...request.params,
+    serverUrl: "",
+    ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
+  });
+  if (ctx.options.sessionRegistry) {
+    await ensureWorkspaceAdministratorSession(ctx.db, ctx.options.sessionRegistry, workspace.id);
+  }
+  return parseLocalRpcServiceOutput(request.method, workspace);
+}
+
+async function registerHubWorkspaceRequest(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.register">,
+  registration: ReturnType<typeof planWorkspaceRegistrationRequest>,
+) {
+  const { allowLocalPathRebind, planned } = registration;
+  if (planned.previousServerUrl && planned.previousServerBindingId) {
+    await ctx.unbindWorkspaceFromHub(ctx.paths, {
+      serverUrl: planned.previousServerUrl,
+      bindingId: planned.previousServerBindingId,
+      // Credentials were already provisioned for this origin. This only
+      // permits completing the explicit local rebind on a trusted legacy
+      // HTTP Hub; new target registration keeps its own URL guard.
+      allowInsecureHttp: true,
+    });
+  }
+  const serviceRegistration = await ctx.ensureRegistration(ctx.paths, {
+    serverUrl: planned.serverUrl,
+    ...(request.params.allowInsecureHttp ? { allowInsecureHttp: true } : {}),
+    workspaceRegistration: {
+      localWorkspaceKey: planned.localWorkspaceKey,
+      localPath: planned.localPath,
+      displayName: planned.displayName,
+      workspaceName: planned.workspaceName,
+      workspaceSlug: planned.workspaceSlug,
+    },
+    ...(request.params.registrationToken
+      ? { registrationToken: request.params.registrationToken }
+      : {}),
+  });
+  if (!serviceRegistration.workspaceBinding) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_failed",
+      "Workspace registration did not return a server workspace connection.",
+    );
+  }
+  await ctx.verifyWorkspaceConnection({
+    config: serviceRegistration.config,
+    workspaceBinding: serviceRegistration.workspaceBinding,
+    localPath: planned.localPath,
+  });
+  const workspace = registerWorkspace(ctx.db, {
+    ...request.params,
+    serverUrl: planned.serverUrl,
+    ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
+    ...(request.params.registrationToken
+      ? { consumedRegistrationToken: request.params.registrationToken }
+      : {}),
+    ...workspaceServerCredential(serviceRegistration.config),
+    serverWorkspaceId: serviceRegistration.workspaceBinding.workspaceId,
+    serverBindingId: serviceRegistration.workspaceBinding.bindingId,
+    serverStatus: serviceRegistration.workspaceBinding.status,
+  });
+  if (planned.previousServerUrl) {
+    ctx.options.onUplinkReconfigure?.(planned.previousServerUrl);
+  }
+  ctx.options.onUplinkReconfigure?.(workspace.serverUrl);
+  if (ctx.options.sessionRegistry) {
+    await ensureWorkspaceAdministratorSession(ctx.db, ctx.options.sessionRegistry, workspace.id);
+  }
+  return parseLocalRpcServiceOutput(request.method, workspace);
+}
+
+function workspaceServerCredential(
+  config: Awaited<ReturnType<LocalRpcDispatchContext["ensureRegistration"]>>["config"],
+) {
+  if (!config.runtimeId || !config.runtimeToken) return {};
+  return {
+    serverCredential: {
+      runtimeId: config.runtimeId,
+      runtimeToken: config.runtimeToken,
+      ...(config.runtimeTokenExpiresAt
+        ? { runtimeTokenExpiresAt: config.runtimeTokenExpiresAt }
+        : {}),
+      ...(config.refreshToken ? { refreshToken: config.refreshToken } : {}),
+      ...(config.refreshTokenExpiresAt
+        ? { refreshTokenExpiresAt: config.refreshTokenExpiresAt }
+        : {}),
+    },
+  };
+}
+
+async function attachWorkspaceRequest(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.attach">,
+) {
+  const workspace = attachWorkspace(ctx.db, { id: request.params.id });
+  ctx.options.onUplinkReconfigure?.(workspace.serverUrl);
+  if (ctx.options.sessionRegistry) {
+    await ensureWorkspaceAdministratorSession(ctx.db, ctx.options.sessionRegistry, workspace.id);
+  }
+  return parseLocalRpcServiceOutput(request.method, workspace);
+}
+
+async function mutateWorkspaceLifecycle(
+  ctx: LocalRpcDispatchContext,
+  request: WorkspaceRequestFor<"workspace.lifecycle">,
+) {
+  const { dryRun: _dryRun, ...mutation } = request.params;
+  const plan = planWorkspaceLifecycleMutation(ctx.db, mutation);
+  if (request.params.dryRun) {
+    return parseLocalRpcServiceOutput(request.method, plan);
+  }
+  if (
+    mutation.action === "unregister" &&
+    !plan.workspace.lifecycle &&
+    plan.workspace.serverUrl &&
+    plan.workspace.serverBindingId
+  ) {
+    await ctx.unbindWorkspaceFromHub(ctx.paths, {
+      serverUrl: plan.workspace.serverUrl,
+      bindingId: plan.workspace.serverBindingId,
+      allowInsecureHttp: true,
+    });
+  }
+  const result = applyWorkspaceLifecycleMutation(ctx.db, mutation);
+  ctx.options.onUplinkReconfigure?.(plan.workspace.serverUrl);
+  return parseLocalRpcServiceOutput(request.method, result);
 }
 
 async function listWorkspaceDirectory(

@@ -8,10 +8,10 @@ import {
   defaultEvidenceStore,
   type EvidenceRef,
 } from "@zendev-lab/spark-artifacts";
-import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { currentSparkReproCheckpoint } from "@zendev-lab/spark-repro";
 import { registerSparkReproRoles } from "./product/policy/spark-repro-roles.ts";
-import { gitCommand } from "@zendev-lab/spark-system";
+import { gitCommand } from "@zendev-lab/spark-platform-node";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SparkReproOwner } from "./repro-owner.ts";

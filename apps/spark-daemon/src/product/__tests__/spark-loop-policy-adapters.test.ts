@@ -1,4 +1,4 @@
-import * as loopCapability from "@zendev-lab/spark-loop";
+import * as loopCapability from "@zendev-lab/spark-driver";
 import * as reproCapability from "@zendev-lab/spark-repro";
 import * as workflowCapability from "@zendev-lab/spark-workflows";
 import { describe, expect, it } from "vitest";

@@ -1,13 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { validateSparkDaemonTask } from "../core/types.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { executeSparkDaemonSessionControl } from "../session-control.ts";
 import { registerWorkspace } from "../store/workspaces.ts";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +22,7 @@ import { createChannelIngressController, type ChannelIngressAssignment } from ".
 import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import { legacyChannelInboundMessageIdempotencyKey } from "./admission.ts";
 import { CHANNEL_REPLY_DELIVERY_PENDING_ERROR_CODE } from "./reply-delivery.ts";
 import {

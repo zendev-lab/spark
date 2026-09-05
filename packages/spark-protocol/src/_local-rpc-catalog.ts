@@ -90,7 +90,6 @@ import {
   workspaceClientProjectionSchema,
   workspaceClientStatusSchema,
 } from "./runtime-v1/messages.ts";
-import { workspaceBrowserAuthorizationSchema } from "./runtime-v1/registration.ts";
 import {
   sparkAssignmentSchema,
   sparkSessionArchiveRequestSchema,
@@ -122,7 +121,6 @@ import {
   sparkSessionSendRequestSchema,
   sparkSessionSendResultSchema,
 } from "./session-mail.ts";
-import { sparkSessionModeResultSchema, sparkSessionSetModeRequestSchema } from "./session-mode.ts";
 import type { SparkSessionRegistryErrorCode } from "./session-errors.ts";
 import {
   sparkSideThreadConfigureRequestSchema,
@@ -620,6 +618,7 @@ const sparkLocalRpcSessionInvocationNotFoundOrpcErrors = {
 const sparkLocalRpcTurnResultOrpcErrors = {
   invocation_not_found: sparkLocalRpcInvocationOrpcErrors.invocation_not_found,
   invocation_not_terminal: sparkLocalRpcInvocationOrpcErrors.invocation_not_terminal,
+  session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
 } as const;
 
 const sparkLocalRpcTurnStreamOrpcErrors = {
@@ -680,14 +679,6 @@ const sparkLocalRpcReadinessSessionModelOrpcErrors = {
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
   model_not_enabled: sparkLocalRpcModelOrpcErrors.model_not_enabled,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
-} as const;
-
-const sparkLocalRpcReadinessSessionModeOrpcErrors = {
-  ...sparkLocalRpcSessionRegistryBaseOrpcErrors,
-  invalid_scope: sparkLocalRpcSessionOrpcErrors.invalid_scope,
-  session_archived: sparkLocalRpcSessionOrpcErrors.session_archived,
-  session_not_found: sparkLocalRpcSessionOrpcErrors.session_not_found,
-  workspace_cwd_unavailable: sparkLocalRpcSessionOrpcErrors.workspace_cwd_unavailable,
 } as const;
 
 const sparkLocalRpcReadinessSessionChannelOrpcErrors = {
@@ -961,6 +952,54 @@ export const sparkLocalRpcDaemonRestartResultSchema = z.object({
   requestedAt: isoDateTimeSchema,
 });
 
+/**
+ * Daemon-owned `daemon-user` access tokens authenticate direct browser
+ * surfaces (native Spark Web and Web DSH) on every listener. The daemon stores
+ * only token hashes; the plaintext token is returned exactly once at creation.
+ * Verification collapses missing, malformed, expired, and
+ * revoked tokens into one boolean so adapters cannot probe failure causes.
+ */
+export const sparkLocalRpcDaemonAccessTokenMetadataSchema = z.object({
+  id: prefixedIdSchema("dut"),
+  label: z.string().min(1).optional(),
+  createdAt: isoDateTimeSchema,
+  expiresAt: isoDateTimeSchema.optional(),
+  revokedAt: isoDateTimeSchema.optional(),
+});
+
+export const sparkLocalRpcDaemonAccessCreateRequestSchema = z.object({
+  label: z.string().trim().min(1).max(120).optional(),
+  expiresAt: isoDateTimeSchema.optional(),
+});
+
+export const sparkLocalRpcDaemonAccessCreateResultSchema = z.object({
+  /** Plaintext token, returned only by this procedure. */
+  token: z.string().min(1),
+  record: sparkLocalRpcDaemonAccessTokenMetadataSchema,
+});
+
+export const sparkLocalRpcDaemonAccessListResultSchema = z.object({
+  tokens: z.array(sparkLocalRpcDaemonAccessTokenMetadataSchema),
+});
+
+export const sparkLocalRpcDaemonAccessRevokeRequestSchema = z.object({
+  id: z.string().trim().min(1),
+});
+
+export const sparkLocalRpcDaemonAccessRevokeResultSchema = z.object({
+  id: z.string().min(1),
+  /** True when the identified token exists and is revoked after the call. */
+  revoked: z.boolean(),
+});
+
+export const sparkLocalRpcDaemonAccessVerifyRequestSchema = z.object({
+  token: z.string().min(1),
+});
+
+export const sparkLocalRpcDaemonAccessVerifyResultSchema = z.object({
+  valid: z.boolean(),
+});
+
 const channelAdapterConfigSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("feishu"),
@@ -1136,7 +1175,6 @@ export const sparkLocalRpcWorkspaceSchema = z.object({
   serverWorkspaceId: z.string().min(1).optional(),
   serverBindingId: z.string().min(1).optional(),
   hubBindingState: z.enum(["bound", "unbound"]).optional(),
-  workspaceAuthorization: workspaceBrowserAuthorizationSchema.optional(),
   serverUrl: z.string(),
   localWorkspaceKey: z.string(),
   displayName: z.string(),
@@ -1428,6 +1466,9 @@ export const sparkLocalRpcHumanInteractionRespondResultSchema = z.object({
 const workspaceIdInputSchema = z.object({ workspaceId: z.string().trim().min(1) });
 const invocationIdInputSchema = sparkTurnStatusRequestSchema;
 const sessionIdInputSchema = sparkSessionGetRequestSchema;
+const channelPeerSessionIdInputSchema = sparkSessionGetRequestSchema.extend({
+  callerSessionId: z.string().trim().min(1).optional(),
+});
 const providerNameInputSchema = z.object({ providerName: z.string().trim().min(1) });
 const flowIdInputSchema = z.object({ flowId: z.string().trim().min(1) });
 const workspaceIdMutationInputSchema = z.object({ id: z.string().min(1) });
@@ -1470,6 +1511,22 @@ export const sparkLocalRpcProcedureSchemas = {
   "daemon.restart": {
     input: sparkLocalRpcEmptyInputSchema,
     output: sparkLocalRpcDaemonRestartResultSchema,
+  },
+  "daemon.access.create": {
+    input: sparkLocalRpcDaemonAccessCreateRequestSchema,
+    output: sparkLocalRpcDaemonAccessCreateResultSchema,
+  },
+  "daemon.access.list": {
+    input: sparkLocalRpcEmptyInputSchema,
+    output: sparkLocalRpcDaemonAccessListResultSchema,
+  },
+  "daemon.access.revoke": {
+    input: sparkLocalRpcDaemonAccessRevokeRequestSchema,
+    output: sparkLocalRpcDaemonAccessRevokeResultSchema,
+  },
+  "daemon.access.verify": {
+    input: sparkLocalRpcDaemonAccessVerifyRequestSchema,
+    output: sparkLocalRpcDaemonAccessVerifyResultSchema,
   },
   "file.execute": {
     input: sparkLocalRpcToolExecutionBaseInputSchema.extend({
@@ -1698,8 +1755,11 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionListRequestSchema,
     output: z.array(sparkSessionProjectionSchema),
   },
-  "session.get": { input: sessionIdInputSchema, output: sparkSessionProjectionSchema },
-  "session.lookup": { input: sessionIdInputSchema, output: sparkSessionPeerProjectionSchema },
+  "session.get": { input: channelPeerSessionIdInputSchema, output: sparkSessionProjectionSchema },
+  "session.lookup": {
+    input: channelPeerSessionIdInputSchema,
+    output: sparkSessionPeerProjectionSchema,
+  },
   "session.snapshot": {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
@@ -1774,10 +1834,6 @@ export const sparkLocalRpcProcedureSchemas = {
   "session.model.set": {
     input: sparkSessionSetModelRequestSchema,
     output: sparkSessionProjectionSchema,
-  },
-  "session.mode.set": {
-    input: sparkSessionSetModeRequestSchema,
-    output: sparkSessionModeResultSchema,
   },
   "session.thinking.set": {
     input: sparkSessionSetThinkingRequestSchema,
@@ -1892,7 +1948,10 @@ export const sparkLocalRpcOrpcOnlyMethods = [
   "session.media.read",
   "session.prompt-history",
   "session.retry-target",
-  "session.mode.set",
+  "daemon.access.create",
+  "daemon.access.list",
+  "daemon.access.revoke",
+  "daemon.access.verify",
 ] as const satisfies readonly SparkLocalRpcMethod[];
 
 export type SparkLocalRpcInput<M extends SparkLocalRpcMethod> = z.input<
@@ -1938,6 +1997,32 @@ export const sparkLocalRpcOrpcContract = {
       p["daemon.restart"],
       sparkLocalRpcReadinessDaemonOrpcErrors,
     ),
+    access: {
+      create: procedure(
+        "POST",
+        "/daemon/access/create",
+        p["daemon.access.create"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
+      list: procedure(
+        "GET",
+        "/daemon/access/list",
+        p["daemon.access.list"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
+      revoke: procedure(
+        "POST",
+        "/daemon/access/revoke",
+        p["daemon.access.revoke"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
+      verify: procedure(
+        "POST",
+        "/daemon/access/verify",
+        p["daemon.access.verify"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
+    },
   },
   file: {
     execute: procedure("POST", "/file/execute", p["file.execute"]),
@@ -2376,14 +2461,6 @@ export const sparkLocalRpcOrpcContract = {
         "/session/model/set",
         p["session.model.set"],
         sparkLocalRpcReadinessSessionModelOrpcErrors,
-      ),
-    },
-    mode: {
-      set: procedure(
-        "POST",
-        "/session/mode/set",
-        p["session.mode.set"],
-        sparkLocalRpcReadinessSessionModeOrpcErrors,
       ),
     },
     thinking: {

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import type { SparkHeadlessSessionRunInput } from "./product/host/headless-loader.ts";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import type { SparkDaemonLoopTickTask } from "./core/types.ts";
 import {
   commitLoopInvocationAdmission,
@@ -259,6 +259,11 @@ describe("Loop and Session lifecycle integration", () => {
     harness.invocations.claimNext("stable-driver-worker", "2026-08-13T00:00:00.000Z");
     await executor(firstTask, {
       invocationId: firstInvocation.invocationId,
+      invocationAttempt: {
+        epoch: 1,
+        daemonGeneration: 1,
+        correlationId: `attempt:${firstInvocation.invocationId}:1`,
+      },
       signal: new AbortController().signal,
     });
     harness.loops.schedule(
@@ -284,6 +289,11 @@ describe("Loop and Session lifecycle integration", () => {
     harness.invocations.claimNext("stable-driver-worker", "2026-08-13T00:00:01.000Z");
     await executor(secondTask, {
       invocationId: secondInvocation.invocationId,
+      invocationAttempt: {
+        epoch: 1,
+        daemonGeneration: 1,
+        correlationId: `attempt:${secondInvocation.invocationId}:1`,
+      },
       signal: new AbortController().signal,
     });
 

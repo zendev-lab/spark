@@ -6,7 +6,7 @@ import {
   sessionGoalStorePathV2,
   sessionLoopStorePathV2,
   sessionStateStorePath,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import { migrateLegacyLoopState } from "./loop-state-migration.ts";

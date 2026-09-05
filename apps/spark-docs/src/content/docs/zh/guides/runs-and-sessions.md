@@ -60,7 +60,15 @@ spark web
 通过 `session spawn|fork` 创建、带显式 Role 绑定的子 Session 是 subagent；这只是
 呈现用语，不是第二种运行时类型。官方 DSH 的 `subagent` / `subagent_fork` 工具
 是兼容映射：内部是 `session spawn|fork` 再 `session send`；原生 session 工具
-仍可单独调用。
+仍可单独调用。daemon-backed Agent 在创建时获得当前全部已启用且可用模型的快照；
+创建全新子会话的 `subagent` 工具使用 DSH 官方 provider/model/reasoning 选择字段，
+未指定路由时继承父 Session，显式路由则在创建子 Session 时由 daemon 按当前模型
+目录重新校验。`subagent_fork` 保持父 Session 路由，使继承的 transcript 前缀仍可
+复用。daemon 会把 provider、model、受支持的 reasoning 等级和
+有效输出上限原子固化到子 Session；输出上限先取请求值或继承值与模型目录上限的
+较小值，每次模型调用再应用上下文安全预算。工具结果会等待子 Invocation 的持久化
+终态；dispose 会请求取消并等待子 Session 静止。没有 daemon 执行权的 Web-only
+fallback 明确声明不支持 AgentOptions，并拒绝执行，不会成为第二个本地 owner。
 活跃状态由 queued/running
 Invocation 推导，不依赖 UI 计时器。原生会话视图的 `status` 使用同一组三个值
 （`idle`、`queued`、`running`）；queued Invocation 不会被折叠成 `running`。临时 owned 子 Session 会随 owner 关闭并默认删除

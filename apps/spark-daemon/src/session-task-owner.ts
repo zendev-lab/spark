@@ -1,5 +1,5 @@
 import type { SparkSessionLineageOrigin } from "@zendev-lab/spark-protocol/session-assignment";
-import type { TaskRun } from "@zendev-lab/spark-core";
+import { type TaskRun } from "@zendev-lab/spark-tasks";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 
 interface TaskOwnerGraph {

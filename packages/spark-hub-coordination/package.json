@@ -28,8 +28,7 @@
     "./runtime-session-control": "./src/runtime-session-control.ts",
     "./runtime-ws": "./src/runtime-ws.ts",
     "./routing": "./src/routing.ts",
-    "./session-activity": "./src/session-activity.ts",
-    "./workspace-access": "./src/workspace-access.ts"
+    "./session-activity": "./src/session-activity.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -37,16 +36,15 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@zendev-lab/spark-platform-node": "workspace:*",
     "@zendev-lab/spark-protocol": "workspace:*",
-    "@zendev-lab/spark-system": "workspace:*",
-    "@zendev-lab/spark-tasks": "workspace:*",
     "ws": "catalog:"
   },
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@types/ws": "catalog:",
-    "@zendev-lab/spark-hub-db": "workspace:*",
+    "@zendev-lab/spark-hub-storage-sqlite": "workspace:*",
     "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:"

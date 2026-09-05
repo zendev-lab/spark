@@ -1,6 +1,6 @@
 import { createWorkspaceWithLease } from "@zendev-lab/spark-hub-coordination/projection-services";
 import { RuntimeControlCommandError } from "@zendev-lab/spark-hub-coordination/runtime-control";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import {

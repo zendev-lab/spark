@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { test } from "vitest";
 
-import type { RunRef } from "@zendev-lab/spark-core";
+import type { RunRef } from "@zendev-lab/spark-invocation";
 import { TaskGraphStoreFormatError, defaultTaskGraphStore } from "./graph-store.ts";
 import { TaskGraph } from "./graph.ts";
 

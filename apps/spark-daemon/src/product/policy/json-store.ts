@@ -2,4 +2,4 @@ export {
   JsonStoreFormatError,
   readJsonFileOptional,
   writeJsonFileAtomic,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";

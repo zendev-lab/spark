@@ -18,6 +18,7 @@ function pageData(enabledModels?: (typeof model)[]): PageData {
       localPath: null,
     },
     workspaces: [],
+    daemons: [],
     sessions: [],
     sessionsAvailable: true,
     isGlobalConsole: false,

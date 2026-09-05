@@ -28,7 +28,6 @@ Hub, or workflow.
 | --- | --- | --- |
 | `spark` | Print help or invoke top-level foreground, background, installation, diagnostic, and version workflows | `spark --help` |
 | `spark web` | Start the local loopback browser workbench bound to the daemon | `spark web --help` |
-| `spark web-dsh` | Start the Spark product workbench hosted by DeepSeek Harness | `spark web-dsh --help` |
 | `spark daemon` | Operate the daemon-owned execution, session, workspace, model, authentication, and channel state | `spark daemon --help` |
 | `spark hub` | Run and administer Hub coordination and Web surfaces | `spark hub --help` |
 | ACP and MCP adapters | Connect compatible clients through their configured Spark adapter | See [collaboration and clients](/guides/collaboration/) |
@@ -66,29 +65,44 @@ spark hub --help
 ## Local web workbench
 
 `spark web` starts the local browser workbench for every workspace bound to the
-same daemon. It binds loopback by default, requires a one-shot token, and talks
-to the Spark daemon through `spark-daemon-client`. A non-loopback `--host`
-requires a repeatable `--trusted-host`; the server rejects untrusted Host,
-Origin, Fetch Metadata, token, and cross-site mutation provenance. Hub remains
-the multi-daemon proxy and management UI.
+same daemon. It binds loopback by default and talks to the Spark daemon through
+`spark-daemon-client`. Every normal request requires a daemon access token.
+Binding `0.0.0.0` automatically exposes the host's local IPv4 interface
+addresses; there is no separate trusted-host configuration. Direct Web accepts
+loopback and local interface IP literals only and validates Host, Origin, Fetch
+Metadata, and cross-site mutation provenance before authentication. Hub remains
+the multi-daemon proxy and the supported DNS-based remote-access boundary.
 
 ```bash
 spark web
 spark web --port 4310
-spark web --host 0.0.0.0 --trusted-host spark.lan
+spark web --host 0.0.0.0 --port 4310
 ```
 
-The command prints the tokenized workbench URL without opening a browser.
+The command prints immediately usable workbench URLs carrying a daemon-issued
+process token without opening a browser. It also prints the token separately
+and revokes it during normal shutdown. The links work for loopback and LAN
+access.
 
-The additional `spark web-dsh` command starts the separately packaged
-DSH-hosted Spark product app without changing `spark web`. It remains available
-until the native Spark Web replacement gate has passed:
+Daemon access tokens are owned by the daemon, which stores only hashes. Use the
+following commands for separately managed tokens, to inspect metadata after an
+unclean launcher exit, or to revoke a token:
 
-```bash
-spark web-dsh --host 0.0.0.0 --port 8888
+```text
+spark daemon access create [--label <note>] [--expires-at <iso>] [--json]
+spark daemon access list [--json]
+spark daemon access revoke <token-id> [--json]
 ```
 
-This command also prints its server URL without opening a browser.
+Opening a printed URL verifies the token through the daemon, stores it in an
+HttpOnly, SameSite=Lax cookie, removes it from the address bar, and continues to
+the requested page. Document navigation without a valid token opens the Spark
+Access page for manual entry. The `?token=…` carrier remains navigation-only;
+the `x-spark-web-token` header remains available for automation. API and
+WebSocket requests retain carrier-level
+401/503 responses rather than HTML login pages. Missing, wrong, expired, and
+revoked tokens do not expose token-state detail, and verification fails closed
+while the daemon is unreachable.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.
@@ -150,9 +164,10 @@ unless `--overwrite` is explicit. Exit `0` means the transaction completed,
 including an all-skipped report; `1` is a read/parse/store failure and `2` is
 invalid CLI usage.
 
-Provider login exists only under `spark daemon auth login` (or `/login` inside
-the TUI). Reports contain provider IDs, credential kinds, counts, and reason
-codes, never credential values.
+Provider login is owned by the daemon and is exposed through
+`spark daemon auth login` and the provider settings in local Web or Hub.
+Reports contain provider IDs, credential kinds, counts, and reason codes, never
+credential values.
 
 ## Daemon-global Channels
 
@@ -232,8 +247,7 @@ spark daemon workspace ls --json
 spark daemon workspace move <id> <new-path> --dry-run
 spark daemon workspace unregister <id> --dry-run
 spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
-spark hub access create
-spark hub workspace access create --workspace <id>
+spark hub access create --daemon <runtime-id> [--daemon <runtime-id> ...] [--user <name>]
 ```
 
 Use `--allow-insecure-http` only for an explicitly trusted private network.

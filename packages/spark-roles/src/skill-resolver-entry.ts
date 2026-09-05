@@ -33,7 +33,7 @@ export class SparkSkillResolver extends BaseSparkSkillResolver {
     super(options);
   }
 
-  override async formatAvailableSkillsForPrompt(): Promise<string> {
+  async formatAvailableSkillsForPrompt(): Promise<string> {
     const { skills } = await this.resolve();
     return formatSparkSkillsForPrompt(skills);
   }

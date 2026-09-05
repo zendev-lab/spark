@@ -12,15 +12,11 @@ import {
 import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import { ensureLocalSparkDirectory } from "./spark-activation.ts";
 import {
-  currentSparkProject,
   loadSparkGraph,
-  loadSparkMode,
   saveSparkGraphAndTodos,
   sparkSessionOwnerKey,
   sparkStateCwd,
 } from "./session-state.ts";
-import { projectSparkFleetState, renderSparkFleetProjection } from "./spark-fleet-projection.ts";
-import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import {
   collectUnreadHiddenRoleRunInbox,
@@ -103,13 +99,7 @@ export function registerSparkProductEvents(
     if (pendingEntry && !pendingInstruction) pendingSparkAgentInstructions.delete(sessionKey);
     const inbox = await collectUnreadHiddenRoleRunInbox(ctx.cwd, ctx);
     const contextMessages = (await deps.turnContextController?.collect(ctx)) ?? [];
-    const fleetMessages = await collectFleetLifecycleMessages(ctx);
-    if (
-      !pendingInstruction &&
-      inbox.summaries.length === 0 &&
-      contextMessages.length === 0 &&
-      fleetMessages.length === 0
-    ) {
+    if (!pendingInstruction && inbox.summaries.length === 0 && contextMessages.length === 0) {
       pendingSparkAgentInstructions.delete(sessionKey);
       return undefined;
     }
@@ -140,7 +130,6 @@ export function registerSparkProductEvents(
           ]
         : []),
       ...contextMessages,
-      ...fleetMessages,
     ];
     const compatibilityMessage =
       messages.length === 1
@@ -227,82 +216,6 @@ export function registerSparkProductEvents(
   return { queueSparkAgentInstruction, syncGoalAskAutoAnswerPolicy };
 }
 
-async function collectFleetLifecycleMessages(ctx: SparkToolContext): Promise<
-  Array<{
-    customType: string;
-    content: string;
-    display: false;
-    authority: "runtime_control";
-    trust: "trusted";
-  }>
-> {
-  const graph = await loadSparkGraph(ctx.cwd, ctx);
-  if (!graph) return [];
-  const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  if (!project) return [];
-  const ownerSessionId = ctx.sessionId?.trim();
-  let reconcileError: string | undefined;
-  if (ownerSessionId) {
-    try {
-      await reconcileManagedTaskSessions({
-        cwd: ctx.cwd,
-        ctx,
-        projectRef: project.ref,
-        ownerSessionId,
-      });
-    } catch (error) {
-      reconcileError = error instanceof Error ? error.message : String(error);
-    }
-  }
-  const mode = (await loadSparkMode(ctx.cwd, ctx)).mode;
-  if (mode !== "fleet" && mode !== "plan") return [];
-  const currentGraph = (await loadSparkGraph(ctx.cwd, ctx)) ?? graph;
-  try {
-    const projection = await projectSparkFleetState({
-      workspaceCwd: sparkStateCwd(ctx.cwd, ctx),
-      graph: currentGraph,
-      projectRef: project.ref,
-    });
-    if (mode === "plan" && !projection.recommended) return [];
-    const content =
-      mode === "fleet"
-        ? [
-            renderSparkFleetProjection(projection),
-            reconcileError ? `- reconcile error: ${reconcileError}` : undefined,
-            "Completion mail is only a wake signal; authoritative TaskRun reconciliation above is the result source.",
-            'For failures choose explicitly: task_write({ action: "recover" }) then assign, assign unrelated ready work, or ask/wait. Do not retry blindly.',
-            "Do not dispatch outside assign and do not modify files, Git, or Cue state from the Fleet owner Session.",
-          ]
-            .filter((line): line is string => Boolean(line))
-            .join("\n")
-        : [
-            renderSparkFleetProjection(projection),
-            "Preflight found at least two non-conflicting runnable Fleet lanes.",
-            "Recommend Fleet and ask the user to confirm Fleet versus ordinary Execute before switching modes. An explicit /execute or /fleet is already a decision.",
-          ].join("\n");
-    return [
-      {
-        customType: "spark-fleet-context",
-        content,
-        display: false,
-        authority: "runtime_control",
-        trust: "trusted",
-      },
-    ];
-  } catch (error) {
-    if (mode !== "fleet") return [];
-    return [
-      {
-        customType: "spark-fleet-context",
-        content: `Fleet state projection failed closed: ${error instanceof Error ? error.message : String(error)}. Do not dispatch until authoritative state can be read; ask or wait.`,
-        display: false,
-        authority: "runtime_control",
-        trust: "trusted",
-      },
-    ];
-  }
-}
-
 const GOAL_DISABLED_INTERACTIVE_TOOLS = new Set(["ask_user", "ask_flow"]);
 export const SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS = 15 * 60_000;
 export const SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
@@ -369,7 +282,7 @@ async function syncGoalInteractiveToolAvailability(
   if (activeAutonomous) {
     // Snapshot the currently *active* tools, not every registered tool. Using
     // getAllTools() here would re-activate tools that other extensions disabled
-    // on purpose (e.g. spark-cue removes `bash` at session start), silently
+    // on purpose, silently
     // re-enabling them for the rest of the session when the goal toggles.
     const baseline = baselines.get(key) ?? pi.getActiveTools();
     baselines.set(key, baseline);

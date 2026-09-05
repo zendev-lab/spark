@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { isActiveSessionTodo, type SessionTodoEntry } from "@zendev-lab/spark-tasks";
-import type { SparkContextProvider } from "@zendev-lab/spark-host/context";
+import type { SparkContextProvider } from "../host/context-tool.ts";
 import { loadIndependentTodos } from "./session-todos.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 

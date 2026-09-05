@@ -19,8 +19,9 @@ checkpoint receipt 和 `formalizedRevision`。该文档来自 daemon 已有的 A
 第二份 Repro store，也不调度 lane 工作。摘要先显示状态与数量；工作目录、模型、
 session ID 和时间放在默认折叠的技术详情中。
 
-TUI 的 `/inspect` 只展示当前终端 session 的本地投影；Hub Web 是跨 session 和
-workspace 的浏览器控制面。两者都把执行提交给 Spark daemon。
+本地 Web 工作台是面向单个 daemon 的浏览器界面；Hub Web 跨已注册 daemon、
+session 和 workspace 提供控制面。两者都把执行提交给 Spark daemon，而不自行持有
+执行状态。
 
 ## 启动 Hub Web
 
@@ -62,23 +63,19 @@ Hub 发现多个 daemon 时，必须显式选择 installation/runtime。该页�
 Loopback 使用本地 owner flow。对于非 loopback Hub，优先使用 Tailscale、
 WireGuard 或 SSH forwarding 等加密私有路径。
 
-在 Hub host 上创建一次性浏览器 key：
+在 Hub host 上创建一次性浏览器 key。每个 key 都要指明其会话可访问的
+daemon，member 因此只能看到这些 daemon 拥有的 workspace：
 
 ```bash
-spark hub access create
+spark hub access create --daemon <runtime-id>
 ```
 
-在 `/login` 交换该 key。Workspace 范围的浏览器访问使用另一种一次性 key：
-
-```bash
-spark hub workspace access create --workspace <id>
-```
-
-在 `/{slug}/login` 交换它。如果浏览器已持有另一个 workspace 范围的会话，打开
-目标 workspace 的活跃路由时会跳转到该目标的登录页，并在交换 key 后返回原路由。
-一个浏览器 Cookie 同时只授权一个 workspace；如需保留多个并行会话，请使用独立
-浏览器 profile 或隐私窗口。两种 key 都应视为秘密。非 loopback 访问要求 HTTPS，
-除非你明确在受信任的私有网络上允许不安全 HTTP。
+重复 `--daemon`（或用逗号分隔多个 id）即可覆盖多个 daemon；加
+`--user <name>` 可为该 key 创建的 member 命名。在 `/login` 交换 key。
+owner 不需要 key 绑定的授权列表：该模型落地时现有 owner 已被授予所有
+已注册 daemon，新 daemon 注册时也会授予所有活跃 owner。key 应视为秘密。
+非 loopback 访问要求 HTTPS，除非你明确在受信任的私有网络上允许不安全
+HTTP。
 
 ## 受信任的反向代理
 

@@ -1,4 +1,4 @@
-/** Compatibility shim: session goal state is owned by @zendev-lab/spark-loop. */
+/** Compatibility shim: session goal state is owned by @zendev-lab/spark-driver. */
 export {
   clearSessionGoal,
   editSessionGoalObjective,
@@ -11,7 +11,7 @@ export {
   sessionGoalStorePath,
   setSessionGoal,
   updateSessionGoalStatus,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 export type {
   SparkGoalAuthority,
   SparkGoalContract,
@@ -20,4 +20,4 @@ export type {
   SparkSessionGoalReviewSummary,
   SparkSessionGoalSource,
   SparkSessionGoalStatus,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";

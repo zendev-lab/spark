@@ -35,9 +35,10 @@ can return a bounded terminal result. Timeouts stop the sender's wait, not the
 target execution. Completion summaries return to the originating session so it
 can continue without polling.
 
-The `session` agent tool, TUI `/inbox`, and `spark daemon session inbox`
-perform list/read/ack through daemon RPCs. Frontends and extension hosts do not
-open another session's mailbox files directly.
+The `session` agent tool and `spark daemon session inbox` perform
+list/read/ack through daemon RPCs. Local Web and Hub present the corresponding
+session-owned requests without opening another session's mailbox files
+directly.
 
 ## Message-platform channels
 

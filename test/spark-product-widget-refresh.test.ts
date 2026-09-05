@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import registerSparkProduct from "../apps/spark-daemon/src/product/policy/index.ts";
-import type { SparkWidgetTheme, SparkWidgetTui } from "@zendev-lab/spark-host/spark-widget";
+import type {
+  SparkWidgetTheme,
+  SparkWidgetTui,
+} from "../apps/spark-daemon/src/product/host/spark-widget.ts";
 import {
   RoleRegistry,
   builtinRoleRef,
@@ -16,10 +19,11 @@ import {
   killActiveSparkRoleRunProcesses,
   listActiveSparkRoleRunProcesses,
   runSparkTask,
-} from "@zendev-lab/spark-runtime";
-import { stableId, type RunRef, type TaskPlan } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-task-runtime";
+import { stableId, type RunRef } from "@zendev-lab/spark-invocation";
+import { type TaskPlan } from "@zendev-lab/spark-tasks";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { setSessionGoal, updateSessionGoalStatus } from "@zendev-lab/spark-loop";
+import { setSessionGoal, updateSessionGoalStatus } from "@zendev-lab/spark-driver";
 
 type SparkPi = Parameters<typeof registerSparkProduct>[0];
 type SparkToolConfig = Parameters<NonNullable<SparkPi["registerTool"]>>[0];

@@ -37,7 +37,9 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
       cookies,
       workspaceIdParam,
       url,
-      authorizedWorkspaceId: locals?.workspaceId ?? null,
+      authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
+      authorizedDaemonIds: locals?.authorizedDaemonIds ?? null,
+      hasControlPlaneAccess: locals?.hasControlPlaneAccess ?? false,
     });
   }
 
@@ -56,7 +58,8 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
         ? workspaceIdForWorkbenchSession(projectedSelectedSession)
         : null,
     preferredWorkspaceSlug: url.searchParams.get("workspace") ?? null,
-    authorizedWorkspaceId: locals?.workspaceId ?? null,
+    authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
+    authorizedDaemonIds: locals?.authorizedDaemonIds ?? null,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions =
@@ -90,6 +93,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
     sessions,
     sessionsAvailable: managedSessions.available,
     sessionControlAvailable: managedSessions.controlAvailable,
+    hasControlPlaneAccess: locals?.hasControlPlaneAccess ?? false,
   };
 };
 
@@ -97,7 +101,9 @@ async function loadWorkspaceRailShell(input: {
   cookies: Parameters<LayoutServerLoad>[0]["cookies"];
   workspaceIdParam: string;
   url: URL;
-  authorizedWorkspaceId: string | null;
+  authorizedWorkspaceIds: readonly string[] | null;
+  authorizedDaemonIds: readonly string[] | null;
+  hasControlPlaneAccess: boolean;
 }) {
   const layout = loadShellWorkspaceLayout({
     cookies: input.cookies,
@@ -105,7 +111,8 @@ async function loadWorkspaceRailShell(input: {
     protocol: input.url.protocol,
     preferredWorkspaceId: null,
     preferredWorkspaceSlug: input.workspaceIdParam,
-    authorizedWorkspaceId: input.authorizedWorkspaceId,
+    authorizedWorkspaceIds: input.authorizedWorkspaceIds,
+    authorizedDaemonIds: input.authorizedDaemonIds,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions = activeWorkspaceId
@@ -126,6 +133,7 @@ async function loadWorkspaceRailShell(input: {
     sessions,
     sessionsAvailable: managedSessions.available,
     sessionControlAvailable: managedSessions.controlAvailable,
+    hasControlPlaneAccess: input.hasControlPlaneAccess,
   };
 }
 

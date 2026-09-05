@@ -160,6 +160,13 @@ describe("WorkbenchSessionRail component contract", () => {
     expect(body).not.toContain('action="/spark/sessions?/archiveSession"');
   });
 
+  it("lets the workbench detail own the offline warning on the directory route", () => {
+    const body = renderRail({ sessionControlAvailable: false, showUnavailableNotice: false });
+
+    expect(body).toContain("Regular conversation");
+    expect(body).not.toContain(messages.daemonUnavailableTitle);
+  });
+
   it("labels an empty workspace and gives it a workspace-scoped next step", () => {
     const body = renderRail({ sessions: [] });
 

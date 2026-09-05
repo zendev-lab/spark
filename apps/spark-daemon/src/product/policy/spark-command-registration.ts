@@ -2,9 +2,9 @@ import {
   LOOP_COMPLETION_BOUNDARY_GUIDANCE,
   createLoop,
   loopContinuationPrompt,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
-import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
+import { type ProjectRef } from "@zendev-lab/spark-invocation";
 import type { SparkLoopSessionLifetime, SparkLoopView } from "@zendev-lab/spark-protocol";
 import type { SparkEntryIntent } from "./spark-entry.ts";
 
@@ -16,7 +16,6 @@ import { startOrInferSessionGoal } from "./spark-goal-tool-registration.ts";
 import {
   clearSessionGoal,
   loadSessionGoal,
-  setSessionGoal,
   updateSessionGoalStatus,
   type SparkSessionGoal,
 } from "./spark-session-goals.ts";
@@ -38,7 +37,6 @@ import {
   type SparkWorkflowNavigatorAction,
 } from "./spark-workflow-loop-entry.ts";
 import { defaultSparkDynamicWorkflowEventStore } from "./spark-dynamic-workflow-event-store.ts";
-import { sparkActiveMode } from "./spark-mode-state.ts";
 import {
   buildSparkDynamicWorkflowDashboardView,
   renderSparkDynamicWorkflowDashboardText,
@@ -405,7 +403,6 @@ export function registerSparkCommands(
     if (parsed.action === "stop") {
       await stopLoopForDomain(ctx, "goal", "goal stopped by user");
       await clearSessionGoal(ctx.cwd, ctx);
-      ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(
         existingGoal

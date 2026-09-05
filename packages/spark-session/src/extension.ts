@@ -1,6 +1,6 @@
 import { Type } from "typebox";
-import type { ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import type { ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-invocation";
+import { truncateToWidth } from "@zendev-lab/spark-text-rendering";
 import {
   executeSparkSessionAction,
   type SparkSessionAction,
@@ -33,10 +33,10 @@ export function registerSparkSessionTool(
       "session send is one-way. kind=notification persists without triggering the target. kind=request submits immediately only when the local target is idle. If the target is active and onActive is omitted, the send fails without persisting mail; onActive=queue durably FIFO-admits up to three pending requests, and onActive=interrupt cancels current work before submitting. wake=true is optional and legal only for request; the daemon then wakes the sender with a completion summary. Do not wait on send.",
       'Use session({ action: "wait", invocationId, timeoutMs? }) to poll a durable invocation for a terminal result. Timeout stops only the wait. Ask replies are a separate reply-wait, not session wait.',
       'Use session({ action: "lookup", sessionId }) for a bounded peer projection (lifecycle, activity, optional latestInvocation and pendingAsk). lookup does not wait and does not return a Hub snapshot.',
-      "Message-platform sessions may use only list/get/send/lookup/wait/inbox/read/ack. Their list/get/send/lookup/wait targets are restricted to the current workspace, and sends require local targets.",
+      "Message-platform sessions may use only list/get/send/lookup/wait/inbox/read/ack. Peer reads and waits are restricted to the current immutable channel identity; sends to another channel identity are forbidden.",
       "inbox/read/ack are current-session-only; inbox supports offset/limit pagination.",
     ],
-    policy: sessionToolPolicy("external_write", ["plan", "execute", "fleet"]),
+    policy: sessionToolPolicy("external_write"),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
       return action === "list" ||
@@ -44,8 +44,8 @@ export function registerSparkSessionTool(
         action === "inbox" ||
         action === "lookup" ||
         action === "wait"
-        ? sessionToolPolicy("read", ["plan", "execute", "fleet"])
-        : sessionToolPolicy("external_write", ["plan", "execute"]);
+        ? sessionToolPolicy("read")
+        : sessionToolPolicy("external_write");
     },
     parameters: Type.Object({
       action: Type.String({
@@ -176,15 +176,11 @@ export function registerSparkSessionTool(
   });
 }
 
-function sessionToolPolicy(
-  effect: "read" | "external_write",
-  modes: readonly string[],
-): NonNullable<ToolConfig["policy"]> {
+function sessionToolPolicy(effect: "read" | "external_write"): NonNullable<ToolConfig["policy"]> {
   return {
     effect,
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["sessions"],
-    modes,
     approval: "none",
   };
 }

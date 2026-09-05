@@ -19,7 +19,7 @@ Host 和 Session 向 Agent 提供的 active tool schema，是本次运行的工�
 | --- | --- | --- |
 | 人机交互 | 结构化问题、审批与关联回答 | 共享交互协议与 daemon 生命周期 |
 | 文件与执行 | 读取、搜索、编辑和获准的本地执行 | 在所选工作区运行的 Host adapter |
-| 工作协调 | Task、Session `plan`/`execute`/`fleet` mode、Goal、Loop、Repro 与 Workflow | 各领域 owner；持久调度仍由 daemon 拥有 |
+| 工作协调 | Task、一次性 `/plan`/`/execute`/`/fleet` 命令、Goal、Loop、Repro 与 Workflow | 各领域 owner；持久调度仍由 daemon 拥有 |
 | 成果归属 | 产品 Artifact 与内部 Evidence | Artifact store 与 Evidence store 保持分离 |
 | Agent 组合 | Role 定义、ephemeral Role call、Owner 派生的 scoped Session 与 Skill Agent | Session/Role registry 与 Skill loader |
 | 外部 adapter | Channel、ACP、MCP、Git 与 provider 能力 | Spark 契约后的对应 adapter |
@@ -98,7 +98,7 @@ Role 执行严格分成三个阶段：创建或选择静态 Role；通过
 
 `ask({ toSessionId })` 把结构化问题发给另一个 Session。被问 Session 用
 `ask({ action: "answer" })` 作答。发给 Session 的 ask 不会进入 Hub Inbox；发给 User
-的 ask 仍走 Inbox / TUI / channel。
+的 ask 会出现在所属本地 Web 对话、Hub Inbox 或 channel。
 
 Workflow 子调用可以提供 `role` selector 或精确 `roleRef`，但不能同时提供。Spark
 会在审批前把 selector 解析为唯一的 Role ref 与 revision，并将该绑定写入审批与运行
@@ -140,7 +140,7 @@ fail closed。
 - WorkflowRun 不是 continuation driver；只有启动它的 driver 权限仍然有效时，它才继承
   该审批上下文，且自身不能保留 driver 权限。
 - 审批属于执行权限，不是展示文本。未知或冲突策略会 fail closed。
-- 兼容与 Channel profile 可以比原生 TUI 或 Hub Session 暴露更小的集合。
+- 兼容与 Channel profile 可以比本地 Web 或 Hub Session 暴露更小的集合。
 
 Daemon Channel Session 只暴露 `session`、`ask`、`context` 和 `todo`。其中
 `session` 只能在同一 daemon scope 内 list/send；不能访问 Workspace Session、

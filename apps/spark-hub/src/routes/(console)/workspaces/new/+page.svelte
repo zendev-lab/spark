@@ -223,9 +223,13 @@
     window.requestAnimationFrame(() => {
       document
         .getElementById("workspace-setup-step-3")
-        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+        ?.scrollIntoView({ block: "start", behavior: preferredScrollBehavior() });
     });
   });
+
+  function preferredScrollBehavior(): ScrollBehavior {
+    return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  }
 
   async function copyCommand(command: string) {
     const result = await writeClipboardText(command);

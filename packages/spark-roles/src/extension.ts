@@ -1,5 +1,5 @@
-import { ToolCallText } from "@zendev-lab/spark-text";
-import type { ToolPolicy } from "@zendev-lab/spark-core";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
+import type { ToolPolicy } from "@zendev-lab/spark-invocation";
 import { Type } from "typebox";
 import {
   createDefaultRoleRegistry,
@@ -385,15 +385,15 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       "Use session send with kind=request to trigger execution in the Role-bound Session.",
       "Use assign when work belongs to a Spark task and needs claims, run records, or evidence attribution.",
     ],
-    policy: roleToolPolicy("read", ["plan", "execute", "fleet"]),
+    policy: roleToolPolicy("read"),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
       return action === "list" ||
         action === "get" ||
         action === "model_list" ||
         action === "model_get"
-        ? roleToolPolicy("read", ["plan", "execute", "fleet"])
-        : roleToolPolicy("external_write", ["plan", "execute"]);
+        ? roleToolPolicy("read")
+        : roleToolPolicy("external_write");
     },
     parameters: Type.Union([
       Type.Object(
@@ -497,12 +497,11 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
   });
 }
 
-function roleToolPolicy(effect: "read" | "external_write", modes: readonly string[]): ToolPolicy {
+function roleToolPolicy(effect: "read" | "external_write"): ToolPolicy {
   return {
     effect,
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["roles"],
-    modes,
     approval: "none",
   };
 }

@@ -10,9 +10,9 @@ import {
   type EvidenceRef,
   type LeafCapabilityRequest,
   type RoleRef,
-  type TaskPlan,
   type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type TaskPlan } from "@zendev-lab/spark-tasks";
 import type { ReviewerRunner, TaskReviewInput } from "@zendev-lab/spark-roles/reviewer-runner";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkFinishTaskTool } from "./spark-finish-task-tool-registration.ts";

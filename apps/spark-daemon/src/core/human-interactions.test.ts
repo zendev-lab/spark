@@ -4,7 +4,7 @@ import {
   parseSparkInteractionRequest,
   type SparkInteractionRequest,
 } from "@zendev-lab/spark-protocol";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "../product/host/runtime.ts";
 import { describe, expect, it, vi } from "vitest";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import {

@@ -10,7 +10,7 @@ import type {
   SandboxPolicy,
   SandboxProvider,
 } from "@deepseek-ai/dsh-sandbox";
-import type { SpawnAdapterHandle } from "@zendev-lab/spark-cue";
+import type { SpawnAdapterHandle } from "@zendev-lab/dsh-cue";
 
 const MAX_MESSAGE_BYTES = 1024 * 1024;
 

@@ -2,7 +2,7 @@ import {
   SparkWidgetController as SparkHostWidgetController,
   type SparkWidgetControllerContext,
   type SparkWidgetControllerDeps,
-} from "@zendev-lab/spark-host/spark-widget-controller";
+} from "../host/spark-widget-controller.ts";
 import { projectSparkDynamicWorkflowRuns } from "./spark-dynamic-workflow-run-rendering.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { defaultSparkDynamicWorkflowEventStore } from "./spark-dynamic-workflow-event-store.ts";
@@ -12,7 +12,6 @@ import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
-  loadSparkMode,
   saveSparkGraphAndTodos,
   sparkSessionKey,
   sparkSessionOwnerKey,
@@ -26,7 +25,6 @@ import {
 } from "./session-todos.ts";
 import { independentTodoDisplayKey } from "@zendev-lab/spark-tasks";
 import { renderSparkProjectKindDisplay } from "./project-kind-registry.ts";
-import { sparkActiveMode } from "./spark-mode-state.ts";
 import { ensureSparkGraphInvariants, isPlaceholderProjectTitle } from "./spark-graph-invariants.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop, loadSessionLoop } from "./spark-session-loops.ts";
@@ -58,8 +56,6 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   loadSessionGoal: (cwd, ctx) => loadSessionGoal(cwd, ctx),
   loadSessionLoop: (cwd, ctx) => loadSessionLoop(cwd, ctx),
   clearSessionLoop: (cwd, ctx) => clearSessionLoop(cwd, ctx),
-  loadSparkMode: (cwd, ctx) => loadSparkMode(cwd, ctx),
-  sparkActiveMode,
   renderSparkProjectKindDisplay,
   isPlaceholderProjectTitle,
   latestRunsByTaskRef,
@@ -72,7 +68,7 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   independentTodoDisplayKey,
 };
 
-/** Compatibility shim: widget rendering/controller logic lives in spark-host. */
+/** Product shim: widget rendering/controller logic lives in the adjacent daemon host owner. */
 export class SparkWidgetController extends SparkHostWidgetController {
   constructor() {
     super(piExtensionWidgetControllerDeps);

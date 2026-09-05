@@ -1,18 +1,9 @@
-import type { Task } from "@zendev-lab/spark-core";
+import type { Task } from "@zendev-lab/spark-tasks";
 import { isActiveSessionTodo, type SessionTodoEntry } from "@zendev-lab/spark-tasks";
-import { renderSparkExecuteModePrompt } from "./mode/spark-mode-renderers.ts";
 import { loadIndependentTodos } from "./session-todos.ts";
-import {
-  currentSparkProject,
-  loadSparkGraph,
-  loadSparkMode,
-  sparkSessionOwnerKey,
-} from "./session-state.ts";
+import { sparkSessionOwnerKey } from "./session-state.ts";
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
-import { loadSessionGoal } from "./spark-session-goals.ts";
-import { loadSessionLoop } from "./spark-session-loops.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
-import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 const MAX_RENDERED_TODOS = 20;
 const MAX_TODO_CONTENT_LENGTH = 180;
@@ -40,11 +31,7 @@ export function createSparkAgentEndReconciliationController(pi: SparkModeMessage
     async reconcile(ctx, options = {}) {
       if (ctx.loop) return false;
       const sessionKey = sparkSessionOwnerKey(ctx);
-      const checks = await Promise.all([
-        collectSessionTodoReconciliation(ctx),
-        collectImplementReconciliation(ctx),
-      ]);
-      const actionable = checks.filter(
+      const actionable = [await collectSessionTodoReconciliation(ctx)].filter(
         (check): check is AgentEndReconciliation => check !== undefined,
       );
       if (actionable.length === 0) return false;
@@ -98,62 +85,6 @@ async function collectSessionTodoReconciliation(
   };
 }
 
-async function collectImplementReconciliation(
-  ctx: SparkToolContext,
-): Promise<AgentEndReconciliation | undefined> {
-  const mode = await loadSparkMode(ctx.cwd, ctx);
-  if (mode.mode !== "execute" || (await hasActiveForegroundDrive(ctx))) return undefined;
-
-  const frontier = await loadImplementFrontier(ctx);
-  if (!frontier) return undefined;
-  const { graph, project, running, ready } = frontier;
-  const runningCount = running ? "one session-owned running task and " : "";
-
-  return {
-    sections: [
-      `Implementation phase check found ${runningCount}${ready.length} ready task(s) in ${project.title}.`,
-      running ? `Running task: ${renderTask(running)}.` : "",
-      renderReadyFrontier(ready),
-      renderSparkExecuteModePrompt(graph, project.ref, undefined),
-    ].filter(Boolean),
-    details: {
-      implementProjectRef: project.ref,
-      runningImplementTaskRef: running?.ref,
-      readyImplementTaskRefs: ready.map((task) => task.ref),
-    },
-  };
-}
-
-async function hasActiveForegroundDrive(ctx: SparkToolContext): Promise<boolean> {
-  const [goal, loop] = await Promise.all([
-    loadSessionGoal(ctx.cwd, ctx),
-    loadSessionLoop(ctx.cwd, ctx),
-  ]);
-  return goal?.status === "active" || loop?.status === "active";
-}
-
-async function loadImplementFrontier(ctx: SparkToolContext) {
-  const graph = await loadSparkGraph(ctx.cwd, ctx);
-  if (!graph) return undefined;
-  const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  // Repro v10 checkpoints are advanced exclusively by the daemon owner after
-  // it accepts the terminal TaskRun envelope. The generic execute-mode hook
-  // must not scan sibling lane Tasks or continue them in this Session.
-  if (!project || project.kind === "repro") return undefined;
-  const claimed = resolveSessionClaimedTask(graph, project.ref, sparkTaskClaimSessionKey(ctx));
-  const running = claimed?.status === "running" ? claimed : undefined;
-  const ready = graph.readyTasks(project.ref);
-  if (!running && ready.length === 0) return undefined;
-  return { graph, project, running, ready };
-}
-
-function renderReadyFrontier(ready: Task[]): string {
-  if (ready.length === 0) return "";
-  const displayed = ready.slice(0, 5).map(renderTask).join("; ");
-  const omitted = ready.length > 5 ? `; … ${ready.length - 5} more` : "";
-  return `Ready frontier: ${displayed}${omitted}.`;
-}
-
 function isActionableSessionTodo(todo: SessionTodoEntry): boolean {
   return todo.status === "pending" || todo.status === "in_progress";
 }
@@ -167,10 +98,6 @@ function renderTodos(todos: SessionTodoEntry[]): string[] {
   if (omitted > 0)
     rendered.push(`- … ${omitted} more unfinished TODO(s) remain in the current hook snapshot.`);
   return rendered;
-}
-
-function renderTask(task: Task): string {
-  return `@${task.name} (${task.ref}, ${task.status})`;
 }
 
 function compactTodoContent(content: string): string {

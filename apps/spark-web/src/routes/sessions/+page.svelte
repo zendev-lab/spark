@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { EmptyState, PageHeader, PageLayout, Panel, StatusPill } from "@zendev-lab/spark-ui";
   import {
     ordinaryDaemonSessions,
     sessionWorkspaceId,
@@ -9,69 +10,78 @@
   let copy = $derived(data.messages.web.sessions);
   const sessions = $derived(ordinaryDaemonSessions(data.sessions as SparkWebSession[]));
   function workspaceLabel(workspaceId: string | null): string {
-    if (!workspaceId) return copy.daemon;
+    if (!workspaceId) return copy.generalContext;
     return data.workspaces.find((workspace) => workspace.id === workspaceId)?.displayName ?? workspaceId;
   }
 
 </script>
 
-<section class="page">
-  <header>
-    <h1>{copy.title}</h1>
-    <p>{copy.lede}</p>
-  </header>
+<PageLayout>
+  <PageHeader title={copy.title} lede={copy.lede} />
   {#if sessions.length === 0}
-    <p>{copy.empty}</p>
+    <Panel><EmptyState icon="message" title={copy.empty} /></Panel>
   {:else}
-    <ul>
-      {#each sessions as session (session.sessionId)}
-        <li>
-          <a href="/sessions/{session.sessionId}">{session.name ?? session.sessionId}</a>
-          <span>
-            {#if sessionWorkspaceId(session)}
-              <a href="/workspaces/{sessionWorkspaceId(session)}">{workspaceLabel(sessionWorkspaceId(session))}</a>
-            {:else}
-              {copy.daemon}
-            {/if}
-            · {session.activity}
-          </span>
-        </li>
-      {/each}
-    </ul>
+    <Panel padded={false} ariaLabel={copy.title}>
+      <ul>
+        {#each sessions as session (session.sessionId)}
+          <li>
+            <a class="session-link" href="/sessions/{session.sessionId}">{session.name ?? session.sessionId}</a>
+            <span class="session-context">
+              {#if sessionWorkspaceId(session)}
+                <a href="/workspaces/{sessionWorkspaceId(session)}">{workspaceLabel(sessionWorkspaceId(session))}</a>
+              {:else}
+                {copy.generalContext}
+              {/if}
+              <StatusPill label={session.activity ?? "idle"} status={session.activity ?? "idle"} />
+            </span>
+          </li>
+        {/each}
+      </ul>
+    </Panel>
   {/if}
-</section>
+</PageLayout>
 
 <style>
-  .page {
-    padding: 24px;
-    display: grid;
-    gap: 16px;
-  }
-  header p {
-    margin: 4px 0 0;
-    color: var(--color-ink-muted);
-  }
   ul {
     list-style: none;
     padding: 0;
     margin: 0;
     display: grid;
-    gap: 8px;
+    gap: 0;
   }
   li {
     display: flex;
     justify-content: space-between;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    padding: 12px 16px;
+    align-items: center;
+    border-top: 1px solid var(--color-border);
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-xl);
+  }
+  li:first-child {
+    border-top: 0;
   }
   a {
     color: inherit;
     text-decoration: none;
   }
-  span,
-  span a {
+  .session-link {
+    font-weight: var(--weight-body-medium);
+  }
+  .session-link:hover,
+  .session-context a:hover {
+    color: var(--color-primary);
+  }
+  .session-context,
+  .session-context a {
+    align-items: center;
     color: var(--color-ink-muted);
+    display: flex;
+    gap: var(--spacing-xs);
+  }
+  @media (max-width: 640px) {
+    li {
+      align-items: start;
+      flex-direction: column;
+    }
   }
 </style>

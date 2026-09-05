@@ -1,15 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type {
-  Project,
-  ProjectRef,
-  RoleRef,
-  RunRef,
-  Task,
-  TaskRef,
-  TaskRun,
-} from "@zendev-lab/spark-core";
+import type { ProjectRef, RoleRef, RunRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type Project } from "@zendev-lab/spark-tasks";
+import { type Task, type TaskRun } from "@zendev-lab/spark-tasks";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 
 import { buildSparkRoleRunRegistry } from "../policy/spark-role-run-observability.ts";

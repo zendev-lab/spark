@@ -15,7 +15,7 @@ import {
   replyHubWorkspaceDelegation,
   requireHubWorkspaceDelegation,
 } from "@zendev-lab/spark-hub-coordination";
-import { migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createId, wireIdempotencyKey } from "@zendev-lab/spark-protocol";
 import {
   consoleSparkCliErrorOutput,
@@ -312,12 +312,6 @@ export async function runSparkHubCli(
   if (resource === "access" || resource === "instance") {
     return runSparkHubCliCommand(parseSparkHubCliArgs([resource, ...rest]), output);
   }
-  if (resource === "workspace" && rest[0] === "access") {
-    return runSparkHubCliCommand(
-      parseSparkHubCliArgs(["workspace", "access", ...rest.slice(1)]),
-      output,
-    );
-  }
 
   const command = parseHubDatabaseCliArgs(argv);
   if (command.resource === "help") {
@@ -384,8 +378,8 @@ Usage:
   spark hub delegation show <delegation-id> [--json]
   spark hub delegation reply <delegation-id> --text <answer>
   spark hub delegation cancel <delegation-id> [--reason <text>]
-  spark hub access <create|list|revoke> [...]
-  spark hub workspace access <create|list|revoke> [...]
+  spark hub access create --daemon <runtime-id> [--daemon <runtime-id> ...] [--user <name>]
+  spark hub access <list|revoke> [...]
   spark hub instance <status|backup|restore> [...]
 
 Hub binds daemons (one per machine) and keeps their workspaces in a shared registry; delegation state, routing, audit, and receipts live here. Daemons own execution truth; Hub is the Web presentation client.

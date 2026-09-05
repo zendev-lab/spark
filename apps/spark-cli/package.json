@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-i18n": "workspace:^",
-    "@zendev-lab/spark-system": "workspace:^"
+    "@zendev-lab/spark-platform-node": "workspace:^"
   },
   "devDependencies": {
     "typescript": "catalog:"

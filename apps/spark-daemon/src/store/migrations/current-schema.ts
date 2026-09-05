@@ -10,6 +10,15 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS daemon_user_tokens (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      label TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT,
+      revoked_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS invocations (
       id TEXT PRIMARY KEY,
       command_id TEXT,
@@ -505,6 +514,24 @@ export function ensureReproV10Schema(db: DatabaseSync): void {
     CREATE UNIQUE INDEX IF NOT EXISTS daemon_repro_runs_active_owner_idx
       ON daemon_repro_runs(owner_session_id)
       WHERE status IN ('provisioning', 'active', 'waiting_attention');
+  `);
+}
+
+/**
+ * Daemon-owned `daemon-user` access token store for direct browser surfaces.
+ * Separate from Hub-facing daemon credentials (registration tokens, runtime
+ * tokens) so the families can rotate and be revoked independently.
+ */
+export function migrateDaemonUserTokensTable(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daemon_user_tokens (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      label TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT,
+      revoked_at TEXT
+    );
   `);
 }
 

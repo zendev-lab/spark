@@ -2,12 +2,13 @@ import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
-  sparkWorkspaceStatePath,
   writeJsonFileAtomic,
   writeTextFileAtomic,
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
-import { isArtifactKind } from "./artifact/types.ts";
+} from "@zendev-lab/spark-platform-node/paths";
 
 export { writeJsonFileAtomic, writeTextFileAtomic };
 

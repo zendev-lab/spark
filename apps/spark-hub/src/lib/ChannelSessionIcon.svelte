@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Icon } from "@zendev-lab/spark-ui";
+  import { BrandIcon, Icon } from "@zendev-lab/spark-ui";
   import {
     channelSessionScopeKind,
     type ChannelSessionAdapter,
@@ -38,7 +38,11 @@
   aria-label={label}
   title={label}
 >
-  <Icon name={adapterIcon} size={14} stroke={2.1} />
+  {#if adapter === "qqbot"}
+    <BrandIcon name="qq" size={14} />
+  {:else}
+    <Icon name={adapterIcon} size={14} stroke={2.1} />
+  {/if}
   <span class="scope-icon" aria-hidden="true">
     <Icon name={scopeIcon} size={10} stroke={2.5} />
   </span>

@@ -1,11 +1,11 @@
 import { Type } from "typebox";
-import type { RunRef } from "@zendev-lab/spark-core";
+import type { RunRef } from "@zendev-lab/spark-invocation";
 import { defaultEvidenceStore, type JsonValue } from "@zendev-lab/spark-artifacts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import {
   killActiveSparkRoleRunProcesses,
   sendInputToActiveSparkRoleRunProcesses,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   acknowledgeBackgroundWorkflowRuns,
   buildSparkBackgroundDetails,

@@ -5,12 +5,10 @@ import type {
   RoleRunCompletionOutcome,
   RunRef,
   TaskRef,
-  TaskRun,
-  TaskRunFailureKind,
-  TaskRunStatus,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import type { TaskRun, TaskRunFailureKind, TaskRunStatus } from "@zendev-lab/spark-tasks";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
+import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
 
 export type SparkRoleRunObservedStatus =
   | "queued"

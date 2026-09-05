@@ -4,7 +4,7 @@ import type {
   ExtensionRoleRunRequest,
   ExtensionRoleRunResult,
   RoleRunCompletionOutcome,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import { parseSparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import type { SessionSupervisor } from "./session-supervisor.ts";

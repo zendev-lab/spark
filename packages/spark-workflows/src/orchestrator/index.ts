@@ -1,15 +1,13 @@
 import { mkdir, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { delay } from "es-toolkit";
 
+import { newRef, nowIso, type RunRef } from "@zendev-lab/spark-invocation";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import {
-  newRef,
-  nowIso,
   sparkWorkspaceStatePath,
-  type RunRef,
   type SparkStateRootContext,
-  writeJsonFileAtomic,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 
 import type {
   WorkflowRunAcknowledgeInput,
@@ -19,7 +17,6 @@ import type {
   WorkflowRunControlInput,
   WorkflowRunControlStatus,
   WorkflowRunFinishInput,
-  WorkflowRunNextSteps,
   WorkflowRunProgressInput,
   WorkflowRunReconcileInput,
   WorkflowRunRecord,
@@ -57,7 +54,7 @@ import {
 export {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
   DEFAULT_READY_TASK_TIMEOUT_MS,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 export { workflowRunNextSteps } from "./workflow-run-completion.ts";
 export { WorkflowRunStoreFormatError } from "./workflow-run-serialization.ts";
 export type {

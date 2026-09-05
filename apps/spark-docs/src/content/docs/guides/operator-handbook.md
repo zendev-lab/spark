@@ -72,10 +72,10 @@ spark daemon auth login [provider]
 spark daemon model set <provider/model> --default --json
 ```
 
-Or open `spark`, run `/login`, then `/model`. Unavailable models remain visible
-with their reason and login action, but cannot become active. Enter API keys
-only in Spark's secret prompt. Do not put them in a repository, command history,
-or a Hub registration command.
+Or start `spark web`, open **Settings**, and configure the provider and model
+there. Unavailable models remain visible with their reason and login action, but
+cannot become active. Enter API keys only in Spark's secret field or prompt. Do
+not put them in a repository, command history, or a Hub registration command.
 
 Hub Web disables conversation submission when no authenticated model is
 available. A JSON CLI submission reports an actionable error:
@@ -93,8 +93,8 @@ available. A JSON CLI submission reports an actionable error:
 Configure the provider, then retry the original submission once.
 
 `spark daemon login` is unrelated: it authorizes machine connectivity to
-Hub. Provider authentication exists only under `spark daemon auth` and the
-corresponding TUI slash commands.
+Hub. Provider authentication is owned by the daemon and is exposed through
+`spark daemon auth` plus the model/provider settings in local Web and Hub.
 
 ## 3. Start the daemon and Hub independently
 
@@ -226,8 +226,9 @@ unknown mutation or delivery outcome must fail closed rather than replay.
 ## 7. Exercise the product workflow
 
 Describe the intended outcome in the [local web workbench](/guides/web/) or
-with `spark run`. Plan, implement, inspect, Goal, Repro, and Workflow remain
-daemon-owned operations; discover their CLI forms with `spark daemon --help`.
+with `spark run`. One-shot `/plan`, `/execute`, and `/fleet`, plus Goal,
+Repro, and Workflow, remain daemon-owned operations; discover operator CLI
+forms with `spark daemon --help`.
 
 Use these surfaces together:
 
@@ -251,12 +252,11 @@ Machine connectivity and browser access are separate:
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark hub access create
-spark hub workspace access create --workspace <hub-workspace-id>
+spark hub access create --daemon <runtime-id>
 ```
 
-- Exchange the Hub key at `/login`.
-- Exchange the workspace key at `/{slug}/login`.
+- Exchange the Hub key at `/login`; the session reaches exactly the workspaces
+  owned by the granted daemons.
 - Generate a fresh workspace registration token for every additional local
   directory.
 
@@ -303,9 +303,9 @@ registering it elsewhere.
 
 Run `spark daemon auth status --json` and
 `spark daemon model list --all --json`. Then use
-`spark daemon auth login <provider>` or return to the TUI and run `/login`,
-followed by `/model`. Hub Web should enable submission only after the daemon
-reports an available authenticated model.
+`spark daemon auth login <provider>`, or open **Settings** in local Web or
+**Models and providers** in Hub. Hub Web should enable submission only after
+the daemon reports an available authenticated model.
 
 ### A run appears stuck
 

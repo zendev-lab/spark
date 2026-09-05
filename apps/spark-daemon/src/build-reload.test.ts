@@ -33,17 +33,17 @@ describe("Spark daemon build reload", () => {
     writeFileSync(join(root, "package.json"), "{}\n");
     writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
     mkdirSync(join(root, "apps/spark-daemon/src"), { recursive: true });
-    mkdirSync(join(root, "packages/spark-llm/src/control"), { recursive: true });
+    mkdirSync(join(root, "packages/spark-llm-providers/src/control"), { recursive: true });
     writeFileSync(
       join(root, "apps/spark-daemon/package.json"),
-      JSON.stringify({ dependencies: { "@zendev-lab/spark-llm": "workspace:*" } }),
+      JSON.stringify({ dependencies: { "@zendev-lab/spark-llm-providers": "workspace:*" } }),
     );
     writeFileSync(
-      join(root, "packages/spark-llm/package.json"),
-      JSON.stringify({ name: "@zendev-lab/spark-llm" }),
+      join(root, "packages/spark-llm-providers/package.json"),
+      JSON.stringify({ name: "@zendev-lab/spark-llm-providers" }),
     );
     const entrypoint = join(root, "apps/spark-daemon/src/cli.ts");
-    const providerCatalog = join(root, "packages/spark-llm/src/control/index.ts");
+    const providerCatalog = join(root, "packages/spark-llm-providers/src/control/index.ts");
     writeFileSync(entrypoint, "export {}\n");
     writeFileSync(providerCatalog, "export const oldName = true\n");
 

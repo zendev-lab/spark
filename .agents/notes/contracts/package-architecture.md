@@ -7,7 +7,7 @@ The machine-readable source of truth is
 [`../../architecture/packages.json`](../../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and `stateWriter`. The same
 inventory owns the layer matrix, exact temporary
-exceptions, Pi manifest ownership, package budget, and expected composition
+exceptions, Pi manifest ownership, workspace-count policy, and expected composition
 roots. `pnpm run check:architecture` rejects an unclassified workspace, an
 undeclared production dependency, a stale export, or a governance violation.
 
@@ -21,7 +21,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, generated layer direction, exact exceptions, Pi ownership, package budget, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, generated layer direction, exact exceptions, Pi ownership, workspace-count policy, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
 | point-in-time direct dependencies, fan-in/out, cross-owner edges, exception budget, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
 
 `pnpm run check:architecture` validates the schemas, runs Syncpack and Knip,
@@ -166,29 +166,26 @@ public package.
 
 @zendev-lab/spark-hub
   spark-hub + embedded Web build + Hub migrations
-
-@zendev-lab/spark-web-dsh
-  optional spark-web-dsh compatibility app
 ```
 
 The root package is the complete-installation meta package and managed-update
 identity; it contains no parser implementation. `spark-cli` owns the native
-`spark` parser, diagnostics, updater, router, ACP/MCP adapters, and four exact
-macOS/Linux optional payload aliases. Daemon, Hub, local web, and DSH web are
+`spark` parser, diagnostics, updater, router, ACP/MCP adapters, and the
+supported macOS/Linux optional payload aliases. Daemon, Hub, and local web are
 also independently installable deployment closures. All product packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
 lockstep dependencies instead of repackaging those assets.
 
 Do not create publishable source manifests inside `apps/*` or `packages/*`.
-Source workspaces retain `private: true`; the release builder generates six
-product manifests and four platform payload manifests under
+Source workspaces retain `private: true`; the release builder generates the
+product and platform payload manifests under
 `dist/npm-products/`, computes runtime dependency closures independently, and
 publishes exact tarballs from one release tag. The root
 manifest owns the `@zendev-lab/spark` name and lockstep version, while source
 ownership, process ownership, and distribution placement remain separate axes.
 
-GitHub Releases carry only the four native bootstrap archives, their native
+GitHub Releases carry only the supported native bootstrap archives, their native
 release manifest, `SHA256SUMS`, provenance, and an installer with an embedded
 exact version. The curl installer is a stateless bootstrap: it verifies the
 selected archive, then delegates to
@@ -218,16 +215,14 @@ Cordis plugin happens to be exported:
   implementation (`dsh-<seam>-<implementation>`). The generic
   `dsh-plugin-*` form is not used because plugin is a composition mechanism,
   not an owner;
-- a Spark product application hosted on DSH remains
-  `spark-<surface>-dsh`. `spark-web-dsh` is therefore an application, not a
-  candidate for `dsh-tool-*` naming;
 - an exceptional retained name must carry its reason in that package's
   `architecture/packages.json` entry. A temporary DSH independence exception
   names its exact local Spark dependencies and exit condition; the architecture
   gate rejects unregistered or stale edges.
 
-The selected migration names and replacement order are explained in the dated
-[`DSH package reuse and naming decision`](../decisions/2026-08-20-dsh-package-naming.md).
+The selected final names, deletion set, Web product boundaries, and constrained
+migration order are explained in the dated
+[`Web replacement and package normalization decision`](../decisions/2026-08-23-web-replacement-and-package-normalization.md).
 
 ## Layer meanings
 
@@ -253,25 +248,26 @@ package owns no persistent writes. This phase does not introduce a second
 authority or participation model. Domain ownership remains defined by the
 normative owner specifications and enforced owner APIs.
 
-## Pi ownership and package budget
+## Pi ownership and workspace additions
 
 The inventory has no `package.json#pi` owner (`productManifestOwner` is
 `null`). It assigns the remaining Pi SDK dependency (`pi-ai`) to
-`@zendev-lab/spark-llm`. `pi-tui` and `pi-coding-agent` are retired and must
+`@zendev-lab/spark-llm-providers`. `pi-tui` and `pi-coding-agent` are retired and must
 not reappear as workspace dependencies. Existing migration debt may appear
 only as an exact non-growing exception with an exit task; a new direct Pi
 manifest dependency anywhere else fails architecture validation.
 
-The current package budget is closed at 41. The machine-readable inventory owns
-the current count and rationale. Raising or replacing that budget requires an
-explicit architecture decision in the inventory rather than a new constant in
-a checker.
+Host and agent-loop behavior lives under the daemon product composition root,
+and durable session modes are retired in favor of one-shot directives; no
+replacement or alias workspace was introduced. Workspace additions, removals,
+renames, or reclassifications must update the machine-readable inventory and
+justify the affected owner or runtime boundary there.
 
 ## Deliberate boundaries
 
 - `spark-protocol` is a pure wire-contract package. It has no production
   dependency on another Spark workspace.
-- `spark-system` contains only local-system mechanisms: paths, permissions,
+- `spark-platform-node` contains only local-system mechanisms: paths, permissions,
   commands, SQLite opening, strings, and the socket MessagePort adapter. It has
   no Spark workspace dependency.
 - `spark-daemon-client` owns the protocol-aware daemon client facade. Typed oRPC
@@ -301,9 +297,9 @@ a checker.
 - `spark-mcp` is the supported stateless, read-only MCP adapter. It projects the
   canonical `spark-memory` workspace store through MCP resources and tools; it
   owns no writes, daemon execution, or second memory store.
-- `spark-context` was removed after all callers converged on
-  `spark-host/context`; compatibility-only re-export packages are not permanent
-  architecture.
+- The standalone context facade was removed after all callers converged on the
+  daemon product host's context registry; compatibility-only re-export packages
+  are not permanent architecture.
 
 The legacy `daemon.sock` path is removed only in a 0.2 release after a migrated
 0.1.x has shipped and the old-client/new-daemon, new-client/old-daemon,

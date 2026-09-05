@@ -58,6 +58,7 @@
     selectedSessionId = null,
     sessionsAvailable = true,
     sessionControlAvailable = sessionsAvailable,
+    showUnavailableNotice = true,
     showArchived = false,
     archivedToggleHref = "?archived=1",
     locale,
@@ -70,6 +71,7 @@
     selectedSessionId?: string | null;
     sessionsAvailable?: boolean;
     sessionControlAvailable?: boolean;
+    showUnavailableNotice?: boolean;
     showArchived?: boolean;
     archivedToggleHref?: string;
     locale: string;
@@ -302,7 +304,7 @@
     {/if}
   </div>
 
-  {#if activeWorkspaceId && !sessionControlAvailable}
+  {#if showUnavailableNotice && activeWorkspaceId && !sessionControlAvailable}
     <div class="session-unavailable" role="status">
       <Icon name="warning" size={15} stroke={2.1} />
       <div>
@@ -809,6 +811,12 @@
   .session-actions button:focus-visible {
     box-shadow: var(--shadow-focus);
     outline: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .group-disclosure {
+      transition: none;
+    }
   }
 
   .session-item:hover {

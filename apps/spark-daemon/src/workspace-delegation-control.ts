@@ -4,7 +4,7 @@ import {
   type SparkProtocolJsonValue,
   type WorkspaceDelegationDelivery,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { executeSparkDaemonSessionControl } from "./session-control.ts";

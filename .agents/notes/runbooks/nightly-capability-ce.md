@@ -48,8 +48,8 @@ The lane passes only when all of the following remain true:
 
 A case that passes seven runs and fails one is a failure, not an 87.5% success.
 Missing samples and inventory drift are also failures rather than being removed
-from the denominator. The reusable spark-turn behavior-CE
-aggregator (`packages/spark-turn/src/behavior-ce.ts`) preserves those distinctions for future scripted-provider and live
+from the denominator. The reusable daemon agent-runtime behavior-CE aggregator
+(`apps/spark-daemon/src/product/host/agent-runtime/behavior-ce.ts`) preserves those distinctions for future scripted-provider and live
 canary evaluations.
 
 ## Reports
@@ -59,12 +59,65 @@ The default output directory is `reports/capability-ce/`:
 | Path | Contents |
 | --- | --- |
 | `report.json` | Versioned configuration, run records, case summaries, budgets, and final result |
+| `experiment.json` | Source and evaluator snapshots, fixed configuration, invalid runs, and original samples for version comparison |
 | `summary.md` | Human-readable table also written to the GitHub Actions step summary |
 | `raw/run-NN.json` | Original Vitest JSON reporter output |
 | `raw/run-NN.meta.json` | Exit code, duration, assertion counts, timeout, and report paths |
 | `raw/run-NN.log` | Captured stdout, stderr, and process-level failure context |
 
 Reports are CI artifacts and must not be committed.
+
+## Compare versions
+
+Run CE in each version's clean checkout with the same settings, retaining both
+`experiment.json` files. Both checkouts must contain the experiment recorder.
+The source commit comes from local Git, including on developer machines; a CI
+environment variable cannot replace the checkout identity.
+
+```bash
+pnpm run test:capability:compare -- \
+  /path/to/baseline/experiment.json /path/to/candidate/experiment.json
+```
+
+The comparison emits JSON to stdout. Exit code zero means `unchanged` or
+`improved`; `candidate_failed`, `regressed`, `incomparable`, and malformed
+input exit nonzero. The output identifies both commits and the SHA-256 of each
+parsed experiment serialized with `JSON.stringify`, so repeated evaluations of
+the same commit remain distinguishable. Preserve both original artifacts.
+Existing `report.json` files remain unchanged and cannot substitute for an
+experiment artifact.
+
+Comparability requires clean, unchanged before/after snapshots, matching
+evaluator and dependency digests, Node/OS/CPU metadata, repetition count and
+budgets, complete identical case inventories, and no invalid runs. The recorder
+checks that every declared sentinel file exists and contributes assertions to
+each run. Failed assertions are valid observations; process, timeout, reporter,
+or missing-file failures invalidate comparison.
+
+The evaluator fingerprint conservatively includes tracked tests, fixtures,
+test-support and testing directories, scripts, JS/TS configuration files,
+package manifests, TypeScript configurations, the workspace definition, Node
+version file, and the behavior-CE aggregator. The dependency fingerprint covers
+`pnpm-lock.yaml`. Changing these inputs requires a new baseline; even unrelated
+test changes can invalidate an old comparison. Untracked source or edits during
+the run keep ordinary diagnostic reports useful but make comparison
+`incomparable`.
+
+The comparator validates the artifact and recomputes summaries from samples.
+It never trusts an imported success summary. A candidate must satisfy the fixed
+CE budgets and must not introduce additional failures in any individual case.
+`improved` means fewer observed failures with no per-case regression;
+`unchanged` means equal failure counts. p95 durations are reported and remain
+subject to the existing absolute budget, but faster timing alone does not earn
+an improvement verdict.
+
+These are diagnostic comparisons of deterministic sentinels, not statistical
+proof of model capability, experiment isolation, or authorization to promote a
+version. Snapshots are provenance records, not attestations: they do not capture
+every environment variable, installed dependency byte, host load, or source
+change that was reverted before the final snapshot. Keep the recorder and
+original reports outside an untrusted candidate's write authority when using
+them in a future autonomous search loop.
 
 ## Triage
 

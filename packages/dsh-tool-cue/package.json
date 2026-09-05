@@ -2,7 +2,7 @@
   "name": "@zendev-lab/dsh-tool-cue",
   "version": "0.5.0",
   "private": true,
-  "description": "DeepSeek Harness adapter for Spark's canonical Cue tool operations.",
+  "description": "DeepSeek Harness tool adapter for the dsh-cue execution service.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -22,7 +22,7 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-agent": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox-policy": "catalog:dsh",
@@ -30,8 +30,7 @@
     "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
     "@deepseek-ai/dsh-tools": "catalog:dsh",
     "@deepseek-ai/dsh-user-approval": "catalog:dsh",
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "@zendev-lab/spark-cue": "workspace:^"
+    "@zendev-lab/dsh-cue": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-code-runtime": "catalog:dsh",

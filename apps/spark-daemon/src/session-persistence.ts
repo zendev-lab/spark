@@ -8,12 +8,18 @@ import SessionPersistence, {
   PersistenceCoordinator,
   SessionPersistenceRevision,
   type PersistenceBackend,
+  type BorrowedSessionSource,
   type SessionInspection,
   type SessionLocation,
   type SessionPersistenceSnapshot,
   type StoredPrefix,
 } from "@deepseek-ai/dsh-session-persistence";
-import { SessionId, type SessionEvent, type SessionHeader } from "@deepseek-ai/dsh-session";
+import {
+  SessionId,
+  type Session,
+  type SessionEvent,
+  type SessionHeader,
+} from "@deepseek-ai/dsh-session";
 import type { Context } from "@deepseek-ai/cordis";
 import { SparkJsonlSessionFiles } from "@zendev-lab/spark-session/transcript";
 
@@ -41,6 +47,10 @@ export class SparkDaemonSessionPersistence
     await this.coordinator.create(meta);
   }
 
+  async ensureMaterialized(session: Session): Promise<void> {
+    await this.coordinator.ensureMaterialized(session);
+  }
+
   async append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     await this.coordinator.append(id, events);
   }
@@ -51,6 +61,10 @@ export class SparkDaemonSessionPersistence
 
   async inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     return await this.coordinator.inspect(id, signal);
+  }
+
+  async borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
+    return await this.coordinator.borrowSession(id, signal);
   }
 
   async readFrom(
@@ -113,6 +127,10 @@ export class SparkDaemonSessionPersistence
     isMaterialized: boolean,
   ): Promise<void> {
     await this.files.appendBatch(meta, events, isMaterialized);
+  }
+
+  async materializeHeader(meta: SessionHeader): Promise<void> {
+    await this.files.materializeHeader(meta);
   }
 
   async commitRepair(

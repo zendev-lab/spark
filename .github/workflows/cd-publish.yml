@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - name: Build Hub container
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -96,8 +96,6 @@ jobs:
             target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
           - runner: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
@@ -179,7 +177,6 @@ jobs:
         run: |
           for target in \
             aarch64-apple-darwin \
-            x86_64-apple-darwin \
             aarch64-unknown-linux-musl \
             x86_64-unknown-linux-musl; do
             native_source="dist/native/spark-cli-native-${target}/spark"
@@ -228,9 +225,7 @@ jobs:
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
           --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
-          --web-dsh-tarball "dist/release/spark-web-dsh-${RELEASE_TAG}.tgz"
           --native-darwin-arm64-tarball "dist/release/spark-cli-aarch64-apple-darwin-npm-${RELEASE_TAG}.tgz"
-          --native-darwin-x64-tarball "dist/release/spark-cli-x86_64-apple-darwin-npm-${RELEASE_TAG}.tgz"
           --native-linux-arm64-tarball "dist/release/spark-cli-aarch64-unknown-linux-musl-npm-${RELEASE_TAG}.tgz"
           --native-linux-x64-tarball "dist/release/spark-cli-x86_64-unknown-linux-musl-npm-${RELEASE_TAG}.tgz"
 
@@ -242,7 +237,6 @@ jobs:
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
           --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
-          --web-dsh-tarball "dist/release/spark-web-dsh-${RELEASE_TAG}.tgz"
 
       - name: Upload release artifacts
         if: github.ref_type == 'tag'
@@ -292,7 +286,7 @@ jobs:
 
       - name: Stage draft GitHub Release
         if: steps.release.outputs.github_published != 'true'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -312,15 +306,6 @@ jobs:
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
           package: dist/release/spark-cli-aarch64-apple-darwin-npm-${{ github.ref_name }}.tgz
-          access: public
-          tag: native-staging-${{ github.run_id }}
-          provenance: true
-
-      - name: Publish native macOS x64 package
-        if: steps.release.outputs['npm_native-darwin-x64_published'] != 'true'
-        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
-        with:
-          package: dist/release/spark-cli-x86_64-apple-darwin-npm-${{ github.ref_name }}.tgz
           access: public
           tag: native-staging-${{ github.run_id }}
           provenance: true
@@ -366,15 +351,6 @@ jobs:
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
           package: dist/release/spark-web-${{ github.ref_name }}.tgz
-          access: public
-          tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
-          provenance: true
-
-      - name: Publish the exact DSH Web artifact to npm
-        if: steps.release.outputs['npm_web-dsh_published'] != 'true'
-        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
-        with:
-          package: dist/release/spark-web-dsh-${{ github.ref_name }}.tgz
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
@@ -431,11 +407,11 @@ jobs:
 
       - name: Set up QEMU
         if: steps.container.outputs.published != 'true'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
         if: steps.container.outputs.published != 'true'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Extract container metadata
         if: steps.container.outputs.published != 'true'
@@ -472,7 +448,7 @@ jobs:
 
       - name: Publish GitHub Release after npm succeeds
         if: steps.release.outputs.github_published != 'true'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

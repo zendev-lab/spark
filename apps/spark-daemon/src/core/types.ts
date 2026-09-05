@@ -26,11 +26,12 @@ import {
   type ChannelImage,
   type ChannelMessageReference,
   type InfoflowAttachment,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
+import type { SparkInvocationAttempt } from "@zendev-lab/spark-invocation";
 import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkReproUsageScope,
   SparkUsageExecutionKind,
@@ -135,6 +136,8 @@ export interface SparkDaemonSessionRunTask {
   model?: string;
   /** Thinking/reasoning intensity frozen when this turn is enqueued. */
   thinkingLevel?: string;
+  /** Positive per-request output ceiling frozen when this turn is enqueued. */
+  maxOutputTokens?: number;
   reset?: boolean;
   /** Set when a successor daemon resumes an interrupted running turn. */
   resumeFromInterrupt?: boolean;
@@ -192,6 +195,8 @@ export type SparkDaemonTokenUsageSettlementSink = (input: {
 
 export interface SparkDaemonTaskExecutionContext {
   invocationId: string;
+  /** Exact daemon execution epoch authorized to start at most one DSH Turn. */
+  invocationAttempt: SparkInvocationAttempt;
   signal: AbortSignal;
   timeoutMs?: number;
   /**
@@ -279,6 +284,7 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
         : undefined,
     model: nonEmptyString(task.model),
     thinkingLevel: nonEmptyString(task.thinkingLevel),
+    maxOutputTokens: positiveIntegerOrUndefined(task.maxOutputTokens, "maxOutputTokens"),
     reset: typeof task.reset === "boolean" ? task.reset : undefined,
     resumeFromInterrupt:
       typeof task.resumeFromInterrupt === "boolean" ? task.resumeFromInterrupt : undefined,
@@ -647,4 +653,12 @@ function requiredRecord(value: unknown, field: string): Record<string, unknown> 
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function positiveIntegerOrUndefined(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new Error(`daemon task ${field} must be a positive safe integer`);
+  }
+  return Number(value);
 }

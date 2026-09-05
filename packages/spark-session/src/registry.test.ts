@@ -95,6 +95,30 @@ describe("SparkSessionRegistry v6 ownership", () => {
     expect(child).not.toHaveProperty("workspaceId");
   });
 
+  it("atomically creates a child with its frozen model profile", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    const child = await registry.create({
+      sessionId: "sess_profiled_child",
+      scope: admin.scope,
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
+      model: { providerName: "test", modelId: "child" },
+      thinkingLevel: "medium",
+      maxOutputTokens: 2_048,
+    });
+
+    expect(child).toMatchObject({
+      model: { providerName: "test", modelId: "child" },
+      thinkingLevel: "medium",
+      maxOutputTokens: 2_048,
+    });
+    await expect(registry.get(child.sessionId)).resolves.toMatchObject({
+      model: { providerName: "test", modelId: "child" },
+      thinkingLevel: "medium",
+      maxOutputTokens: 2_048,
+    });
+  });
+
   it("allows an administrator child to establish a GitChange boundary", async () => {
     const registry = await tempRegistry();
     const admin = await administrator(registry, "ws_a", "/repo");

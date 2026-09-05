@@ -6,7 +6,7 @@ import {
   runtimeRelocationPreflightResponseSchema,
   type RuntimeRelocationPreflightResponse,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 
 import { SparkDaemonControlError } from "./control-error.ts";
 import { validateRegistrationServerUrl } from "./registration.ts";

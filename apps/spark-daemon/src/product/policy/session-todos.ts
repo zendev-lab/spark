@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { type TaskRef } from "@zendev-lab/spark-core";
+import { type TaskRef } from "@zendev-lab/spark-invocation";
 import {
   legacyTodoDisplayNumberStorePath,
   rebuildSessionIndex,
@@ -9,7 +9,7 @@ import {
   sparkSessionKey,
   sparkStateRootPath,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import {
   defaultTaskTodoStore,
   isDeletedSessionTodo,

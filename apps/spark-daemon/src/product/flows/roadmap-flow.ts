@@ -1,11 +1,10 @@
+import { type ProjectRef, type TaskRef } from "@zendev-lab/spark-invocation";
 import {
-  type ProjectRef,
   type ProjectRoadmap,
   type RoadmapItem,
   type RoadmapItemRef,
   type TaskPlan,
-  type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import { type TaskPlanInput, type TaskGraph } from "@zendev-lab/spark-tasks";
 
 export type { ProjectRoadmap, RoadmapItem, RoadmapItemRef };

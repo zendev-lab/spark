@@ -1,0 +1,38 @@
+{
+  "name": "@zendev-lab/dsh-tool-web",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Cordis-native DSH Web tools and provider-neutral ctx.web adapters with recoverable content.",
+  "license": "MIT",
+  "author": "zrr1999",
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./content": "./src/content.ts",
+    "./provider": "./src/provider.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test:real-host": "vp test run src/index.test.ts",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
+    "@deepseek-ai/dsh-util-values": "catalog:dsh",
+    "@deepseek-ai/dsh-web": "catalog:dsh",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

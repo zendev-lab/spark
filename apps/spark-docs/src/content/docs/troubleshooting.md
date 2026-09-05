@@ -72,8 +72,8 @@ npm --version
 ```
 
 The first curl release requires system Node.js 24 or newer and npm. The
-supported native targets are macOS and Linux on arm64 or x86_64. A checksum
-mismatch means the downloaded release asset was not accepted: do not bypass
+supported native targets are macOS arm64, or Linux on arm64 or x86_64. A
+checksum mismatch means the downloaded release asset was not accepted: do not bypass
 verification or run the temporary binary. Retry the official `latest` command,
 then report the asset name and checksum failure if it persists.
 

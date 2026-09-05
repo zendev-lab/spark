@@ -1,20 +1,24 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
-import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
+import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { cueSkillsRoot } from "@zendev-lab/cue";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkHostRuntime } from "./product/host/runtime.ts";
 import {
   CURRENT_SPARK_SESSION_VERSION,
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SparkSessionStore,
 } from "@zendev-lab/spark-session/transcript";
-import type { Model } from "@zendev-lab/spark-llm";
-import { SparkAgentLoop, type SparkTurnLlm } from "@zendev-lab/spark-turn";
+import type { Model } from "@zendev-lab/spark-llm-providers";
+import {
+  SparkAgentLoop,
+  type SparkRunOutcome,
+  type SparkTurnLlm,
+} from "./product/host/agent-runtime/agent-loop.ts";
 
 import {
   createSparkDaemonCordisDispose,
@@ -96,6 +100,7 @@ describe("spark daemon Cordis root", () => {
       expect(root.ctx.llm).toBeDefined();
       expect(root.ctx.systemPrompt).toBeDefined();
       expect(root.ctx.tools).toBeDefined();
+      expect(root.ctx.cue).toBeDefined();
       expect(root.ctx.skills).toBeDefined();
       expect(root.ctx.tools.get("skill")).toMatchObject({
         sparkPolicy: {
@@ -122,6 +127,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.get("llm")).toBeUndefined();
     expect(root.ctx.get("systemPrompt")).toBeUndefined();
     expect(root.ctx.get("tools")).toBeUndefined();
+    expect(root.ctx.get("cue")).toBeUndefined();
     expect(root.ctx.get("skills")).toBeUndefined();
     expect(root.ctx.get("agents")).toBeUndefined();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
@@ -138,6 +144,7 @@ describe("spark daemon Cordis root", () => {
     expect(root.ctx.llm).toBeDefined();
     expect(root.ctx.systemPrompt).toBeDefined();
     expect(root.ctx.tools).toBeDefined();
+    expect(root.ctx.cue).toBeDefined();
     expect(root.ctx.skills).toBeDefined();
     expect(root.ctx.agents).toBeDefined();
     expect(root.ctx.agentLoop).toBeDefined();
@@ -146,6 +153,7 @@ describe("spark daemon Cordis root", () => {
 
     await root.dispose();
     expect(root.ctx.get("agentLoop")).toBeUndefined();
+    expect(root.ctx.get("cue")).toBeUndefined();
   });
 
   it("mounts the verified Cue Skill through the daemon-owned DSH provider", async () => {
@@ -179,7 +187,7 @@ describe("spark daemon Cordis root", () => {
     ).rejects.toThrow(/could not find the package-owned cue Skill/);
   });
 
-  it("owns the dsh-channels transport fiber mounted on the shared root", async () => {
+  it("owns the dsh-channel-transports transport fiber mounted on the shared root", async () => {
     const ctx = openSparkDaemonCordisContext();
     const root = await createSparkDaemonCordisRoot(fakeStores(), {
       sessionsRoot: await sessionsRoot(),
@@ -278,7 +286,7 @@ describe("spark daemon Cordis root", () => {
     const signal = new AbortController().signal;
     try {
       const created = await root.ctx.tools.execute({
-        callId: CallId("schedule-create"),
+        callId: ToolCallId("schedule-create"),
         name: "schedule_create",
         arguments: { prompt: "Review native schedule", after_seconds: 3_600 },
         agent: handle.agent,
@@ -297,7 +305,7 @@ describe("spark daemon Cordis root", () => {
       });
 
       const listed = await root.ctx.tools.execute({
-        callId: CallId("schedule-list"),
+        callId: ToolCallId("schedule-list"),
         name: "schedule_list",
         arguments: {},
         agent: handle.agent,
@@ -309,7 +317,7 @@ describe("spark daemon Cordis root", () => {
       });
 
       const deleted = await root.ctx.tools.execute({
-        callId: CallId("schedule-delete"),
+        callId: ToolCallId("schedule-delete"),
         name: "schedule_delete",
         arguments: { id: "schedule-1" },
         agent: handle.agent,
@@ -349,10 +357,17 @@ describe("spark daemon Cordis root", () => {
     });
     let calls = 0;
     let nativeToolNames: string[] = [];
+    const persistedInvocationEventsAtModelStart: number[] = [];
     const llm: SparkTurnLlm = {
       async *stream(options) {
         calls += 1;
         nativeToolNames = options.tools?.map((tool) => tool.name) ?? [];
+        const persisted = (await readFile(seed.path, "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { type?: string; data?: unknown })
+          .filter((event) => event.type === "spark/invocation");
+        persistedInvocationEventsAtModelStart.push(persisted.length);
         const text = `native reply ${calls}`;
         yield { type: "block-start", index: 0, blockType: "text" };
         yield { type: "text-delta", index: 0, text };
@@ -373,45 +388,67 @@ describe("spark daemon Cordis root", () => {
       contextWindow: 8_000,
       maxTokens: 1_000,
     };
-    const host = new SparkHostRuntime({ cwd });
-    let executionSessionId: string | undefined;
+    const observed: Array<{ invocationId: string; sessionId: string; epoch: number }> = [];
     let scheduleCreatePolicy: unknown;
     let scheduleCreateAdmission: unknown;
-    vi.spyOn(host, "isDshToolDispatchAllowed").mockImplementation((name, policy) => {
-      if (name === "schedule_create") scheduleCreateAdmission = policy;
-      return true;
-    });
-    const loop = new SparkAgentLoop({
-      host,
-      llm,
-      dshContext: root.ctx,
-      getModel: () => model,
-      streamIdleTimeoutMs: 0,
-      agentPlugins: [
-        ...loadSparkProductAgentPlugins(),
-        {
-          name: "capture-spark-execution",
-          inject: ["sparkExecution"],
-          apply(ctx: Context) {
-            executionSessionId = ctx.sparkExecution.sessionId;
-          },
+    const runInvocation = async (
+      invocationId: string,
+      prompt: string,
+      epoch = 1,
+      daemonGeneration = 1,
+    ): Promise<SparkRunOutcome> => {
+      const host = new SparkHostRuntime({
+        cwd,
+        invocationId,
+        invocationAttempt: {
+          epoch,
+          daemonGeneration,
+          correlationId: `attempt:${invocationId}:${daemonGeneration}`,
         },
-      ],
-    });
-    loop.onEvent((event) => {
-      if (event.type !== "prompt_manifest") return;
-      scheduleCreatePolicy = event.manifest.tools.find((tool) => tool.name === "schedule_create");
-    });
-    loop.setViewSessionId(seed.header.id);
-    loop.setDshSessionMetadata({
-      timestamp: seed.header.timestamp,
-      sparkVersion: seed.header.version ?? CURRENT_SPARK_SESSION_VERSION,
-    });
+      });
+      vi.spyOn(host, "isDshToolDispatchAllowed").mockImplementation((name, policy) => {
+        if (name === "schedule_create") scheduleCreateAdmission = policy;
+        return true;
+      });
+      const loop = new SparkAgentLoop({
+        host,
+        llm,
+        dshContext: root.ctx,
+        getModel: () => model,
+        streamIdleTimeoutMs: 0,
+        agentPlugins: [
+          ...loadSparkProductAgentPlugins(),
+          {
+            name: "capture-spark-invocation",
+            inject: ["sparkInvocation"],
+            apply(ctx: Context) {
+              observed.push({
+                invocationId: ctx.sparkInvocation.invocationId,
+                sessionId: ctx.sparkInvocation.sessionId,
+                epoch: ctx.sparkInvocation.attempt.epoch,
+              });
+            },
+          },
+        ],
+      });
+      loop.onEvent((event) => {
+        if (event.type !== "prompt_manifest") return;
+        scheduleCreatePolicy = event.manifest.tools.find((tool) => tool.name === "schedule_create");
+      });
+      loop.setViewSessionId(seed.header.id);
+      loop.setDshSessionMetadata({
+        timestamp: seed.header.timestamp,
+        sparkVersion: seed.header.version ?? CURRENT_SPARK_SESSION_VERSION,
+      });
+      return await loop.submitWithOutcome(prompt);
+    };
 
     try {
-      await loop.submit("first prompt");
+      await runInvocation("inv_shared_1", "first prompt");
       expect(root.ctx.agents.list()).toEqual([]);
-      expect(executionSessionId).toBe(seed.header.id);
+      expect(observed).toEqual([
+        { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
+      ]);
       expect(nativeToolNames).toEqual(
         expect.arrayContaining(["schedule_create", "schedule_list", "schedule_delete"]),
       );
@@ -433,7 +470,7 @@ describe("spark daemon Cordis root", () => {
       expect(firstMessages).toHaveLength(4);
       expect(firstMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(1);
 
-      await loop.submit("second prompt");
+      await runInvocation("inv_shared_2", "second prompt");
       expect(root.ctx.agents.list()).toEqual([]);
       const second = await store.load(seed.path);
       const secondMessages = second.entries.filter((entry) => entry.type === "message");
@@ -441,6 +478,13 @@ describe("spark daemon Cordis root", () => {
       expect(secondMessages).toHaveLength(6);
       expect(secondMessages.filter((entry) => entry.message.role !== "user")).toHaveLength(2);
       expect(JSON.stringify(second.entries)).toContain("native reply 2");
+      const transcriptEvents = (await readFile(seed.path, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type?: string; data?: unknown });
+      expect(transcriptEvents.filter((event) => event.type === "spark/invocation")).toEqual([]);
+      expect(calls).toBe(2);
+      expect(persistedInvocationEventsAtModelStart).toEqual([0, 0]);
     } finally {
       await root.dispose();
     }
@@ -451,26 +495,36 @@ describe("spark daemon Cordis root", () => {
     const root = await createSparkDaemonCordisRoot(fakeStores(), {
       sessionsRoot: await sessionsRoot(),
       subagentHost: {
-        async createChild(input) {
+        agentOptions: true,
+        async start(input) {
           created.push(input.roleRef);
           return {
             sessionId: "sess_child",
-            roleRef: input.roleRef,
-            mode: input.mode,
+            invocationId: "inv_child",
+            result: Promise.resolve({ output: [], stopReason: "completed" }),
+            cancel() {},
+            async waitForIdle() {},
           };
-        },
-        async send(input) {
-          return { sessionId: input.sessionId, invocationId: "inv_child" };
         },
       },
     });
     try {
       expect(root.ctx.subagents.list()).toEqual(["spawn", "fork"]);
+      expect(root.ctx.subagentModelSelection.current()).toEqual({
+        enabled: false,
+        allowedModels: [],
+      });
       const spawn = root.ctx.subagents.getProvider("spawn");
       expect(spawn?.inheritsParentContext).toBe(false);
       const run = await spawn!.start({
-        parent: { session: { id: "sess_admin" } },
+        parent: {
+          options: {},
+          session: { id: "sess_admin", header: { delegationDepth: 0 } },
+        },
         persona: "executor",
+        prompt: [],
+        descriptor: { version: 3, mode: "one-shot", provider: "spawn" },
+        signal: new AbortController().signal,
       } as never);
       expect(String(run.id)).toBe("sess_child");
       expect(created).toEqual(["role:builtin-executor"]);

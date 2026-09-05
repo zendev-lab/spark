@@ -1,11 +1,11 @@
 import { registerSparkAskAutoAnswerProvider } from "@zendev-lab/spark-ask";
-import { sparkStateCwd } from "@zendev-lab/spark-core";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { registerSparkWorkflowTool } from "@zendev-lab/spark-workflows/extension";
 import {
   createSparkContextRegistry,
   registerSparkContextTool,
   type SparkContextProvider,
-} from "@zendev-lab/spark-host/context";
+} from "../host/context-tool.ts";
 import {
   registerSparkTaskTool,
   registerSparkTodoTool,
@@ -39,7 +39,6 @@ import { registerSparkProductEvents } from "./spark-product-events.ts";
 import { sparkProductContextProviderStrings, sparkProductToolCopy } from "./spark-model-prompts.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
-import { registerSparkModeTool } from "./mode/index.ts";
 import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 import { SparkWidgetController } from "./spark-widget-controller.ts";
@@ -64,7 +63,6 @@ import {
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
 import { createSparkLensToolConfig } from "./spark-lens-tool.ts";
 import { createTaskArtifactHandler } from "./spark-task-artifact.ts";
-import { sparkActiveModeValue } from "./spark-mode-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { sparkDaemonLoopControl, type SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 import {
@@ -154,11 +152,6 @@ export default function registerSparkProductPolicy(pi: SparkProductFacadeApi) {
   registerSparkAskAutoAnswerProvider("spark-goal-reviewer", async (request, rawCtx) => {
     const askCtx = rawCtx as SparkToolContext;
     if (!askCtx.cwd) return undefined;
-    if (sparkActiveModeValue(askCtx.sparkActiveMode) !== "plan")
-      return {
-        blocked: true,
-        reason: "reviewer ask auto-answer is disabled outside Plan mode",
-      };
     const goal = await loadSessionGoal(askCtx.cwd, askCtx);
     if (goal?.status !== "active") return undefined;
     return answerAskWithReviewer(request, askCtx, askCtx);
@@ -364,8 +357,6 @@ export default function registerSparkProductPolicy(pi: SparkProductFacadeApi) {
       },
     },
   );
-
-  registerSparkModeTool(registerSparkTool);
 
   registerSparkRunReadyTasksTool(registerSparkImplementationTool, {
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),

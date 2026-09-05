@@ -1,5 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-lab/dsh-channels";
+import {
+  ChannelDeliveryError,
+  channelDeliveryFailureCertainty,
+} from "@zendev-lab/dsh-channel-transports";
 import {
   isSparkInvocationTerminalStatus,
   parseSparkSessionView,
@@ -13,7 +16,7 @@ import {
   type SparkSessionMailDeliveryStatus,
   type SparkSessionMailMessage,
 } from "@zendev-lab/spark-session";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { isRetryableInvocationError, SparkInvocationStore } from "../store/invocations.ts";
 import {
   getWorkspaceById,

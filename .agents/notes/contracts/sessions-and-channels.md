@@ -58,6 +58,26 @@ lifetime, or wire role.
 - Transcript wire stays `system | user | assistant | tool`. `user` is the
   human; `assistant` is the bound Role or Skill Agent identity.
 
+The daemon-backed official DSH spawn/fork providers advertise
+`agentOptions: true`; a host without daemon execution authority advertises
+`false` and cannot execute a child locally. Each new Agent receives a snapshot
+of the daemon model control's currently enabled and available routes. Omitted
+spawn routing inherits the parent Session profile. The official fresh-child
+tool owns the one model-selection surface in an Agent scope; the fork tool
+keeps the parent route for inherited-prefix reuse. An explicit spawn route is
+revalidated at child creation, so a route disabled between tool rendering and
+admission fails closed. The child registry record atomically freezes model,
+thinking level, and optional positive `maxOutputTokens`; the Invocation task
+and receipt freeze the same effective ceiling. The catalog remains owned only
+by `spark-llm-providers`; Session state stores a selected ref and ceiling, not
+a mutable copy of that catalog. The official
+`subagent/model-selection-policy` event is an immutable creation-time
+authorization snapshot, not a second directory owner. It and the model-hidden
+`subagent/descriptor` event are persisted in the same JSONL and survive Spark
+v4 rewrites through the existing `spark/record` bridge. Native DSH header
+`origin`, parent id, `delegationDepth`, and `agentPreset` metadata also survive
+round trips so nested recursion limits do not reset after restart.
+
 Role definition representation and catalog ownership are in
 [`../../../packages/spark-roles/README.md`](../../../packages/spark-roles/README.md).
 The dated mapping that registers Spark spawn/fork providers on official
@@ -113,11 +133,15 @@ cross-scope, or disappeared paths fail closed.
 
 ## Transcript persistence
 
-Canonical Session transcripts are DSH session JSONL. `packages/spark-host`
+Canonical Session transcripts are DSH session JSONL. The daemon product host's
 `SparkSessionStore` is the transition codec: transcript v4 writes model-visible
 content as native DSH surface events. It does not duplicate active messages in
-`spark/record`; ignorable Spark events carry only projection metadata,
-non-model records, and inactive branches. The daemon implements `PersistenceBackend` only;
+`spark/record`. The only Spark extension event types written are ignorable
+`spark/meta`, `spark/record`, and `spark/message-meta`: they carry projection
+metadata, non-model records, and inactive branches. `spark/invocation` is a
+read-only legacy event; attempt admission, retry, cancellation, and recovery are
+owned by the daemon attempt store and epoch fence. The daemon implements
+`PersistenceBackend` only;
 `dsh-session-persistence` owns the coordinator. Before admission, daemon startup
 backs up and journals the idempotent v3 to v4 hard cut. Session projections
 remain Spark-owned.
@@ -186,7 +210,7 @@ lane Session.
 
 A message-platform Channel is daemon-global ingress and delivery bound to one
 daemon Channel Session. It is not a Session owner, executor, Task store, or
-scheduler. `@zendev-lab/dsh-channels` is the Cordis lifecycle plugin and typed
+scheduler. `@zendev-lab/dsh-channel-transports` is the Cordis lifecycle plugin and typed
 `ctx.channels` service; Spark Session Registry, Invocation, outbox, retry,
 human wait, and SQLite remain the only durable authorities.
 

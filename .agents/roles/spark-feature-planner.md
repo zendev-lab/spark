@@ -15,8 +15,7 @@ allowedTools:
   - find
   - context
   - web_search
-  - code_search
-  - fetch_content
+  - web_fetch
   - get_search_content
   - cue_exec
   - cue_run

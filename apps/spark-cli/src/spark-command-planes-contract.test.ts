@@ -26,12 +26,14 @@ test("root dispatcher reaches spark-hub while rejecting removed namespaces", asy
   for (const argv of [
     ["server", "status"],
     ["server", "instance", "status"],
+    ["web-dsh"],
     ["cockpit", "--help"],
   ]) {
     await assert.rejects(execFileAsync(dispatcher, argv), (error: unknown) => {
       const failure = error as { code?: number; stderr?: string };
       assert.equal(failure.code, 2);
-      if (argv[0] === "server") assert.match(failure.stderr ?? "", /\[COMMAND_REMOVED\]/u);
+      if (argv[0] === "server" || argv[0] === "web-dsh")
+        assert.match(failure.stderr ?? "", /\[COMMAND_REMOVED\]/u);
       else assert.match(failure.stderr ?? "", /\[UNKNOWN_COMMAND\]/u);
       return true;
     });
@@ -191,7 +193,6 @@ test("deprecation map covers legacy slash aliases and only advertises real CLI t
         SPARK_MCP_COMMAND: "/usr/bin/true",
         SPARK_PATHS_COMMAND: "/usr/bin/true",
         SPARK_WEB_COMMAND: "/usr/bin/true",
-        SPARK_WEB_DSH_COMMAND: "/usr/bin/true",
       },
     });
     assert.equal(routed.stdout, "", `${row.legacy} canonical target stdout`);

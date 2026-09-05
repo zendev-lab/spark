@@ -3,13 +3,8 @@ import { mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
-import type {
-  ArtifactRef,
-  ProjectRef,
-  RoleRef,
-  Task,
-  TaskExecutionIsolation,
-} from "@zendev-lab/spark-core";
+import type { ArtifactRef, ProjectRef, RoleRef } from "@zendev-lab/spark-invocation";
+import { type Task, type TaskExecutionIsolation } from "@zendev-lab/spark-tasks";
 
 export interface ResolvedFleetTarget {
   primaryArtifactRef: ArtifactRef;

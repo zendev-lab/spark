@@ -1,14 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
+import { loadSparkHeadlessSessionModule } from "../product/host/headless-loader.ts";
 import {
   builtinRoleRef,
   createDefaultRoleRegistry,
   hydrateDefaultRoleRegistry,
 } from "@zendev-lab/spark-roles";
-import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
+import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-task-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+import type { SparkDshTurnRuntime } from "../product/host/agent-runtime/agent-loop.ts";
 
 import { errorMessage } from "../text.ts";
 
@@ -90,7 +90,7 @@ import {
   type ServerCommandPayload,
   type serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { extractFinalAssistantText, extractTextDelta } from "./assistant-event-text.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
 import {

@@ -1,5 +1,5 @@
 import { formatSparkCliError, SparkCliError } from "@zendev-lab/spark-i18n/cli";
-import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 export function runSparkPathsCommand(argv: string[] = process.argv.slice(2)): number {
   const unknown = argv.filter((argument) => argument !== "--json");

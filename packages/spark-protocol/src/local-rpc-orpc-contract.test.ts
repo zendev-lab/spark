@@ -138,7 +138,6 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session",
       "retryTarget",
     ]);
-    expect(sparkLocalRpcOrpcMethodPaths["session.mode.set"]).toEqual(["session", "mode", "set"]);
     expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
       "artifact.list",
       "artifact.read",
@@ -157,7 +156,10 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session.media.read",
       "session.prompt-history",
       "session.retry-target",
-      "session.mode.set",
+      "daemon.access.create",
+      "daemon.access.list",
+      "daemon.access.revoke",
+      "daemon.access.verify",
     ]);
   });
 
@@ -216,6 +218,45 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
     );
     expect(procedure.output.safeParse(oversized).success).toBe(false);
+  });
+
+  it("keeps daemon-user access tokens metadata-only after creation", () => {
+    const create = sparkLocalRpcProcedureSchemas["daemon.access.create"];
+    expect(create.input.parse({})).toEqual({});
+    expect(
+      create.input.parse({ label: "  laptop  ", expiresAt: "2027-01-01T00:00:00.000Z" }),
+    ).toEqual({ label: "laptop", expiresAt: "2027-01-01T00:00:00.000Z" });
+    expect(create.input.safeParse({ label: " " }).success).toBe(false);
+    expect(create.input.safeParse({ expiresAt: "not-a-date" }).success).toBe(false);
+
+    const metadata = {
+      id: "dut_0123456789abcdef0123456789abcdef",
+      createdAt: "2026-08-24T00:00:00.000Z",
+    };
+    expect(create.output.parse({ token: "sdu_secret", record: metadata })).toMatchObject({
+      record: { id: "dut_0123456789abcdef0123456789abcdef" },
+    });
+    // Listing never returns plaintext or hashes; unknown fields are stripped.
+    const list = sparkLocalRpcProcedureSchemas["daemon.access.list"];
+    expect(list.input.parse({})).toEqual({});
+    expect(list.output.parse({ tokens: [metadata] })).toEqual({ tokens: [metadata] });
+    expect(
+      list.output.parse({ tokens: [{ ...metadata, token: "sdu_secret", tokenHash: "abc" }] })
+        .tokens[0],
+    ).toEqual(metadata);
+
+    const revoke = sparkLocalRpcProcedureSchemas["daemon.access.revoke"];
+    expect(revoke.input.parse({ id: "dut_1" })).toEqual({ id: "dut_1" });
+    expect(revoke.input.safeParse({ id: " " }).success).toBe(false);
+    expect(revoke.output.parse({ id: "dut_1", revoked: true })).toEqual({
+      id: "dut_1",
+      revoked: true,
+    });
+
+    // Verification collapses every rejection cause into one boolean.
+    const verify = sparkLocalRpcProcedureSchemas["daemon.access.verify"];
+    expect(verify.input.safeParse({}).success).toBe(false);
+    expect(verify.output.parse({ valid: false })).toEqual({ valid: false });
   });
 
   it("keeps the oRPC-only retry target narrow and daemon-owned", () => {
@@ -446,10 +487,6 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["session.export", "session_transcript_changed"],
       ["session.prompt-history", "invalid_session_snapshot"],
       ["session.retry-target", "session_not_found"],
-      ["session.mode.set", "invalid_scope"],
-      ["session.mode.set", "session_archived"],
-      ["session.mode.set", "session_not_found"],
-      ["session.mode.set", "workspace_cwd_unavailable"],
       ["turn.submit", "side_thread_direct_submit_forbidden"],
       ["turn.submit", "session_cwd_unavailable"],
     ] as const;
@@ -461,12 +498,6 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
         "session.prompt-history",
         "session_snapshot_cursor_not_found",
       ),
-    ).toBe(false);
-    expect(
-      isSparkLocalRpcOrpcErrorCodeForMethod("session.mode.set", "side_thread_mutation_forbidden"),
-    ).toBe(false);
-    expect(
-      isSparkLocalRpcOrpcErrorCodeForMethod("session.mode.set", "session_scope_mismatch"),
     ).toBe(false);
 
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "session_not_found")).toBe(false);

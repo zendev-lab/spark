@@ -11,7 +11,8 @@ export const load: PageServerLoad = ({ cookies, locals, url }) => {
     protocol: url.protocol,
     preferredWorkspaceId: null,
     preferredWorkspaceSlug: url.searchParams.get("workspace"),
-    authorizedWorkspaceId: locals.workspaceId ?? null,
+    authorizedWorkspaceIds: locals.authorizedWorkspaceIds ?? null,
+    authorizedDaemonIds: locals.authorizedDaemonIds ?? null,
   });
   const workspace = layout.activeWorkspace;
   if (!workspace) redirect(303, `/${url.search}`);

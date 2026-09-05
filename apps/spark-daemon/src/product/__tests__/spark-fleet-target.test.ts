@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
-import type { ArtifactRef, ProjectRef, RoleRef, Task, TaskRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef, ProjectRef, RoleRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type Task } from "@zendev-lab/spark-tasks";
 import { fleetLaneKey, resolveFleetTaskTarget } from "../policy/spark-fleet-target.ts";
 import { prepareFleetTargetLocks } from "../policy/spark-fleet-projection.ts";
 

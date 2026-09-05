@@ -31,8 +31,8 @@ Session 可以向另一个本地 session 发送：
 返回终态结果。超时只停止发送方等待，不会取消目标执行。完成摘要会回到原 session，
 使其不必轮询即可继续。
 
-`session` agent 工具、TUI `/inbox` 与 `spark daemon session inbox` 的
-list/read/ack 都通过 daemon RPC；frontend 和 extension host 不会直接打开另一个
+`session` agent 工具与 `spark daemon session inbox` 的 list/read/ack 都通过
+daemon RPC；本地 Web 与 Hub 只呈现对应 session 拥有的请求，不会直接打开另一个
 session 的 mailbox 文件。
 
 ## 消息平台 Channel

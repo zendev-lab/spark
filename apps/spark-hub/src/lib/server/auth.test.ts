@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
-import { createHubAccessToken } from "@zendev-lab/spark-hub-coordination/hub-access";
-import { createWorkspaceAccessToken } from "@zendev-lab/spark-hub-coordination/workspace-access";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import {
-  createRuntimeEnrollmentToken,
-  registerRuntime,
-} from "@zendev-lab/spark-hub-coordination/runtime-registration";
+  createHubAccessToken,
+  listUserDaemonGrantWorkspaceIds,
+  userHasDaemonGrant,
+} from "@zendev-lab/spark-hub-coordination/hub-access";
 import type { Cookies } from "@sveltejs/kit";
 import {
   createLocalOwnerSession,
@@ -13,18 +12,16 @@ import {
   ensureCurrentOwnerSession,
   ensureLocalSystemUser,
   exchangeHubAccessToken,
-  exchangeWorkspaceAccessToken,
   getCurrentHubSession,
-  getCurrentWorkspaceSession,
   getCurrentUserId,
   hashSecret,
-  isRemoteWorkspaceDataPath,
+  hubSessionAllowsRequest,
   sessionCookieName,
   refreshHubSession,
-  refreshWorkspaceSession,
-  workspaceSessionAllowsRequest,
 } from "./auth";
 import { isLoopbackClientAddress, remoteAccessDecision } from "./remote-access";
+
+const seedNow = "2026-07-20T00:00:00.000Z";
 
 describe("local owner auth", () => {
   it("creates a new session for an existing local owner", () => {
@@ -55,6 +52,104 @@ describe("local owner auth", () => {
     expect(userId).toBe(session.userId);
     expect(cookies.value).toBeUndefined();
     expect(cookies.options).toBeUndefined();
+    db.close();
+  });
+
+  it("accepts an active owner session", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const session = createOwnerSession(db, "Local Owner", null);
+
+    expect(
+      ensureCurrentOwnerSession(
+        db,
+        createCookieCapture(sessionCookieName) as unknown as Cookies,
+        session.sessionToken,
+      ),
+    ).toBe(session.userId);
+    db.close();
+  });
+
+  it("rejects an active member session instead of upgrading it to the local owner", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    seedRuntime(db, "rt_a");
+    const grant = createHubAccessToken(db, {
+      daemonIds: ["rt_a"],
+      memberName: "teammate",
+      createdAt: seedNow,
+    });
+    const session = exchangeHubAccessToken(db, grant.token, new Date("2026-07-20T00:00:01.000Z"));
+
+    expectOwnerAccessDenied(() =>
+      ensureCurrentOwnerSession(
+        db,
+        createCookieCapture(sessionCookieName) as unknown as Cookies,
+        session.sessionToken,
+      ),
+    );
+    db.close();
+  });
+
+  it.each(["", "spark_hub_sess_invalid"])(
+    "rejects invalid explicit session %j without creating a local owner",
+    (sessionToken) => {
+      const db = openMemoryDatabase();
+      migrate(db);
+
+      expectOwnerAccessDenied(() =>
+        ensureCurrentOwnerSession(
+          db,
+          createCookieCapture(sessionCookieName) as unknown as Cookies,
+          sessionToken,
+        ),
+      );
+      expect(db.prepare("SELECT COUNT(*) AS count FROM users").get()).toEqual({ count: 0 });
+      db.close();
+    },
+  );
+
+  it.each(["revoked", "expired", "disabled"] as const)(
+    "rejects a %s explicit owner session",
+    (state) => {
+      const db = openMemoryDatabase();
+      migrate(db);
+      const session = createOwnerSession(db, "Local Owner", null);
+      if (state === "revoked") {
+        db.prepare("UPDATE sessions SET revoked_at = ? WHERE token_hash = ?").run(
+          seedNow,
+          hashSecret(session.sessionToken),
+        );
+      } else if (state === "expired") {
+        db.prepare("UPDATE sessions SET expires_at = ? WHERE token_hash = ?").run(
+          "2026-01-01T00:00:00.000Z",
+          hashSecret(session.sessionToken),
+        );
+      } else {
+        db.prepare("UPDATE users SET status = 'disabled' WHERE id = ?").run(session.userId);
+      }
+
+      expectOwnerAccessDenied(() =>
+        ensureCurrentOwnerSession(
+          db,
+          createCookieCapture(sessionCookieName) as unknown as Cookies,
+          session.sessionToken,
+        ),
+      );
+      db.close();
+    },
+  );
+
+  it("grants the first owner every daemon that already registered", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    seedRuntime(db, "rt_a");
+    seedRuntime(db, "rt_b");
+
+    const session = createOwnerSession(db, "Local Owner", null);
+
+    expect(userHasDaemonGrant(db, { userId: session.userId, runtimeId: "rt_a" })).toBe(true);
+    expect(userHasDaemonGrant(db, { userId: session.userId, runtimeId: "rt_b" })).toBe(true);
     db.close();
   });
 
@@ -106,22 +201,35 @@ describe("local owner auth", () => {
 });
 
 describe("remote access auth", () => {
-  it("exchanges a Hub one-time key into an owner session with refresh", () => {
+  it("exchanges a Hub one-time key into a granted member session with refresh", () => {
     const db = openMemoryDatabase();
     migrate(db);
+    const ownerId = seedUser(db, "usr_owner", "owner");
+    seedRuntime(db, "rt_a");
+    seedRuntime(db, "rt_b");
     const grant = createHubAccessToken(db, {
-      createdAt: "2026-07-20T00:00:00.000Z",
+      daemonIds: ["rt_a"],
+      memberName: "teammate",
+      createdByUserId: ownerId,
+      createdAt: seedNow,
       ttlMs: 60_000,
     });
+
     const session = exchangeHubAccessToken(db, grant.token, new Date("2026-07-20T00:00:01.000Z"));
+
+    const user = db
+      .prepare("SELECT role, display_name AS displayName FROM users WHERE id = ?")
+      .get(session.userId) as { role: string; displayName: string };
+    expect(user).toEqual({ role: "member", displayName: "teammate" });
+    expect(userHasDaemonGrant(db, { userId: session.userId, runtimeId: "rt_a" })).toBe(true);
+    expect(userHasDaemonGrant(db, { userId: session.userId, runtimeId: "rt_b" })).toBe(false);
+    const grantRow = db
+      .prepare("SELECT granted_by_user_id AS grantedBy FROM user_daemon_grants WHERE user_id = ?")
+      .get(session.userId) as { grantedBy: string };
+    expect(grantRow.grantedBy).toBe(ownerId);
     expect(
       getCurrentHubSession(db, session.sessionToken, new Date("2026-07-20T00:00:02.000Z")),
-    ).toMatchObject({
-      userId: session.userId,
-    });
-    expect(
-      getCurrentWorkspaceSession(db, session.sessionToken, new Date("2026-07-20T00:00:02.000Z")),
-    ).toBeNull();
+    ).toMatchObject({ userId: session.userId, role: "member" });
     expect(() =>
       exchangeHubAccessToken(db, grant.token, new Date("2026-07-20T00:00:02.000Z")),
     ).toThrow(/already been used/);
@@ -137,93 +245,129 @@ describe("remote access auth", () => {
     db.close();
   });
 
-  it("exchanges the one-time browser key returned by daemon workspace registration", () => {
+  it("keeps same-name access keys on distinct member principals", () => {
     const db = openMemoryDatabase();
     migrate(db);
-    const enrollment = createRuntimeEnrollmentToken(db, {
-      workspaceName: "Spore",
-      workspaceSlug: "spore",
+    seedRuntime(db, "rt_a");
+    seedRuntime(db, "rt_b");
+    const firstKey = createHubAccessToken(db, {
+      daemonIds: ["rt_a"],
+      memberName: "teammate",
+      createdAt: seedNow,
     });
-    const registered = registerRuntime(
-      db,
-      {
-        installationId: "install-spore",
-        displayName: "Spore daemon",
-        runtimeVersion: "0.1.0-test",
-        supportedFeatures: [],
-        labels: {},
-        workspaceRegistration: {
-          localWorkspaceKey: "spore-local",
-          displayName: "Spore local",
-        },
-      },
-      enrollment.refreshToken,
-    );
-    const authorization = registered.workspaceAuthorization;
-    if (!authorization) throw new Error("Expected workspace browser authorization.");
+    const secondKey = createHubAccessToken(db, {
+      daemonIds: ["rt_b"],
+      memberName: "teammate",
+      createdAt: seedNow,
+    });
 
-    const session = exchangeWorkspaceAccessToken(db, authorization.oneTimeToken);
-    expect(session).toMatchObject({
-      workspaceId: authorization.workspaceId,
-      workspaceSlug: "spore",
-    });
-    expect(session.sessionToken).toMatch(/^spark_workspace_access_/);
-    expect(() => exchangeWorkspaceAccessToken(db, authorization.oneTimeToken)).toThrow(
-      /already been used/,
+    const first = exchangeHubAccessToken(db, firstKey.token, new Date("2026-07-20T00:00:01.000Z"));
+    const second = exchangeHubAccessToken(
+      db,
+      secondKey.token,
+      new Date("2026-07-20T00:00:02.000Z"),
     );
+
+    expect(second.userId).not.toBe(first.userId);
+    expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_a" })).toBe(true);
+    expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_b" })).toBe(false);
+    expect(userHasDaemonGrant(db, { userId: second.userId, runtimeId: "rt_a" })).toBe(false);
+    expect(userHasDaemonGrant(db, { userId: second.userId, runtimeId: "rt_b" })).toBe(true);
     db.close();
   });
 
-  it("exchanges and rotates a one-time workspace grant without broadening scope", () => {
+  it("keeps unnamed access keys on distinct member principals", () => {
     const db = openMemoryDatabase();
     migrate(db);
-    db.prepare(
-      `INSERT INTO workspaces (id, slug, name, status, settings_json, created_at, updated_at)
-       VALUES ('ws_11111111111141111111111111111111', 'spark', 'Spark', 'active', '{}', ?, ?),
-              ('ws_22222222222242222222222222222222', 'spore', 'Spore', 'active', '{}', ?, ?)`,
-    ).run(
-      "2026-07-20T00:00:00.000Z",
-      "2026-07-20T00:00:00.000Z",
-      "2026-07-20T00:00:00.000Z",
-      "2026-07-20T00:00:00.000Z",
-    );
-    const grant = createWorkspaceAccessToken(db, {
-      workspaceId: "ws_11111111111141111111111111111111",
-      createdAt: "2026-07-20T00:00:00.000Z",
-      ttlMs: 60_000,
+    seedRuntime(db, "rt_a");
+    seedRuntime(db, "rt_b");
+    const firstKey = createHubAccessToken(db, {
+      daemonIds: ["rt_a"],
+      createdAt: seedNow,
     });
-    const session = exchangeWorkspaceAccessToken(
+    const secondKey = createHubAccessToken(db, {
+      daemonIds: ["rt_b"],
+      createdAt: seedNow,
+    });
+
+    const first = exchangeHubAccessToken(db, firstKey.token, new Date("2026-07-20T00:00:01.000Z"));
+    const second = exchangeHubAccessToken(
+      db,
+      secondKey.token,
+      new Date("2026-07-20T00:00:02.000Z"),
+    );
+
+    expect(second.userId).not.toBe(first.userId);
+    expect(userHasDaemonGrant(db, { userId: first.userId, runtimeId: "rt_b" })).toBe(false);
+    expect(userHasDaemonGrant(db, { userId: second.userId, runtimeId: "rt_a" })).toBe(false);
+    db.close();
+  });
+
+  it("rejects tokens from a different credential family", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    seedRuntime(db, "rt_a");
+
+    expect(() => exchangeHubAccessToken(db, "sdu_daemon_scoped_key")).toThrow(/invalid/i);
+    expect(() => exchangeHubAccessToken(db, "spark_workspace_auth_legacy")).toThrow(/invalid/i);
+    db.close();
+  });
+
+  it("gates member requests through daemon grants while owners keep the full surface", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    seedUser(db, "usr_owner", "owner");
+    seedUser(db, "usr_member", "member");
+    seedRuntime(db, "rt_a");
+    seedRuntime(db, "rt_b");
+    seedLeasedWorkspace(db, {
+      workspaceId: "ws_a",
+      slug: "spark",
+      bindingId: "rtwb_a",
+      runtimeId: "rt_a",
+    });
+    seedLeasedWorkspace(db, {
+      workspaceId: "ws_b",
+      slug: "spore",
+      bindingId: "rtwb_b",
+      runtimeId: "rt_b",
+    });
+    db.prepare(
+      `INSERT INTO runtime_session_projections
+        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+         lifecycle, placement, activity, lifetime, lineage_origin_kind, record_json, projected_at)
+       VALUES ('rt_a', 'sess_a', 'workspace', 'ws_a', 'rtwb_a',
+               'open', 'active', 'idle', 'persistent', 'session', '{}', ?)`,
+    ).run(seedNow);
+    const grant = createHubAccessToken(db, {
+      daemonIds: ["rt_a"],
+      memberName: "teammate",
+      createdAt: seedNow,
+    });
+    const memberSession = exchangeHubAccessToken(
       db,
       grant.token,
       new Date("2026-07-20T00:00:01.000Z"),
     );
-    expect(
-      getCurrentWorkspaceSession(db, session.sessionToken, new Date("2026-07-20T00:00:02.000Z")),
-    ).toMatchObject({
-      workspaceId: "ws_11111111111141111111111111111111",
-      workspaceSlug: "spark",
-    });
-    expect(() =>
-      exchangeWorkspaceAccessToken(db, grant.token, new Date("2026-07-20T00:00:02.000Z")),
-    ).toThrow(/already been used/);
-    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/spark/sessions")).toBe(true);
-    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/sessions")).toBe(false);
-    expect(
-      workspaceSessionAllowsRequest(db, session.workspaceId, "/spark/sessions/missing-session"),
-    ).toBe(false);
-    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/spore/sessions")).toBe(false);
-    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/spore/login")).toBe(true);
-    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/missing/login")).toBe(false);
-    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/settings/models")).toBe(false);
+    const member = { userId: memberSession.userId, role: "member" };
+    const owner = { userId: "usr_owner", role: "owner" };
 
-    const refreshed = refreshWorkspaceSession(
-      db,
-      session.refreshToken,
-      new Date("2026-07-20T00:16:00.000Z"),
-    );
-    expect(refreshed?.workspaceId).toBe(session.workspaceId);
-    expect(refreshed?.refreshToken).not.toBe(session.refreshToken);
-    expect(refreshWorkspaceSession(db, session.refreshToken)).toBeNull();
+    expect(listUserDaemonGrantWorkspaceIds(db, member.userId)).toEqual(["ws_a"]);
+    expect(hubSessionAllowsRequest(db, member, "/")).toBe(true);
+    expect(hubSessionAllowsRequest(db, member, "/logout")).toBe(true);
+    expect(hubSessionAllowsRequest(db, member, "/spark/sessions")).toBe(true);
+    expect(hubSessionAllowsRequest(db, member, "/spark/sessions/sess_a")).toBe(true);
+    expect(hubSessionAllowsRequest(db, member, "/spark/sessions/sess_missing")).toBe(false);
+    expect(hubSessionAllowsRequest(db, member, "/spore/sessions")).toBe(false);
+    expect(hubSessionAllowsRequest(db, member, "/sessions")).toBe(false);
+    expect(hubSessionAllowsRequest(db, member, "/settings/models")).toBe(false);
+    expect(hubSessionAllowsRequest(db, member, "/api/v1/events")).toBe(true);
+    expect(hubSessionAllowsRequest(db, member, "/api/v1/sessions/sess_a/status")).toBe(true);
+    expect(hubSessionAllowsRequest(db, member, "/api/v1/sessions/sess_missing/status")).toBe(false);
+    expect(hubSessionAllowsRequest(db, member, "/api/v1/workspaces/ws_a/occupancy")).toBe(false);
+
+    expect(hubSessionAllowsRequest(db, owner, "/settings/models")).toBe(true);
+    expect(hubSessionAllowsRequest(db, owner, "/spore/sessions")).toBe(true);
     db.close();
   });
 
@@ -264,10 +408,9 @@ describe("remote access auth", () => {
     ).toBe(true);
   });
 
-  it("allows login, workspace login, PWA assets, and runtime bearer endpoints before auth", () => {
+  it("allows login, PWA assets, and runtime bearer endpoints before auth", () => {
     for (const path of [
       "/login",
-      "/spore/login",
       "/manifest.webmanifest",
       "/service-worker.js",
       "/icons/spark-maskable.svg",
@@ -284,17 +427,50 @@ describe("remote access auth", () => {
         publicPath: true,
       });
     }
-  });
-
-  it("classifies workbench data paths that need a workspace session", () => {
-    expect(isRemoteWorkspaceDataPath("/spark/sessions")).toBe(true);
-    expect(isRemoteWorkspaceDataPath("/spark/artifacts/a1")).toBe(true);
-    expect(isRemoteWorkspaceDataPath("/spark/settings")).toBe(false);
-    expect(isRemoteWorkspaceDataPath("/spark/login")).toBe(false);
-    expect(isRemoteWorkspaceDataPath("/settings/models")).toBe(false);
-    expect(isRemoteWorkspaceDataPath("/api/v1/sessions/s1/status")).toBe(true);
+    expect(
+      remoteAccessDecision({
+        url: new URL("http://spark.tailnet.test:5173/spore/login"),
+        clientAddress: "100.64.0.8",
+      }).required,
+    ).toBe(true);
   });
 });
+
+function seedUser(db: ReturnType<typeof openMemoryDatabase>, id: string, role: "owner" | "member") {
+  db.prepare(
+    `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
+     VALUES (?, NULL, ?, ?, 'active', ?, ?)`,
+  ).run(id, id, role, seedNow, seedNow);
+  return id;
+}
+
+function seedRuntime(db: ReturnType<typeof openMemoryDatabase>, runtimeId: string) {
+  db.prepare(
+    `INSERT INTO runtime_connections
+      (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'offline', '{}', '{}', ?, ?)`,
+  ).run(runtimeId, `install-${runtimeId}`, runtimeId, seedNow, seedNow);
+}
+
+function seedLeasedWorkspace(
+  db: ReturnType<typeof openMemoryDatabase>,
+  input: { workspaceId: string; slug: string; bindingId: string; runtimeId: string },
+) {
+  db.prepare(
+    `INSERT INTO workspaces (id, slug, name, status, settings_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'active', '{}', ?, ?)`,
+  ).run(input.workspaceId, input.slug, input.slug, seedNow, seedNow);
+  db.prepare(
+    `INSERT INTO runtime_workspace_bindings
+      (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'available', '{}', '{}', ?, ?)`,
+  ).run(input.bindingId, input.runtimeId, input.slug, input.slug, seedNow, seedNow);
+  db.prepare(
+    `INSERT INTO workspace_leases
+      (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, created_at)
+     VALUES (?, ?, ?, 'primary', ?, ?)`,
+  ).run(`lease_${input.bindingId}`, input.workspaceId, input.bindingId, seedNow, seedNow);
+}
 
 function createCookieCapture(expectedName: string) {
   const capture: {
@@ -312,4 +488,14 @@ function createCookieCapture(expectedName: string) {
   };
 
   return capture;
+}
+
+function expectOwnerAccessDenied(action: () => unknown) {
+  let thrown: unknown;
+  try {
+    action();
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toMatchObject({ status: 403 });
 }

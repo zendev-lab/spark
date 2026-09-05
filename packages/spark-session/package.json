@@ -24,15 +24,17 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-agent": "catalog:dsh",
     "@deepseek-ai/dsh-attachment-local": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
     "@deepseek-ai/dsh-session": "catalog:dsh",
-    "@zendev-lab/spark-core": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "catalog:dsh",
     "@zendev-lab/spark-daemon-client": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
+    "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
-    "@zendev-lab/spark-system": "workspace:^",
-    "@zendev-lab/spark-text": "workspace:^",
+    "@zendev-lab/spark-text-rendering": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {

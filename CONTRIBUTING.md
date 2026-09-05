@@ -38,7 +38,6 @@ supported packages.
 | `apps/spark-cli` | Native root parser, diagnostics, and companion process router |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
 | `apps/spark-web` | Local daemon browser workbench: every workspace bound to this daemon |
-| `apps/spark-web-dsh` | DeepSeek Harness-hosted Spark product workbench |
 | `apps/spark-hub` | Multi-daemon proxy, auth, registry, and management UI |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
@@ -63,7 +62,7 @@ and keep transports and presentation layers thin.
 | Domain | Authoritative owner |
 | --- | --- |
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
-| Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
+| Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-storage-sqlite` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
 | Product composition and host runtime | `apps/spark-daemon/src/product` |
 | Local daemon workbench | `apps/spark-web` via daemon-client |
@@ -116,8 +115,8 @@ the change:
 | Architecture exception non-growth against a Git revision | `pnpm run check:architecture-transition -- --base-ref <git-ref>` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
 | Write the gitignored architecture health JSON | `pnpm run report:architecture` |
-| Packed public product and clean installation | `pnpm run smoke` |
-| Release tarball and manifest | `pnpm run release:pack` |
+| Packed public product and clean installation (requires the [native release payloads](./.agents/notes/runbooks/releases.md#local-artifact-and-smoke-reproduction)) | `pnpm run smoke` |
+| Release tarballs and manifests (same native prerequisite) | `pnpm run release:pack` |
 | High and critical dependency advisories | `pnpm run audit` |
 | Advisory hygiene reports | `pnpm run report:hygiene` |
 
@@ -174,9 +173,8 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. The budget is closed at 41; the machine-readable inventory
-owns the current count and rationale. Raising or replacing that budget requires
-an architecture rationale and inventory change.
+boundary checks. The machine-readable inventory owns workspace-count limits and
+their rationale; do not duplicate those values in prose.
 
 ## Documentation ownership
 

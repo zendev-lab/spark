@@ -22,9 +22,9 @@ A2UI projection; Hub does not keep a second Repro store or schedule lane work.
 Summary shows status and counts first; working directory, model, session ID,
 and timestamps remain under Technical details.
 
-The TUI `/inspect` panel is only the current terminal session's local
-projection. Hub Web is the browser control surface across sessions and
-workspaces. Both submit execution to Spark daemons.
+The local Web workbench is a single-daemon browser surface. Hub Web spans
+registered daemons, sessions, and workspaces. Both submit execution to Spark
+daemons rather than owning it.
 
 ## Start Hub Web
 
@@ -72,24 +72,18 @@ updated independently on the machine where it runs.
 Loopback use follows the local owner flow. For a non-loopback Hub, prefer an
 encrypted private path such as Tailscale, WireGuard, or SSH forwarding.
 
-Mint a one-time Hub browser key on the Hub host:
+Mint a one-time Hub browser key on the Hub host. Every key names the daemons
+its session may reach, so members see exactly the workspaces those daemons own:
 
 ```bash
-spark hub access create
+spark hub access create --daemon <runtime-id>
 ```
 
-Exchange it at `/login`. Workspace-scoped browser access uses a separate
-one-time key:
-
-```bash
-spark hub workspace access create --workspace <id>
-```
-
-Exchange that key at `/{slug}/login`. If the browser already holds a different
-workspace-scoped session, opening an active workspace route redirects to that
-target login and returns to the original route after the key exchange. A browser
-cookie grants one workspace at a time, so use a separate profile or private
-window to keep parallel workspace sessions. Treat both keys as secrets.
+Repeat `--daemon` (or comma-separate ids) to cover several daemons, and add
+`--user <name>` to label the member the key creates. Exchange the key at
+`/login`. Owners keep full reach without a key-bound grant list: existing
+owners were granted every registered daemon when this model landed, and new
+daemons are granted to active owners at registration. Treat keys as secrets.
 Non-loopback access requires HTTPS unless you deliberately opt into insecure
 HTTP on a trusted private network.
 

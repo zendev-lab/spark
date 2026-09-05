@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
-import { setSparkSessionMode } from "@zendev-lab/spark-loop";
 import {
   parseSparkAssignment,
   parseSparkSessionState,
@@ -22,7 +21,6 @@ import {
   sparkSessionPromptHistoryRequestSchema,
   sparkSessionRetryTargetRequestSchema,
   sparkSessionRetryTargetSchema,
-  sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
   sparkSessionUnbindRequestSchema,
@@ -52,10 +50,11 @@ import {
   loadSparkSessionMediaChunk,
   loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
-  loadSparkSessionSnapshotTail,
+  loadSparkSessionSnapshotPage,
   SparkSessionRegistryError,
+  type LoadSparkSessionSnapshotInput,
 } from "@zendev-lab/spark-session";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSparkRoleRegistry,
   defaultProjectRoleModelSettingsStore,
@@ -112,7 +111,6 @@ export interface SparkDaemonSessionControlRequest {
     | "session.archive.request"
     | "session.restore.request"
     | "session.compact.request"
-    | "session.mode.set.request"
     | "session.close.request"
     | "turn.submit.request"
     | "turn.cancel.request"
@@ -204,16 +202,7 @@ export async function executeSparkDaemonSessionControl(
         session,
         activity: projectedSession.activity,
       };
-      const window = parsed.beforeMessageId
-        ? boundedSessionSnapshot(
-            projectPendingSessionTurns(options.db, await loadSparkSessionSnapshot(snapshotInput)),
-            parsed,
-          )
-        : await loadLatestSessionSnapshotWindow(
-            options.db,
-            snapshotInput,
-            parsed.messageLimit ?? defaultSessionSnapshotMessages,
-          );
+      const window = await loadSessionSnapshotWindow(options.db, snapshotInput, parsed);
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
     }
@@ -455,35 +444,6 @@ export async function executeSparkDaemonSessionControl(
       }
       return { result: publicObject(submitted), invocationId: submitted.invocationId };
     }
-    case "session.mode.set.request": {
-      const parsed = sparkSessionSetModeRequestSchema.parse({
-        ...request.payload,
-        sessionId: request.sessionId ?? request.payload.sessionId,
-      });
-      const session = await requireSession(options, parsed.sessionId, request);
-      assertOrdinarySessionVisible(session, true);
-      if (session.placement === "archived") {
-        throw new SparkSessionRegistryError(
-          "session_archived",
-          `cannot change mode for archived session: ${parsed.sessionId}`,
-        );
-      }
-      if (session.scope.kind !== "workspace") {
-        throw new SparkSessionRegistryError(
-          "invalid_scope",
-          "Session mode belongs to a workspace session.",
-        );
-      }
-      const cwd = resolveWorkspaceLocalPath(options.db, session.scope.workspaceId);
-      if (!cwd) {
-        throw new SparkSessionRegistryError(
-          "workspace_cwd_unavailable",
-          `Workspace ${session.scope.workspaceId} is unavailable for Session mode persistence.`,
-        );
-      }
-      const snapshot = await setSparkSessionMode(cwd, { sessionId: parsed.sessionId }, parsed.mode);
-      return { result: publicObject({ sessionId: parsed.sessionId, mode: snapshot.mode }) };
-    }
     case "turn.submit.request": {
       const parsed = parseTurnSubmitPayload(request.payload, request.sessionId);
       const session = options.sessionRegistry
@@ -518,6 +478,7 @@ export async function executeSparkDaemonSessionControl(
       // change can manufacture an idempotency conflict.
       const model = await effectiveTurnModel(options, parsed.sessionId, parsed.model);
       const thinkingLevel = await effectiveTurnThinkingLevel(options, parsed.sessionId);
+      const maxOutputTokens = await effectiveTurnMaxOutputTokens(options, parsed.sessionId);
       let submitted;
       let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
@@ -530,6 +491,7 @@ export async function executeSparkDaemonSessionControl(
             prompt: parsed.prompt,
             ...(model ? { model } : {}),
             ...(thinkingLevel ? { thinkingLevel } : {}),
+            ...(maxOutputTokens ? { maxOutputTokens } : {}),
             ...(parsed.reset !== undefined ? { reset: parsed.reset } : {}),
             ...(route.cwd ? { cwd: route.cwd } : {}),
             ...(request.workspaceBindingId
@@ -1135,7 +1097,12 @@ async function effectiveTurnModel(
     ) {
       throw new Error(`Invalid frozen Spark model: ${requestedModel}`);
     }
-    return requestedModel;
+    if (!options.modelControl) return requestedModel;
+    const validated = options.modelControl.validateModel
+      ? await options.modelControl.validateModel(modelRefFromSelector(requestedModel))
+      : modelRefFromSelector(requestedModel);
+    await options.modelControl.prepareModel(validated);
+    return `${validated.providerName}/${validated.modelId}`;
   }
   if (!options.modelControl) return undefined;
   const session = await options.sessionRegistry?.get(sessionId);
@@ -1158,6 +1125,9 @@ async function effectiveTurnModel(
     model = await inheritedSessionSetting(options.sessionRegistry, session, "model");
   }
   model ??= await options.modelControl.effectiveModel();
+  if (options.modelControl.validateModel) {
+    model = await options.modelControl.validateModel(model);
+  }
   await options.modelControl.prepareModel(model);
   return `${model.providerName}/${model.modelId}`;
 }
@@ -1175,7 +1145,18 @@ async function effectiveTurnThinkingLevel(
   );
 }
 
-async function inheritedSessionSetting<K extends "model" | "thinkingLevel">(
+async function effectiveTurnMaxOutputTokens(
+  options: SparkDaemonSessionControlOptions,
+  sessionId: string,
+): Promise<number | undefined> {
+  const session = await options.sessionRegistry?.get(sessionId);
+  return (
+    session?.maxOutputTokens ??
+    (await inheritedSessionSetting(options.sessionRegistry, session, "maxOutputTokens"))
+  );
+}
+
+async function inheritedSessionSetting<K extends "model" | "thinkingLevel" | "maxOutputTokens">(
   registry: DaemonSessionRegistry | undefined,
   session: SparkSessionState | undefined,
   setting: K,
@@ -1412,57 +1393,73 @@ function boundedTurnStreamPage(
   throw new Error("Invocation event exceeds the bounded runtime projection limit.");
 }
 
-function boundedSessionSnapshot(
-  snapshot: SparkSessionView,
+async function loadSessionSnapshotWindow(
+  db: DatabaseSync,
+  snapshotInput: LoadSparkSessionSnapshotInput,
   request: { messageLimit?: number; beforeMessageId?: string },
 ) {
-  const totalMessages = snapshot.messages.length;
-  const end = request.beforeMessageId
-    ? snapshot.messages.findIndex((message) => message.id === request.beforeMessageId)
-    : totalMessages;
-  if (end < 0) {
-    throw new SparkSessionRegistryError(
-      "session_snapshot_cursor_not_found",
-      `session snapshot cursor is no longer available: ${request.beforeMessageId}`,
-    );
+  const requestedLimit = request.messageLimit ?? defaultSessionSnapshotMessages;
+  let page;
+  try {
+    page = await loadSparkSessionSnapshotPage({
+      ...snapshotInput,
+      messageLimit: requestedLimit,
+      ...(request.beforeMessageId ? { beforeMessageId: request.beforeMessageId } : {}),
+    });
+  } catch (error) {
+    if (
+      request.beforeMessageId &&
+      error instanceof SparkSessionRegistryError &&
+      error.code === "session_snapshot_cursor_not_found"
+    ) {
+      return await loadPendingSessionSnapshotWindow(
+        db,
+        snapshotInput,
+        requestedLimit,
+        request.beforeMessageId,
+        error,
+      );
+    }
+    throw error;
   }
+  const projected = projectPendingSessionTurns(db, page.snapshot);
+  const pendingMessages = projected.messages.length - page.snapshot.messages.length;
+  const totalMessages = page.totalMessages + pendingMessages;
+  const snapshot = request.beforeMessageId
+    ? parseSparkSessionView({
+        ...projected,
+        messages: projected.messages.slice(0, page.snapshot.messages.length),
+      })
+    : projected;
   return boundedSessionSnapshotWindow(snapshot, {
     totalMessages,
-    availableStart: 0,
-    end,
-    requestedLimit: request.messageLimit ?? defaultSessionSnapshotMessages,
-  });
-}
-
-function boundedLatestSessionSnapshot(
-  snapshot: SparkSessionView,
-  totalMessages: number,
-  requestedLimit: number,
-) {
-  return boundedSessionSnapshotWindow(snapshot, {
-    totalMessages,
-    availableStart: Math.max(0, totalMessages - snapshot.messages.length),
-    end: totalMessages,
+    availableStart: page.startMessageIndex,
+    end: request.beforeMessageId ? page.endMessageIndex : totalMessages,
     requestedLimit,
   });
 }
 
-async function loadLatestSessionSnapshotWindow(
+async function loadPendingSessionSnapshotWindow(
   db: DatabaseSync,
-  snapshotInput: { sessionsRoot: string; session: SparkSessionState },
+  snapshotInput: LoadSparkSessionSnapshotInput,
   requestedLimit: number,
+  beforeMessageId: string,
+  cursorError: SparkSessionRegistryError,
 ) {
-  const tail = await loadSparkSessionSnapshotTail({
+  const page = await loadSparkSessionSnapshotPage({
     ...snapshotInput,
     messageLimit: requestedLimit,
   });
-  const snapshot = projectPendingSessionTurns(db, tail.snapshot);
-  const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
-  return boundedLatestSessionSnapshot(
-    snapshot,
-    tail.totalMessages + pendingMessages,
+  const snapshot = projectPendingSessionTurns(db, page.snapshot);
+  const cursorIndex = snapshot.messages.findIndex(({ id }) => id === beforeMessageId);
+  if (cursorIndex < 0) throw cursorError;
+  const pendingMessages = snapshot.messages.length - page.snapshot.messages.length;
+  return boundedSessionSnapshotWindow(snapshot, {
+    totalMessages: page.totalMessages + pendingMessages,
+    availableStart: page.startMessageIndex,
+    end: page.startMessageIndex + cursorIndex,
     requestedLimit,
-  );
+  });
 }
 
 function boundedSessionSnapshotWindow(

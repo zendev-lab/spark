@@ -10,25 +10,21 @@ without polluting the parent conversation.
 
 ## Basic flow
 
-Inside the native TUI:
+Open a conversation in Hub Web and choose **Side Thread** in the conversation
+header. If the child does not exist yet, choose **Open Side Thread**. Enter a
+bounded investigation prompt, such as “What assumptions does this module make
+about retries?”, then choose **Send investigation**.
 
-```text
-/btw show
-/btw ask What assumptions does this module make about retries?
-/btw handoff summary Add the retry finding to the parent context.
-```
-
-`show` creates or reuses the child and displays its generation, status, model,
-thinking level, pending work, and recent visible exchanges.
+The dialog shows the generation, status, effective model and thinking level,
+pending work, and recent visible exchanges. When a result belongs in the parent
+conversation, choose **Handoff summary** or **Handoff full transcript** and add
+optional instructions for how the parent should use it.
 
 ## Reset and configuration
 
-```text
-/btw reset contextual
-/btw reset tangent
-/btw model inherit
-/btw thinking high
-```
+Use **Reset generation** to select a contextual or tangent mode for the new
+generation. The dialog can also apply a child-specific provider, model, and
+thinking level; leave them empty to inherit the parent configuration.
 
 A reset closes the current child incarnation, seals its bounded close receipt,
 then starts a new Side Thread generation and Session incarnation under the

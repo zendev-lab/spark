@@ -117,6 +117,12 @@
     transform: rotate(180deg);
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .disclosure {
+      transition: none;
+    }
+  }
+
   .runtime-details {
     border-top: 1px solid var(--color-border-soft);
     display: grid;

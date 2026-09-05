@@ -25,8 +25,8 @@ import {
   DEFAULT_SPARK_ENABLED_MODEL_PATTERNS,
   mergeSparkProviderSpecs,
   normalizeSparkEnabledModelPatterns,
-} from "@zendev-lab/spark-llm/control";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-llm-providers/control";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   DEFAULT_SPARK_THINKING_LEVEL,
   sparkEnabledModelsWriteIntentSchema,
@@ -101,7 +101,10 @@ export async function saveSparkConfig(
   path: string = defaultSparkConfigPath(),
   options?: SparkConfigSaveOptions,
 ): Promise<void> {
-  const toWrite: SparkConfig = { ...config };
+  const toWrite: SparkConfig = {
+    ...config,
+    providers: mergeSparkProviderSpecs(config.providers),
+  };
   if (!hasExplicitEnabledModelsWriteIntent(options?.enabledModelsIntent)) {
     const diskEnabledModels = await readDiskEnabledModels(path);
     if (diskEnabledModels === undefined) delete toWrite.enabledModels;

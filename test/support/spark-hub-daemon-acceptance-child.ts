@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 
 import { startLocalRpcServer } from "../../apps/spark-daemon/src/local-rpc.ts";
 import { createDaemonSessionRegistry } from "../../apps/spark-daemon/src/session-registry.ts";

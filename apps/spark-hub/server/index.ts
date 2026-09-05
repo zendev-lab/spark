@@ -113,7 +113,7 @@ server.listen(port, host, () => {
   }
   if (host === "0.0.0.0" || publicUrl.mode !== "local") {
     console.log(
-      "Spark Hub remote browser access requires a Hub one-time key (/login), then a workspace key (/{slug}/login).",
+      "Spark Hub remote browser access requires a Hub one-time key at /login; its daemon grants determine workspace access.",
     );
   }
 });

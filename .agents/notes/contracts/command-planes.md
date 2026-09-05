@@ -31,7 +31,7 @@ second CLI catalog.
 | `spark` | n/a | native root CLI | root parsing, diagnostic rendering, companion routing, build-info, install/update policy, and deployment transitions | daemon execution, Hub coordination, Web, DSH, ACP/MCP semantics, or plugin composition |
 | `spark-daemon` | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous Loop timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
-| `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`fetch_content` |
+| `spark-web` | `spark web` | local daemon workbench | loopback UI for every workspace bound to this daemon | Hub UI, daemon execution, or `web_search`/`web_fetch` |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
 | slash `system` | n/a | interactive kernel command source | `/help`, `/exit`, `/quit`, `/clear` | project/task/goal/session/workflow commands |
@@ -63,7 +63,7 @@ session id and only connection-local active-invocation routing is retained.
 ## Boundary invariants
 
 - Every stateful domain has exactly one authoritative owner. The Hub modules in
-  `packages/spark-hub-coordination` and `packages/spark-hub-db` own
+  `packages/spark-hub-coordination` and `packages/spark-hub-storage-sqlite` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
   inventory `stateWriter: hub` records the canonical storage boundary, not a
@@ -99,10 +99,10 @@ session id and only connection-local active-invocation routing is retained.
 | --- | --- | --- |
 | Session registry/lifecycle, Invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, local web, Hub, ACP, channel transports |
 | autonomous goal/loop/repro/execute/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | local web, Hub, and compatible hosts send controls and render `loop.update` |
-| model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
+| model/tool turn execution and effect policy | daemon `product/host/agent-runtime` | daemon host runners provide Session and Invocation context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
-| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-db` | `spark-hub`; target daemon retains execution truth |
+| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-storage-sqlite` | `spark-hub`; target daemon retains execution truth |
 | local browser presentation and interaction | `apps/spark-web` behind `spark-web` / `spark-ui` boundaries | no durable business-state ownership |
 | product composition | `apps/spark-daemon/src/product` | daemon statically assembles host-neutral capabilities and supported DSH/Cordis plugins; no second facade owns behavior |
 
@@ -177,8 +177,8 @@ A **source app**, an **executable**, and a **distribution** are different axes:
 - an npm distribution is the minimal independently installable runtime closure
   for one deployment and trust domain.
 
-Spark publishes six lockstep product distributions plus four native CLI payload
-versions from the same monorepo and release tag:
+Spark publishes lockstep product distributions plus supported native CLI
+payloads from the same monorepo and release tag:
 
 | Distribution | Package | Executables | Deployment boundary |
 | --- | --- | --- | --- |
@@ -187,17 +187,16 @@ versions from the same monorepo and release tag:
 | Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
 | Spark Web | `@zendev-lab/spark-web` | `spark-web` | local daemon browser workbench; depends on the matching daemon package |
 | Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
-| Spark DSH Web | `@zendev-lab/spark-web-dsh` | `spark-web-dsh` | optional DSH compatibility workbench |
 
 The split does **not** move implementation ownership out of the private source
 workspaces or create another repository. Reusable behavior remains in private
 packages and is bundled into the executable app that owns the process.
 
-All six product distributions use the same semantic version and protocol compatibility
+All product distributions use the same semantic version and protocol compatibility
 contract in v0.x. `@zendev-lab/spark` keeps the full installation experience as
 a dependency-only meta package with a thin `spark` forwarder.
 `@zendev-lab/spark-cli` contains the native parser/router/updater, ACP/MCP
-adapters, and four exact platform payload aliases;
+adapters, and the supported platform payload aliases;
 it depends on exact-version app packages rather than embedding their assets. Each
 executable app package rejects the other apps' implementation assets and can be
 installed directly.
@@ -216,9 +215,10 @@ published artifacts.
 
 The distribution stage of `pnpm run check:static` validates the generated
 manifest inventory, app names, lockstep versions, exact dependency edges, and
-cross-distribution assets. `pnpm run smoke` installs all ten candidate tarballs,
+cross-distribution assets. `pnpm run smoke` installs the complete candidate tarball set
+declared in `scripts/npm-distributions.mjs`,
 checks the real CLI and complete meta installation, then exercises independent
-daemon, web, DSH, and Hub installations. `pnpm run release:pack` creates ten
+daemon, web, and Hub installations. `pnpm run release:pack` creates the inventory's
 immutable npm tarballs, bounded release manifests, and one checksum file. Only
 `.github/workflows/cd-publish.yml`, triggered by a version-matching tag, may
 publish those exact artifacts to npm and GitHub Releases; `main` and source

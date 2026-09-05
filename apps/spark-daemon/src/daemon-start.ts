@@ -8,7 +8,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { defaultSparkSessionsRoot } from "@zendev-lab/spark-session/transcript";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-platform-node";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import {
   readSparkDaemonConfig,
@@ -452,12 +452,14 @@ async function createPreparedDaemonRuntime(
   };
   const executionAttemptStore = new ExecutionAttemptStore(options.db);
   const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
+  let scheduler: SparkInvocationScheduler | null = null;
   const sendCtx = sessionAskDelivery.ctx;
   const subagentHost =
-    options.sessionRegistry && options.paths.sessionRuntimeDir && sendCtx
+    options.sessionRegistry && options.modelControl && options.paths.sessionRuntimeDir && sendCtx
       ? createSparkDaemonSubagentHost({
           db: options.db,
           registry: options.sessionRegistry,
+          modelControl: options.modelControl,
           sparkHome: options.paths.sessionRuntimeDir,
           send: async (request) => {
             const admitted = await admitSparkDaemonSessionSend(sendCtx, {
@@ -478,6 +480,13 @@ async function createPreparedDaemonRuntime(
                 ? { invocationId: admitted.submitted.invocationId }
                 : {}),
             };
+          },
+          cancel: (invocationId, reason) => {
+            if (scheduler?.cancel(invocationId, reason)) return;
+            new SparkInvocationStore(options.db).requestCancellation(invocationId, reason);
+          },
+          waitForSessionIdle: async (sessionId) => {
+            await scheduler?.waitForSessionIdle(sessionId);
           },
         })
       : undefined;
@@ -500,7 +509,7 @@ async function createPreparedDaemonRuntime(
     },
   );
   dshContext = cordisRoot.ctx;
-  const scheduler = createDaemonScheduler({
+  scheduler = createDaemonScheduler({
     options,
     runtimeSignal,
     admission,

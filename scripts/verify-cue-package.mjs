@@ -7,12 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const daemonRequire = createRequire(join(root, "apps", "spark-daemon", "package.json"));
-const webDshRequire = createRequire(join(root, "apps", "spark-web-dsh", "package.json"));
 const packageJsonPath = daemonRequire.resolve("@zendev-lab/cue/package.json");
-const webDshPackageJsonPath = webDshRequire.resolve("@zendev-lab/cue/package.json");
-if ((await realpath(packageJsonPath)) !== (await realpath(webDshPackageJsonPath))) {
-  throw new Error("daemon and web-dsh resolve different @zendev-lab/cue packages");
-}
 const packageDir = dirname(packageJsonPath);
 const manifest = JSON.parse(await readFile(packageJsonPath, "utf8"));
 const { cueSkillsRoot } = await import(

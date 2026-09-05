@@ -26,7 +26,7 @@ import {
   type SparkAskFlowResult,
 } from "@zendev-lab/spark-ask";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { EvidenceRef, JsonValue } from "@zendev-lab/spark-core";
+import type { EvidenceRef, JsonValue } from "@zendev-lab/spark-invocation";
 
 export const MIN_SPARK_ASK_OPTION_DESCRIPTION_LENGTH = 12;
 

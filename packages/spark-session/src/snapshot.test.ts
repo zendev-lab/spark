@@ -12,6 +12,7 @@ import {
   loadSparkSessionMediaChunk,
   loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
+  loadSparkSessionSnapshotPage,
   loadSparkSessionSnapshotTail,
   refreshSparkSessionSnapshotIndex,
   sparkSessionSnapshotIndexPath,
@@ -1255,7 +1256,7 @@ describe("loadSparkSessionSnapshot", () => {
     });
   });
 
-  it("uses an index hit to open only 32 entries from a 10,000-entry transcript", async () => {
+  it("uses a complete index hit to open only 32 entries from a 10,000-entry transcript", async () => {
     const fixture = await createLinearTranscript(10_000, "sess_large_tail");
     const refreshed = await refreshSparkSessionSnapshotIndex({
       sessionPath: fixture.transcriptPath,
@@ -1268,7 +1269,7 @@ describe("loadSparkSessionSnapshot", () => {
       messages: unknown[];
       totalMessages: number;
     };
-    expect(persistedIndex.messages).toHaveLength(200);
+    expect(persistedIndex.messages).toHaveLength(10_000);
     expect(persistedIndex.totalMessages).toBe(10_000);
 
     const startedAt = performance.now();
@@ -1290,7 +1291,7 @@ describe("loadSparkSessionSnapshot", () => {
       indexSaved: true,
       fullTranscriptRead: false,
     });
-    expect(tail.read.parsedTranscriptEntries).toBeLessThanOrEqual(32);
+    expect(tail.read.parsedTranscriptEntries).toBeLessThanOrEqual(33);
     expect(elapsedMs).toBeLessThan(1_000);
     console.log(
       "SPARK_SESSION_LAZY_SNAPSHOT_EVIDENCE",
@@ -1308,6 +1309,31 @@ describe("loadSparkSessionSnapshot", () => {
         elapsedMs: Number(elapsedMs.toFixed(2)),
       }),
     );
+  });
+
+  it("opens an arbitrary older page without reading the complete transcript", async () => {
+    const fixture = await createLinearTranscript(10_000, "sess_large_page");
+    await refreshSparkSessionSnapshotIndex({
+      sessionPath: fixture.transcriptPath,
+      sessionId: fixture.session.sessionId,
+    });
+
+    const page = await loadSparkSessionSnapshotPage({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 32,
+      beforeMessageId: "message-5000",
+      resolveGitBranch: async () => undefined,
+    });
+
+    expect(page.totalMessages).toBe(10_000);
+    expect(page.startMessageIndex).toBe(4_968);
+    expect(page.endMessageIndex).toBe(5_000);
+    expect(page.snapshot.messages).toHaveLength(32);
+    expect(page.snapshot.messages[0]?.id).toBe("message-4968");
+    expect(page.snapshot.messages.at(-1)?.id).toBe("message-4999");
+    expect(page.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
+    expect(page.read.parsedTranscriptEntries).toBeLessThanOrEqual(33);
   });
 
   it("rebuilds a missing snapshot index once and then uses the bounded hit path", async () => {
@@ -1331,6 +1357,46 @@ describe("loadSparkSessionSnapshot", () => {
       resolveGitBranch: async () => undefined,
     });
     expect(second.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
+  });
+
+  it("rebuilds a legacy tail-only index when an older cursor leaves its coverage", async () => {
+    const fixture = await createLinearTranscript(1_000, "sess_legacy_index");
+    await refreshSparkSessionSnapshotIndex({
+      sessionPath: fixture.transcriptPath,
+      sessionId: fixture.session.sessionId,
+    });
+    const indexPath = sparkSessionSnapshotIndexPath(fixture.transcriptPath);
+    const index = JSON.parse(await readFile(indexPath, "utf8")) as {
+      messages: unknown[];
+    };
+    index.messages = index.messages.slice(-200);
+    await writeFile(indexPath, `${JSON.stringify(index)}\n`, "utf8");
+
+    const rebuilt = await loadSparkSessionSnapshotPage({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      beforeMessageId: "message-100",
+      resolveGitBranch: async () => undefined,
+    });
+    expect(rebuilt.snapshot.messages.map(({ id }) => id)).toEqual(
+      Array.from({ length: 8 }, (_, offset) => `message-${offset + 92}`),
+    );
+    expect(rebuilt.read).toMatchObject({
+      indexStatus: "rebuilt",
+      rebuildReason: "legacy",
+      indexSaved: true,
+      fullTranscriptRead: true,
+    });
+
+    const indexed = await loadSparkSessionSnapshotPage({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      beforeMessageId: "message-100",
+      resolveGitBranch: async () => undefined,
+    });
+    expect(indexed.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
   });
 
   it("rebuilds a corrupt snapshot index without trusting its offsets", async () => {
@@ -1516,6 +1582,22 @@ describe("loadSparkSessionSnapshot", () => {
       indexStatus: "hit",
       parsedTranscriptEntries: 2,
       fullTranscriptRead: false,
+    });
+    const beforeInterrupted = await loadSparkSessionSnapshotPage({
+      sessionsRoot: root,
+      session: record("idle"),
+      activity: "idle",
+      messageLimit: 2,
+      beforeMessageId: "tool-result-final-leaf:missing-final-response",
+    });
+    expect(beforeInterrupted.snapshot.messages.map(({ id }) => id)).toEqual([
+      "assistant-tool-call",
+      "tool-result-final-leaf",
+    ]);
+    expect(beforeInterrupted).toMatchObject({
+      totalMessages: 4,
+      startMessageIndex: 1,
+      endMessageIndex: 3,
     });
   });
 

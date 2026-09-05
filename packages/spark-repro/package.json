@@ -21,8 +21,6 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-loop": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^"
   },
   "devDependencies": {

@@ -1,11 +1,11 @@
 import { Worker } from "node:worker_threads";
 
-import type { ExtensionRoleRunRequest, ExtensionRoleRunResult } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunRequest, ExtensionRoleRunResult } from "@zendev-lab/spark-invocation";
 import {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
   resolveSparkHeadlessExecutorSpecifier,
-} from "@zendev-lab/spark-system/headless-module";
+} from "@zendev-lab/spark-platform-node/headless-module";
 
 export const ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE =
   "host-provided native role executor was incompatible; Spark headless fallback failed";
@@ -19,7 +19,6 @@ interface IsolatedExecutorRequest {
   record: ExtensionRoleRunRequest["record"];
   cwd: string;
   timeoutMs: number;
-  mode?: ExtensionRoleRunRequest["mode"];
   requireStructuredOutcome?: boolean;
   sessionDir?: string;
   runName?: string;
@@ -194,7 +193,6 @@ export function serializeIsolatedExecutorRequest(
     record: { ...request.record },
     cwd: request.cwd,
     timeoutMs: request.timeoutMs,
-    mode: request.mode,
     requireStructuredOutcome: request.requireStructuredOutcome,
     sessionDir: request.sessionDir,
     runName: request.runName,

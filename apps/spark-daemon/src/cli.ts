@@ -18,9 +18,9 @@ import { DatabaseSync } from "node:sqlite";
 import { object, or } from "@optique/core/constructs";
 import { parse } from "@optique/core/parser";
 import { command, constant, passThrough } from "@optique/core/primitives";
-import { resolvePiAuthSourcePath } from "@zendev-lab/spark-llm/control";
+import { resolvePiAuthSourcePath } from "@zendev-lab/spark-llm-providers/control";
 import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
-import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   defaultSparkDaemonConfig,
   readSparkDaemonConfig,
@@ -157,6 +157,7 @@ const sparkDaemonCommandParser = or(
   ),
   or(
     command("model", object({ kind: constant("model" as const), argv: remainingArgv() })),
+    command("access", object({ kind: constant("access" as const), argv: remainingArgv() })),
     command("invocation", object({ kind: constant("invocation" as const), argv: remainingArgv() })),
     command("session", object({ kind: constant("session" as const), argv: remainingArgv() })),
     command("sessions", object({ kind: constant("sessions" as const), argv: remainingArgv() })),
@@ -256,6 +257,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       case "ask":
         return await daemonAsk(paths, classified.argv, io);
       case "model":
+      case "access":
       case "invocation":
       case "session":
       case "sessions":
@@ -1149,7 +1151,6 @@ async function registerWorkspaceCommand(
       `  server   ${added.serverUrl || "—"}\n` +
       profileTextLine(added.profile) +
       `  status   ${workspaceStatusLabel(added)}\n` +
-      (serverUrl ? workspaceAuthorizationText(added, serverUrl) : "") +
       (added.serverUrl
         ? `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`
         : `  note     Local daemon workspace. Hub projection is scheduled by daemon login/uplink.\n`),
@@ -1180,18 +1181,6 @@ function preflightWorkspaceRegistration(
   } finally {
     db.close();
   }
-}
-
-function workspaceAuthorizationText(workspace: SparkDaemonWorkspace, serverUrl: string): string {
-  const authorization = workspace.workspaceAuthorization;
-  if (!authorization) return "";
-  const loginUrl = new URL(`/${encodeURIComponent(authorization.workspaceSlug)}/login`, serverUrl);
-  return (
-    `  authorize ${loginUrl.toString()}\n` +
-    `  one-time ${authorization.oneTimeToken}\n` +
-    `  expires  ${authorization.expiresAt}\n` +
-    `  note     Additional browsers: spark hub workspace access create --workspace ${authorization.workspaceId}\n`
-  );
 }
 
 async function uplink(

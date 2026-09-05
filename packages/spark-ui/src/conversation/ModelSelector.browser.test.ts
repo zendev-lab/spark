@@ -24,6 +24,7 @@ describe("ModelSelector browser contract", () => {
         {
           id: "spark",
           label: "Spark",
+          brandIcon: "anthropic",
           options: [
             { value: "balanced", label: "Balanced" },
             { value: "frontier", label: "Frontier" },
@@ -35,6 +36,7 @@ describe("ModelSelector browser contract", () => {
     });
 
     await screen.getByRole("button", { name: "Model" }).click();
+    expect(document.querySelectorAll('svg[fill="currentColor"]')).toHaveLength(2);
     await screen.getByText("Frontier").click();
 
     expect(onCommit).toHaveBeenCalledOnce();

@@ -26,6 +26,7 @@ export function workspaceSessionRecord(input: {
   sessionPath?: string;
   model?: SparkModelRef;
   thinkingLevel?: SparkThinkingLevel;
+  maxOutputTokens?: number;
   createdAt?: string;
   updatedAt?: string;
 }): SparkSessionProjection {
@@ -62,6 +63,7 @@ export function workspaceSessionRecord(input: {
     ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+    ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
     createdAt: input.createdAt ?? defaultTimestamp,
     updatedAt: input.updatedAt ?? input.createdAt ?? defaultTimestamp,
   });
@@ -79,6 +81,7 @@ export async function createDaemonWorkspaceSession(
       roleBinding?: SparkSessionRoleBinding;
       cwd?: string;
       sessionPath?: string;
+      maxOutputTokens?: number;
     }): Promise<SparkSessionState>;
   },
   input: {
@@ -88,6 +91,7 @@ export async function createDaemonWorkspaceSession(
     roleBinding?: SparkSessionRoleBinding;
     cwd?: string;
     sessionPath?: string;
+    maxOutputTokens?: number;
   },
 ): Promise<SparkSessionState> {
   const administrator = await registry.ensureWorkspaceAdministrator(input.workspaceId);
@@ -100,5 +104,6 @@ export async function createDaemonWorkspaceSession(
     ...(input.roleBinding ? { roleBinding: input.roleBinding } : {}),
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
+    ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
   });
 }

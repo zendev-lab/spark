@@ -1,4 +1,7 @@
-import { isArtifactBody, type GitChangeArtifactBody } from "@zendev-lab/spark-artifacts";
+import {
+  isArtifactBody,
+  type GitChangeArtifactBody,
+} from "@zendev-lab/spark-artifacts/artifact-types";
 import type { GitChangePreviewModel } from "@zendev-lab/spark-ui/git-change";
 
 export function gitChangePreviewFromContentRef(

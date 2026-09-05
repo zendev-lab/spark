@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";

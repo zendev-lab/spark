@@ -361,6 +361,8 @@ const sparkSessionStateShape = {
   sessionPath: z.string().min(1).optional(),
   model: sparkModelRefSchema.optional(),
   thinkingLevel: sparkThinkingLevelSchema.optional(),
+  /** Per-request output ceiling frozen for this Session. */
+  maxOutputTokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   bindings: z.array(sparkSessionChannelBindingSchema),
   /** Searchable lifecycle labels. Archive tags remain after restore. */
   tags: z.array(sparkSessionTagSchema).max(64).optional(),
@@ -580,6 +582,10 @@ const sparkSessionCreateRequestBaseSchema = z
       .regex(/^artifact:.+/u)
       .optional(),
     sessionPath: z.string().trim().min(1).optional(),
+    /** Internal creation-time model profile; ordinary clients leave these unset. */
+    model: sparkModelRefSchema.optional(),
+    thinkingLevel: sparkThinkingLevelSchema.optional(),
+    maxOutputTokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     /** Internal Task scheduler binding; the daemon authors the typed lineage. */
     taskExecution: z
       .discriminatedUnion("originKind", [
@@ -629,6 +635,7 @@ export const sparkSessionForkRequestSchema = sparkManagedChildSessionRequestSche
 
 const sparkSessionListRequestBaseSchema = z
   .object({
+    callerSessionId: z.string().trim().min(1).optional(),
     includeArchived: z.boolean().optional(),
     parentSessionId: z.string().trim().min(1).optional(),
     query: z.string().trim().min(1).max(256).optional(),
@@ -723,6 +730,7 @@ export const sparkSessionInvocationReceiptSchema = z.object({
   effectiveRoleRevision: z.string().min(1).optional(),
   model: sparkModelRefSchema.optional(),
   thinkingLevel: sparkThinkingLevelSchema.optional(),
+  maxOutputTokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   toolPolicyDigest: z.string().min(1).optional(),
   authorizationSource: z
     .object({

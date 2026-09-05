@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { createId } from "@zendev-lab/spark-protocol";
-import { asciiSlug, gitCommand } from "@zendev-lab/spark-system";
+import { asciiSlug, gitCommand } from "@zendev-lab/spark-platform-node";
 import { parse, stringify } from "smol-toml";
 
 export const workspaceProfileSchemaVersion = "spark.profile/v1";

@@ -1,23 +1,23 @@
 import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
-import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
+import type { SparkHeadlessTokenUsageContext } from "./headless-loader.ts";
 import type {
   ExtensionRoleRunner,
   SparkSessionLeaseIdentity,
   ToolEffect,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type { SparkConfig } from "./config.ts";
-import type { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
+import type { SparkKeybindings } from "./keybindings.ts";
 import type { SparkModelSelector, SparkModelPicker } from "./model-selector.ts";
 import type { SparkHostModelRegistry } from "./model-registry.ts";
 import type { ProviderPluginLoadResult } from "./provider-plugin-loader.ts";
 import type { SparkPromptTemplateResolveResult } from "./prompt-templates.ts";
 import type { SparkProviderRegistry } from "./provider-registry.ts";
-import type { SparkHostRuntime, SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
+import type { SparkHostRuntime, SparkHostRuntimeOptions } from "./runtime.ts";
 import type { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type { SparkSkillResolver } from "@zendev-lab/spark-roles/skill-resolver";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";
-import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
+import type { SparkDshTurnRuntime } from "./agent-runtime/agent-loop.ts";
 import type { SparkAuthStore, SparkProviderAuthResolver } from "./auth.ts";
 export interface SparkCliHostDiagnostic {
   type: "warning" | "error";
@@ -76,6 +76,9 @@ export interface SparkCliHostServicesOptions {
   sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: SparkHostRuntimeOptions["channelBinding"];
   invocationId?: string;
+  invocationAttempt?: SparkHostRuntimeOptions["invocationAttempt"];
+  invocationRole?: SparkHostRuntimeOptions["invocationRole"];
+  driverAuthority?: SparkHostRuntimeOptions["driverAuthority"];
   taskExecutionScope?: SparkHostRuntimeOptions["taskExecutionScope"];
   /** Host-private test/bootstrap seam; never exposed to product capabilities or model tools. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
@@ -102,8 +105,9 @@ export interface SparkCliHostServicesOptions {
   modelPicker?: SparkModelPicker;
   systemPrompt?: string;
   noPromptTemplates?: boolean;
-  sessionMode?: "plan" | "execute" | "fleet";
   streamTimeoutMs?: number;
+  /** Per-request model output ceiling frozen by the daemon Session owner. */
+  maxOutputTokens?: number;
   streamIdleTimeoutMs?: number;
   toolTimeoutMs?: number;
   interactionTimeoutMs?: number;

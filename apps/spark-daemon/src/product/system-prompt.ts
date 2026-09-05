@@ -52,9 +52,9 @@ export const SPARK_CHANNEL_SESSION_EXECUTION_PROMPT = [
   "Message-platform sessions expose only a bounded safe tool surface: session, ask, context, and todo.",
   "Shell execution, file access, file mutation, role execution, assignment, workflow, model configuration, task/run control, evidence/artifact/memory/learning writes, and external network tools are unavailable.",
   'Use ask for context-specific clarification, decisions, approvals, or unblock questions; use delivery="blocking" when the current turn cannot continue without an answer and delivery="async" when a User ask should enter the Inbox. Address another Session with toSessionId; that Session answers with ask({ action: "answer" }).',
-  'Use session({ action: "list" }) to inspect Channel Sessions owned by this daemon, session({ action: "lookup", sessionId }) for a bounded peer projection, session({ action: "send", kind: "request", toSessionId, message }) to send one-way work to a Channel target (idle-only unless onActive=queue or interrupt), and session({ action: "wait", invocationId }) to poll that invocation.',
+  'Use session({ action: "list" }) and session({ action: "lookup", sessionId }) only for the current immutable Channel identity. Use session({ action: "wait", invocationId }) only for an invocation owned by that identity. Do not use session send for cross-identity coordination.',
   "Use todo for the current session checklist and context for bounded registered context.",
-  "Every session target must be a Channel Session owned by this daemon. Workspace Sessions are outside this surface and cannot be listed, read, or contacted. Do not use session spawn/fork/bind/unbind/archive.",
+  "Every session target must match this Session's exact daemon, adapter-account, and external identity. Other Channel identities and Workspace Sessions cannot be listed, read, contacted, waited on, or interrupted. Do not use session spawn/fork/bind/unbind/archive.",
 ].join(" ");
 
 export type SparkChannelSurface = {
@@ -108,4 +108,17 @@ export function renderAgentRuntimeContextPrompt(input: { cwd: string; now?: Date
     `Current working directory: ${cwd}`,
     "Default relative file/tool paths and bare directory listings to this working directory. Do not use the filesystem root (/) unless the user explicitly asks for it.",
   ].join("\n");
+}
+
+/**
+ * Join identity / surface / directive / skills sections into one system prompt.
+ * Empty sections are dropped; remaining sections are separated by a blank line.
+ */
+export function composeSparkSystemPrompt(
+  sections: ReadonlyArray<string | undefined | null>,
+): string {
+  return sections
+    .map((section) => section?.trim())
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }

@@ -23,9 +23,9 @@ import type {
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   SparkTaskExecutionScope,
-} from "@zendev-lab/spark-core";
-import { contentHash } from "@zendev-lab/spark-core";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+} from "@zendev-lab/spark-invocation";
+import { contentHash } from "@zendev-lab/spark-invocation";
+import { defaultTaskGraphStore, type TaskGraph, type TaskRun } from "@zendev-lab/spark-tasks";
 import {
   createDefaultRoleRegistry,
   defaultProjectRoleModelSettingsStore,
@@ -34,21 +34,22 @@ import {
   resolveRoleModelSetting,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
-import { validateChannelSessionWorkspace, type SparkPaths } from "@zendev-lab/spark-system";
+import { validateChannelSessionWorkspace, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   loadSparkHeadlessSessionModule,
   type CreateSparkHeadlessSessionCompactorFn,
   type CreateSparkHeadlessSessionExecutorFn,
   type SparkHeadlessSessionCompactor,
   type SparkHeadlessSessionExecutor,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
   renderSparkChannelSurfacePrompt,
+  composeSparkSystemPrompt,
 } from "../product/system-prompt.ts";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+
 import {
   refreshSparkSessionSnapshotIndex,
   SparkSessionRegistryError,
@@ -57,7 +58,7 @@ import {
   isSparkTurnRestartYieldError,
   type SparkDshTurnRuntime,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import {
   channelDeliveryFailureOutcome,
   channelDeliveryOutcomeUnknown,
@@ -67,8 +68,8 @@ import {
   resolveInfoflowCustomSystemPrompt,
   type ChannelReplyStream,
   type ChannelReplyTarget,
-} from "@zendev-lab/dsh-channels";
-import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
+import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channel-transports";
 import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
 import { loadDaemonGlobalChannelsConfig } from "../channels/config-migration.ts";
 import type {
@@ -718,10 +719,15 @@ async function withEffectiveTaskProfile(
     task.thinkingLevel ??
     sessionContext.session?.thinkingLevel ??
     (await inheritedSessionThinkingLevel(sessionContext.session, registry));
+  const maxOutputTokens =
+    task.maxOutputTokens ??
+    sessionContext.session?.maxOutputTokens ??
+    (await inheritedSessionMaxOutputTokens(sessionContext.session, registry));
   return {
     ...task,
     model: `${model.providerName}/${model.modelId}`,
     ...(thinkingLevel ? { thinkingLevel } : {}),
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
   };
 }
 
@@ -1163,6 +1169,9 @@ async function sessionExecutionIdentity(
   if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
     throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
   }
+  if (sessionContext.taskSession && !workspaceRoot) {
+    throw new Error("Task Session requires an authoritative workspace root");
+  }
   const taskExecutionScope =
     workspaceId && workspaceRoot && options.resolveSessionCwd && sessionContext.fleetWorker
       ? await resolveFleetExecutionScope({
@@ -1176,8 +1185,12 @@ async function sessionExecutionIdentity(
       : workspaceRoot && sessionContext.taskSession
         ? await resolveWorkspaceTaskExecutionScope({
             task,
+            workspaceId: sessionContext.workspaceId ?? task.workspaceId,
             workspaceRoot,
             executionSessionId: task.sessionId,
+            cwdArtifactRef: sessionContext.cwdArtifactRef,
+            resolveSessionCwd: options.resolveSessionCwd,
+            session: sessionContext.session,
           })
         : undefined;
   return {
@@ -1192,6 +1205,7 @@ async function sessionExecutionIdentity(
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
+    ...(task.maxOutputTokens ? { maxOutputTokens: task.maxOutputTokens } : {}),
     reset: task.reset,
     ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
   };
@@ -1289,13 +1303,21 @@ async function resolveFleetExecutionScope(input: {
 
 async function resolveWorkspaceTaskExecutionScope(input: {
   task: SparkDaemonSessionRunTask;
+  workspaceId?: string;
   workspaceRoot: string;
   executionSessionId: string;
+  cwdArtifactRef?: string;
+  resolveSessionCwd?: SparkDaemonTaskExecutorOptions["resolveSessionCwd"];
+  session?: SparkSessionState;
 }): Promise<SparkTaskExecutionScope | undefined> {
-  const request = fleetTaskRequestMetadata(input.task);
-  if (!request) return undefined;
   const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
   if (!graph) throw new Error("Task execution scope requires the owning Workspace TaskGraph");
+  const request =
+    fleetTaskRequestMetadata(input.task) ??
+    taskSessionRequestMetadata(input.session, graph, input.executionSessionId);
+  if (!request) {
+    throw new Error("Task Session lineage does not resolve to one authoritative TaskRun");
+  }
   const run = graph
     .runs(request.projectRef as ProjectRef)
     .find((candidate) => candidate.ref === request.runRef);
@@ -1304,22 +1326,100 @@ async function resolveWorkspaceTaskExecutionScope(input: {
     run.taskRef !== request.taskRef ||
     (run.execution.sessionId ?? run.execution.executionSessionId) !== input.executionSessionId ||
     run.execution.jobId !== request.jobId ||
-    run.execution.attempt !== request.attempt
+    run.execution.attempt !== request.attempt ||
+    !sessionOwnsTaskRun(input.session, run, input.executionSessionId)
   ) {
     throw new Error("Task invocation no longer matches its authoritative TaskRun binding");
   }
-  const policy = graph.getTask(run.taskRef).executionPolicy;
-  if (policy?.isolation !== "workspace") return undefined;
+  const task = graph.getTask(run.taskRef);
+  const policy = task.executionPolicy;
+  if (!policy) throw new Error(`Task ${task.ref} has no executionPolicy`);
+  const binding = taskExecutionBinding(request, run.execution.ownerSessionId);
+  if (policy.isolation === "readonly") {
+    return Object.freeze({
+      isolation: "readonly",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [],
+    });
+  }
+  if (policy.isolation === "workspace") {
+    return Object.freeze({
+      isolation: "workspace",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [input.workspaceRoot],
+    });
+  }
+  if (policy.isolation === "isolated_results") {
+    if (!safeFleetJobId(request.jobId)) throw new Error("Task isolated_results jobId is unsafe");
+    const requestedRoot = join(input.workspaceRoot, ".spark", "task-results", request.jobId);
+    mkdirSync(requestedRoot, { recursive: true });
+    return Object.freeze({
+      isolation: "isolated_results",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [],
+      resultsRoot: realpathSync(requestedRoot),
+    });
+  }
+
+  if (!input.workspaceId || !input.resolveSessionCwd) {
+    throw new Error("Task isolated_worktree requires daemon workspace path resolution");
+  }
+  const sessionArtifactRef = input.cwdArtifactRef?.startsWith("artifact:")
+    ? (input.cwdArtifactRef as ArtifactRef)
+    : undefined;
+  if (!sessionArtifactRef) {
+    throw new Error("Task isolated_worktree requires an attached Task Artifact");
+  }
+  const primaryArtifactRef = policy.worktreeTarget?.primaryArtifactRef ?? sessionArtifactRef;
+  const writableArtifactRefs = policy.worktreeTarget
+    ? [...new Set(policy.worktreeTarget.writableArtifactRefs)].sort()
+    : sessionArtifactRef
+      ? [sessionArtifactRef]
+      : [];
+  if (!primaryArtifactRef || writableArtifactRefs.length === 0) {
+    throw new Error("Task isolated_worktree requires an attached Task Artifact");
+  }
+  if (
+    sessionArtifactRef !== primaryArtifactRef ||
+    !writableArtifactRefs.includes(primaryArtifactRef) ||
+    writableArtifactRefs.some((ref) => !task.artifactRefs.includes(ref))
+  ) {
+    throw new Error("Task isolated_worktree Session target diverges from executionPolicy");
+  }
+  const writableRoots: string[] = [];
+  for (const ref of writableArtifactRefs) {
+    const resolved = await input.resolveSessionCwd({
+      workspaceId: input.workspaceId,
+      cwdArtifactRef: ref,
+      requireAttached: true,
+    });
+    if (resolved.cwdArtifactRef !== ref) {
+      throw new Error(`Task worktree target resolved to a different Artifact: ${ref}`);
+    }
+    writableRoots.push(resolved.cwd);
+  }
   return Object.freeze({
-    isolation: "workspace",
-    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
-    writableArtifactRefs: [],
-    writableRoots: [input.workspaceRoot],
+    isolation: "isolated_worktree",
+    binding,
+    primaryArtifactRef,
+    writableArtifactRefs,
+    writableRoots,
   });
 }
 
+interface TaskExecutionRequestMetadata {
+  projectRef: string;
+  taskRef: string;
+  runRef: string;
+  jobId: string;
+  attempt: number;
+}
+
 function taskExecutionBinding(
-  request: NonNullable<ReturnType<typeof fleetTaskRequestMetadata>>,
+  request: TaskExecutionRequestMetadata,
   ownerSessionId: string,
 ): NonNullable<SparkTaskExecutionScope["binding"]> {
   return {
@@ -1332,15 +1432,9 @@ function taskExecutionBinding(
   };
 }
 
-function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
-  | {
-      projectRef: string;
-      taskRef: string;
-      runRef: string;
-      jobId: string;
-      attempt: number;
-    }
-  | undefined {
+function fleetTaskRequestMetadata(
+  task: SparkDaemonSessionRunTask,
+): TaskExecutionRequestMetadata | undefined {
   const mail = recordValue(task.messageMetadata?.sessionMail);
   const payload = recordValue(mail?.requestPayload) ?? recordValue(task.messageMetadata);
   if (
@@ -1362,6 +1456,77 @@ function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
     jobId: payload.jobId,
     attempt: payload.attempt,
   };
+}
+
+function taskSessionRequestMetadata(
+  session: SparkSessionState | undefined,
+  graph: TaskGraph,
+  executionSessionId: string,
+): TaskExecutionRequestMetadata | undefined {
+  if (!session || session.lineage.kind !== "child") return undefined;
+  const origin = session.lineage.origin;
+  if (origin.kind !== "task_run" && origin.kind !== "task_revision") return undefined;
+  const candidates = graph
+    .runs(origin.projectRef as ProjectRef)
+    .filter(
+      (run) =>
+        run.taskRef === origin.taskRef &&
+        (run.execution?.sessionId ?? run.execution?.executionSessionId) === executionSessionId &&
+        sessionOwnsTaskRun(session, run, executionSessionId),
+    );
+  const run =
+    origin.kind === "task_run"
+      ? candidates.find((candidate) => candidate.ref === origin.runRef)
+      : currentTaskRevisionRun(candidates);
+  if (!run?.execution) return undefined;
+  return {
+    projectRef: run.projectRef,
+    taskRef: run.taskRef,
+    runRef: run.ref,
+    jobId: run.execution.jobId,
+    attempt: run.execution.attempt,
+  };
+}
+
+function currentTaskRevisionRun(candidates: TaskRun[]): TaskRun | undefined {
+  const active = candidates.filter(
+    (run) => run.status === "queued" || run.status === "running" || run.status === "blocked",
+  );
+  if (active.length > 1) return undefined;
+  if (active[0]) return active[0];
+  return [...candidates].sort(
+    (left, right) =>
+      (right.updatedAt ?? right.finishedAt ?? right.startedAt ?? "").localeCompare(
+        left.updatedAt ?? left.finishedAt ?? left.startedAt ?? "",
+      ) || right.ref.localeCompare(left.ref),
+  )[0];
+}
+
+function sessionOwnsTaskRun(
+  session: SparkSessionState | undefined,
+  run: TaskRun,
+  executionSessionId: string,
+): boolean {
+  if (!run.execution || !session || session.lineage.kind !== "child") return false;
+  const origin = session.lineage.origin;
+  if (origin.kind !== "task_run" && origin.kind !== "task_revision") return false;
+  if (
+    origin.projectRef !== run.projectRef ||
+    origin.taskRef !== run.taskRef ||
+    session.lineage.parentSessionId !== run.execution.ownerSessionId ||
+    origin.sessionGoalId !== run.execution.sessionGoalId ||
+    (run.execution.sessionId ?? run.execution.executionSessionId) !== executionSessionId
+  ) {
+    return false;
+  }
+  if (origin.kind === "task_run") {
+    return (
+      origin.runRef === run.ref &&
+      origin.jobId === run.execution.jobId &&
+      origin.attempt === run.execution.attempt
+    );
+  }
+  return run.execution.sessionLifetime === "task_revision";
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -1397,7 +1562,11 @@ function sessionExecutionPolicy(
   loop: SparkHostLoopContext | undefined,
   taskExecutionScope?: SparkTaskExecutionScope,
 ) {
-  const allowedTools = allowedToolsForSessionExecution(sessionContext, loop);
+  const loopAllowedTools =
+    sessionContext.surface !== "channel" && loop?.binding.workflowRunId && !loop.binding.reproId
+      ? ["workflow"]
+      : allowedToolsForSessionExecution(sessionContext, loop);
+  const allowedTools = taskScopedAllowedTools(loopAllowedTools, taskExecutionScope);
   return {
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
@@ -1414,14 +1583,38 @@ function sessionExecutionPolicy(
       ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(sessionContext.taskSession ? { mode: "execute" as const } : {}),
     ...(taskExecutionScope?.isolation === "readonly"
       ? { allowedToolEffects: ["read"] as const }
       : {}),
-    ...(sessionContext.surface !== "channel" && loop?.binding.workflowRunId && !loop.binding.reproId
-      ? { allowedTools: ["workflow"] }
+    ...(taskExecutionScope?.isolation === "isolated_worktree" ||
+    taskExecutionScope?.isolation === "isolated_results"
+      ? { allowedToolEffects: ["read", "network_read", "local_write"] as const }
       : {}),
   };
+}
+
+const READONLY_TASK_TOOLS = new Set(["read", "grep", "find", "context", "task_read"]);
+const ISOLATED_TASK_TOOLS = new Set([
+  ...READONLY_TASK_TOOLS,
+  "web_search",
+  "web_fetch",
+  "get_search_content",
+  "edit",
+  "write",
+]);
+
+function taskScopedAllowedTools(
+  allowedTools: string[] | undefined,
+  scope: SparkTaskExecutionScope | undefined,
+): string[] | undefined {
+  const ceiling =
+    scope?.isolation === "readonly"
+      ? READONLY_TASK_TOOLS
+      : scope?.isolation === "isolated_worktree" || scope?.isolation === "isolated_results"
+        ? ISOLATED_TASK_TOOLS
+        : undefined;
+  if (!ceiling) return allowedTools;
+  return (allowedTools ?? [...ceiling]).filter((tool) => ceiling.has(tool));
 }
 
 function allowedToolsForSessionExecution(
@@ -1628,6 +1821,16 @@ export async function executeSparkDaemonSessionRunTask(
       ? { requireStructuredOutcome: task.requireStructuredOutcome }
       : {}),
     invocationId: context.invocationId,
+    invocationAttempt: context.invocationAttempt,
+    ...(sessionContext.role
+      ? {
+          invocationRole: {
+            ref: sessionContext.role.ref,
+            id: sessionContext.role.id,
+            revision: sessionContext.role.revision,
+          },
+        }
+      : {}),
     ...(context.recordTokenUsage
       ? {
           tokenUsage: {
@@ -1985,6 +2188,22 @@ async function inheritedSessionThinkingLevel(
   return undefined;
 }
 
+async function inheritedSessionMaxOutputTokens(
+  session: SparkSessionState | undefined,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+) {
+  let current = session;
+  const visited = new Set<string>();
+  while (current) {
+    const supervisorId = sparkSessionParentId(current.lineage);
+    if (!supervisorId || visited.has(supervisorId)) return undefined;
+    visited.add(supervisorId);
+    current = await registry?.get?.(supervisorId);
+    if (current?.maxOutputTokens) return current.maxOutputTokens;
+  }
+  return undefined;
+}
+
 function recordInvocationReceiptContext(
   task: SparkDaemonSessionRunTask,
   context: SessionInvocationContext,
@@ -2014,6 +2233,7 @@ function recordInvocationReceiptContext(
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
+    ...(task.maxOutputTokens ? { maxOutputTokens: task.maxOutputTokens } : {}),
     toolPolicyDigest: contentHash(JSON.stringify(policy)),
     authorizationSource: {
       kind: invocation.parentInvocationId
@@ -2071,7 +2291,7 @@ async function systemPromptForChannelSession(
   if (sessionSurface !== "channel") return undefined;
   const reply = task.channelReply;
   if (!reply) {
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
     ]);
@@ -2091,7 +2311,7 @@ async function systemPromptForChannelSession(
 
   if (reply.adapter === "infoflow") {
     const infoflow = await loadInfoflowAdapterConfig(options, reply.adapterAccountIdentity);
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderInfoflowInternalSystemPrompt({
         ...(infoflow ? { config: infoflow } : {}),
@@ -2107,7 +2327,7 @@ async function systemPromptForChannelSession(
   if (reply.adapter === "qqbot") {
     const qqbot = await loadQqbotAdapterConfig(options, reply.adapterAccountIdentity);
     const custom = qqbot?.system_prompt?.trim();
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderSparkChannelSurfacePrompt({
         adapter: "qqbot",
@@ -2119,7 +2339,7 @@ async function systemPromptForChannelSession(
     ]);
   }
 
-  return composeAgentSystemPrompt([
+  return composeSparkSystemPrompt([
     DEFAULT_SPARK_IDENTITY_PROMPT,
     renderSparkChannelSurfacePrompt({
       adapter: reply.adapter ?? failIncompleteChannelBinding(),
@@ -2143,9 +2363,9 @@ async function systemPromptForSession(
   const channelPrompt = await systemPromptForChannelSession(task, options, sessionSurface);
   const rolePrompt = role?.systemPrompt;
   const sideThreadPrompt = sideThread ? SPARK_SIDE_THREAD_EXECUTION_PROMPT : undefined;
-  if (channelPrompt) return composeAgentSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
+  if (channelPrompt) return composeSparkSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
   if (rolePrompt || sideThreadPrompt) {
-    return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
+    return composeSparkSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
   }
   return undefined;
 }

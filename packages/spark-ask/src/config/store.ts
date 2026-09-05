@@ -10,7 +10,7 @@ import {
   type VersionedDataDiagnostic,
   type VersionedDataDiagnosticOptions,
 } from "@zendev-lab/spark-protocol/versioned-data";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import type { AskConfig, AskConfigStore } from "./schema.ts";
 

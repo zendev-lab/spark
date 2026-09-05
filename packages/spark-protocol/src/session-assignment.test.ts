@@ -12,6 +12,7 @@ import {
   sparkSessionCloseReceiptSchema,
   sparkSessionCompactRequestSchema,
   sparkSessionCreateRequestSchema,
+  sparkSessionInvocationReceiptSchema,
   sparkSessionListRequestSchema,
   sparkSessionUnbindRequestSchema,
 } from "./session-assignment.ts";
@@ -251,6 +252,45 @@ describe("session lineage protocol", () => {
     const { activity: _activity, lifetime: _lifetime, ...state } = projection;
     expect(parseSparkSessionState(state)).not.toHaveProperty("activity");
     expect(() => parseSparkSessionState(projection)).toThrow(/unrecognized_/u);
+  });
+
+  it("round-trips only positive output ceilings in Session state, create, and receipts", () => {
+    const projection = workspaceRecord(
+      { kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } },
+      { maxOutputTokens: 2_048 },
+    );
+    const { activity: _activity, lifetime: _lifetime, ...state } = projection;
+    expect(parseSparkSessionState(state)).toMatchObject({ maxOutputTokens: 2_048 });
+    expect(
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_test" },
+        supervisorSessionId: "sess_admin",
+        maxOutputTokens: 2_048,
+      }),
+    ).toMatchObject({ maxOutputTokens: 2_048 });
+    expect(
+      sparkSessionInvocationReceiptSchema.parse({
+        invocationId: "inv_test",
+        sessionId: "sess_test",
+        lifetime: "scoped",
+        originKind: "session",
+        maxOutputTokens: 2_048,
+        authorizationSource: { kind: "session" },
+        status: "queued",
+        createdAt: timestamps.createdAt,
+      }),
+    ).toMatchObject({ maxOutputTokens: 2_048 });
+
+    for (const maxOutputTokens of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => parseSparkSessionState({ ...state, maxOutputTokens })).toThrow();
+      expect(() =>
+        sparkSessionCreateRequestSchema.parse({
+          scope: { kind: "workspace", workspaceId: "ws_test" },
+          supervisorSessionId: "sess_admin",
+          maxOutputTokens,
+        }),
+      ).toThrow();
+    }
   });
 
   it("represents legacy daemon-global state only as a closed audit record", () => {

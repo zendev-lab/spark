@@ -1,4 +1,4 @@
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   type SparkAuthImportReport,
   type SparkAuthFlow,

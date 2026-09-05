@@ -5,7 +5,7 @@ import {
   stableId,
   type TaskRef,
   type ProjectRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   type WorkflowRunCompletionFollowUp,
   type WorkflowRunControlStatus,

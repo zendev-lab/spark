@@ -1,12 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 
+import { nowIso, type ProjectRef } from "@zendev-lab/spark-invocation";
 import {
-  nowIso,
   sparkWorkspaceStatePath,
-  type ProjectRef,
   type SparkStateRootContext,
-  type Task,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
+import { type Task } from "@zendev-lab/spark-tasks";
 import {
   defaultEvidenceStore,
   type EvidenceRecord,
@@ -14,8 +13,8 @@ import {
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
-import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
-import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";
+import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-task-runtime";
+import { sessionDirectoryNameForKey } from "@zendev-lab/spark-driver";
 
 export type SparkTaskClaimRecoveryReason =
   | "claim_expired"

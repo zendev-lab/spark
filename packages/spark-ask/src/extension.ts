@@ -1,4 +1,4 @@
-import type { SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
+import type { SparkHostAPI, ToolConfig } from "@zendev-lab/spark-invocation";
 
 import { registerSparkAskActionTool, type SparkAskDaemonRequest } from "./action-tool.ts";
 import { registerSparkAskFlowTool } from "./flow.ts";

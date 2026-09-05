@@ -7,7 +7,7 @@ import {
   revokeHubAccessToken,
   type HubAccessTokenSummary,
 } from "@zendev-lab/spark-hub-coordination/hub-access";
-import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 
 export type HubAccessOperation = "create" | "list" | "revoke";
 
@@ -16,6 +16,8 @@ export interface HubAccessCliCommand {
   databasePath?: string;
   label?: string;
   tokenId?: string;
+  daemons?: string[];
+  user?: string;
   json?: boolean;
 }
 
@@ -68,6 +70,11 @@ export async function handleHubAccessCliCommand(
   if (operation === "revoke" && !command.tokenId?.trim()) {
     throw new Error("spark hub access revoke requires --id <token-id>");
   }
+  if (operation === "create" && (command.daemons ?? []).length === 0) {
+    throw new Error(
+      "spark hub access create requires --daemon <runtime-id> (repeat or comma-separate for several daemons)",
+    );
+  }
 
   const databasePath = resolve(command.databasePath?.trim() || defaultDatabasePath());
   const db = openDatabase({ path: databasePath });
@@ -75,7 +82,7 @@ export async function handleHubAccessCliCommand(
     migrate(db);
     switch (operation) {
       case "create":
-        return createAccess(db, command.label);
+        return createAccess(db, command.label, command.daemons ?? [], command.user);
       case "list":
         return listAccess(db);
       case "revoke":
@@ -91,8 +98,15 @@ export async function handleHubAccessCliCommand(
   }
 }
 
-function createAccess(db: DatabaseSync, label?: string): HubAccessCreateResult {
+function createAccess(
+  db: DatabaseSync,
+  label: string | undefined,
+  daemons: string[],
+  user?: string,
+): HubAccessCreateResult {
   const created = createHubAccessToken(db, {
+    daemonIds: daemons,
+    memberName: user?.trim() || null,
     label: label?.trim() || "Hub browser access",
   });
   return {
@@ -111,6 +125,8 @@ function createAccess(db: DatabaseSync, label?: string): HubAccessCreateResult {
       `  token     ${created.token}\n` +
       `  expires   ${created.expiresAt}\n` +
       `  login     /login\n` +
+      `  daemons   ${created.daemonIds.join(", ")}\n` +
+      (created.memberName ? `  user      ${created.memberName}\n` : "") +
       `  id        ${created.id}\n`,
   };
 }
@@ -123,7 +139,10 @@ function listAccess(db: DatabaseSync): HubAccessListResult {
       : tokens
           .map((token) => {
             const state = token.revokedAt ? "revoked" : token.usedAt ? "used" : "active";
-            return `  ${token.id}  ${state}  expires ${token.expiresAt}${token.label ? `  ${token.label}` : ""}`;
+            const grants =
+              token.daemonIds.length > 0 ? `  daemons ${token.daemonIds.join(",")}` : "";
+            const member = token.memberName ? `  user ${token.memberName}` : "";
+            return `  ${token.id}  ${state}  expires ${token.expiresAt}${grants}${member}${token.label ? `  ${token.label}` : ""}`;
           })
           .join("\n") + "\n";
   return {

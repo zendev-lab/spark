@@ -109,47 +109,41 @@ test("spark hub help documents only the Web presentation lifecycle", () => {
   assert.doesNotMatch(help, /spark hub events watch/u);
 });
 
-test("parseSparkHubCliArgs routes workspace access under workspace access", () => {
+test("parseSparkHubCliArgs routes hub access with daemon grants", () => {
   assert.deepEqual(
     parseSparkHubCliArgs([
-      "workspace",
       "access",
       "create",
-      "--workspace",
-      "ws_11111111111141111111111111111111",
+      "--daemon",
+      "rt_1",
+      "--daemon",
+      "rt_2, rt_3",
+      "--user",
+      "reviewer",
       "--label",
       "browser",
       "--json",
     ]),
     {
-      resource: "workspace-access",
+      resource: "access",
       verb: "create",
       json: true,
-      workspaceRef: "ws_11111111111141111111111111111111",
       databasePath: undefined,
       label: "browser",
       tokenId: undefined,
+      daemons: ["rt_1", "rt_2", "rt_3"],
+      user: "reviewer",
     },
   );
-  assert.deepEqual(
-    parseSparkHubCliArgs([
-      "workspace",
-      "access",
-      "revoke",
-      "ws_11111111111141111111111111111111",
-      "watok_1",
-      "--json",
-    ]),
-    {
-      resource: "workspace-access",
-      verb: "revoke",
-      json: true,
-      workspaceRef: "ws_11111111111141111111111111111111",
-      databasePath: undefined,
-      label: undefined,
-      tokenId: "watok_1",
-    },
-  );
+  assert.deepEqual(parseSparkHubCliArgs(["access", "revoke", "hatok_1", "--json"]), {
+    resource: "access",
+    verb: "revoke",
+    json: true,
+    databasePath: undefined,
+    label: undefined,
+    tokenId: "hatok_1",
+    user: undefined,
+  });
 });
 
 test("spark hub status/project/task/goal/artifact/review/workflow expose stable JSON", async () => {

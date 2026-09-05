@@ -22,5 +22,10 @@ describe("ChannelSessionIcon component contract", () => {
     expect(body).toContain(entry.scopeClass);
     expect(body.match(/<svg/g)).toHaveLength(2);
     expect(body).toContain('aria-hidden="true"');
+    if (entry.adapter === "qqbot") {
+      expect(body).toContain('fill="currentColor"');
+    } else {
+      expect(body).not.toContain('fill="currentColor"');
+    }
   });
 });

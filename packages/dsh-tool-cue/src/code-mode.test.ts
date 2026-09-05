@@ -1,11 +1,11 @@
 import { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { WorkerThreadCodeRuntime } from "@deepseek-ai/dsh-code-runtime-worker-thread";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import { apply as ShellEnv } from "@deepseek-ai/dsh-shell-env";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, { RUN_CODE_NAME } from "@deepseek-ai/dsh-tools";
-import type { CueToolRuntime } from "@zendev-lab/spark-cue/operations";
+import type { CueToolRuntime } from "@zendev-lab/dsh-cue/operations";
 import { describe, expect, it, vi } from "vitest";
 import { registerCueToolDefinitions } from "./index.ts";
 
@@ -21,11 +21,11 @@ function agent(): Agent {
   } as unknown as Agent;
 }
 
-describe("DSH Code Mode contract", () => {
+describe("DSH PTC contract", () => {
   it("runs a real generated-SDK program over canonical discriminants and blocks direct calls", async () => {
     const ctx = new Context();
     await ctx.plugin(SystemPrompt, {});
-    await ctx.plugin(ToolRuntime, { mode: "code" });
+    await ctx.plugin(ToolRuntime, { mode: "ptc" });
     await ctx.plugin(WorkerThreadCodeRuntime, {});
     await ctx.plugin(ShellEnv, { dshHome: "/tmp/dsh-code-test" });
     Object.assign(ctx as unknown as Record<string, unknown>, {
@@ -55,7 +55,7 @@ describe("DSH Code Mode contract", () => {
 
     const direct = await ctx.tools.execute({
       signal,
-      callId: CallId("direct-1"),
+      callId: ToolCallId("direct-1"),
       name: "cue_exec",
       arguments: { command: "echo hello" },
       agent: callingAgent,
@@ -65,7 +65,7 @@ describe("DSH Code Mode contract", () => {
 
     const result = await ctx.tools.execute({
       signal,
-      callId: CallId("code-1"),
+      callId: ToolCallId("code-1"),
       name: RUN_CODE_NAME,
       arguments: {
         description: "Read canonical Cue execution fields",
@@ -82,7 +82,7 @@ describe("DSH Code Mode contract", () => {
       agent: callingAgent,
     });
     if (result.isError) {
-      throw new Error(`expected Code Mode success: ${JSON.stringify(result.content)}`);
+      throw new Error(`expected PTC success: ${JSON.stringify(result.content)}`);
     }
     expect(result.value).toMatchObject({
       result: { kind: "foreground", timedOut: false, exitCode: 0, stdout: "hello\n" },

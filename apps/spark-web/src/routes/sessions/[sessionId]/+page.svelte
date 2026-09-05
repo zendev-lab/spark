@@ -1,6 +1,18 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { goto } from "$app/navigation";
+  import {
+    brandIconForModelProvider,
+    Button,
+    ConfirmDialog,
+    Dialog,
+    Icon,
+    Input,
+    Notice,
+    Select,
+    type SelectGroup,
+  } from "@zendev-lab/spark-ui";
+  import { DialogClose, DialogTitle } from "@zendev-lab/spark-ui/headless";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
     ApprovalPart,
@@ -10,6 +22,7 @@
     ErrorPart,
     HumanInteractionPanel,
     ImagePart,
+    MessageActions,
     MessageShell,
     ModelSelector,
     NoticePart,
@@ -22,6 +35,7 @@
     ThinkingChainPart,
     ToolCallPart,
     visibleConversationParts,
+    visibleConversationPartText,
     type ConversationMessageView,
     type ConversationPartLabels,
     type SlashCommandSuggestion,
@@ -75,6 +89,8 @@
       : data.sessions,
   );
   let busySessionId = $state<string | undefined>();
+  let closeSessionOpen = $state(false);
+  let pendingCloseSession = $state<SparkSessionProjection | null>(null);
   let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
   let prompt = $state("");
@@ -96,7 +112,7 @@
     format: string;
     content: string;
   } | null>(null);
-  let artifactPreviewElement = $state<HTMLElement>();
+  let artifactPreviewOpen = $state(false);
   let artifactPreviewReturnFocus: HTMLElement | null = null;
   let askError = $state<string | null>(null);
   let askWaits = $state<PendingHumanInteraction[]>([]);
@@ -114,6 +130,10 @@
   let searchError = $state<string | null>(null);
   let searchRequestToken = 0;
   let revealSearchRequestToken = 0;
+  let conversationListOpen = $state(false);
+  let workDetailsOpen = $state(false);
+  let conversationSettingsOpen = $state(false);
+  let moreActionsOpen = $state(false);
   let shareHref = $state<string | null>(null);
   let sharing = $state(false);
   let memoryFeedbackBusy = $state("");
@@ -122,6 +142,16 @@
   let activeOwnerSessionId: string | undefined;
   let detachSessionEvents: (() => void) | undefined;
   const notifiedAskIds = new Set<string>();
+
+  function toggleConversationList() {
+    conversationListOpen = !conversationListOpen;
+    if (conversationListOpen) workDetailsOpen = false;
+  }
+
+  function toggleWorkDetails() {
+    workDetailsOpen = !workDetailsOpen;
+    if (workDetailsOpen) conversationListOpen = false;
+  }
 
   function ownsActionFeedback(ownerSessionId: string, requestToken: number): boolean {
     return (
@@ -175,6 +205,18 @@
       })),
     };
   });
+  let thinkingGroups = $derived.by((): SelectGroup[] => {
+    const actions = data.messages.shared.workbench.slashActions.actions as Record<string, string>;
+    return [
+      {
+        id: "thinking-levels",
+        options: sparkThinkingLevelOptions.map((level) => ({
+          value: level,
+          label: actions[`thinking-${level}`] ?? level,
+        })),
+      },
+    ];
+  });
   let messages = $derived(snapshot.messages.map(conversationMessageFromView));
   let activity = $derived(resolveSessionActivityState({ session: snapshot, projectedTurns: [] }));
   let currentSession = $derived(treeSessions.find((session) => session.sessionId === snapshot.sessionId));
@@ -212,6 +254,39 @@
     context: workbenchCopy.contextUsage,
   });
   const statusLabel = (status: string) => data.messages.shared.status[status] ?? status;
+
+  function actorLabel(item: ConversationMessageView) {
+    if (item.actor === "user") return copy.you;
+    if (item.actor === "spark") return copy.spark;
+    return item.senderLabel ?? copy.agent;
+  }
+
+  function formatMessageTimestamp(value: string) {
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) return value;
+    return new Intl.DateTimeFormat(data.locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(timestamp);
+  }
+
+  function errorPresentation(source: string) {
+    const value = source.trim();
+    const jsonStart = value.indexOf("{");
+    if (jsonStart < 0) return { message: value, code: undefined, details: undefined };
+
+    try {
+      const payload = JSON.parse(value.slice(jsonStart)) as { message?: unknown };
+      if (typeof payload.message !== "string" || !payload.message.trim()) {
+        return { message: value, code: undefined, details: undefined };
+      }
+      const prefix = value.slice(0, jsonStart).replace(/:\s*$/u, "").trim();
+      const code = /\(([^()]+)\)$/u.exec(prefix)?.[1];
+      return { message: payload.message.trim(), code, details: value };
+    } catch {
+      return { message: value, code: undefined, details: undefined };
+    }
+  }
 
   async function refreshAsks(sessionId = snapshot.sessionId) {
     const refreshToken = ++askRefreshToken;
@@ -256,6 +331,8 @@
     windowOverride = null;
     treeSessionsOverride = null;
     busySessionId = undefined;
+    closeSessionOpen = false;
+    pendingCloseSession = null;
     treeError = null;
     loadingEarlier = false;
     historyError = null;
@@ -265,6 +342,7 @@
     submitting = false;
     actionFeedback = null;
     artifactPreview = null;
+    artifactPreviewOpen = false;
     artifactPreviewRequestToken += 1;
     searchOpen = false;
     searchQuery = "";
@@ -307,10 +385,7 @@
   $effect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (artifactPreview) {
-        event.preventDefault();
-        void closeArtifactPreview();
-      } else if (searchOpen) {
+      if (searchOpen) {
         searchOpen = false;
       }
     };
@@ -454,6 +529,16 @@
       }
       return;
     }
+    if (name === "plan" || name === "execute" || name === "fleet") {
+      // One-shot directives are parsed by the daemon on the ordinary
+      // turn-submission channel; no separate RPC exists for them.
+      await webRpc("turn.submit", {
+        sessionId: ownerSessionId,
+        prompt: text,
+        messageMetadata: sparkWebTurnMessageMetadata(),
+      });
+      return;
+    }
     if (argument) {
       throw new Error(`/${name} does not accept free-form arguments in Spark Web.`);
     }
@@ -478,7 +563,8 @@
     };
     switch (action.intent) {
       case "model.select":
-        feedback("Use the model picker above the composer.");
+        conversationSettingsOpen = true;
+        feedback(copy.modelPickerHint);
         document.getElementById("spark-web-model")?.focus();
         return;
       case "thinking.select": {
@@ -490,7 +576,8 @@
           await setThinking(level as SparkThinkingLevel, ownerSessionId);
           feedback(`Thinking set to ${level}.`);
         } else {
-          feedback("Use the Thinking selector above the composer.");
+          conversationSettingsOpen = true;
+          feedback(copy.thinkingPickerHint);
         }
         return;
       }
@@ -554,20 +641,19 @@
       case "help.hotkeys":
         feedback("Composer: Cmd/Ctrl+Enter sends. Escape closes open dialogs. Tab moves through controls.");
         return;
-      case "mode.select":
-        if (
-          action.payload.mode !== "plan" &&
-          action.payload.mode !== "execute" &&
-          action.payload.mode !== "fleet"
-        ) {
-          throw new Error(copy.modeUnsupported);
+      case "directive.run": {
+        const directive = action.payload.directive;
+        if (directive !== "plan" && directive !== "execute" && directive !== "fleet") {
+          throw new Error(copy.directiveUnsupported);
         }
-        await webRpc("session.mode.set", {
+        await webRpc("turn.submit", {
           sessionId: ownerSessionId,
-          mode: action.payload.mode,
+          prompt: `/${directive}`,
+          messageMetadata: sparkWebTurnMessageMetadata(),
         });
-        feedback(`${copy.modeSet} ${action.payload.mode}.`);
+        feedback(`${copy.directiveIssued} /${directive}.`);
         return;
+      }
       case "goal.start":
       case "goal.restart":
       case "goal.stop":
@@ -739,11 +825,17 @@
       windowOverride = current;
       await tick();
       if (!ownsReveal()) return;
-      document.getElementById(messageId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document
+        .getElementById(messageId)
+        ?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
     } catch (error) {
       if (!ownsReveal()) return;
       searchError = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  function preferredScrollBehavior(): ScrollBehavior {
+    return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
   }
 
   async function createLocalShare() {
@@ -867,11 +959,6 @@
     invokeSessionControl(ownerSessionId, () => cancelTurn(invocationId));
   }
 
-  function retryCurrentTurn() {
-    const ownerSessionId = snapshot.sessionId;
-    invokeSessionControl(ownerSessionId, () => retryTurn(ownerSessionId));
-  }
-
   function changeThinkingLevel(thinkingLevel: SparkThinkingLevel) {
     const ownerSessionId = snapshot.sessionId;
     invokeSessionControl(ownerSessionId, () => setThinking(thinkingLevel, ownerSessionId));
@@ -909,13 +996,6 @@
   ) {
     if (busySessionId) return;
     const ownerSessionId = snapshot.sessionId;
-    if (
-      action === "close" &&
-      typeof globalThis.confirm === "function" &&
-      !globalThis.confirm(`Close ${session.name ?? session.sessionId}?`)
-    ) {
-      return;
-    }
     busySessionId = session.sessionId;
     treeError = null;
     try {
@@ -949,6 +1029,17 @@
         busySessionId = undefined;
       }
     }
+  }
+
+  function requestSessionClose(session: SparkSessionProjection) {
+    pendingCloseSession = session;
+    closeSessionOpen = true;
+  }
+
+  function confirmSessionClose() {
+    if (!pendingCloseSession) return;
+    closeSessionOpen = false;
+    void mutateSessionTree(pendingCloseSession, "close");
   }
 
   async function answerAsk(
@@ -1004,8 +1095,7 @@
         format: artifact?.format ?? "text",
         content,
       };
-      await tick();
-      artifactPreviewElement?.focus();
+      artifactPreviewOpen = true;
     } catch (error) {
       if (
         requestToken !== artifactPreviewRequestToken ||
@@ -1019,10 +1109,10 @@
     }
   }
 
-  async function closeArtifactPreview() {
+  function completeArtifactPreview(open: boolean) {
+    if (open) return;
     artifactPreview = null;
-    await tick();
-    artifactPreviewReturnFocus?.focus();
+    requestAnimationFrame(() => artifactPreviewReturnFocus?.focus());
   }
 
   function mediaHref(item: ConversationMessageView, contentIndex: number): string {
@@ -1033,6 +1123,7 @@
     data.catalog.providers.map((provider) => ({
       id: provider.providerName,
       label: provider.label,
+      brandIcon: brandIconForModelProvider(provider.providerName),
       options: provider.models.map((entry) => ({
         value: `${entry.model.providerName}/${entry.model.modelId}`,
         label: entry.model.modelLabel ?? entry.model.modelId,
@@ -1043,53 +1134,145 @@
 </script>
 
 {#snippet queueActions(item: { id: string })}
-  <button type="button" class="queue-remove" onclick={() => void cancelQueuedTurn(item.id)}>
+  <Button variant="ghost" size="compact" onclick={() => void cancelQueuedTurn(item.id)}>
     {copy.removeQueued}
-  </button>
+  </Button>
 {/snippet}
 
-<div class="workbench-shell">
-  <aside>
-    <SessionTree
-      sessions={treeSessions}
-      selectedSessionId={snapshot.sessionId}
-      includeArchived={true}
-      {busySessionId}
-      labels={copy.tree}
-      hrefFor={(sessionId) => `/sessions/${sessionId}`}
-      onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
-      onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
-      onClose={(session) => mutateSessionTree(session as SparkSessionProjection, "close")}
-    />
-    {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
-  </aside>
-  <section class="workbench">
-  <div class="session-actions" aria-label={copy.actions}>
-    <button type="button" onclick={() => (searchOpen = !searchOpen)}>{copy.searchHistory}</button>
-    <details>
-      <summary>{copy.export}</summary>
-      <div class="export-menu">
-        {#each ["jsonl", "json", "text", "html"] as format}
-          <a href={`/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/export?format=${format}`}>{format.toUpperCase()}</a>
-        {/each}
+<div
+  class="workbench-shell"
+  class:conversation-list-open={conversationListOpen}
+  class:work-details-open={workDetailsOpen}
+>
+  <aside id="conversation-list-panel" class="context-panel conversation-list-panel" hidden={!conversationListOpen}>
+    <header class="context-panel-header">
+      <strong>{copy.conversationList}</strong>
+      <div class="context-panel-header-actions">
+        <span class="context-panel-switch">
+          <Button variant="ghost" size="compact" ariaLabel={copy.openWorkDetails} onclick={toggleWorkDetails}>
+            <Icon name="workspace" size={15} />
+            <span>{copy.workDetails}</span>
+          </Button>
+        </span>
+        <Button variant="ghost" size="compact" ariaLabel={copy.closeConversationList} onclick={() => (conversationListOpen = false)}>
+          <Icon name="close" size={15} />
+        </Button>
       </div>
-    </details>
-    <button type="button" onclick={() => void createLocalShare()} disabled={sharing}>
-      {sharing ? copy.sharing : copy.localShare}
-    </button>
-    {#if shareHref}<a href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</a>{/if}
-  </div>
+    </header>
+    <div class="context-panel-body">
+      <SessionTree
+        sessions={treeSessions}
+        selectedSessionId={snapshot.sessionId}
+        includeArchived={true}
+        {busySessionId}
+        labels={copy.tree}
+        hrefFor={(sessionId) => `/sessions/${sessionId}`}
+        onArchive={(session) => mutateSessionTree(session as SparkSessionProjection, "archive")}
+        onRestore={(session) => mutateSessionTree(session as SparkSessionProjection, "restore")}
+        onClose={(session) => requestSessionClose(session as SparkSessionProjection)}
+      />
+      {#if treeError}<p class="tree-error" role="alert">{treeError}</p>{/if}
+    </div>
+  </aside>
+
+  <section class="workbench">
+  <header class="conversation-header">
+    <div class="conversation-identity">
+      <span>{copy.currentSession}</span>
+      <h1>{currentSession?.name ?? copy.tree.untitled}</h1>
+    </div>
+    <div class="conversation-view-controls" aria-label={copy.actions}>
+      <Button
+        variant="ghost"
+        size="compact"
+        ariaLabel={conversationListOpen ? copy.closeConversationList : copy.openConversationList}
+        ariaExpanded={conversationListOpen}
+        ariaControls="conversation-list-panel"
+        onclick={toggleConversationList}
+      >
+        <Icon name="message" size={15} />
+        <span>{copy.conversationList}</span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="compact"
+        ariaLabel={workDetailsOpen ? copy.closeWorkDetails : copy.openWorkDetails}
+        ariaExpanded={workDetailsOpen}
+        ariaControls="session-work-details"
+        onclick={toggleWorkDetails}
+      >
+        <Icon name="workspace" size={15} />
+        <span>{copy.workDetails}</span>
+      </Button>
+      <details class="conversation-settings" bind:open={conversationSettingsOpen}>
+        <summary><Icon name="settings" size={15} />{copy.conversationSettings}</summary>
+        <div class="conversation-settings-panel">
+          <ModelSelector
+            id="spark-web-model"
+            groups={modelGroups}
+            bind:value={modelValue}
+            label={copy.model}
+            title={copy.model}
+            description={copy.chooseModel}
+            placeholder={copy.selectModel}
+            searchPlaceholder={copy.searchModels}
+            emptyLabel={copy.noModels}
+            closeLabel={copy.close}
+            clearSearchLabel={copy.clear}
+            selectedLabel={copy.selected}
+            onCommit={commitModelValue}
+          />
+          <div class="thinking-control">
+            <span>{copy.thinking}</span>
+            <Select
+              id="spark-web-thinking"
+              value={snapshot.thinkingLevel ?? "high"}
+              groups={thinkingGroups}
+              label={copy.thinking}
+              compact
+              onValueChange={(value) => {
+                if ((sparkThinkingLevelOptions as readonly string[]).includes(value)) {
+                  changeThinkingLevel(value as SparkThinkingLevel);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </details>
+      <details class="more-actions" bind:open={moreActionsOpen}>
+        <summary><Icon name="menu" size={15} />{copy.moreActions}</summary>
+        <div class="more-actions-panel">
+          <Button variant="ghost" size="compact" onclick={() => { searchOpen = !searchOpen; moreActionsOpen = false; }}>
+            <Icon name="search" size={14} />{copy.searchHistory}
+          </Button>
+          <div class="export-actions">
+            <strong>{copy.export}</strong>
+            <div>
+              {#each ["jsonl", "json", "text", "html"] as format}
+                <a href={`/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/export?format=${format}`}>{format.toUpperCase()}</a>
+              {/each}
+            </div>
+          </div>
+          <Button variant="ghost" size="compact" onclick={() => void createLocalShare()} disabled={sharing}>
+            <Icon name="share" size={14} />
+            {sharing ? copy.sharing : copy.localShare}
+          </Button>
+          {#if shareHref}<Button variant="ghost" size="compact" href={shareHref} target="_blank" rel="noreferrer">{copy.openShare}</Button>{/if}
+        </div>
+      </details>
+    </div>
+  </header>
   {#if searchOpen}
     <section class="history-search" aria-label={copy.historySearchRegion}>
       <form onsubmit={(event) => void searchHistory(event)}>
         <label for="session-history-search">{copy.historySearchLabel}</label>
-        <div><input id="session-history-search" type="search" bind:value={searchQuery} required /><button type="submit" disabled={searching}>{searching ? data.messages.web.shell.searching : data.messages.web.shell.search}</button></div>
+        <div><Input id="session-history-search" type="search" bind:value={searchQuery} required /><Button type="submit" disabled={searching}>{searching ? data.messages.web.shell.searching : data.messages.web.shell.search}</Button></div>
       </form>
       {#if searchError}<p role="alert">{searchError}</p>{/if}
       {#if searchResults.length > 0}
         <ul>
           {#each searchResults as result (result.ref)}
-            <li><button type="button" onclick={() => void revealSearchMatch(result.messageId)}><strong>{result.role}</strong><span>{result.excerpt}</span></button></li>
+            <li><Button variant="ghost" onclick={() => void revealSearchMatch(result.messageId)}><strong>{result.role}</strong><span>{result.excerpt}</span></Button></li>
           {/each}
         </ul>
       {:else if searchQuery && !searching}
@@ -1099,107 +1282,127 @@
   {/if}
   {#if window.history.hasEarlierMessages}
     <div class="history-controls">
-      <button type="button" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
+      <Button variant="secondary" size="compact" onclick={() => void loadEarlier()} disabled={loadingEarlier}>
         {loadingEarlier ? copy.loadingEarlier : `${copy.loadEarlier} (${window.history.earlierMessages})`}
-      </button>
+      </Button>
       {#if historyError}<span role="alert">{historyError}</span>{/if}
     </div>
   {/if}
   <ConversationViewport label={copy.transcript} followKey={snapshot.updatedAt} jumpToLatestLabel={copy.jumpToLatest}>
     {#each messages as item (item.id)}
+      {@const copyableText = visibleConversationPartText(item.parts)}
       <MessageShell
         id={item.id}
         actor={item.actor}
-        actorLabel={item.actor}
+        actorLabel={actorLabel(item)}
         timestamp={item.timestamp}
-        relativeTime={item.timestamp}
+        relativeTime={formatMessageTimestamp(item.timestamp)}
         status={item.status}
+        statusLabel={item.status ? statusLabel(item.status) : undefined}
       >
-        {#each visibleConversationParts(item.parts) as part, partIndex (`${item.id}:${part.type}:${partIndex}`)}
-          {#if part.type === "text"}
-            {#if item.actor === "spark"}
-              <SafeMarkdown source={part.text} streaming={part.streaming} />
-            {:else}
-              <p>{part.text}</p>
+        {#snippet children()}
+          {#each visibleConversationParts(item.parts) as part, partIndex (`${item.id}:${part.type}:${partIndex}`)}
+            {#if part.type === "text"}
+              {#if item.status === "error"}
+                {@const error = errorPresentation(part.text)}
+                <ErrorPart title={statusLabel("error")} message={error.message} code={error.code} />
+                {#if error.details}
+                  <details class="message-error-details">
+                    <summary>{data.messages.web.invocation.technicalDetails}</summary>
+                    <pre>{error.details}</pre>
+                  </details>
+                {/if}
+              {:else}
+                <SafeMarkdown source={part.text} streaming={part.streaming} />
+              {/if}
+            {:else if part.type === "image"}
+              <ImagePart
+                sessionId={snapshot.sessionId}
+                messageId={item.sourceMessageId ?? item.id}
+                contentIndex={part.contentIndex}
+                mediaType={part.mediaType}
+                name={part.name}
+                mediaHref={mediaHref(item, part.contentIndex)}
+              />
+            {:else if part.type === "reasoning" || part.type === "commentary"}
+              <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
+            {:else if part.type === "chain"}
+              <ThinkingChainPart
+                state={part.state}
+                steps={part.steps}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "tool"}
+              <ToolCallPart
+                callId={part.callId}
+                name={part.name}
+                state={part.state}
+                summary={part.summary}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "task"}
+              <TaskRunPart
+                taskRef={part.taskRef}
+                title={part.title}
+                state={part.state}
+                summary={part.summary}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "approval"}
+              <ApprovalPart
+                requestId={part.requestId}
+                title={part.title}
+                state={part.state}
+                kind={part.kind}
+                summary={part.summary}
+                labels={partLabels}
+                {statusLabel}
+              />
+            {:else if part.type === "artifact"}
+              <ArtifactPart
+                artifactRef={part.artifactRef}
+                title={part.title}
+                kind={part.kind}
+                state={part.state}
+                summary={part.summary}
+                previewHref={part.previewHref}
+                previewLabel={partLabels.expand}
+                {statusLabel}
+              />
+            {:else if part.type === "error"}
+              <ErrorPart title={part.title} message={part.message} code={part.code} />
+            {:else if part.type === "notice"}
+              <NoticePart title={partLabels.budgetExhausted} message={partLabels.budgetExhaustedHint} />
+            {:else if part.type === "quote"}
+              <blockquote>{part.text}</blockquote>
+            {:else if part.type === "runtime"}
+              <p>{partLabels.runtimeControl}: {part.request}</p>
+            {:else if part.type === "unknown"}
+              <p>{partLabels.unknown}: {part.label}</p>
             {/if}
-          {:else if part.type === "image"}
-            <ImagePart
-              sessionId={snapshot.sessionId}
-              messageId={item.sourceMessageId ?? item.id}
-              contentIndex={part.contentIndex}
-              mediaType={part.mediaType}
-              name={part.name}
-              mediaHref={mediaHref(item, part.contentIndex)}
-            />
-          {:else if part.type === "reasoning" || part.type === "commentary"}
-            <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
-          {:else if part.type === "chain"}
-            <ThinkingChainPart
-              state={part.state}
-              steps={part.steps}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "tool"}
-            <ToolCallPart
-              callId={part.callId}
-              name={part.name}
-              state={part.state}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "task"}
-            <TaskRunPart
-              taskRef={part.taskRef}
-              title={part.title}
-              state={part.state}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "approval"}
-            <ApprovalPart
-              requestId={part.requestId}
-              title={part.title}
-              state={part.state}
-              kind={part.kind}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "artifact"}
-            <ArtifactPart
-              artifactRef={part.artifactRef}
-              title={part.title}
-              kind={part.kind}
-              state={part.state}
-              summary={part.summary}
-              previewHref={part.previewHref}
-              previewLabel={partLabels.expand}
-              {statusLabel}
-            />
-          {:else if part.type === "error"}
-            <ErrorPart title={part.title} message={part.message} code={part.code} />
-          {:else if part.type === "notice"}
-            <NoticePart title={partLabels.budgetExhausted} message={partLabels.budgetExhaustedHint} />
-          {:else if part.type === "quote"}
-            <blockquote>{part.text}</blockquote>
-          {:else if part.type === "runtime"}
-            <p>{partLabels.runtimeControl}: {part.request}</p>
-          {:else if part.type === "unknown"}
-            <p>{partLabels.unknown}: {part.label}</p>
+          {/each}
+          {#if memoryRefsInMessage(item).length > 0}
+            <div class="memory-feedback">
+              {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
+                <code>{memoryRef}</code>
+                <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}><Icon name="thumbs-up" size={14} /></Button>
+                <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}><Icon name="thumbs-down" size={14} /></Button>
+              {/each}
+            </div>
           {/if}
-        {/each}
-        {#if memoryRefsInMessage(item).length > 0}
-          <div class="memory-feedback">
-            {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
-              <code>{memoryRef}</code>
-              <button type="button" aria-label={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}>👍</button>
-              <button type="button" aria-label={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}>👎</button>
-            {/each}
-          </div>
-        {/if}
+        {/snippet}
+        {#snippet actions()}
+          {#if copyableText}
+            <MessageActions
+              text={copyableText}
+              copyLabel={copy.copyMessage}
+              copiedLabel={copy.copiedMessage}
+            />
+          {/if}
+        {/snippet}
       </MessageShell>
     {/each}
   </ConversationViewport>
@@ -1211,7 +1414,7 @@
     actions={queueActions}
   />
 
-  {#if askError}<p class="error" role="alert">{askError}</p>{/if}
+  {#if askError}<Notice tone="danger" message={askError} />{/if}
   {#if askWaits.length > 0}
     <section class="asks">
       {#each askWaits as wait (wait.interactionRequestId)}
@@ -1230,6 +1433,7 @@
   <form onsubmit={(event) => void submitPrompt(event)}>
     <Composer
       id="spark-web-composer"
+      rows={2}
       bind:value={prompt}
       placeholder={copy.prompt}
       submitLabel={copy.send}
@@ -1243,58 +1447,13 @@
           {#each pendingAttachments as attachment, index (`${attachment.name}:${attachment.size}:${index}`)}
             <span>
               {attachment.name} · {Math.ceil(attachment.size / 1024)} KiB
-              <button type="button" aria-label={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+              <Button variant="ghost" size="compact" ariaLabel={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}><Icon name="close" size={13} /></Button>
             </span>
           {/each}
           {#if attachmentError}<span class="attachment-error" role="alert">{attachmentError}</span>{/if}
         </div>
       {/snippet}
       {#snippet actions()}
-        <label class="attach-button">
-          <span>{copy.addFiles}</span>
-          <input type="file" multiple onchange={(event) => void addAttachments(event)} />
-        </label>
-      {/snippet}
-      {#snippet header()}
-        <div class="controls">
-          <ModelSelector
-            id="spark-web-model"
-            groups={modelGroups}
-            bind:value={modelValue}
-            label={copy.model}
-            title={copy.model}
-            description={copy.chooseModel}
-            placeholder={copy.selectModel}
-            searchPlaceholder={copy.searchModels}
-            emptyLabel={copy.noModels}
-            closeLabel={copy.close}
-            clearSearchLabel={copy.clear}
-            selectedLabel={copy.selected}
-            onCommit={commitModelValue}
-          />
-          <button type="button" onclick={stopCurrentTurn} disabled={!activity.runningTurnId}>
-            {copy.stop}
-          </button>
-          <button type="button" onclick={retryCurrentTurn}>{copy.retry}</button>
-          <label>
-            {copy.thinking}
-            <select
-              value={snapshot.thinkingLevel ?? "high"}
-              onchange={(event) => {
-                const value = (event.currentTarget as HTMLSelectElement).value as SparkThinkingLevel;
-                if ((sparkThinkingLevelOptions as readonly string[]).includes(value)) {
-                  changeThinkingLevel(value);
-                }
-              }}
-            >
-              {#each sparkThinkingLevelOptions as level (level)}
-                <option value={level}>{level}</option>
-              {/each}
-            </select>
-          </label>
-        </div>
-      {/snippet}
-      {#snippet tools()}
         {#if slashActionBar}
           <SlashActionBar
             view={slashActionBar}
@@ -1313,12 +1472,28 @@
           />
         {/if}
       {/snippet}
+      {#snippet tools()}
+        <label class="attach-button">
+          <Icon name="file" size={14} />
+          <span>{copy.addFiles}</span>
+          <input type="file" multiple onchange={(event) => void addAttachments(event)} />
+        </label>
+        {#if activity.runningTurnId}
+          <Button
+            type="button"
+            variant="danger"
+            size="compact"
+            onclick={stopCurrentTurn}
+          >
+            <Icon name="stop" size={13} />
+            {copy.stop}
+          </Button>
+        {/if}
+      {/snippet}
     </Composer>
   </form>
   {#if actionFeedback}
-    <p class:action-error={actionFeedback.tone === "error"} class="action-feedback" role={actionFeedback.tone === "error" ? "alert" : "status"}>
-      {actionFeedback.message}
-    </p>
+    <Notice tone={actionFeedback.tone === "error" ? "danger" : "success"} message={actionFeedback.message} />
   {/if}
 
   <SessionStatusBar
@@ -1329,91 +1504,285 @@
     outputTokens={snapshot.usage?.outputTokens}
   />
   </section>
-  <SessionWorkPanel
-    {snapshot}
-    labels={copy.work}
-    onOpenArtifact={currentWorkspaceId ? openArtifact : undefined}
-  />
+  <aside id="session-work-details" class="context-panel work-details-panel" hidden={!workDetailsOpen}>
+    <header class="context-panel-header">
+      <strong>{copy.workDetails}</strong>
+      <div class="context-panel-header-actions">
+        <span class="context-panel-switch">
+          <Button variant="ghost" size="compact" ariaLabel={copy.openConversationList} onclick={toggleConversationList}>
+            <Icon name="message" size={15} />
+            <span>{copy.conversationList}</span>
+          </Button>
+        </span>
+        <Button variant="ghost" size="compact" ariaLabel={copy.closeWorkDetails} onclick={() => (workDetailsOpen = false)}>
+          <Icon name="close" size={15} />
+        </Button>
+      </div>
+    </header>
+    <SessionWorkPanel
+      {snapshot}
+      labels={copy.work}
+      onOpenArtifact={currentWorkspaceId ? openArtifact : undefined}
+    />
+  </aside>
 </div>
 
-{#if artifactPreview}
-  <div class="preview-backdrop" role="presentation">
-    <div bind:this={artifactPreviewElement} class="artifact-preview" role="dialog" aria-modal="true" tabindex="-1" aria-label={`Artifact preview: ${artifactPreview.title}`}>
+<ConfirmDialog
+  bind:open={closeSessionOpen}
+  title={copy.closeSessionTitle}
+  description={copy.closeSessionDescription.replace(
+    "{name}",
+    pendingCloseSession?.name ?? pendingCloseSession?.sessionId ?? copy.tree.untitled,
+  )}
+  confirmLabel={copy.confirmCloseSession}
+  cancelLabel={copy.cancelCloseSession}
+  danger
+  onConfirm={confirmSessionClose}
+/>
+
+<Dialog bind:open={artifactPreviewOpen} width="min(900px, calc(100vw - 32px))" maxHeight="min(820px, calc(100dvh - 32px))" layout="grid" overflow="hidden" mobile="sheet" onOpenChangeComplete={completeArtifactPreview}>
+  {#if artifactPreview}
+    <section class="artifact-preview" aria-label={`Artifact preview: ${artifactPreview.title}`}>
       <header>
-        <div><strong>{artifactPreview.title}</strong><code>{artifactPreview.ref}</code></div>
-        <button type="button" onclick={() => void closeArtifactPreview()}>{copy.close}</button>
+        <div><DialogTitle class="artifact-title">{artifactPreview.title}</DialogTitle><code>{artifactPreview.ref}</code></div>
+        <DialogClose class="artifact-close" aria-label={copy.close}><Icon name="close" size={17} /></DialogClose>
       </header>
       {#if artifactPreview.format === "markdown"}
         <SafeMarkdown source={artifactPreview.content} />
       {:else}
         <pre>{artifactPreview.content}</pre>
       {/if}
-    </div>
-  </div>
-{/if}
+    </section>
+  {/if}
+</Dialog>
 
 <style>
   .workbench-shell {
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 340px);
-    height: calc(100vh - 53px);
+    grid-template-columns: minmax(0, 1fr);
+    height: calc(100dvh - 53px);
     min-height: 0;
   }
-  aside {
+
+  .workbench-shell.conversation-list-open {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .workbench-shell.work-details-open {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 370px);
+  }
+
+  .context-panel {
     background: var(--color-surface);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .context-panel[hidden] {
+    display: none;
+  }
+
+  .conversation-list-panel {
     border-right: 1px solid var(--color-border);
+  }
+
+  .work-details-panel {
+    border-left: 1px solid var(--color-border);
+  }
+
+  .context-panel-header {
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    min-height: 52px;
+    padding: 8px 10px 8px 14px;
+  }
+
+  .context-panel-header strong {
+    font-size: var(--text-body);
+  }
+
+  .context-panel-header-actions {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+  }
+
+  .context-panel-switch {
+    display: none;
+  }
+
+  .context-panel-body {
     min-height: 0;
     overflow: auto;
     padding: 12px;
   }
+
+  :global(.work-details-panel .session-work-panel) {
+    border-left: 0;
+  }
+
   .tree-error {
     color: var(--color-danger);
     font-size: var(--text-caption);
   }
+
   .workbench {
-    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 12px;
+    margin-inline: auto;
+    max-width: 1040px;
+    min-height: 0;
+    padding: 0 clamp(12px, 3vw, 32px) 12px;
+    width: 100%;
   }
-  .session-actions {
+
+  .conversation-header {
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--spacing-lg);
+    justify-content: space-between;
+    min-height: 60px;
+    padding: 8px 0;
+  }
+
+  .conversation-identity {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .conversation-identity span {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .conversation-identity h1 {
+    font-size: var(--text-card-title);
+    font-weight: var(--weight-section-title);
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .conversation-view-controls {
     align-items: center;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--spacing-xs);
+    min-width: 0;
   }
-  .session-actions button,
-  .session-actions summary,
-  .session-actions a,
-  .queue-remove,
-  .attach-button {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
-    color: var(--color-ink);
-    cursor: pointer;
-    font: inherit;
-    padding: 5px 8px;
-    text-decoration: none;
-  }
-  .session-actions details {
+
+  .conversation-view-controls details {
     position: relative;
   }
-  .session-actions summary {
-    list-style: none;
-  }
-  .export-menu {
+
+  .conversation-view-controls summary,
+  .attach-button {
+    align-items: center;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
-    box-shadow: var(--shadow-card-raised);
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-size: var(--text-caption);
+    font-weight: var(--weight-button);
+    gap: 6px;
+    min-height: var(--control-height-compact);
+    padding: 5px 10px;
+    text-decoration: none;
+  }
+
+  .conversation-view-controls summary {
+    list-style: none;
+  }
+
+  .conversation-view-controls summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .conversation-view-controls summary:hover,
+  .conversation-view-controls summary:focus-visible,
+  .conversation-view-controls details[open] > summary {
+    background: var(--color-surface-soft);
+    color: var(--color-ink);
+  }
+
+  .conversation-view-controls summary:focus-visible {
+    box-shadow: var(--shadow-focus);
+    outline: none;
+  }
+
+  .conversation-settings-panel,
+  .more-actions-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-lg);
+    box-shadow: var(--shadow-popover);
+    display: grid;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    position: absolute;
+    right: 0;
+    top: calc(100% + 7px);
+    z-index: 20;
+  }
+
+  .conversation-settings-panel {
+    min-width: min(340px, calc(100vw - 32px));
+  }
+
+  .more-actions-panel {
+    min-width: 250px;
+  }
+
+  .more-actions-panel :global(.ui-button) {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .export-actions {
+    border-block: 1px solid var(--color-border-soft);
+    display: grid;
+    gap: 7px;
+    padding: 9px 4px;
+  }
+
+  .export-actions > strong {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .export-actions > div {
     display: grid;
     gap: 4px;
-    padding: 6px;
-    position: absolute;
-    z-index: 4;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .export-actions a {
+    border-radius: var(--rounded-sm);
+    color: var(--color-ink-muted);
+    font-size: 11px;
+    padding: 5px;
+    text-align: center;
+    text-decoration: none;
+  }
+
+  .export-actions a:hover,
+  .export-actions a:focus-visible {
+    background: var(--color-primary-weak);
+    color: var(--color-primary);
+    outline: none;
+  }
+
   .history-search {
     background: var(--color-surface-soft);
     border: 1px solid var(--color-border);
@@ -1432,10 +1801,6 @@
   .history-search form {
     flex-direction: column;
   }
-  .history-search input {
-    flex: 1;
-    min-width: 0;
-  }
   .history-search ul {
     display: grid;
     gap: 4px;
@@ -1443,14 +1808,10 @@
     margin: 0;
     padding: 0;
   }
-  .history-search li button {
-    background: transparent;
-    border: 0;
-    color: var(--color-ink);
-    cursor: pointer;
+  .history-search li :global(.ui-button) {
     display: grid;
     gap: 2px;
-    padding: 6px;
+    justify-content: stretch;
     text-align: start;
     width: 100%;
   }
@@ -1470,35 +1831,38 @@
   .memory-feedback code {
     font-size: 11px;
   }
-  .memory-feedback button {
-    background: transparent;
-    border: 1px solid var(--color-border);
-    border-radius: var(--rounded-sm);
+
+  .message-error-details {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .message-error-details summary {
     cursor: pointer;
-    padding: 3px 5px;
+    margin-top: 6px;
   }
-  .memory-feedback button:disabled {
-    cursor: wait;
-    opacity: 0.55;
+
+  .message-error-details pre {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--rounded-md);
+    font-family: var(--font-mono);
+    margin: 7px 0 0;
+    max-height: 180px;
+    overflow: auto;
+    padding: 9px 10px;
+    white-space: pre-wrap;
   }
-  @media (max-width: 760px) {
-    .workbench-shell {
-      display: block;
-      height: auto;
-    }
-    aside {
-      border-bottom: 1px solid var(--color-border);
-      border-right: 0;
-      max-height: 34vh;
-    }
-    .workbench {
-      height: 66vh;
-    }
-  }
-  .controls {
-    display: flex;
-    gap: 8px;
+
+  .thinking-control {
     align-items: center;
+    color: var(--color-ink-muted);
+    display: flex;
+    font-size: var(--text-caption);
+    gap: 6px;
+  }
+  .thinking-control > span {
+    white-space: nowrap;
   }
   .attachment-list {
     display: flex;
@@ -1514,12 +1878,6 @@
     gap: 4px;
     padding: 3px 8px;
   }
-  .attachment-list button {
-    background: transparent;
-    border: 0;
-    color: inherit;
-    cursor: pointer;
-  }
   .attachment-error {
     color: var(--color-danger);
   }
@@ -1529,18 +1887,96 @@
     opacity: 0;
     position: absolute;
   }
-  .action-feedback {
-    color: var(--color-ink-muted);
-    font-size: var(--text-caption);
-    margin: 0;
-  }
-  .action-feedback.action-error {
-    color: var(--color-danger);
-  }
-  .preview-backdrop { align-items: center; background: color-mix(in srgb, var(--color-canvas) 72%, transparent); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 20; }
-  .artifact-preview { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--rounded-lg); box-shadow: var(--shadow-lg); display: grid; gap: 12px; max-height: min(80vh, 760px); max-width: min(900px, 92vw); overflow: auto; padding: 16px; width: 100%; }
-  .artifact-preview header { align-items: start; display: flex; justify-content: space-between; }
+  .artifact-preview { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 320px; }
+  .artifact-preview header { align-items: start; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; padding: var(--spacing-lg) var(--spacing-xl); }
   .artifact-preview header div { display: grid; gap: 3px; }
-  .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; white-space: pre-wrap; }
-  .artifact-preview button { background: transparent; border: 1px solid var(--color-border); border-radius: var(--rounded-sm); color: var(--color-ink); cursor: pointer; padding: 5px 8px; }
+  :global(.artifact-title) { font-size: var(--text-section-title); font-weight: var(--weight-section-title); margin: 0; }
+  .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; padding: var(--spacing-lg) var(--spacing-xl); white-space: pre-wrap; }
+  :global(.artifact-close) { align-items: center; background: transparent; border: 0; border-radius: var(--rounded-md); color: var(--color-ink-muted); cursor: pointer; display: inline-flex; height: 32px; justify-content: center; width: 32px; }
+  :global(.artifact-close:hover) { background: var(--color-surface-soft); }
+
+  @media (max-width: 900px) {
+    .conversation-header {
+      align-items: start;
+      flex-direction: column;
+      gap: var(--spacing-xs);
+    }
+
+    .conversation-view-controls {
+      width: 100%;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls > details {
+      flex: 1 1 0;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls summary {
+      justify-content: center;
+      width: 100%;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .workbench-shell,
+    .workbench-shell.conversation-list-open,
+    .workbench-shell.work-details-open {
+      grid-template-columns: minmax(0, 1fr);
+      height: calc(100dvh - 53px);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .context-panel {
+      border: 0;
+      border-inline: 0;
+      inset: 0;
+      max-height: none;
+      position: absolute;
+      z-index: 30;
+    }
+
+    .context-panel-switch {
+      display: inline-flex;
+    }
+
+    .workbench-shell.conversation-list-open .conversation-view-controls,
+    .workbench-shell.work-details-open .conversation-view-controls {
+      display: none;
+    }
+
+    .workbench {
+      height: 100%;
+      padding-inline: 12px;
+    }
+
+    .conversation-view-controls {
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: none;
+    }
+
+    .conversation-view-controls::-webkit-scrollbar {
+      display: none;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls > details {
+      flex: 0 0 auto;
+    }
+
+    .conversation-view-controls > :global(.ui-button),
+    .conversation-view-controls summary {
+      min-height: var(--control-height-touch);
+      width: auto;
+    }
+
+    .conversation-settings-panel,
+    .more-actions-panel {
+      left: 0;
+      min-width: min(320px, calc(100vw - 24px));
+      right: auto;
+    }
+  }
 </style>

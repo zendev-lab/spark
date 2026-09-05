@@ -1,12 +1,9 @@
+import { nowIso, stableId, type TaskRef, type ProjectRef } from "@zendev-lab/spark-invocation";
 import {
-  nowIso,
-  stableId,
-  type TaskRef,
   type TaskRun,
   type TaskRunCompletionSummary,
   type TaskStatus,
-  type ProjectRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-tasks";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   loadHiddenRoleRunInboxState,
@@ -16,7 +13,7 @@ import {
   sparkSessionOwnerKey,
   sparkStateCwd,
   type SparkSessionContext,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { loadSparkGraph } from "./session-state.ts";
 import { shortRoleLabel } from "./task-ownership.ts";
 import { truncateInline } from "./tool-rendering.ts";

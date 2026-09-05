@@ -11,10 +11,11 @@ import {
 } from "$lib/server/auth";
 import { getDatabase } from "$lib/server/db";
 import { formText } from "$lib/server/form-data";
+import { sanitizeHubReturnPath } from "$lib/server/navigation";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = ({ locals, url }) => {
-  const next = safeNextPath(url.searchParams.get("next"));
+  const next = sanitizeHubReturnPath(url.searchParams.get("next"), url.origin);
   const current = getCurrentHubSession(getDatabase(), locals.sessionToken);
   if (current) {
     redirect(303, next === "/" ? "/" : next);
@@ -31,7 +32,7 @@ export const actions: Actions = {
       cookieLocale: cookies.get(localeCookieName),
       acceptLanguage: request.headers.get("accept-language"),
     }).login;
-    const next = safeNextPath(url.searchParams.get("next"));
+    const next = sanitizeHubReturnPath(url.searchParams.get("next"), url.origin);
     const token = formText(await request.formData(), "token").trim();
     let session;
     try {
@@ -46,19 +47,6 @@ export const actions: Actions = {
     }
 
     setHubSessionCookies(cookies, session, { secure: url.protocol === "https:" });
-    redirect(303, isPreWorkspacePath(next) ? next : "/");
+    redirect(303, next);
   },
 };
-
-function safeNextPath(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-  return value;
-}
-
-function isPreWorkspacePath(value: string): boolean {
-  if (value === "/" || value === "/workspaces/new" || value.startsWith("/workspaces/new/")) {
-    return true;
-  }
-  if (value.startsWith("/settings") || value.startsWith("/daemon/")) return true;
-  return false;
-}

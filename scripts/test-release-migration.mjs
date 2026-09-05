@@ -19,7 +19,6 @@ export function parseMigrationArguments(argv) {
       "hub-tarball": { type: "string" },
       tarball: { type: "string" },
       "web-tarball": { type: "string" },
-      "web-dsh-tarball": { type: "string" },
     },
     strict: true,
   });
@@ -40,7 +39,6 @@ export function parseMigrationArguments(argv) {
     ...(values["daemon-tarball"] ? { daemonTarball: values["daemon-tarball"] } : {}),
     ...(values["hub-tarball"] ? { hubTarball: values["hub-tarball"] } : {}),
     ...(values["web-tarball"] ? { webTarball: values["web-tarball"] } : {}),
-    ...(values["web-dsh-tarball"] ? { webDshTarball: values["web-dsh-tarball"] } : {}),
   };
 }
 
@@ -264,11 +262,10 @@ async function main() {
     daemonTarball,
     hubTarball,
     webTarball,
-    webDshTarball,
   } = parseMigrationArguments(process.argv.slice(2));
   const root = process.cwd();
   const candidatePath = resolve(root, candidateTarball);
-  const companionPaths = [cliTarball, daemonTarball, hubTarball, webTarball, webDshTarball]
+  const companionPaths = [cliTarball, daemonTarball, hubTarball, webTarball]
     .filter((path) => typeof path === "string")
     .map((path) => resolve(root, path));
   await Promise.all([access(candidatePath), ...companionPaths.map((path) => access(path))]);

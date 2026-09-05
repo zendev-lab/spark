@@ -8,16 +8,17 @@ Loop.
 
 ## Orthogonal state
 
-- Session **Mode** is `plan | execute | fleet` and controls the operating
-  prompt. Canonical terminology lives in
+- `/plan`, `/execute`, and `/fleet` are daemon-parsed one-shot directives that
+  guide only the current Invocation; no session mode persists. Canonical
+  terminology lives in
   [`agent-operating-model.md`](./agent-operating-model.md); `phase` is not the
-  name for these values, and `implement` is not a mode.
+  name for these values, and `implement` is not a directive.
 - Goal owns the objective and completion contract.
 - WorkflowRun owns Workflow stages and definition identity.
 - Loop owns cadence, retry, generation, and cycle execution.
 - Repro owns its fixed five-checkpoint state outside this Loop protocol.
 
-Workflow stages are not Session modes. A Session has at most one non-terminal
+Workflow stages are not Session directives. A Session has at most one non-terminal
 Loop. A Goal or bare Loop can run without a Workflow binding.
 
 ## Protocol

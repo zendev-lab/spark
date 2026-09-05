@@ -1,9 +1,9 @@
 /**
  * Explicit policy surface consumed by Spark-native hosts.
  *
- * Keep host/runtime mechanisms in spark-host. Role registry / reviewer runner
- * live in spark-roles; builtin skills live in spark-host. Remaining exports
- * come from Spark-native policy modules in this package.
+ * Host/runtime mechanisms live in the daemon product owner. Role registry,
+ * reviewer runner, and builtin Skills remain in spark-roles. Remaining exports
+ * come from Spark-native policy modules in this directory.
  */
 
 export { renderSparkActiveSystemPrompt } from "./policy/spark-active-injection.ts";
@@ -15,7 +15,6 @@ export {
   renderBuiltinSkillsCatalogForPrompt,
   type SparkSkillFrontmatter,
 } from "@zendev-lab/spark-roles/builtin-skills";
-export { loadSparkMode } from "./policy/session-state.ts";
-export { sparkSessionKey } from "@zendev-lab/spark-loop";
-export type { SparkSessionContext } from "@zendev-lab/spark-loop";
+export { sparkSessionKey } from "@zendev-lab/spark-driver";
+export type { SparkSessionContext } from "@zendev-lab/spark-driver";
 export { SparkRolesReviewerRunner, createSparkRoleRegistry } from "@zendev-lab/spark-roles";

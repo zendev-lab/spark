@@ -2,33 +2,25 @@ import { resolve } from "node:path";
 
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
-import type { SparkDshToolPolicyMetadata, SparkHostAPI } from "@zendev-lab/spark-core";
+import * as dshToolSubagent from "@deepseek-ai/dsh-tool-subagent";
+import type { SparkDshToolPolicyMetadata, SparkHostAPI } from "@zendev-lab/spark-invocation";
 import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
 
 import * as dshCuePlugin from "@zendev-lab/dsh-tool-cue";
 import * as dshFusionPlugin from "@zendev-lab/dsh-tool-fusion";
+import * as dshWebPlugin from "@zendev-lab/dsh-tool-web";
 import sparkAskCapability, { type SparkAskDaemonRequest } from "@zendev-lab/spark-ask/extension";
 import sparkArtifactsCapability from "@zendev-lab/spark-artifacts/extension";
-import {
-  CUE_EXECUTION_TOOL_POLICY,
-  CUE_HISTORY_TOOL_POLICY,
-  CUE_JOBS_TOOL_POLICY,
-  CUE_RESOURCES_TOOL_POLICY,
-  CUE_SCHEDULE_TOOL_POLICY,
-  CUE_SCOPE_TOOL_POLICY,
-  CUE_TOOL_NAMES,
-  type CueToolName,
-} from "@zendev-lab/spark-cue/operations";
+import { CUE_TOOL_NAMES, type CueToolName } from "@zendev-lab/dsh-cue/operations";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesCapability from "@zendev-lab/spark-files/extension";
-import sparkModelsCapability from "@zendev-lab/spark-llm/models-extension";
+import sparkModelsCapability from "@zendev-lab/spark-llm-providers/models-extension";
 import sparkMemoryCapability, {
   type SparkMemoryExtensionApi,
 } from "@zendev-lab/spark-memory/extension";
 import sparkRolesCapability from "@zendev-lab/spark-roles/extension";
 import sparkSessionCapability from "@zendev-lab/spark-session/extension";
-import sparkWebCapability from "@zendev-lab/spark-tool-web/extension";
-import { encodeSparkAuxiliaryModelRoute } from "@zendev-lab/spark-turn";
+import { encodeSparkAuxiliaryModelRoute } from "./agent-runtime/agent-loop.ts";
 
 import registerSparkProductPolicy from "../policy/index.ts";
 import { createAskBackedMemoryApprovalVerifier } from "../policy/memory-approval-verifier.ts";
@@ -44,25 +36,92 @@ const SPARK_FUSION_POLICY = Object.freeze({
   effect: "read",
   executionMode: "sequential",
   domains: ["models", "deliberation"],
-  modes: ["plan", "execute"],
   approval: "required",
   reconcile: "none",
 } as const satisfies SparkDshToolPolicyMetadata);
 
+const SPARK_WEB_POLICIES = Object.freeze({
+  web_search: Object.freeze({
+    effect: "network_read",
+    executionMode: "parallel",
+    domains: ["web", "search"],
+    approval: "none",
+    reconcile: "none",
+  }),
+  web_fetch: Object.freeze({
+    effect: "network_read",
+    executionMode: "parallel",
+    domains: ["web", "fetch"],
+    approval: "none",
+    reconcile: "none",
+  }),
+  get_search_content: Object.freeze({
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["web", "cache"],
+    approval: "none",
+    reconcile: "none",
+  }),
+} as const satisfies Readonly<Record<string, SparkDshToolPolicyMetadata>>);
+
+type SparkWebToolName = keyof typeof SPARK_WEB_POLICIES;
+
+const SPARK_CUE_EXECUTION_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "execution"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_JOBS_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "jobs"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_RESOURCES_POLICY = {
+  effect: "read",
+  executionMode: "parallel",
+  domains: ["cue", "resources"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_SCHEDULE_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "schedules"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_SCOPE_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["cue", "scope"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
+const SPARK_CUE_HISTORY_POLICY = {
+  effect: "read",
+  executionMode: "parallel",
+  domains: ["cue", "history"],
+  approval: "none",
+} as const satisfies Omit<SparkDshToolPolicyMetadata, "reconcile">;
+
 const SPARK_CUE_POLICIES: Readonly<Record<CueToolName, SparkDshToolPolicyMetadata>> = {
-  cue_exec: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  cue_run: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  cue_script: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  script_run: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  script_eval: withDshReconciliation(CUE_EXECUTION_TOOL_POLICY),
-  cue_jobs: withDshReconciliation(CUE_JOBS_TOOL_POLICY),
-  cue_resources: withDshReconciliation(CUE_RESOURCES_TOOL_POLICY),
-  cue_schedule: withDshReconciliation(CUE_SCHEDULE_TOOL_POLICY),
-  cue_scope: withDshReconciliation(CUE_SCOPE_TOOL_POLICY),
-  cue_history: withDshReconciliation(CUE_HISTORY_TOOL_POLICY),
+  cue_exec: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  cue_run: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  cue_script: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  script_run: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  script_eval: withDshReconciliation(SPARK_CUE_EXECUTION_POLICY),
+  cue_jobs: withDshReconciliation(SPARK_CUE_JOBS_POLICY),
+  cue_resources: withDshReconciliation(SPARK_CUE_RESOURCES_POLICY),
+  cue_schedule: withDshReconciliation(SPARK_CUE_SCHEDULE_POLICY),
+  cue_scope: withDshReconciliation(SPARK_CUE_SCOPE_POLICY),
+  cue_history: withDshReconciliation(SPARK_CUE_HISTORY_POLICY),
 };
 
-const SPARK_CUE_PLUGIN: Plugin = {
+const SPARK_CUE_TOOL_PLUGIN: Plugin = {
   name: dshCuePlugin.name,
   inject: dshCuePlugin.inject,
   apply(ctx: Context) {
@@ -100,15 +159,23 @@ const SPARK_FUSION_PLUGIN: Plugin = {
   },
 };
 
+const SPARK_WEB_PLUGIN: Plugin = {
+  name: dshWebPlugin.name,
+  inject: dshWebPlugin.inject,
+  apply(ctx: Context) {
+    dshWebPlugin.apply(ctx);
+    attachSparkWebPolicies(ctx);
+  },
+};
+
 export type SparkProductCapabilityName =
   | "@zendev-lab/spark-ask"
   | "@zendev-lab/spark-artifacts"
   | "@zendev-lab/spark-files"
-  | "@zendev-lab/spark-llm"
+  | "@zendev-lab/spark-llm-providers"
   | "@zendev-lab/spark-memory"
   | "@zendev-lab/spark-roles"
   | "@zendev-lab/spark-session"
-  | "@zendev-lab/spark-tool-web"
   | "spark";
 
 export type SparkProductCapabilityFactory = (api: SparkHostAPI) => void | Promise<void>;
@@ -135,7 +202,7 @@ const SPARK_PRODUCT_CAPABILITIES: readonly SparkProductCapability[] = [
     register: sparkFilesCapability as SparkProductCapabilityFactory,
   },
   {
-    name: "@zendev-lab/spark-llm",
+    name: "@zendev-lab/spark-llm-providers",
     register: sparkModelsCapability as SparkProductCapabilityFactory,
   },
   {
@@ -149,10 +216,6 @@ const SPARK_PRODUCT_CAPABILITIES: readonly SparkProductCapability[] = [
   {
     name: "@zendev-lab/spark-session",
     register: sparkSessionCapability as SparkProductCapabilityFactory,
-  },
-  {
-    name: "@zendev-lab/spark-tool-web",
-    register: sparkWebCapability as SparkProductCapabilityFactory,
   },
   {
     name: "spark",
@@ -170,8 +233,46 @@ export function loadSparkProductCapabilities(): SparkProductCapability[] {
   return SPARK_PRODUCT_CAPABILITIES.map((capability) => ({ ...capability }));
 }
 
-export function loadSparkProductAgentPlugins(): Plugin[] {
-  return [SPARK_CUE_PLUGIN, SPARK_FUSION_PLUGIN];
+export function loadSparkProductAgentPlugins(options?: {
+  subagentModels: Array<{ provider: string; model: string }>;
+}): Plugin[] {
+  const base = [SPARK_CUE_TOOL_PLUGIN, SPARK_FUSION_PLUGIN, SPARK_WEB_PLUGIN];
+  if (!options) return base;
+  const routes = options.subagentModels.map((route) => ({ ...route }));
+  const modelSelection = routes.length > 0;
+  const policy: Plugin = {
+    name: "spark-subagent-model-selection-policy",
+    apply(ctx) {
+      if (!modelSelection) return;
+      const agent = ctx.agent;
+      if (!agent) throw new Error("Spark subagent model policy requires an Agent scope");
+      if (agent.session.events.some((event) => event.type === "subagent/model-selection-policy")) {
+        return;
+      }
+      agent.session.append("subagent/model-selection-policy", { allowedModels: routes });
+    },
+  };
+  const subagent = (provider: "spawn" | "fork", toolName: string, selectable: boolean): Plugin => ({
+    name: `spark-tool-subagent-${provider}`,
+    inject: dshToolSubagent.inject,
+    apply(ctx) {
+      dshToolSubagent.apply(ctx, {
+        provider,
+        toolName,
+        backgroundMode: "one-shot",
+        maxDepth: 3,
+        ...(modelSelection && selectable ? { modelSelectionSettings: true } : {}),
+      });
+    },
+  });
+  return [
+    ...base,
+    policy,
+    subagent("spawn", "subagent", true),
+    // DSH exposes one shared list_subagent_models tool per Agent scope. Forks
+    // retain the parent route to preserve inherited-prefix reuse.
+    subagent("fork", "subagent_fork", false),
+  ];
 }
 
 export interface SparkProductDshToolSurface {
@@ -196,11 +297,18 @@ export async function loadSparkProductDshToolSurfaces(): Promise<SparkProductDsh
   } as Parameters<typeof dshCuePlugin.registerCueToolDefinitions>[1];
   dshCuePlugin.registerCueToolDefinitions(ctx, inspectionRuntime);
   definitions.set("fusion", dshFusionPlugin.createDshFusionTool(ctx));
-  return [...CUE_TOOL_NAMES, "fusion"].map((name) => {
+  for (const definition of dshWebPlugin.createDshWebToolDefinitions(ctx)) {
+    definitions.set(definition.name, definition);
+  }
+  return [...CUE_TOOL_NAMES, "fusion", ...Object.keys(SPARK_WEB_POLICIES)].map((name) => {
     const config = definitions.get(name);
     if (!config) throw new Error(`Spark product DSH tool is missing: ${name}`);
     const policy =
-      name === "fusion" ? SPARK_FUSION_POLICY : SPARK_CUE_POLICIES[name as CueToolName];
+      name === "fusion"
+        ? SPARK_FUSION_POLICY
+        : name in SPARK_WEB_POLICIES
+          ? SPARK_WEB_POLICIES[name as SparkWebToolName]
+          : SPARK_CUE_POLICIES[name as CueToolName];
     return { config: { ...config, sparkPolicy: policy }, policy };
   });
 }
@@ -210,6 +318,14 @@ function attachSparkCuePolicies(ctx: Context): void {
     const definition = ctx.tools.get(name, ctx.agent);
     if (!definition) throw new Error(`Spark daemon failed to register DSH Cue tool: ${name}`);
     Object.assign(definition, { sparkPolicy: SPARK_CUE_POLICIES[name] });
+  }
+}
+
+function attachSparkWebPolicies(ctx: Context): void {
+  for (const name of Object.keys(SPARK_WEB_POLICIES) as SparkWebToolName[]) {
+    const definition = ctx.tools.get(name, ctx.agent);
+    if (!definition) throw new Error(`Spark daemon failed to register DSH Web tool: ${name}`);
+    Object.assign(definition, { sparkPolicy: SPARK_WEB_POLICIES[name] });
   }
 }
 

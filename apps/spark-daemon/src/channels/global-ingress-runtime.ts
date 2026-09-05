@@ -8,8 +8,12 @@ import {
   type ChannelRegistryOptions,
   type ChannelsService,
   type ChannelsConfig,
-} from "@zendev-lab/dsh-channels";
-import { channelConfigPath, resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+} from "@zendev-lab/dsh-channel-transports";
+import {
+  channelConfigPath,
+  resolveSparkPaths,
+  writePrivateFile,
+} from "@zendev-lab/spark-platform-node";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
 import { migrateDaemonChannelsConfig } from "./config-migration.ts";
 import {
@@ -157,7 +161,8 @@ export function createDaemonChannelIngressRuntime(input: {
     );
     try {
       await fiber;
-      if (!controller || !service) throw new Error("dsh-channels did not publish ctx.channels");
+      if (!controller || !service)
+        throw new Error("dsh-channel-transports did not publish ctx.channels");
     } catch (error) {
       await fiber.dispose().catch(() => undefined);
       throw error;

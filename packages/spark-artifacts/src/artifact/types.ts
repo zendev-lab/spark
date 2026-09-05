@@ -1,4 +1,4 @@
-import type { ArtifactRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef } from "@zendev-lab/spark-invocation";
 import {
   isSparkDocumentMediaType,
   type SparkDocumentMediaType,

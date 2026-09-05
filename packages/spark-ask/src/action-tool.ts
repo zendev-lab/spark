@@ -8,8 +8,8 @@ import type {
   ToolConfig,
   ToolRenderComponent,
   ToolRenderTheme,
-} from "@zendev-lab/spark-core";
-import { ToolCallText } from "@zendev-lab/spark-text";
+} from "@zendev-lab/spark-invocation";
+import { ToolCallText } from "@zendev-lab/spark-text-rendering";
 import {
   createAutonomousAskInteractionRequestId,
   parseSparkMemoryApprovalBinding,
@@ -131,7 +131,6 @@ export function registerSparkAskActionTool(
       effect: "external_write",
       executionMode: "sequential",
       domains: ["interaction", "human-decision"],
-      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     parameters: Type.Object({

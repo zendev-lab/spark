@@ -20,9 +20,9 @@ import {
   type ProjectRef,
   type RoleRef,
   type RunRef,
-  type Task,
   type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type Task } from "@zendev-lab/spark-tasks";
 import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol/model-control";
 import {
   withRoleNativeExecutorCompatibilityFallback,

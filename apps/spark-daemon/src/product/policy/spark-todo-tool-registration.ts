@@ -1,5 +1,6 @@
 import { Type } from "typebox";
-import { type EvidenceRef, type TaskPlanItem } from "@zendev-lab/spark-core";
+import { type EvidenceRef } from "@zendev-lab/spark-invocation";
+import { type TaskPlanItem } from "@zendev-lab/spark-tasks";
 import {
   applyIndependentTodoOps,
   defaultTaskGraphStore,
@@ -12,7 +13,7 @@ import {
   type TaskPlanItemStateInput,
   type TaskTodoOp,
 } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, sparkStateCwd } from "./session-state.ts";
+import { currentSparkProject } from "./session-state.ts";
 import { loadIndependentTodos, updateIndependentTodos } from "./session-todos.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";

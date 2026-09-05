@@ -10,15 +10,11 @@ import type {
   ResolvedToolPolicy,
   ToolConfig,
   ToolInfo,
-} from "@zendev-lab/spark-core";
-import { resolveToolPolicy } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { resolveToolPolicy } from "@zendev-lab/spark-invocation";
 
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import type {
-  OutboxEnvelope,
-  RegisteredCommand,
-  RegisteredTool,
-} from "@zendev-lab/spark-host/types";
+import { SparkHostRuntime } from "../host/runtime.ts";
+import type { OutboxEnvelope, RegisteredCommand, RegisteredTool } from "../host/types.ts";
 
 interface ContractObservation {
   registeredTools: string[];
@@ -292,7 +288,6 @@ function contractFixtureExtension(pi: SparkHostAPI): void {
       effect: "read",
       executionMode: "parallel",
       domains: ["contract"],
-      modes: ["plan"],
       approval: "none",
     },
     async execute(toolCallId, params, _signal, onUpdate, ctx) {
@@ -476,7 +471,6 @@ test("SparkHostAPI contract fixture behaves the same on SparkHostRuntime and PiE
     effect: "read",
     executionMode: "parallel",
     domains: ["contract"],
-    modes: ["plan"],
     approval: "none",
   });
   assert.deepEqual(spark.commandNames, ["contract", "contract:1"]);

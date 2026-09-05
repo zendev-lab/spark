@@ -15,7 +15,7 @@ import { createConnection } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const lockFileName = "hub-web.lock";
@@ -353,7 +353,7 @@ function killServiceProcess(
   signal: NodeJS.Signals,
   deps: HubWebServiceDependencies,
 ): void {
-  deps.killProcess(process.platform === "win32" ? pid : -pid, signal);
+  deps.killProcess(-pid, signal);
 }
 
 export async function runHubWebService(

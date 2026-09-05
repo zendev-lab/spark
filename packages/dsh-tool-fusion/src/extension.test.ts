@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import LlmRuntime, {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   type GenerateOptions,
   type StreamChunk,
@@ -62,7 +62,7 @@ describe("dsh-tool-fusion", () => {
       expect(definition).toBeDefined();
       expect(definition).not.toHaveProperty("sparkPolicy");
       const result = await ctx.tools.execute({
-        callId: CallId("fusion-call"),
+        callId: ToolCallId("fusion-call"),
         name: "fusion",
         arguments: {
           action: "deliberate",
@@ -99,7 +99,7 @@ describe("dsh-tool-fusion", () => {
       await ctx.plugin(LlmRuntime);
       await ctx.plugin(FusionPlugin);
       const result = await ctx.tools.execute({
-        callId: CallId("fusion-invalid"),
+        callId: ToolCallId("fusion-invalid"),
         name: "fusion",
         arguments: { action: "deliberate", question: "" },
         signal: new AbortController().signal,

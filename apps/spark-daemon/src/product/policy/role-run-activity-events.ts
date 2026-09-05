@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import { type RunRef } from "@zendev-lab/spark-invocation";
 import {
   sparkWorkspaceStatePath,
-  type RunRef,
   type SparkStateRootContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/paths";
 import type { SparkRoleRunActivityEventInput } from "./spark-role-run-observability.ts";
 
 interface RoleRunActivityEventStoreSnapshot {

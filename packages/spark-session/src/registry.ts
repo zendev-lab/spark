@@ -64,6 +64,9 @@ export interface CreateSparkSessionInput {
   cwdArtifactRef?: string;
   sessionPath?: string;
   transcriptRef?: string;
+  model?: SparkModelRef;
+  thinkingLevel?: SparkThinkingLevel;
+  maxOutputTokens?: number;
   lifecycle?: SparkSessionLifecycle;
   placement?: SparkSessionPlacement;
   now?: Date;
@@ -276,6 +279,9 @@ export class SparkSessionRegistry {
       ...(input.fleetWorker ? { fleetWorker: input.fleetWorker } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
       ...(input.transcriptRef ? { transcriptRef: input.transcriptRef } : {}),
+      ...(input.model ? { model: { ...input.model } } : {}),
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
     };
     file.sessions.push(record);
     await this.saveFile(file);

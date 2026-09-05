@@ -7,12 +7,16 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   summarizeSparkBehaviorCe,
   type SparkBehaviorCeSample,
-} from "../packages/spark-turn/src/behavior-ce.ts";
+} from "../apps/spark-daemon/src/product/host/agent-runtime/behavior-ce.ts";
 import {
   capabilitySentinelCommand,
   capabilitySentinelTestFiles,
 } from "../vitest.capability.config.ts";
 import { assertSafeCapabilityCeOutputDirectory } from "./capability-ce-output-directory.mts";
+import {
+  captureCapabilityCeSnapshot,
+  type CapabilityCeExperiment,
+} from "./capability-ce-experiment.mts";
 
 interface NightlyCapabilityCeConfiguration {
   runs: number;
@@ -46,6 +50,7 @@ interface RunRecord {
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const configuration = parseConfiguration(process.argv.slice(2), process.env);
+const before = await captureCapabilityCeSnapshot(repositoryRoot, capabilitySentinelTestFiles);
 await assertSafeCapabilityCeOutputDirectory({
   repositoryRoot,
   outputDir: configuration.outputDir,
@@ -60,6 +65,7 @@ const expectedRunIds = Array.from(
 );
 const samples: SparkBehaviorCeSample[] = [];
 const runs: RunRecord[] = [];
+const invalidRunIds: string[] = [];
 
 for (const runId of expectedRunIds) {
   const reportPath = join(rawDirectory, `${runId}.json`);
@@ -86,6 +92,15 @@ for (const runId of expectedRunIds) {
   const parsed = await parseVitestReport(reportPath);
   const processFailure = renderProcessFailure(result, parsed.error);
   const assertions = parsed.assertions;
+  if (
+    result.error ||
+    result.signal ||
+    (result.status !== 0 && result.status !== 1) ||
+    parsed.error ||
+    (result.status === 1 && assertions.every((assertion) => assertion.passed))
+  ) {
+    invalidRunIds.push(runId);
+  }
   const runnerPassed =
     result.status === 0 &&
     parsed.error === undefined &&
@@ -176,6 +191,25 @@ const report = {
   summary,
 };
 const markdown = renderMarkdownReport(report);
+const experiment: CapabilityCeExperiment = {
+  schema: "spark.capability-ce-experiment/v1",
+  before,
+  after: await captureCapabilityCeSnapshot(repositoryRoot, capabilitySentinelTestFiles),
+  configuration: {
+    runs: configuration.runs,
+    maxFailureRate: configuration.maxFailureRate,
+    maxDurationP95Ms: configuration.maxDurationP95Ms,
+    runTimeoutMs: configuration.runTimeoutMs,
+    providerTokenPolicy: "zero",
+  },
+  invalidRunIds,
+  samples,
+};
+await writeFile(
+  join(configuration.outputDir, "experiment.json"),
+  `${JSON.stringify(experiment, null, 2)}\n`,
+  "utf8",
+);
 await writeFile(
   join(configuration.outputDir, "report.json"),
   `${JSON.stringify(report, null, 2)}\n`,
@@ -286,6 +320,14 @@ async function parseVitestReport(
         });
       }
     }
+    const missingFiles = capabilitySentinelTestFiles.filter(
+      (file) => !assertions.some((assertion) => assertion.caseId.startsWith(`${file} > `)),
+    );
+    if (missingFiles.length > 0)
+      return {
+        assertions,
+        error: `Missing sentinel files in reporter: ${missingFiles.join(", ")}`,
+      };
     return assertions.length > 0
       ? { assertions }
       : { assertions: [], error: "Vitest JSON report contained no assertions" };

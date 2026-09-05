@@ -1,12 +1,12 @@
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
 import type { EvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { RoleRef } from "@zendev-lab/spark-core";
+import type { RoleRef } from "@zendev-lab/spark-invocation";
 import {
   killActiveSparkRoleRunProcesses,
   runSparkTask,
   type RoleLaunchMode,
   type SparkRoleInstructionExecutor,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { ReadyTaskRun, ReadyTaskRunKiller } from "@zendev-lab/spark-workflows";
 

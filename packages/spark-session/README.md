@@ -16,14 +16,19 @@ transcript atomically, and registers the child only after the seed is durable.
 The `@zendev-lab/spark-session/transcript` subpath owns the DSH JSONL codec,
 v3-to-v4 migration, filesystem layout, and atomic replacement.
 
+Native snapshot paging uses a rebuildable active-branch location index while
+the JSONL transcript remains authoritative. Index hits validate the transcript
+checkpoint and entry hashes, then parse only the requested cursor page. Legacy
+tail-only indexes remain valid for covered pages and rebuild once an older
+cursor leaves their coverage.
+
 `@zendev-lab/spark-session/subagent` exports Role-bound spawn/fork providers
 for the official DSH HOST (`ctx.subagents`). Official `subagent` /
 `subagent_fork` map onto `createChild` then `send(kind=request)`. A child
 with an explicit Role bind is a subagent; the human operator is not a Role.
 The native `session({ action })` tool stays the standalone surface. Daemon
 always passes a durable host so spawn stays `createManagedChildSession` and
-send stays `session.send`. spark-web-dsh mounts the same plugin onto stock
-`dsh-subagent` and disables in-process spawn/fork backends. See
+send stays `session.send`. See
 [`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
 
 All mailbox reads and writes cross the daemon-owned `session.inbox`, `session.mail.read`, `session.mail.ack`, and `session.send` RPC boundary; extension hosts never open the mailbox store directly.

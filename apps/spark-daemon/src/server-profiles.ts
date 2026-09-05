@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-system";
+import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 
 import { errorMessage } from "./text.ts";

@@ -17,7 +17,7 @@ const labels = {
 };
 
 describe("SessionTree", () => {
-  it("renders daemon lineage as an ARIA hierarchy with caller-owned controls", () => {
+  it("renders daemon lineage without manufacturing lifecycle controls", () => {
     const body = render(SessionTree, {
       props: {
         sessions: [
@@ -47,7 +47,7 @@ describe("SessionTree", () => {
     expect(body).toContain('aria-level="2"');
     expect(body).toContain('aria-current="page"');
     expect(body).toContain("/sessions/child");
-    expect(body).toContain("Archive");
-    expect(body).toContain("Close");
+    expect(body).not.toContain(">Archive<");
+    expect(body).not.toContain(">Close<");
   });
 });

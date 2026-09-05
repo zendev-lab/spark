@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/dsh-channels";
+import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/dsh-channel-transports";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,
   SparkLocalRpcOrpcClient,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSparkDaemonOrpcClient,
   invokeSparkDaemonOrpcLiveMethod,

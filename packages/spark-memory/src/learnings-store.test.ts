@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -13,7 +13,7 @@ import {
   renderLearningExportMarkdown,
 } from "./index.ts";
 import { createLegacyMemoryFixturePermit } from "./legacy-fixture.ts";
-import { newRef } from "@zendev-lab/spark-core";
+import { newRef } from "@zendev-lab/spark-invocation";
 
 function legacyLearningStore(
   options: ConstructorParameters<typeof LearningStore>[0],

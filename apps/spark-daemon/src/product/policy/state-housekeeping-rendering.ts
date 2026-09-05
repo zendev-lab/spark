@@ -1,5 +1,5 @@
 import type { WorkflowRunPruneResult } from "@zendev-lab/spark-workflows";
-import type { RoleRunEvidenceRetentionPlan } from "@zendev-lab/spark-runtime";
+import type { RoleRunEvidenceRetentionPlan } from "@zendev-lab/spark-task-runtime";
 import type {
   SparkProtectedStoreReason,
   SparkStateCacheKind,

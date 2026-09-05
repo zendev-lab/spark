@@ -355,7 +355,7 @@ Cue execution has its own tool-local scope and must not mutate Spark Session cwd
 Remote execution requires an explicit remote cwd; local path assumptions are not
 translated onto an SSH host.
 
-`web_search`, `code_search`, `fetch_content`, and `get_search_content` treat
+`web_search`, `web_fetch`, and `get_search_content` treat
 fetched text as untrusted data. Credentials are configuration and must never be
 included in tool output.
 

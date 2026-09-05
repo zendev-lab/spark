@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 export function workspaceWorkflowDir(cwd: string): string {
   return join(cwd, ".agents", "workflows");

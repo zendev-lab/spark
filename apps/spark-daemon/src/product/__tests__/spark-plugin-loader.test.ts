@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import type { Context } from "@deepseek-ai/cordis";
 import { test } from "vitest";
 
 import {
@@ -18,11 +20,10 @@ test("Spark product composition has a fixed capability set", () => {
       "@zendev-lab/spark-ask",
       "@zendev-lab/spark-artifacts",
       "@zendev-lab/spark-files",
-      "@zendev-lab/spark-llm",
+      "@zendev-lab/spark-llm-providers",
       "@zendev-lab/spark-memory",
       "@zendev-lab/spark-roles",
       "@zendev-lab/spark-session",
-      "@zendev-lab/spark-tool-web",
       "spark",
     ],
   );
@@ -35,13 +36,61 @@ test("Spark product composition registers capabilities and its DSH agent plugins
 
   assert.deepEqual(
     loadSparkProductAgentPlugins().map((plugin) => plugin.name),
-    ["dsh-tool-cue", "dsh-tool-fusion"],
+    ["dsh-tool-cue", "dsh-tool-fusion", "dsh-tool-web"],
   );
   assert.equal(host.getAllTools().length > 0, true);
   assert.equal(
     host.getAllTools().some((tool) => tool.name === "cue_exec"),
     false,
   );
+});
+
+test("Spark product composition snapshots enabled model routes into subagent plugins", () => {
+  const plugins = loadSparkProductAgentPlugins({
+    subagentModels: [
+      { provider: "test", model: "small" },
+      { provider: "test", model: "large" },
+    ],
+  });
+  assert.deepEqual(
+    plugins.map((plugin) => plugin.name),
+    [
+      "dsh-tool-cue",
+      "dsh-tool-fusion",
+      "dsh-tool-web",
+      "spark-subagent-model-selection-policy",
+      "spark-tool-subagent-spawn",
+      "spark-tool-subagent-fork",
+    ],
+  );
+
+  const events: Array<{ type: string; data: unknown }> = [];
+  const policy = plugins.find(
+    (plugin) => plugin.name === "spark-subagent-model-selection-policy",
+  ) as { apply(ctx: Context): void };
+  const ctx = {
+    agent: {
+      session: {
+        events,
+        append(type: string, data: unknown) {
+          events.push({ type, data });
+        },
+      },
+    },
+  } as unknown as Context;
+  policy.apply(ctx);
+  policy.apply(ctx);
+  assert.deepEqual(events, [
+    {
+      type: "subagent/model-selection-policy",
+      data: {
+        allowedModels: [
+          { provider: "test", model: "small" },
+          { provider: "test", model: "large" },
+        ],
+      },
+    },
+  ]);
 });
 
 test("Spark product composition rejects a required capability registration failure", async () => {
@@ -73,6 +122,9 @@ test("Spark product DSH tools carry policy metadata", async () => {
       "cue_scope",
       "cue_history",
       "fusion",
+      "web_search",
+      "web_fetch",
+      "get_search_content",
     ],
   );
   assert.equal(
@@ -121,9 +173,9 @@ test("loadProviderPlugins resolves bundled providers without installed workspace
   const result = await loadProviderPlugins({
     providerApi: registry,
     providers: [
-      "@zendev-lab/spark-llm/baidu-oneapi-provider",
-      "@zendev-lab/spark-llm/openai-codex-provider",
-      "@zendev-lab/spark-llm/kimi-coding-provider",
+      "@zendev-lab/spark-llm-providers/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm-providers/openai-codex-provider",
+      "@zendev-lab/spark-llm-providers/kimi-coding-provider",
     ],
   });
 

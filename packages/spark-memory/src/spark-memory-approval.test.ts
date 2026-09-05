@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 import sparkMemoryExtension from "./extension.ts";
 
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";

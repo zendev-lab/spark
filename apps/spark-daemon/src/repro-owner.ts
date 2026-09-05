@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { EvidenceRef, RoleRef, RunRef, TaskRun } from "@zendev-lab/spark-core";
+import type { EvidenceRef, RoleRef, RunRef } from "@zendev-lab/spark-invocation";
+import { type TaskRun } from "@zendev-lab/spark-tasks";
 import {
   acceptSparkReproLaneResult,
   activateSparkReproV10,
@@ -31,7 +32,7 @@ import {
 import {
   sparkSessionWorkspaceState,
   updateSparkSessionWorkspaceState,
-} from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-driver";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
@@ -636,7 +637,6 @@ export class SparkReproOwner {
           sparkSessionWorkspaceState({
             projectRef: repro.projectRef,
             currentTaskRef: lane.taskRef,
-            mode: "execute",
             ...(current?.driverAuthority ? { driverAuthority: current.driverAuthority } : {}),
           }),
       );

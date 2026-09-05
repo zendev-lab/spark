@@ -15,10 +15,12 @@ import {
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
   DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
   DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
+  DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS,
   saveImageFile,
 } from "@deepseek-ai/dsh-attachment-local";
+import { foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
 import {
-  CallId,
+  ToolCallId,
   MessageId,
   freezeMessage,
   type AssistantMessage,
@@ -44,7 +46,6 @@ import {
   projectSparkDshMessageEntry,
   type SparkDshProjectionMessageMetaData,
 } from "@zendev-lab/spark-session/dsh-message-projection";
-
 import {
   CURRENT_SPARK_SESSION_VERSION,
   type SparkCompactionEntry,
@@ -53,6 +54,8 @@ import {
   type SparkSessionHeader,
   type SparkSessionMessageEntry,
   type SparkSessionRecord,
+  type SparkSubagentDescriptorEntry,
+  type SparkSubagentModelSelectionEntry,
 } from "./types.ts";
 
 export const SPARK_DSH_SESSION_FORMAT_VERSION = SESSION_FORMAT_VERSION;
@@ -100,6 +103,9 @@ declare module "@deepseek-ai/dsh-session" {
     "spark/meta": SparkDshSessionMetaData;
     "spark/record": SparkDshStoredRecordData;
     "spark/message-meta": SparkDshMessageMetaData;
+    "subagent/model-selection-policy": {
+      allowedModels: Array<{ provider: string; model: string }>;
+    };
   }
 }
 
@@ -118,6 +124,7 @@ const IMAGE_LIMITS = {
 };
 
 const IMAGE_NORMALIZATION_POLICY = {
+  maxPixels: DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS,
   maxDimension: DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
   maxBytes: DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
 };
@@ -174,6 +181,14 @@ export async function encodeSparkRecordAsDsh(
 
   for (const entry of activeEntries) {
     const position = record.entries.indexOf(entry);
+    if (entry.type === "subagent_descriptor") {
+      writer.appendSubagentDescriptor(position, entry);
+      continue;
+    }
+    if (entry.type === "subagent_model_selection") {
+      writer.appendSubagentModelSelection(position, entry);
+      continue;
+    }
     if (entry.type === "message") {
       if (isNativeMessageRole(entry.message.role)) {
         await writer.appendMessageEntry(position, entry);
@@ -249,6 +264,19 @@ export function dshDocumentToSparkRecord(
     .slice()
     .sort((left, right) => left.position - right.position)
     .at(-1)?.entry.id;
+  const projectedSubagentTypes = new Set(
+    positioned
+      .map(({ entry }) => entry.type)
+      .filter((type) => type === "subagent_descriptor" || type === "subagent_model_selection"),
+  );
+  for (const event of document.events) {
+    const entry = nativeSubagentEventToSparkEntry(event, parentId, path);
+    if (!entry || projectedSubagentTypes.has(entry.type)) continue;
+    positioned.push({ position: nextPosition, entry });
+    projectedSubagentTypes.add(entry.type);
+    nextPosition += 1;
+    parentId = entry.id;
+  }
   for (const seq of session.surface.nodes) {
     if (seq <= lastBridgeSeq || projectedNativeSeqs.has(seq)) continue;
     const native = nativeBySeq.get(seq);
@@ -272,17 +300,21 @@ export function sparkHeaderFromDshLine(
   header: SparkDshSessionHeader,
   meta?: SparkDshSessionMetaData,
 ): SparkSessionHeader {
+  const parentSessionPath = meta ? meta.parentSessionPath : header.parentSession;
   return {
     type: "session",
     version: meta?.sparkVersion ?? CURRENT_SPARK_SESSION_VERSION,
     id: String(header.id),
     timestamp: meta?.timestamp ?? new Date(header.createdAt).toISOString(),
     cwd: header.cwd ?? "",
-    ...((meta?.parentSessionPath ?? header.parentSession)
-      ? { parentSession: meta?.parentSessionPath ?? String(header.parentSession) }
-      : {}),
+    ...(parentSessionPath ? { parentSession: String(parentSessionPath) } : {}),
     ...(meta?.visibility ? { visibility: meta.visibility } : {}),
     ...(meta?.purpose ? { purpose: meta.purpose } : {}),
+    ...(header.parentSession ? { parentSessionId: String(header.parentSession) } : {}),
+    ...(header.seedLength !== undefined ? { seedLength: header.seedLength } : {}),
+    ...(header.origin ? { origin: header.origin } : {}),
+    ...(header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {}),
+    ...(header.agentPreset ? { agentPreset: header.agentPreset } : {}),
   };
 }
 
@@ -337,6 +369,18 @@ class SparkDshTranscriptWriter {
 
   appendStoredRecord(position: number, entry: SparkSessionEntry): void {
     this.session.append("spark/record", jsonData({ position, entry }));
+  }
+
+  appendSubagentDescriptor(position: number, entry: SparkSubagentDescriptorEntry): void {
+    this.session.append("subagent/descriptor", structuredClone(entry.descriptor));
+    this.appendStoredRecord(position, entry);
+  }
+
+  appendSubagentModelSelection(position: number, entry: SparkSubagentModelSelectionEntry): void {
+    this.session.append("subagent/model-selection-policy", {
+      allowedModels: entry.allowedModels.map((route) => ({ ...route })),
+    });
+    this.appendStoredRecord(position, entry);
   }
 
   async appendMessageEntry(position: number, entry: SparkSessionMessageEntry): Promise<void> {
@@ -471,7 +515,7 @@ class SparkDshTranscriptWriter {
   private appendAssistantMessage(
     message: AssistantMessage,
     usage: TokenUsage | undefined,
-    toolCalls: readonly { id: ReturnType<typeof CallId>; name: string; arguments: string }[],
+    toolCalls: readonly { id: ReturnType<typeof ToolCallId>; name: string; arguments: string }[],
     intent: SurfaceIntent | "append",
   ): SparkDshSessionEvent {
     if (this.openStep !== undefined) this.interruptCurrentTurn();
@@ -612,7 +656,7 @@ type ConvertedSparkMessage =
       kind: "assistant";
       message: AssistantMessage;
       usage?: TokenUsage;
-      toolCalls: Array<{ id: ReturnType<typeof CallId>; name: string; arguments: string }>;
+      toolCalls: Array<{ id: ReturnType<typeof ToolCallId>; name: string; arguments: string }>;
     })
   | (ConvertedMessageBase & { kind: "tool"; message: ToolResultMessage });
 
@@ -664,7 +708,7 @@ async function convertSparkMessage(
     };
   }
 
-  const callId = CallId(
+  const callId = ToolCallId(
     typeof entry.message.toolCallId === "string" && entry.message.toolCallId
       ? entry.message.toolCallId
       : `legacy:${entry.id}`,
@@ -714,7 +758,7 @@ async function convertContent(
       blocks.push({ type: "reasoning", text: value.thinking });
       blockMeta.push(jsonData(omit(value, ["type", "thinking"])));
     } else if (value.type === "toolCall" && typeof value.name === "string") {
-      const id = CallId(
+      const id = ToolCallId(
         typeof value.id === "string" && value.id ? value.id : `${entryId}:${index}`,
       );
       const argumentsJson = JSON.stringify(value.arguments ?? {});
@@ -751,16 +795,23 @@ function messageEntryFromNative(
 }
 
 function dshHeaderFromSpark(header: SparkSessionHeader): SparkDshSessionHeader {
+  const parentSessionId =
+    header.parentSessionId ??
+    (header.parentSession &&
+    !header.parentSession.includes("/") &&
+    !header.parentSession.includes("\\")
+      ? header.parentSession
+      : undefined);
   return {
     version: SPARK_DSH_SESSION_FORMAT_VERSION,
     id: SessionId(header.id),
     createdAt: eventTime(header.timestamp, 0),
     ...(isAbsolutePath(header.cwd) ? { cwd: header.cwd } : {}),
-    ...(header.parentSession &&
-    !header.parentSession.includes("/") &&
-    !header.parentSession.includes("\\")
-      ? { parentSession: SessionId(header.parentSession) }
-      : {}),
+    ...(parentSessionId ? { parentSession: SessionId(parentSessionId) } : {}),
+    ...(header.seedLength !== undefined ? { seedLength: header.seedLength } : {}),
+    ...(header.origin ? { origin: header.origin } : {}),
+    ...(header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {}),
+    ...(header.agentPreset ? { agentPreset: header.agentPreset } : {}),
   };
 }
 
@@ -879,6 +930,60 @@ function nativeEventToSparkEntry(
     },
     path,
   );
+}
+
+function nativeSubagentEventToSparkEntry(
+  event: SparkDshSessionEvent,
+  parentId: string | undefined,
+  path: string,
+): SparkSubagentDescriptorEntry | SparkSubagentModelSelectionEntry | undefined {
+  const base = {
+    id: `dsh:${event.type}:${event.seq}`,
+    parentId: parentId ?? null,
+    timestamp: new Date(event.time).toISOString(),
+  };
+  if (event.type === "subagent/descriptor") {
+    const descriptor = foldSubagentDescriptor([event as SessionEvent]);
+    if (!descriptor) {
+      throw new Error(`Spark session ${path} has an unsupported subagent descriptor`);
+    }
+    return { ...base, type: "subagent_descriptor", descriptor: structuredClone(descriptor) };
+  }
+  if (event.type !== "subagent/model-selection-policy") return undefined;
+  return {
+    ...base,
+    type: "subagent_model_selection",
+    allowedModels: parseSubagentModelSelection(event.data, path),
+  };
+}
+
+function parseSubagentModelSelection(
+  data: unknown,
+  path: string,
+): Array<{ provider: string; model: string }> {
+  if (!isRecord(data) || !Array.isArray(data.allowedModels) || data.allowedModels.length === 0) {
+    throw new Error(`Spark session ${path} has an invalid subagent model-selection policy`);
+  }
+  const routes: Array<{ provider: string; model: string }> = [];
+  const seen = new Set<string>();
+  for (const candidate of data.allowedModels) {
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.provider !== "string" ||
+      !candidate.provider ||
+      typeof candidate.model !== "string" ||
+      !candidate.model
+    ) {
+      throw new Error(`Spark session ${path} has an invalid subagent model-selection route`);
+    }
+    const key = `${candidate.provider}\0${candidate.model}`;
+    if (seen.has(key)) {
+      throw new Error(`Spark session ${path} repeats a subagent model-selection route`);
+    }
+    seen.add(key);
+    routes.push({ provider: candidate.provider, model: candidate.model });
+  }
+  return routes;
 }
 
 function nativeMessage(

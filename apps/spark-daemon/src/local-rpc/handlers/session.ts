@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   parseSparkSessionPeerProjection,
   parseSparkSessionProjection,
+  parseSparkSessionProjections,
   sparkSessionSnapshotPageSchema,
   parseSparkSessionView,
   projectSparkSessionState,
@@ -11,6 +12,7 @@ import {
   sparkSessionSendResultSchema,
   sparkTurnSubmitResultSchema,
   type SparkSessionMailMessage,
+  type SparkSessionProjection,
   type SparkSessionSendRequest,
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
@@ -69,7 +71,6 @@ type SessionRequest = Extract<
       | "session.mail.read"
       | "session.mail.ack"
       | "session.model.set"
-      | "session.mode.set"
       | "session.thinking.set";
   }
 >;
@@ -85,7 +86,12 @@ export async function handleSessionRequest(
         sessionControlOptions(paths, db, options),
         { kind: "session.list.request", scope: "any", payload: { ...request.params } },
       );
-      return parseLocalRpcServiceOutput(request.method, executed.result.sessions);
+      const sessions = await filterChannelPeerSessions(
+        ctx,
+        request.params.callerSessionId,
+        parseSparkSessionProjections(executed.result.sessions),
+      );
+      return parseLocalRpcServiceOutput(request.method, sessions);
     }
     case "session.get": {
       const executed = await executeSparkDaemonSessionControl(
@@ -97,11 +103,17 @@ export async function handleSessionRequest(
           payload: { ...request.params },
         },
       );
+      await requireChannelPeerProjectionAccess(
+        ctx,
+        request.params.callerSessionId,
+        parseSparkSessionProjection(executed.result.session),
+      );
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.lookup": {
       const sessionId = request.params.sessionId;
       const session = await lookupSessionProjection(ctx, sessionId);
+      await requireChannelPeerProjectionAccess(ctx, request.params.callerSessionId, session);
       const invocations = new SparkInvocationStore(db);
       const activity = invocations.sessionActivity(sessionId).activity;
       const latest = invocations.listPage({ sessionId, limit: 1 }).invocations[0];
@@ -381,18 +393,6 @@ export async function handleSessionRequest(
       );
       return projectSparkSessionState(session, sessionActivityOf(db, session.sessionId));
     }
-    case "session.mode.set": {
-      const executed = await executeSparkDaemonSessionControl(
-        sessionControlOptions(paths, db, options),
-        {
-          kind: "session.mode.set.request",
-          scope: "any",
-          sessionId: request.params.sessionId,
-          payload: { ...request.params },
-        },
-      );
-      return parseLocalRpcServiceOutput(request.method, executed.result);
-    }
     case "session.thinking.set": {
       const session = await requireModelControl(options).setSessionThinkingLevel(
         request.params.sessionId,
@@ -422,24 +422,27 @@ export async function admitSparkDaemonSessionSend(
     );
   }
   const target = await lookupSessionProjection(ctx, params.toSessionId);
-  if (params.origin.surface === "channel") {
+  const source = await lookupSessionProjection(ctx, params.fromSessionId);
+  const sourceIsChannel = source.scope.kind === "daemon" && source.purpose === "channel";
+  if (sourceIsChannel || params.origin.surface === "channel") {
     if (!params.originBinding) {
       throw new SparkSessionRegistryError(
         "session_mail_origin_binding_required",
         "originating channel request is missing immutable origin binding",
       );
     }
-    const source = await lookupSessionProjection(ctx, params.fromSessionId);
+    const sourcePrincipal = channelPrincipal(source);
+    const targetPrincipal = channelPrincipal(target);
     if (
-      source.scope.kind !== "daemon" ||
-      source.purpose !== "channel" ||
-      target.scope.kind !== "daemon" ||
-      target.purpose !== "channel" ||
-      target.scope.daemonId !== source.scope.daemonId
+      !sourcePrincipal ||
+      !targetPrincipal ||
+      !sameChannelPrincipal(sourcePrincipal, targetPrincipal) ||
+      params.originBinding.externalKey !== sourcePrincipal.externalKey ||
+      params.originBinding.adapterAccountIdentity !== sourcePrincipal.adapterAccountIdentity
     ) {
       throw new SparkSessionRegistryError(
         "session_mail_workspace_scope_mismatch",
-        "message-platform sessions can send to Channel Sessions in their own daemon only",
+        "message-platform sessions can send only within their exact channel principal",
       );
     }
   }
@@ -659,6 +662,95 @@ async function lookupSessionProjection(
     },
   );
   return parseSparkSessionProjection(executed.result.session);
+}
+
+interface ChannelPrincipal {
+  daemonId: string;
+  adapterAccountIdentity: string;
+  externalKey: string;
+}
+
+function channelPrincipal(session: SparkSessionProjection): ChannelPrincipal | undefined {
+  if (
+    session.scope.kind !== "daemon" ||
+    session.purpose !== "channel" ||
+    session.bindings.length !== 1
+  ) {
+    return undefined;
+  }
+  const binding = session.bindings[0];
+  const adapterAccountIdentity = binding?.adapterAccountIdentity?.trim();
+  const externalKey = binding?.externalKey.trim();
+  if (!adapterAccountIdentity || !externalKey) return undefined;
+  return {
+    daemonId: session.scope.daemonId,
+    adapterAccountIdentity,
+    externalKey,
+  };
+}
+
+function requireChannelPrincipal(session: SparkSessionProjection): ChannelPrincipal {
+  const principal = channelPrincipal(session);
+  if (principal) return principal;
+  throw new SparkSessionRegistryError(
+    "session_scope_mismatch",
+    "channel peer access requires one complete immutable channel principal",
+  );
+}
+
+function sameChannelPrincipal(left: ChannelPrincipal, right: ChannelPrincipal): boolean {
+  return (
+    left.daemonId === right.daemonId &&
+    left.adapterAccountIdentity === right.adapterAccountIdentity &&
+    left.externalKey === right.externalKey
+  );
+}
+
+async function filterChannelPeerSessions(
+  ctx: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">,
+  callerSessionId: string | undefined,
+  sessions: SparkSessionProjection[],
+): Promise<SparkSessionProjection[]> {
+  if (!callerSessionId) return sessions;
+  const caller = await lookupSessionProjection(ctx, callerSessionId);
+  if (caller.scope.kind !== "daemon" || caller.purpose !== "channel") return sessions;
+  const callerPrincipal = requireChannelPrincipal(caller);
+  return sessions.filter((session) => {
+    const targetPrincipal = channelPrincipal(session);
+    return targetPrincipal ? sameChannelPrincipal(callerPrincipal, targetPrincipal) : false;
+  });
+}
+
+async function requireChannelPeerProjectionAccess(
+  ctx: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">,
+  callerSessionId: string | undefined,
+  target: SparkSessionProjection,
+): Promise<void> {
+  if (!callerSessionId) return;
+  const caller = await lookupSessionProjection(ctx, callerSessionId);
+  if (caller.scope.kind !== "daemon" || caller.purpose !== "channel") return;
+  if (sameChannelPrincipal(requireChannelPrincipal(caller), requireChannelPrincipal(target)))
+    return;
+  throw new SparkSessionRegistryError(
+    "session_scope_mismatch",
+    "channel peer access is restricted to the caller's exact channel principal",
+  );
+}
+
+export async function requireChannelPeerAccess(
+  ctx: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">,
+  callerSessionId: string | undefined,
+  targetSessionId: string | undefined,
+): Promise<void> {
+  if (!callerSessionId) return;
+  if (!targetSessionId) {
+    throw new SparkSessionRegistryError(
+      "session_scope_mismatch",
+      "channel peer access requires an invocation-owned Session",
+    );
+  }
+  const target = await lookupSessionProjection(ctx, targetSessionId);
+  await requireChannelPeerProjectionAccess(ctx, callerSessionId, target);
 }
 
 async function requireSessionMail(

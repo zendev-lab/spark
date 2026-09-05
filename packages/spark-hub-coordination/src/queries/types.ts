@@ -16,6 +16,29 @@ export interface WorkbenchWorkspaceSummary {
   localPath: string | null;
 }
 
+export interface WorkbenchDaemonSummary {
+  id: string;
+  name: string;
+  status: RuntimeConnectionStatus;
+}
+
+export interface WorkbenchAttentionItem {
+  id: string;
+  kind: "inbox" | "invocation";
+  group: "needs-you" | "running" | "failed" | "recent";
+  title: string;
+  summary: string | null;
+  status: string;
+  updatedAt: string;
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  runtimeStatus: string | null;
+  sessionId: string | null;
+  invocationId: string | null;
+  inboxItemId: string | null;
+}
+
 export interface WorkspaceFullRow extends WorkbenchWorkspaceSummary {
   description: string | null;
   status: string;

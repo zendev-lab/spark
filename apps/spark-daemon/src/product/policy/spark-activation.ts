@@ -1,7 +1,10 @@
 import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { sparkStateRootPath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+import {
+  sparkStateRootPath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 
 export async function ensureLocalSparkDirectory(
   cwd: string,

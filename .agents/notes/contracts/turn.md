@@ -62,7 +62,12 @@ SQLite remains the delivery authority. A healthy connection may use persisted li
 
 The host stores conversation input as `SparkPromptItem`, preserving authority (`system | developer | runtime_control | runtime_data | user | assistant | tool`), trust, visibility, and persistence until the provider boundary. Runtime control and untrusted runtime data are not user messages internally. Extension custom messages default to `runtime_data/untrusted`; only an explicit `runtime_control/trusted` pair is promoted to control authority. Compatibility providers that lack those roles receive an escaped, tagged data envelope only during lowering; replay and compaction retain the original metadata. Deferred `nextTurn` data is keyed by session and enters only that session's next real user turn.
 
-`packages/spark-turn` owns the host-facing turn facade (`SparkAgentLoop`: prompt items, outbox, views, Spark tool policy, approval, and mixed-batch sequential dispatch). `@deepseek-ai/dsh-agent-loop` is the low-level model/tool driver on a process-local Cordis root. Invocation durability and `SparkTurnResumeCheckpoint` stay daemon SQLite; the AgentLoop session log is not a second invocation store. See [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../decisions/2026-08-20-dsh-cordis-composition.md).
+The daemon product host owns the host-facing agent facade (`SparkAgentLoop`:
+prompt items, outbox, views, Spark tool policy, approval, and mixed-batch
+sequential dispatch). `@deepseek-ai/dsh-agent-loop` is the low-level model/tool
+driver on the process-local Cordis root. Invocation durability and
+`SparkTurnResumeCheckpoint` stay in daemon SQLite; the AgentLoop Session log is
+not a second Invocation store. See [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../decisions/2026-08-20-dsh-cordis-composition.md).
 
 Every agent submission terminates with a `SparkRunOutcome`: `completed`, `aborted`, or `failed`. The legacy `submit()` API returns its assistant envelope, while `submitWithOutcome()` and headless callers consume the explicit terminal status. `roundtrips` counts attempted model calls, including a one-call answer without tools, as an observability metric rather than a runtime limit. The loop has no roundtrip ceiling; explicit cancellation, execution deadlines, and provider/tool per-operation timeouts remain in force. Model-stream failures, aborts, and cancelled approval waits therefore cannot be mistaken for completion.
 

@@ -19,11 +19,11 @@ import {
   isSparkSideThreadErrorCode,
   type SparkSideThreadErrorCode,
 } from "@zendev-lab/spark-protocol/side-thread";
-import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   createSocketMessagePort,
   type SocketMessagePortLike,
-} from "@zendev-lab/spark-system/socket-message-port";
+} from "@zendev-lab/spark-platform-node/socket-message-port";
 
 export interface SparkDaemonOrpcClientOptions {
   paths?: Pick<SparkPaths, "runtimeDir">;
@@ -262,6 +262,32 @@ const daemonChannelTurnInvokers = {
   | "turn.result"
   | "turn.stream"
   | "turn.cancel"
+>;
+
+const daemonAccessInvokers = {
+  "daemon.access.create": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.create"].output,
+      client.daemon.access.create(input, options),
+    ),
+  "daemon.access.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.list"].output,
+      client.daemon.access.list(input, options),
+    ),
+  "daemon.access.revoke": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.revoke"].output,
+      client.daemon.access.revoke(input, options),
+    ),
+  "daemon.access.verify": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.verify"].output,
+      client.daemon.access.verify(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  "daemon.access.create" | "daemon.access.list" | "daemon.access.revoke" | "daemon.access.verify"
 >;
 
 const invocationLoopInvokers = {
@@ -595,11 +621,6 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.model.set"].output,
       client.session.model.set(input, options),
     ),
-  "session.mode.set": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["session.mode.set"].output,
-      client.session.mode.set(input, options),
-    ),
   "session.thinking.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.thinking.set"].output,
@@ -631,7 +652,6 @@ const sessionInvokers = {
   | "session.mail.read"
   | "session.mail.ack"
   | "session.model.set"
-  | "session.mode.set"
   | "session.thinking.set"
 >;
 
@@ -794,6 +814,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
   ...agentCatalogInvokers,
   ...daemonChannelTurnInvokers,
+  ...daemonAccessInvokers,
   ...invocationLoopInvokers,
   ...workspaceInvokers,
   ...uplinkInvokers,

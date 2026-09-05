@@ -2,10 +2,13 @@ import type {
   ArtifactRef,
   EvidenceRef,
   JsonValue,
-  Project,
   ProjectRef,
   RoleRef,
   RunRef,
+  TaskRef,
+} from "@zendev-lab/spark-invocation";
+import type {
+  Project,
   Task,
   TaskAttribution,
   TaskCancellation,
@@ -16,11 +19,10 @@ import type {
   TaskPlan,
   TaskExecutionPolicy,
   TaskPlanIssue,
-  TaskRef,
   TaskRun,
   TaskTodo,
   TaskTodoStatus,
-} from "@zendev-lab/spark-core";
+} from "./types.ts";
 
 export interface CreateProjectInput {
   title: string;

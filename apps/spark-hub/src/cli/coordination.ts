@@ -5,7 +5,9 @@ import { parse } from "@optique/core/parser";
 import { argument, command, constant, flag, option, passThrough } from "@optique/core/primitives";
 import { string, type ValueParser } from "@optique/core/valueparser";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
-import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
+import type { ProjectRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type Project } from "@zendev-lab/spark-tasks";
+import { type Task } from "@zendev-lab/spark-tasks";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
 
 import {
@@ -15,7 +17,6 @@ import {
   type SparkCliOutput,
 } from "./shared.ts";
 import type { HubAccessCliResult } from "./access.ts";
-import type { WorkspaceAccessCliResult } from "./workspace-access.ts";
 import type { HubInstanceCliFailure, HubInstanceCliResult } from "./instance.ts";
 import { loadSparkHubCoordinationState } from "./coordination-adapter.ts";
 import type {
@@ -48,8 +49,7 @@ export type SparkHubCliResource =
   | "workflow"
   | "assign"
   | "instance"
-  | "access"
-  | "workspace-access";
+  | "access";
 
 export interface SparkHubCliCommand {
   resource: SparkHubCliResource;
@@ -62,13 +62,14 @@ export interface SparkHubCliCommand {
   title?: string;
   role?: string;
   workspaceId?: string;
-  workspaceRef?: string;
   snapshotPath?: string;
   databasePath?: string;
   rollbackRoot?: string;
   yes?: boolean;
   label?: string;
   tokenId?: string;
+  daemons?: string[];
+  user?: string;
 }
 
 export type SparkHubCliResult =
@@ -82,8 +83,7 @@ export type SparkHubCliResult =
   | { action: "workflow"; result: SparkHubWorkflowListResult }
   | { action: "assign"; result: SparkHubAssignResult }
   | { action: "instance"; result: HubInstanceCliResult }
-  | { action: "access"; result: HubAccessCliResult }
-  | { action: "workspace-access"; result: WorkspaceAccessCliResult };
+  | { action: "access"; result: HubAccessCliResult };
 
 export interface SparkHubAssignResult {
   plane: "hub";
@@ -353,11 +353,17 @@ const accessParser = command(
       database: optional(option("--database", string())),
       label: optional(option("--label", string())),
       id: optional(option("--id", string())),
+      daemon: multiple(option("--daemon", string())),
+      user: optional(option("--user", string())),
       args: positionalArgs(),
     }),
     (value): SparkHubCliCommand => {
       if (value.help) return { resource: "help" };
       const [verb = defaultHubVerb("access"), positionalSelector] = value.args;
+      const daemons = value.daemon
+        .flatMap((entry) => entry.split(","))
+        .map((entry) => entry.trim())
+        .filter(Boolean);
       return {
         resource: "access",
         verb,
@@ -365,51 +371,9 @@ const accessParser = command(
         databasePath: value.database?.trim(),
         label: value.label?.trim(),
         tokenId: value.id?.trim() || (verb === "revoke" ? positionalSelector?.trim() : undefined),
+        ...(daemons.length > 0 ? { daemons } : {}),
+        user: value.user?.trim(),
       };
-    },
-  ),
-);
-
-const workspaceAccessParser = command(
-  "workspace",
-  command(
-    "access",
-    map(
-      object({
-        help: helpFlag(),
-        json: jsonFlag(),
-        workspace: optional(option("--workspace", string())),
-        database: optional(option("--database", string())),
-        label: optional(option("--label", string())),
-        id: optional(option("--id", string())),
-        args: positionalArgs(),
-      }),
-      (value): SparkHubCliCommand => {
-        if (value.help) return { resource: "help" };
-        const [operation = "list", ...rest] = value.args;
-        let workspaceRef = value.workspace?.trim();
-        let tokenId = value.id?.trim();
-        if (!workspaceRef && rest[0]) {
-          workspaceRef = rest[0].trim();
-          if (operation === "revoke" && !tokenId && rest[1]) tokenId = rest[1].trim();
-        } else if (operation === "revoke" && !tokenId && rest[0]) {
-          tokenId = rest[0].trim();
-        }
-        return {
-          resource: "workspace-access",
-          verb: operation,
-          json: value.json,
-          workspaceRef,
-          databasePath: value.database?.trim(),
-          label: value.label?.trim(),
-          tokenId,
-        };
-      },
-    ),
-    {
-      errors: {
-        notMatched: message`Usage: spark hub workspace access create|list|revoke --workspace <id> [...]`,
-      },
     },
   ),
 );
@@ -431,7 +395,6 @@ const sparkHubCommandParser = or(
     assignParser,
     instanceParser,
     accessParser,
-    workspaceAccessParser,
   ),
   object({ resource: constant("empty" as const) }),
 );
@@ -450,7 +413,6 @@ const knownHubResources = new Set([
   "assign",
   "instance",
   "access",
-  "workspace",
 ]);
 
 export function parseSparkHubCliArgs(argv: string[]): SparkHubCliCommand {
@@ -496,20 +458,8 @@ export async function handleSparkHubCliCommand(
         databasePath: command.databasePath,
         label: command.label,
         tokenId: command.tokenId,
-        json: command.json,
-      }),
-    };
-  }
-  if (command.resource === "workspace-access") {
-    const { handleWorkspaceAccessCliCommand } = await import("./workspace-access.ts");
-    return {
-      action: "workspace-access",
-      result: await handleWorkspaceAccessCliCommand({
-        operation: command.verb ?? "list",
-        workspaceRef: command.workspaceRef,
-        databasePath: command.databasePath,
-        label: command.label,
-        tokenId: command.tokenId,
+        daemons: command.daemons,
+        user: command.user,
         json: command.json,
       }),
     };

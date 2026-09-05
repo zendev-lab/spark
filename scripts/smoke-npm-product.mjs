@@ -43,9 +43,7 @@ function suppliedTarballs() {
     daemon: argumentValue("--daemon-tarball"),
     hub: argumentValue("--hub-tarball"),
     web: argumentValue("--web-tarball"),
-    "web-dsh": argumentValue("--web-dsh-tarball"),
     "native-darwin-arm64": argumentValue("--native-darwin-arm64-tarball"),
-    "native-darwin-x64": argumentValue("--native-darwin-x64-tarball"),
     "native-linux-arm64": argumentValue("--native-linux-arm64-tarball"),
     "native-linux-x64": argumentValue("--native-linux-x64-tarball"),
   };
@@ -57,11 +55,36 @@ function suppliedTarballs() {
   return count === 0 ? undefined : values;
 }
 
+async function assertLocalNativePayloads() {
+  if (supplied) return;
+  const nativeBinaryRoot = resolve(root, process.env.SPARK_NATIVE_BIN_DIR ?? "dist/native");
+  const missing = [];
+  for (const distribution of nativeNpmDistributions) {
+    const binary = resolve(nativeBinaryRoot, distribution.target, "spark");
+    try {
+      const metadata = await stat(binary);
+      if (!metadata.isFile()) missing.push(distribution.target);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      missing.push(distribution.target);
+    }
+  }
+  if (missing.length === 0) return;
+  const expectedTarballs = npmDistributions.length + nativeNpmDistributions.length;
+  throw new Error(
+    [
+      "[NATIVE_PAYLOADS_MISSING] Source smoke requires prebuilt native CLI payloads for every supported target.",
+      `Expected binaries under ${nativeBinaryRoot}.`,
+      `Missing targets: ${missing.join(", ")}.`,
+      `Run the release native-artifact stage first, set SPARK_NATIVE_BIN_DIR, or supply all ${expectedTarballs} exact release tarballs.`,
+    ].join("\n"),
+  );
+}
+
 function cleanPath(extra = []) {
-  const repoPrefix = `${root.replaceAll("\\", "/")}/`;
+  const repoPrefix = `${root}/`;
   const pathEntries = (process.env.PATH ?? "").split(delimiter).filter((entry) => {
-    const portable = entry.replaceAll("\\", "/");
-    const normalized = portable.endsWith("/") ? portable : `${portable}/`;
+    const normalized = entry.endsWith("/") ? entry : `${entry}/`;
     return !normalized.startsWith(repoPrefix) && !normalized.includes("/node_modules/.bin/");
   });
   return [
@@ -183,7 +206,7 @@ async function probeHubRoute(url, child, output) {
 
 function terminateProcessTree(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (child.pid !== undefined) {
     try {
       process.kill(-child.pid, "SIGTERM");
       return;
@@ -257,7 +280,7 @@ if (
 }
 const diagnostics = String(result.stderr ?? "") + "\\n" + String(result.outcome.reason ?? "");
 if (
-  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm'") ||
+  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm-providers'") ||
   diagnostics.includes("defaultSparkConfigPath") ||
   diagnostics.includes("Dynamic require of")
 ) {
@@ -339,6 +362,7 @@ async function countFiles(directory) {
   return count;
 }
 
+await assertLocalNativePayloads();
 const temporary = await temporaryRoot();
 try {
   let tarballs;
@@ -346,7 +370,7 @@ try {
     tarballs = Object.fromEntries(
       Object.entries(supplied).map(([id, path]) => [id, resolve(root, path)]),
     );
-    console.log(`Using ten prebuilt npm distributions at ${releaseVersion}...`);
+    console.log(`Using prebuilt npm distributions at ${releaseVersion}...`);
   } else {
     console.log("Building npm distributions...");
     await run("node", ["scripts/build-npm-product.mjs"], {
@@ -386,7 +410,7 @@ try {
   );
   const allIds = npmDistributions.map(({ id }) => id);
   const cliIds = allIds.filter((id) => id !== "spark");
-  const [completeRoot, cliRoot, missingNativeRoot, daemonRoot, hubRoot, webRoot, webDshRoot] =
+  const [completeRoot, cliRoot, missingNativeRoot, daemonRoot, hubRoot, webRoot] =
     await Promise.all([
       installCandidates(temporary, "complete", allIds, tarballs),
       installCandidates(temporary, "cli", cliIds, tarballs),
@@ -394,7 +418,6 @@ try {
       installCandidates(temporary, "daemon", ["daemon"], tarballs),
       installCandidates(temporary, "hub", ["hub"], tarballs),
       installCandidates(temporary, "web", ["web"], tarballs),
-      installCandidates(temporary, "web-dsh", ["web-dsh"], tarballs),
     ]);
 
   const currentNative = currentNativeDistribution();
@@ -430,12 +453,10 @@ try {
   const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const completeHub = installedBin(completeRoot, "@zendev-lab/spark-hub", "spark-hub");
   const completeWeb = installedBin(completeRoot, "@zendev-lab/spark-web", "spark-web");
-  const completeWebDsh = installedBin(completeRoot, "@zendev-lab/spark-web-dsh", "spark-web-dsh");
   const cli = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
   const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
   const web = installedBin(webRoot, "@zendev-lab/spark-web", "spark-web");
-  const webDsh = installedBin(webDshRoot, "@zendev-lab/spark-web-dsh", "spark-web-dsh");
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),
@@ -502,10 +523,6 @@ try {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
-    run(completeWebDsh.command, [...completeWebDsh.argvPrefix, "--help"], {
-      cwd: completeRoot,
-      env: nodeEnvironment,
-    }),
   ]);
   await run(cli.command, [...cli.argvPrefix, "--help"], {
     cwd: cliRoot,
@@ -529,10 +546,6 @@ try {
     cwd: completeRoot,
     env: nodeEnvironment,
   });
-  await run(spark.command, [...spark.argvPrefix, "web-dsh", "--help"], {
-    cwd: completeRoot,
-    env: nodeEnvironment,
-  });
   await exerciseSparkDaemonLifecycle({
     command: spark.command,
     argvPrefix: spark.argvPrefix,
@@ -550,10 +563,6 @@ try {
     cwd: webRoot,
     env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-home") },
   });
-  await run(webDsh.command, [...webDsh.argvPrefix, "--help"], {
-    cwd: webDshRoot,
-    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-dsh-home") },
-  });
 
   const port = await availablePort();
   console.log("Starting independently installed Hub health probe...");
@@ -565,7 +574,7 @@ try {
       PORT: String(port),
       ORIGIN: `http://127.0.0.1:${port}`,
     },
-    detached: process.platform !== "win32",
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const hubOutput = { stderr: "" };

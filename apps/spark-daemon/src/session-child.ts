@@ -1,12 +1,19 @@
 import { stat, unlink } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
 
+import type { SubagentDescriptorData } from "@deepseek-ai/dsh-subagent";
+
 import {
   SparkSessionStore,
   stableSparkSessionContextEntries,
   type SparkSessionEntry,
 } from "@zendev-lab/spark-session/transcript";
-import { createId, type SparkSessionState } from "@zendev-lab/spark-protocol";
+import {
+  createId,
+  type SparkModelRef,
+  type SparkSessionState,
+  type SparkThinkingLevel,
+} from "@zendev-lab/spark-protocol";
 import { createSparkRoleRegistry } from "@zendev-lab/spark-roles";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 
@@ -26,6 +33,12 @@ export interface CreateManagedChildSessionInput {
   name?: string;
   cwd?: string;
   cwdArtifactRef?: string;
+  model?: SparkModelRef;
+  thinkingLevel?: SparkThinkingLevel;
+  maxOutputTokens?: number;
+  subagentDescriptor?: SubagentDescriptorData;
+  subagentModels?: Array<{ provider: string; model: string }>;
+  delegationDepth?: number;
 }
 
 interface TranscriptCheckpoint {
@@ -82,8 +95,17 @@ export async function createManagedChildSession(
   const record = store.createCanonicalSession({
     id: sessionId,
     ...(parentTranscriptPath ? { parentSession: parentTranscriptPath } : {}),
+    parentSessionId: supervisor.sessionId,
+    origin: "subagent",
+    ...(input.delegationDepth !== undefined ? { delegationDepth: input.delegationDepth } : {}),
   });
   record.entries = entries;
+  if (input.subagentDescriptor) {
+    store.appendSubagentDescriptor(record, input.subagentDescriptor);
+  }
+  if (input.subagentModels?.length) {
+    store.appendSubagentModelSelection(record, input.subagentModels);
+  }
   await store.save(record);
 
   try {
@@ -97,6 +119,9 @@ export async function createManagedChildSession(
       cwd: resolvedCwd.cwd,
       ...(resolvedCwd.cwdArtifactRef ? { cwdArtifactRef: resolvedCwd.cwdArtifactRef } : {}),
       ...(input.name ? { name: input.name } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
     });
   } catch (error) {
     try {

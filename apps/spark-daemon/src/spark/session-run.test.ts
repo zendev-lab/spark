@@ -1,24 +1,32 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
-} from "@zendev-lab/dsh-channels";
+} from "@zendev-lab/dsh-channel-transports";
 import type {
   ArtifactRef,
   ProjectRef,
   RoleRef,
   RunRef,
   SparkHostLoopContext,
-} from "@zendev-lab/spark-core";
-import { SparkHostRuntime } from "@zendev-lab/spark-host";
+} from "@zendev-lab/spark-invocation";
+import { SparkHostRuntime } from "../product/host/runtime.ts";
 import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionRunInput,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
@@ -26,9 +34,12 @@ import {
   type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { builtinRoleAllowedToolEffects, builtinRoleAllowedTools } from "@zendev-lab/spark-roles";
-import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
-import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import {
+  SparkTurnRestartYieldError,
+  type SparkTurnResumeCheckpoint,
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkDaemonLoopTickTask,
   SparkDaemonSessionCompactTask,
@@ -71,11 +82,24 @@ function context(
 ): SparkDaemonTaskExecutionContext {
   return {
     invocationId: "invocation-1",
+    invocationAttempt: {
+      epoch: 1,
+      daemonGeneration: 1,
+      correlationId: "attempt:invocation-1:1",
+    },
     signal,
     emitEvent: (event) => {
       emitted.push(event);
     },
   };
+}
+
+function invocationAttempt(invocationId: string) {
+  return {
+    epoch: 1,
+    daemonGeneration: 1,
+    correlationId: `attempt:${invocationId}:1`,
+  } as const;
 }
 
 function daemonChannelSession(
@@ -216,6 +240,7 @@ describe("daemon native session execution", () => {
         { type: "session.run", sessionId, prompt: "finish" },
         {
           invocationId,
+          invocationAttempt: invocationAttempt(invocationId),
           signal: new AbortController().signal,
           emitEvent: (event) => {
             if (event.type !== "daemon.view_event") return;
@@ -337,6 +362,7 @@ describe("daemon native session execution", () => {
 
     const running = executor(task, {
       invocationId: "invocation-retry-terminal-bundle",
+      invocationAttempt: invocationAttempt("invocation-retry-terminal-bundle"),
       signal: new AbortController().signal,
       emitEvent: (event) => {
         if (event.type !== "daemon.view_event") return;
@@ -474,7 +500,7 @@ describe("daemon native session execution", () => {
       recordTurnQueued: vi.fn(async () => ({}) as never),
       recordTurnSettled: vi.fn(async () => ({}) as never),
     };
-    const executeSession = vi.fn(async () => ({ assistantText: "done" }));
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
     const resolveSessionCwd = vi.fn(
       async (input: {
         workspaceId: string;
@@ -519,7 +545,6 @@ describe("daemon native session execution", () => {
         expect.objectContaining({
           cwd: firstRoot,
           sparkStateRoot: join(workspaceRoot, ".spark"),
-          mode: "execute",
           taskExecutionScope: {
             isolation: "isolated_worktree",
             binding: {
@@ -656,7 +681,6 @@ describe("daemon native session execution", () => {
         expect.objectContaining({
           cwd: workspaceRoot,
           sparkStateRoot: join(workspaceRoot, ".spark"),
-          mode: "execute",
           taskExecutionScope: {
             isolation: "workspace",
             binding: {
@@ -677,6 +701,485 @@ describe("daemon native session execution", () => {
         executeSparkDaemonSessionRunTask(runTask(2), context(runTask(2)), options),
       ).rejects.toThrow(/no longer matches its authoritative TaskRun binding/u);
       expect(executeSession).not.toHaveBeenCalled();
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes readonly and isolated_results scopes for non-Fleet TaskRuns", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-nonfleet-scopes-"));
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Scoped", description: "Scoped" });
+    const cases = [
+      { isolation: "readonly" as const, sessionId: "sess_readonly", jobId: "job-readonly" },
+      {
+        isolation: "isolated_results" as const,
+        sessionId: "sess_results",
+        jobId: "job-results",
+      },
+    ];
+    const sessions = new Map<string, ReturnType<typeof workspaceSessionRecord>>();
+    for (const item of cases) {
+      const task = graph.createTask({
+        projectRef: project.ref,
+        title: item.isolation,
+        description: item.isolation,
+        kind: "implement",
+        roleRef: "role:builtin-executor",
+        artifactRefs: [],
+        executionPolicy: {
+          sessionLifetime: "task_run",
+          continuity: "fresh",
+          isolation: item.isolation,
+          comparison: "single_side",
+          concurrencyKeys: [],
+          maxAttempts: 1,
+        },
+        plan: normalizeTaskPlan(
+          {
+            objective: `Exercise ${item.isolation} enforcement`,
+            successCriteria: ["The daemon materializes an authoritative scope."],
+            evidenceRequired: ["The execution policy passed to the host."],
+            steps: ["Run the scoped Task."],
+          },
+          item.isolation,
+          item.isolation,
+        ),
+      });
+      const runRef = `run:${item.isolation}` as RunRef;
+      graph.recordRun({
+        ref: runRef,
+        projectRef: project.ref,
+        taskRef: task.ref,
+        roleRef: "role:builtin-executor" as RoleRef,
+        runName: item.isolation,
+        ownerSessionId: "sess_owner",
+        execution: {
+          ownerSessionId: "sess_owner",
+          executionSessionId: item.sessionId,
+          sessionGoalId: `goal-${item.isolation}`,
+          jobId: item.jobId,
+          attempt: 1,
+        },
+        status: "running",
+        startedAt: "2026-08-30T00:00:00.000Z",
+        outputEvidenceRefs: [],
+      });
+      sessions.set(item.sessionId, {
+        ...workspaceSessionRecord({
+          sessionId: item.sessionId,
+          workspaceId: "ws_scoped",
+          supervisorSessionId: "sess_owner",
+          roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+          cwd: workspaceRoot,
+        }),
+        lineage: {
+          kind: "child",
+          parentSessionId: "sess_owner",
+          origin: {
+            kind: "task_run",
+            projectRef: project.ref,
+            taskRef: task.ref,
+            runRef,
+            sessionGoalId: `goal-${item.isolation}`,
+            roleRef: "role:builtin-executor",
+            jobId: item.jobId,
+            attempt: 1,
+          },
+        },
+      } as never);
+    }
+    await defaultTaskGraphStore(workspaceRoot).save(graph);
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
+
+    try {
+      for (const item of cases) {
+        const run = graph
+          .runs(project.ref)
+          .find((candidate) => candidate.execution?.executionSessionId === item.sessionId)!;
+        const task: SparkDaemonSessionRunTask = {
+          type: "session.run",
+          sessionId: item.sessionId,
+          workspaceId: "ws_scoped",
+          prompt: "execute scoped Task",
+          messageMetadata: {
+            kind: "task_execution",
+            projectRef: project.ref,
+            taskRef: run.taskRef,
+            runRef: run.ref,
+            jobId: item.jobId,
+            attempt: 1,
+          },
+        };
+        await executeSparkDaemonSessionRunTask(task, context(task), {
+          paths,
+          executeSession,
+          sessionRegistry: {
+            get: vi.fn(async () => sessions.get(item.sessionId) as never),
+            recordRun: vi.fn(async () => ({}) as never),
+            recordTurnQueued: vi.fn(async () => ({}) as never),
+            recordTurnSettled: vi.fn(async () => ({}) as never),
+          },
+          resolveWorkspaceCwd: vi.fn(() => workspaceRoot),
+          resolveSessionCwd: vi.fn(async () => ({ cwd: workspaceRoot })),
+        });
+      }
+
+      const readonlyInput = executeSession.mock.calls[0]?.[0] as unknown as {
+        allowedToolEffects: string[];
+        allowedTools: string[];
+        taskExecutionScope: { isolation: string; writableRoots: string[] };
+      };
+      expect(readonlyInput.taskExecutionScope).toMatchObject({
+        isolation: "readonly",
+        writableRoots: [],
+      });
+      expect(readonlyInput.allowedToolEffects).toEqual(["read"]);
+      expect(readonlyInput.allowedTools).not.toContain("write");
+      expect(readonlyInput.allowedTools).not.toContain("cue_exec");
+
+      const resultsInput = executeSession.mock.calls[1]?.[0] as unknown as {
+        allowedToolEffects: string[];
+        allowedTools: string[];
+        taskExecutionScope: { isolation: string; resultsRoot: string };
+      };
+      expect(resultsInput.taskExecutionScope.isolation).toBe("isolated_results");
+      expect(resultsInput.taskExecutionScope.resultsRoot).toBe(
+        realpathSync(join(workspaceRoot, ".spark", "task-results", "job-results")),
+      );
+      expect(resultsInput.allowedToolEffects).toEqual(["read", "network_read", "local_write"]);
+      expect(resultsInput.allowedTools).toContain("write");
+      expect(resultsInput.allowedTools).not.toContain("task_write");
+      expect(resultsInput.allowedTools).not.toContain("cue_exec");
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails Task Sessions closed without a workspace root or authoritative TaskGraph binding", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-missing-task-scope-"));
+    const session = {
+      ...workspaceSessionRecord({
+        sessionId: "sess_missing_scope",
+        workspaceId: "ws_missing_scope",
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+        cwd: workspaceRoot,
+      }),
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_owner",
+        origin: {
+          kind: "task_run",
+          projectRef: "proj:missing",
+          taskRef: "task:missing",
+          runRef: "run:missing",
+          sessionGoalId: "goal-missing",
+          roleRef: "role:builtin-executor",
+          jobId: "job-missing",
+          attempt: 1,
+        },
+      },
+    } as unknown as ReturnType<typeof workspaceSessionRecord>;
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: session.sessionId,
+      workspaceId: "ws_missing_scope",
+      prompt: "must fail closed",
+    };
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "must not run" }));
+    const sessionRegistry = {
+      get: vi.fn(async () => session),
+      recordRun: vi.fn(async () => ({}) as never),
+      recordTurnQueued: vi.fn(async () => ({}) as never),
+      recordTurnSettled: vi.fn(async () => ({}) as never),
+    };
+
+    try {
+      await expect(
+        executeSparkDaemonSessionRunTask(task, context(task), {
+          paths,
+          executeSession,
+          sessionRegistry,
+        }),
+      ).rejects.toThrow("Task Session requires an authoritative workspace root");
+      await expect(
+        executeSparkDaemonSessionRunTask(task, context(task), {
+          paths,
+          executeSession,
+          sessionRegistry,
+          resolveWorkspaceCwd: () => workspaceRoot,
+        }),
+      ).rejects.toThrow("Task execution scope requires the owning Workspace TaskGraph");
+      expect(executeSession).not.toHaveBeenCalled();
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("derives reusable task_revision scope from Session lineage and TaskGraph", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-task-revision-scope-"));
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Repro", description: "Repro" });
+    const taskRecord = graph.createTask({
+      projectRef: project.ref,
+      title: "Reusable lane",
+      description: "Reusable lane",
+      kind: "implement",
+      roleRef: "role:builtin-executor",
+      artifactRefs: [],
+      executionPolicy: {
+        sessionLifetime: "task_revision",
+        continuity: "reuse_within_revision",
+        isolation: "workspace",
+        comparison: "single_side",
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Continue one reusable Task lane",
+          successCriteria: ["The lineage-bound scope is preserved."],
+          evidenceRequired: ["The execution scope binding."],
+          steps: ["Resume the Session without caller-supplied Task metadata."],
+        },
+        "Reusable lane",
+        "Reusable lane",
+      ),
+    });
+    const runRef = "run:revision-continuation" as RunRef;
+    graph.recordRun({
+      ref: runRef,
+      projectRef: project.ref,
+      taskRef: taskRecord.ref,
+      roleRef: "role:builtin-executor" as RoleRef,
+      runName: "revision-continuation",
+      ownerSessionId: "sess_owner",
+      execution: {
+        ownerSessionId: "sess_owner",
+        sessionId: "sess_task_revision",
+        sessionGoalId: "goal-task-revision",
+        sessionLifetime: "task_revision",
+        jobId: "job-task-revision",
+        attempt: 1,
+      },
+      status: "succeeded",
+      startedAt: "2026-08-30T00:00:00.000Z",
+      finishedAt: "2026-08-30T00:01:00.000Z",
+      updatedAt: "2026-08-30T00:01:00.000Z",
+      outputEvidenceRefs: [],
+    });
+    await defaultTaskGraphStore(workspaceRoot).save(graph);
+    const session = {
+      ...workspaceSessionRecord({
+        sessionId: "sess_task_revision",
+        workspaceId: "ws_task_revision",
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+        cwd: workspaceRoot,
+      }),
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_owner",
+        origin: {
+          kind: "task_revision",
+          projectRef: project.ref,
+          taskRef: taskRecord.ref,
+          revisionRef: "revision:repro-lane",
+          originatingRunRef: runRef,
+          sessionGoalId: "goal-task-revision",
+          roleRef: "role:builtin-executor",
+          jobId: "job-task-revision",
+          attempt: 1,
+        },
+      },
+    } as unknown as ReturnType<typeof workspaceSessionRecord>;
+    const runTask: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: session.sessionId,
+      workspaceId: "ws_task_revision",
+      prompt: "continue the reusable lane",
+    };
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
+
+    try {
+      await executeSparkDaemonSessionRunTask(runTask, context(runTask), {
+        paths,
+        executeSession,
+        sessionRegistry: {
+          get: vi.fn(async () => session),
+          recordRun: vi.fn(async () => ({}) as never),
+          recordTurnQueued: vi.fn(async () => ({}) as never),
+          recordTurnSettled: vi.fn(async () => ({}) as never),
+        },
+        resolveWorkspaceCwd: vi.fn(() => workspaceRoot),
+      });
+
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskExecutionScope: expect.objectContaining({
+            isolation: "workspace",
+            binding: expect.objectContaining({ runRef, jobId: "job-task-revision", attempt: 1 }),
+            writableRoots: [workspaceRoot],
+          }),
+        }),
+      );
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("requires an attached authorized Artifact for non-Fleet isolated_worktree", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-nonfleet-worktree-"));
+    const worktreeRoot = join(workspaceRoot, "worktree");
+    mkdirSync(worktreeRoot, { recursive: true });
+    const artifactRef = "artifact:task-worktree" as ArtifactRef;
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Worktree", description: "Worktree" });
+    const taskRecord = graph.createTask({
+      projectRef: project.ref,
+      title: "Worktree Task",
+      description: "Worktree Task",
+      kind: "implement",
+      roleRef: "role:builtin-executor",
+      artifactRefs: [artifactRef],
+      executionPolicy: {
+        sessionLifetime: "task_run",
+        continuity: "fresh",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        worktreeTarget: {
+          primaryArtifactRef: artifactRef,
+          writableArtifactRefs: [artifactRef],
+        },
+        concurrencyKeys: [],
+        maxAttempts: 1,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Exercise worktree enforcement",
+          successCriteria: ["Only the attached Task Artifact is writable."],
+          evidenceRequired: ["The daemon-resolved scope."],
+          steps: ["Run in the attached worktree."],
+        },
+        "Worktree Task",
+        "Worktree Task",
+      ),
+    });
+    const runRef = "run:worktree" as RunRef;
+    graph.recordRun({
+      ref: runRef,
+      projectRef: project.ref,
+      taskRef: taskRecord.ref,
+      roleRef: "role:builtin-executor" as RoleRef,
+      runName: "worktree",
+      ownerSessionId: "sess_owner",
+      execution: {
+        ownerSessionId: "sess_owner",
+        executionSessionId: "sess_worktree",
+        sessionGoalId: "goal-worktree",
+        jobId: "job-worktree",
+        attempt: 1,
+      },
+      status: "running",
+      startedAt: "2026-08-30T00:00:00.000Z",
+      outputEvidenceRefs: [],
+    });
+    await defaultTaskGraphStore(workspaceRoot).save(graph);
+    const session = {
+      ...workspaceSessionRecord({
+        sessionId: "sess_worktree",
+        workspaceId: "ws_worktree",
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+        cwd: worktreeRoot,
+        cwdArtifactRef: artifactRef,
+      }),
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_owner",
+        origin: {
+          kind: "task_run",
+          projectRef: project.ref,
+          taskRef: taskRecord.ref,
+          runRef,
+          sessionGoalId: "goal-worktree",
+          roleRef: "role:builtin-executor",
+          jobId: "job-worktree",
+          attempt: 1,
+        },
+      },
+    } as unknown as ReturnType<typeof workspaceSessionRecord>;
+    const runTask: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_worktree",
+      workspaceId: "ws_worktree",
+      prompt: "execute worktree Task",
+      messageMetadata: {
+        kind: "task_execution",
+        projectRef: project.ref,
+        taskRef: taskRecord.ref,
+        runRef,
+        jobId: "job-worktree",
+        attempt: 1,
+      },
+    };
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
+    const resolveSessionCwd = vi.fn(async () => ({
+      cwd: worktreeRoot,
+      cwdArtifactRef: artifactRef,
+    }));
+
+    try {
+      await executeSparkDaemonSessionRunTask(runTask, context(runTask), {
+        paths,
+        executeSession,
+        sessionRegistry: {
+          get: vi.fn(async () => session),
+          recordRun: vi.fn(async () => ({}) as never),
+          recordTurnQueued: vi.fn(async () => ({}) as never),
+          recordTurnSettled: vi.fn(async () => ({}) as never),
+        },
+        resolveWorkspaceCwd: vi.fn(() => workspaceRoot),
+        resolveSessionCwd,
+      });
+
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allowedToolEffects: ["read", "network_read", "local_write"],
+          taskExecutionScope: expect.objectContaining({
+            isolation: "isolated_worktree",
+            primaryArtifactRef: artifactRef,
+            writableArtifactRefs: [artifactRef],
+            writableRoots: [worktreeRoot],
+          }),
+        }),
+      );
+      const executionInput = executeSession.mock.calls[0]?.[0] as unknown as {
+        allowedTools: string[];
+      };
+      expect(executionInput.allowedTools).toContain("write");
+      expect(executionInput.allowedTools).not.toContain("task_write");
+      expect(executionInput.allowedTools).not.toContain("cue_exec");
+
+      const unbound = {
+        ...session,
+        cwdArtifactRef: undefined,
+      };
+      await expect(
+        executeSparkDaemonSessionRunTask(runTask, context(runTask), {
+          paths,
+          executeSession,
+          sessionRegistry: {
+            get: vi.fn(async () => unbound),
+            recordRun: vi.fn(async () => ({}) as never),
+            recordTurnQueued: vi.fn(async () => ({}) as never),
+            recordTurnSettled: vi.fn(async () => ({}) as never),
+          },
+          resolveWorkspaceCwd: vi.fn(() => workspaceRoot),
+          resolveSessionCwd,
+        }),
+      ).rejects.toThrow(/requires an attached Task Artifact/u);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
@@ -723,6 +1226,54 @@ describe("daemon native session execution", () => {
   });
 
   it("passes and releases the daemon-fenced lease for a managed Task Session", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-task-lease-"));
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Lease", description: "Lease" });
+    const taskRecord = graph.createTask({
+      projectRef: project.ref,
+      title: "Lease probe",
+      description: "Lease probe",
+      kind: "research",
+      roleRef: "role:builtin-explorer",
+      executionPolicy: {
+        sessionLifetime: "task_revision",
+        continuity: "reuse_within_revision",
+        isolation: "readonly",
+        comparison: "single_side",
+        concurrencyKeys: [],
+        maxAttempts: 1,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Probe the daemon lease",
+          successCriteria: ["The Task Session runs under its lease."],
+          evidenceRequired: ["Lease execution result."],
+          steps: ["Run once."],
+        },
+        "Lease probe",
+        "Lease probe",
+      ),
+    });
+    const taskRunRef = "run:probe-1" as RunRef;
+    graph.recordRun({
+      ref: taskRunRef,
+      projectRef: project.ref,
+      taskRef: taskRecord.ref,
+      roleRef: "role:builtin-explorer" as RoleRef,
+      runName: "lease-probe-attempt-1",
+      ownerSessionId: "sess_owner",
+      execution: {
+        ownerSessionId: "sess_owner",
+        executionSessionId: "sess_task_execution",
+        sessionGoalId: "goal-probe-1",
+        jobId: "task-job:probe",
+        attempt: 1,
+      },
+      status: "running",
+      startedAt: "2026-08-30T00:00:00.000Z",
+      outputEvidenceRefs: [],
+    });
+    await defaultTaskGraphStore(workspaceRoot).save(graph);
     const wakeOwner = vi.fn();
     const release = vi.fn();
     const taskSession = {
@@ -736,9 +1287,9 @@ describe("daemon native session execution", () => {
         parentSessionId: "sess_owner",
         origin: {
           kind: "task_run",
-          projectRef: "proj:repro",
-          taskRef: "task:probe",
-          runRef: "run:probe-1",
+          projectRef: project.ref,
+          taskRef: taskRecord.ref,
+          runRef: taskRunRef,
           sessionGoalId: "goal-probe-1",
           roleRef: "role:builtin-explorer",
           jobId: "task-job:probe",
@@ -766,6 +1317,14 @@ describe("daemon native session execution", () => {
       sessionId: "sess_task_execution",
       prompt: "execute the bound task",
       workspaceId: "workspace-task",
+      messageMetadata: {
+        kind: "task_execution",
+        projectRef: project.ref,
+        taskRef: taskRecord.ref,
+        runRef: taskRunRef,
+        jobId: "task-job:probe",
+        attempt: 1,
+      },
     };
     const executor = createSparkDaemonTaskExecutor({
       paths,
@@ -793,6 +1352,7 @@ describe("daemon native session execution", () => {
         stop: vi.fn(),
         wakeOwner,
       },
+      resolveWorkspaceCwd: () => workspaceRoot,
     });
 
     const executionContext = context(task);
@@ -803,6 +1363,16 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "sess_task_execution",
+        invocationId: "invocation-1",
+        invocationAttempt: {
+          epoch: 1,
+          daemonGeneration: 1,
+          correlationId: "attempt:invocation-1:1",
+        },
+        invocationRole: expect.objectContaining({
+          ref: "role:builtin-explorer",
+          revision: expect.any(String),
+        }),
         sessionLease: {
           workspaceId: "workspace-task",
           clientId: "client-task",
@@ -824,8 +1394,9 @@ describe("daemon native session execution", () => {
     expect(ordinaryGet).toHaveBeenCalledOnce();
     expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
       target: "repro",
-      reason: expect.stringContaining("task:probe"),
+      reason: expect.stringContaining(taskRecord.ref),
     });
+    rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
   it("falls back to the Workspace model when a Role model mapping is unconfigured", async () => {

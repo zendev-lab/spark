@@ -2,18 +2,20 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   contentHash,
-  sparkWorkspaceStatePath,
   stableId,
-  writeTextFileAtomic,
   type EvidenceRef,
   type ExtensionRoleRunInputController,
   type ExtensionRoleRunner,
   type RoleRunCompletionOutcome,
-  type SparkStateRootContext,
   type ToolEffect,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { writeTextFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 import {
   loadSparkSkillByName,
   SparkSkillResolver,
@@ -22,13 +24,12 @@ import {
 import {
   defaultProjectResourceDirs,
   orderedSparkResourceRoots,
-} from "@zendev-lab/spark-system/resource-paths";
+} from "@zendev-lab/spark-platform-node/resource-paths";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { resolveRoleNativeExecutor } from "./native-executor.ts";
 import {
   sparkRoleModelTypeSchema,
   sparkRoleOriginSchema,
-  type SparkRoleCapability,
   type SparkRoleModelType,
   type SparkRoleSource,
 } from "@zendev-lab/spark-protocol/role-session";
@@ -279,12 +280,7 @@ export interface DefaultRoleRegistryOptions {
 }
 
 const ROLE_READ_TOOLS = ["read", "grep", "find", "context"] as const;
-const ROLE_NET_TOOLS = [
-  "web_search",
-  "code_search",
-  "fetch_content",
-  "get_search_content",
-] as const;
+const ROLE_NET_TOOLS = ["web_search", "web_fetch", "get_search_content"] as const;
 const ROLE_EXECUTION_TOOLS = [
   "cue_exec",
   "cue_run",

@@ -4,16 +4,13 @@ import {
   renderSparkFleetModePrompt,
   renderSparkModeVisibleMessage,
   renderSparkPlanModePrompt,
-} from "./mode/index.ts";
+} from "./spark-directive-prompts.ts";
 import { roadmapPlanningContext } from "../flows/roadmap-flow.ts";
 import {
-  clearCurrentProjectRef,
   currentSparkProject,
   saveSparkGraphAndTodos,
-  saveSparkMode,
   type SparkPlanningModeSource,
 } from "./session-state.ts";
-import { sparkActiveMode } from "./spark-mode-state.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 export interface SparkModeMessageApi {
@@ -62,7 +59,7 @@ export async function dispatchSparkAgentInstruction(
   const idle = piApi.isIdle?.() ?? false;
   piApi.sendMessage(
     {
-      customType: "spark-mode-request",
+      customType: "spark-directive-request",
       content: instruction,
       display: false,
       authority: "runtime_control",
@@ -73,6 +70,11 @@ export async function dispatchSparkAgentInstruction(
   );
 }
 
+/**
+ * One-shot `/plan [focus]` command: inject planning guidance into the current
+ * invocation only. Nothing is persisted and no tool, sandbox, approval, or
+ * admission boundary changes; the next plain turn is neutral again.
+ */
 export async function enterSparkPlanMode(
   piApi: SparkModeMessageApi,
   deps: SparkModeEntryDeps,
@@ -83,16 +85,10 @@ export async function enterSparkPlanMode(
 ): Promise<void> {
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
   const roadmapResult = project ? roadmapPlanningContext(graph, project.ref, focus) : undefined;
-  ctx.sparkActiveMode = sparkActiveMode("plan");
-  if (project) await saveSparkMode(ctx.cwd, ctx, { mode: "plan", projectRef: project.ref });
-  else {
-    await saveSparkMode(ctx.cwd, ctx, { mode: "plan" });
-    await clearCurrentProjectRef(ctx.cwd, ctx);
-  }
   if (roadmapResult?.mutated) await saveSparkGraphAndTodos(ctx.cwd, graph, ctx);
   await deps.refreshSparkWidget(ctx.cwd, ctx);
   ctx.ui?.notify?.(
-    "Spark plan mode: investigate, answer, and plan durable work when needed.",
+    "Spark /plan: this turn investigates, answers, and plans durable work when needed.",
     "info",
   );
   await dispatchSparkAgentInstruction(
@@ -104,6 +100,7 @@ export async function enterSparkPlanMode(
   );
 }
 
+/** One-shot `/execute [focus]` command: execution guidance for this turn only. */
 export async function enterSparkExecuteMode(
   piApi: SparkModeMessageApi,
   deps: SparkModeEntryDeps,
@@ -112,14 +109,8 @@ export async function enterSparkExecuteMode(
   focus?: string,
 ): Promise<void> {
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  ctx.sparkActiveMode = sparkActiveMode("execute");
-  if (project) await saveSparkMode(ctx.cwd, ctx, { mode: "execute", projectRef: project.ref });
-  else {
-    await saveSparkMode(ctx.cwd, ctx, { mode: "execute" });
-    await clearCurrentProjectRef(ctx.cwd, ctx);
-  }
   await deps.refreshSparkWidget(ctx.cwd, ctx);
-  ctx.ui?.notify?.("Spark execute mode: work until the next blocker.", "info");
+  ctx.ui?.notify?.("Spark /execute: this turn works until the next blocker.", "info");
   await dispatchSparkAgentInstruction(
     piApi,
     deps,
@@ -129,6 +120,7 @@ export async function enterSparkExecuteMode(
   );
 }
 
+/** One-shot `/fleet [focus]` command: fleet-coordination guidance for this turn only. */
 export async function enterSparkFleetMode(
   piApi: SparkModeMessageApi,
   deps: SparkModeEntryDeps,
@@ -137,14 +129,8 @@ export async function enterSparkFleetMode(
   focus?: string,
 ): Promise<void> {
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  ctx.sparkActiveMode = sparkActiveMode("fleet");
-  if (project) await saveSparkMode(ctx.cwd, ctx, { mode: "fleet", projectRef: project.ref });
-  else {
-    await saveSparkMode(ctx.cwd, ctx, { mode: "fleet" });
-    await clearCurrentProjectRef(ctx.cwd, ctx);
-  }
   await deps.refreshSparkWidget(ctx.cwd, ctx);
-  ctx.ui?.notify?.("Spark fleet mode: coordinate isolated task workers.", "info");
+  ctx.ui?.notify?.("Spark /fleet: this turn coordinates isolated task workers.", "info");
   await dispatchSparkAgentInstruction(
     piApi,
     deps,

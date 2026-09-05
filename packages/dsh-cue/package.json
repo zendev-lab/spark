@@ -1,0 +1,36 @@
+{
+  "name": "@zendev-lab/dsh-cue",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Cordis Cue execution service with a durable, observable backend.",
+  "license": "MIT",
+  "author": "zrr1999",
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "skills/**/*",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin": "./src/plugin.ts",
+    "./operations": "./src/operations/index.ts"
+  },
+  "scripts": {
+    "build:dsh-plugin": "esbuild src/plugin.ts --bundle --format=esm --platform=node --target=node22 --outfile=dist/plugin.mjs --external:@deepseek-ai/* --external:@deepseek-ai/cordis",
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test:real-host": "vp test run src/plugin.test.ts",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

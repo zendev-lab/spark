@@ -4,7 +4,8 @@ import {
   type EvidenceFormat,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
-import { sparkStateCwd, type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-core";
+import { type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 import { finalAssistantTextFromRoleRunEvents } from "@zendev-lab/spark-roles";
 import {
   parseWorkflowScript,
@@ -24,7 +25,7 @@ import {
   type SparkRoleRunResult,
   type SparkWorkflowRoleRunRequest,
   type SparkWorkflowModelRunRequest,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import { sessionModelName } from "./session-model.ts";
 import {
@@ -225,6 +226,7 @@ export function registerSparkWorkflowRunTool(
         ctx,
         signal,
         deps,
+        source: source.source,
         sourceLabel: source.label,
         script: source.script,
         meta,
@@ -285,7 +287,24 @@ export function registerSparkWorkflowRunTool(
           webSearch: (request: WorkflowWebSearchInput) => webSearchAdapter({ cwd, request }),
           fetchContent: (request: WorkflowFetchContentInput) =>
             fetchContentAdapter({ cwd, request }),
-          loadWorkflowScript: (selector: string) => resolveNestedWorkflowScript(stateCwd, selector),
+          loadWorkflowScript: async (selector: string) => {
+            const nested = await resolveNestedWorkflowSource(stateCwd, selector);
+            const nestedMeta = parseWorkflowScript(nested.script).meta;
+            await ensureWorkflowRunApproval({
+              cwd: stateCwd,
+              ctx,
+              signal: abortController.signal,
+              deps,
+              source: nested.source,
+              sourceLabel: nested.label,
+              script: nested.script,
+              meta: nestedMeta,
+              options: {},
+              base,
+              now: deps.now,
+            });
+            return nested.script;
+          },
           restartInput: ({
             abortController: nextAbortController,
             run: nextRun,
@@ -406,6 +425,7 @@ async function ensureWorkflowRunApproval(input: {
   ctx: SparkToolContext;
   signal: AbortSignal;
   deps: SparkWorkflowRunToolDeps;
+  source: SparkDynamicWorkflowRunSource;
   sourceLabel: string;
   script: string;
   meta: ReturnType<typeof parseWorkflowScript>["meta"];
@@ -450,6 +470,7 @@ async function ensureWorkflowRunApproval(input: {
 
 async function buildWorkflowApprovalSummary(input: {
   cwd: string;
+  source: SparkDynamicWorkflowRunSource;
   sourceLabel: string;
   script: string;
   meta: ReturnType<typeof parseWorkflowScript>["meta"];
@@ -485,6 +506,10 @@ async function buildWorkflowApprovalSummary(input: {
   const agentCallSites = countRegexMatches(input.script, /\bagent\s*\(/gu);
   const riskFlags: string[] = [];
   const reasons: string[] = [];
+  if (input.source.kind !== "selector" || !input.source.selector?.trim().startsWith("builtin:")) {
+    riskFlags.push("executable_source");
+    reasons.push("non-builtin workflow source executes inside the daemon process");
+  }
   const hasFanOut =
     /\b(?:parallel|verify|judgePanel|loopUntilDry|pipeline)\s*\(/u.test(input.script) ||
     (input.options.concurrency ?? 0) > 4 ||
@@ -709,7 +734,7 @@ function extractWorkflowAllowedTools(script: string): string[] {
     for (const tool of body.matchAll(/["']([^"']+)["']/gu)) tools.push(tool[1] ?? "");
   }
   if (/\bwebSearch\s*\(/u.test(script)) tools.push("web_search");
-  if (/\bfetchContent\s*\(/u.test(script)) tools.push("fetch_content");
+  if (/\bfetchContent\s*\(/u.test(script)) tools.push("web_fetch");
   if (/\bevidenceRecord\s*\(/u.test(script)) tools.push("evidenceRecord");
   return uniqueStrings(tools.filter((tool) => tool.trim().length > 0));
 }
@@ -825,13 +850,21 @@ function normalizeNestedWorkflowSelector(selector: string): string {
   return `workspace:${trimmed}`;
 }
 
-async function resolveNestedWorkflowScript(
+async function resolveNestedWorkflowSource(
   cwd: string,
   selector: string,
-): Promise<string | undefined> {
+): Promise<{ script: string; label: string; source: SparkDynamicWorkflowRunSource }> {
   const normalized = normalizeNestedWorkflowSelector(selector);
-  const { script } = await readSavedWorkflow({ cwd, selector: normalized, includeUser: true });
-  return script;
+  const { descriptor, script } = await readSavedWorkflow({
+    cwd,
+    selector: normalized,
+    includeUser: true,
+  });
+  return {
+    script,
+    label: descriptor.selector,
+    source: { kind: "selector", label: descriptor.selector, selector: normalized },
+  };
 }
 
 async function createSparkWorkflowAgentRunner(input: {
@@ -971,7 +1004,7 @@ async function createSparkWorkflowFetchContentAdapter(input: {
         signal: input.signal,
         runName: "workflow-fetch-content",
         sessionModel: sessionModelName(input.ctx.model),
-        allowedTools: ["fetch_content"],
+        allowedTools: ["web_fetch"],
         usageExecutionKind: "workflow_agent",
         roleExecutor: input.ctx.runRole,
       },
@@ -996,7 +1029,7 @@ function workflowWebSearchInstruction(request: WorkflowWebSearchInput): string {
 
 function workflowFetchContentInstruction(request: WorkflowFetchContentInput): string {
   return [
-    "Use the fetch_content tool for this Spark workflow source-fetch step.",
+    "Use the web_fetch tool for this Spark workflow source-fetch step.",
     "Return compact extracted facts relevant to the prompt and include the source URL.",
     "Request JSON:",
     JSON.stringify(request, null, 2),

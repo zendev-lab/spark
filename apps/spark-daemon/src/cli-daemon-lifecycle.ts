@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
+import { createSparkProviderControl } from "@zendev-lab/spark-llm-providers/control";
 import { createId, type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol";
 import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
 import {
@@ -9,14 +9,14 @@ import {
   resolveSparkPaths,
   resolveSparkUserPaths,
   writePrivateFile,
-} from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-platform-node";
 import {
   emptySparkUpdateState,
   isSparkBuildInfo,
   readSparkBuildInfo,
   readSparkUpdateState,
   resolveSparkUpdatePaths,
-} from "@zendev-lab/spark-update";
+} from "@zendev-lab/spark-deployment";
 import {
   defaultSparkDaemonConfig,
   parseSparkDaemonInvocationConcurrency,

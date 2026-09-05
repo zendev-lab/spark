@@ -26,7 +26,6 @@ spark hub --help
 | --- | --- | --- |
 | `spark` | 打印帮助，或调用前台、后台、安装、诊断和版本工作流 | `spark --help` |
 | `spark web` | 启动绑定 daemon 的本地回环浏览器工作台 | `spark web --help` |
-| `spark web-dsh` | 启动基于 DeepSeek Harness 宿主的 Spark 产品工作台 | `spark web-dsh --help` |
 | `spark daemon` | 操作 daemon 拥有的执行、会话、工作区、模型、认证和 Channel 状态 | `spark daemon --help` |
 | `spark hub` | 运行和管理 Hub 协调与 Web 表面 | `spark hub --help` |
 | ACP 与 MCP adapter | 通过配置好的 Spark adapter 连接兼容客户端 | 阅读[协作与客户端](/zh/guides/collaboration/) |
@@ -63,27 +62,36 @@ spark hub --help
 ## 本地 Web 工作台
 
 `spark web` 启动本地浏览器工作台，列出绑定到同一 daemon 的全部 workspace。
-它默认绑定回环、需要一次性 token，并通过 `spark-daemon-client` 连接 Spark
-daemon。非回环 `--host` 必须配合可重复的 `--trusted-host`；服务器会拒绝不可信
-Host、Origin、Fetch Metadata、token 和跨站 mutation 来源。Hub 仍是多 daemon
-代理与管理界面。
+它默认绑定回环地址，并通过 `spark-daemon-client` 连接 Spark daemon。每个正常请求都
+需要 daemon access token。绑定 `0.0.0.0` 时，Spark 自动暴露本机局域网 IPv4 接口，
+不再维护单独的 trusted-host 配置。Direct Web 只接受回环地址与本机接口 IP literal；
+Host、Origin、Fetch Metadata 与跨站 mutation 来源在认证前校验。Hub 仍是多 daemon
+代理与正式 DNS 远程访问的支持边界。
 
 ```bash
 spark web
 spark web --port 4310
-spark web --host 0.0.0.0 --trusted-host spark.lan
+spark web --host 0.0.0.0 --port 4310
 ```
 
-命令只输出带 token 的工作台 URL，不会自动打开浏览器。
+命令输出带 daemon 进程 token、可直接访问的工作台 URL，但不会自动打开浏览器；同时单独
+打印 token 明文，并在正常退出时吊销。链接可用于回环或 LAN 访问。
 
-额外的 `spark web-dsh` 命令会启动独立打包、基于 DSH 宿主的 Spark 产品应用，不会修改
-`spark web`。在原生 Spark Web 通过替代门槛前，它仍然保留：
+daemon 访问 token 由 daemon 持有，只存储哈希。需要单独管理 token、在 launcher
+异常退出后检查元数据或手工吊销时，使用：
 
-```bash
-spark web-dsh --host 0.0.0.0 --port 8888
+```text
+spark daemon access create [--label <备注>] [--expires-at <iso>] [--json]
+spark daemon access list [--json]
+spark daemon access revoke <token-id> [--json]
 ```
 
-该命令同样只输出服务 URL，不会自动打开浏览器。
+打开终端打印的 URL 后，daemon 会校验 token，写入 HttpOnly、SameSite=Lax cookie，
+从地址栏移除 token，再进入目标页面。没有有效 token 的页面导航会进入 Spark Access 页面
+供手工输入。`?token=…` 只用于页面导航；`x-spark-web-token` 请求头继续用于自动化。
+API 与 WebSocket 不返回 HTML
+登录页，未认证时仍保持 transport-level 401/503。缺失、错误、过期、已吊销 token
+不会暴露具体状态；daemon 不可达时 fail closed。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读
@@ -139,4 +147,4 @@ details: no such column: serialization_key
 支持 `--json` 的命令仍按文档返回 JSON payload，自动化应继续使用 JSON。
 
 需要逐步引导时，继续阅读[快速开始](/zh/getting-started/)、
-[TUI](/zh/guides/tui/)或[运维手册](/zh/guides/operator-handbook/)。
+[本地 Web 工作台](/zh/guides/web/)或[运维手册](/zh/guides/operator-handbook/)。

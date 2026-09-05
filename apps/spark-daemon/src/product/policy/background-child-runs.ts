@@ -1,9 +1,9 @@
-import type { RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
+import type { RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-invocation";
 import type { WorkflowRunRecord } from "@zendev-lab/spark-workflows";
 import {
   readRoleRunEvidencePreview,
   type ActiveSparkRoleRunProcess,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { SparkBackgroundChildRunView } from "./background-run-contracts.ts";
 

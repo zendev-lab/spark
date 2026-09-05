@@ -10,32 +10,69 @@ spark web
 ```
 
 `spark web` binds loopback by default, starts or reconnects the local daemon,
-and prints a one-shot token URL such as `http://127.0.0.1:4310/?token=...`
-without opening a browser.
-An explicit non-loopback `--host` requires at least one `--trusted-host`. The
-server then validates Host, Origin/Fetch Metadata, mutation provenance, and the
-token; this remains a trusted single-user LAN surface rather than a public
-multi-user control plane.
+and prints an immediately usable workbench URL such as
+`http://127.0.0.1:4310/?token=…` without opening a browser. Every normal
+request, including one from a loopback peer, requires a daemon access token.
 
-Use `--host`, repeatable `--trusted-host`, and `--port` when you need to change
-the bind:
+Bind `0.0.0.0` when the workbench should also be reachable through this host's
+local IPv4 interfaces. Spark discovers those interface addresses automatically;
+there is no separate trusted-host allowlist. Direct Web accepts loopback and
+local interface IP literals only. Host, Origin/Fetch Metadata, and mutation
+provenance are validated before authentication, so this remains a trusted
+single-user LAN surface rather than a public multi-user control plane.
+Cross-site top-level GET navigation is accepted so a printed link can be
+clicked; cross-site subresources and mutations remain rejected.
+Browser cookies are scoped to a host, not a port. Treat every HTTP service on
+the same direct IP authority as part of that trusted host; use the Hub on an
+isolated HTTPS origin when this assumption does not hold.
 
 ```bash
-spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310
+spark web --host 0.0.0.0 --port 4310
 ```
 
-Pass `--hmr` for local development when you need Vite to watch source changes;
-it is disabled by default for the long-lived server. This workbench lists every
-workspace bound to this local daemon. Register a local directory from the home
-page; Hub origin and announce stay on `spark daemon login`, not this form. Hub
-remains the multi-daemon proxy and management UI.
+Every peer needs a daemon access token. On every startup, `spark web` asks
+the daemon to create one process token and prints both its plaintext and every
+reachable local URL with that token after the listener is ready. Spark
+revokes that token during normal shutdown. The daemon remains the only owner:
+it stores only the hash and verifies every presented token. Use
+`spark daemon access create` for a separately managed token, inspect metadata
+with `spark daemon access list`, and use `spark daemon access revoke` after an
+unclean launcher exit or when a managed token is no longer needed.
+The printed URL is a bearer secret until the startup token is revoked. Do not
+share terminal output or the uncleaned link.
+
+Opening a printed URL verifies the token through the daemon, stores it in an
+HttpOnly, SameSite=Lax cookie, removes it from the address bar, and continues to
+the requested page. Document navigation without a valid token opens the Spark
+Access page for manual entry. The `?token=…` carrier is navigation-only; API and
+WebSocket requests do not receive HTML
+login pages: unauthenticated requests retain carrier-level 401/503 responses.
+Missing, wrong, expired, and revoked tokens do not expose token-state detail,
+and verification fails closed while the daemon is unreachable.
+
+Source-checkout launches use Vite so `pnpm spark web` serves the current source;
+pass `--hmr` when you need to watch source changes. Installed product launches
+use the prebuilt handler. The home page is a
+daemon-wide Session tree and Invocation view, with pending human waits and
+recent Artifacts. It works when no Workspace is registered, including for
+daemon-scoped Channel Sessions. Workspace remains repository, cwd, and Artifact
+context; register a local directory from the collapsed context section. Hub
+origin and announce stay on `spark daemon login`, not this form. Hub remains the
+multi-daemon proxy and management UI and is the supported boundary for formal
+DNS-based or multi-daemon remote access.
 
 The workbench uses typed daemon projections for Session history and lifecycle,
-Ask and approval recovery, Work and Artifact inspection, Role and Skill
+Invocation list/detail, Ask and approval recovery, Work and Artifact inspection, Role and Skill
 catalogs, model and provider settings, search, export, and diagnostics. It does
 not read `.spark/`, Hub databases, or arbitrary host paths in the browser.
 Directory selection remains confined to registered workspaces and owning Spark
 worktrees after daemon-side realpath and symlink checks.
+
+Native Session history opens at the latest bounded page and loads earlier pages
+through an exclusive cursor. The daemon seeks only the indexed transcript
+records needed for each page; an older tail-only cache is rebuilt once when a
+cursor leaves its coverage. The JSONL transcript remains authoritative, and
+every returned page still obeys the daemon response-byte limit.
 
 Use the language and theme controls in the rail to select English or Chinese
 and light, dark, or system appearance. `Cmd+K` on macOS, or `Ctrl+K` elsewhere,
@@ -44,48 +81,12 @@ Artifact, credential, and export data are never available offline. A local
 Share is a random, read-only, process-lifetime HTML preview; it is not uploaded
 or persisted.
 
-The Session Action Bar sends `/plan`, `/execute`, and `/fleet` through the
-daemon's typed Session mode controller. The selected mode is persisted with
-the Session workspace state, so reloads do not create a browser-owned mode.
-This control selects mode only; Plan review remains pending and must use the
-daemon's Ask and approval owners rather than browser-invented state.
-
-## DSH-hosted Spark workbench
-
-`spark web-dsh` starts the separately packaged Spark product surface hosted by
-DeepSeek Harness; it does not replace or change `spark web`. It remains
-available until the native Spark Web replacement gate has passed. It prints
-the server URL without opening a browser:
-
-```bash
-spark web-dsh --host 0.0.0.0 --port 8888
-```
-
-The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
-`cue` Skill in the DSH Skill catalog. It handles
-plain-HTTP UUID and remote credential onboarding, and rejects oversized cold
-history artifacts before DSH materializes the whole transcript. For histories
-that are safe to inspect, it predicts a smaller initial page, enforces a
-response-byte budget, compacts redundant token chunks, and returns a marked
-preview instead of timing out when one final message is unusually large.
-Directory symlinks are exposed as non-traversable entries in DSH filesystem
-listings, preventing recursive consumers from following a symlink cycle;
-explicit file access through symlink paths is unchanged.
-
-The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
-`openai-codex` routes. API-key providers can be configured during DSH
-onboarding; OpenAI Codex reuses credentials created by Spark's OAuth login flow.
-Reasoning-capable routes default to `high`; an explicit Session-level effort
-still takes precedence.
-The Models page asks for an API key when adding Baidu OneAPI or Kimi For
-Coding. Kimi For Coding does not provide OAuth authentication.
-
-The managed `spark-standard` and `spark-code` presets expose versioned Spark
-file tools over DSH's filesystem provider. Read the file first, then pass its
-opaque `version` as `expectedVersion` to `write` or `edit`; use `missing` only
-when creating a file. DSH still enforces the current session sandbox, while
-the schemas omit escalation arguments that cannot succeed. Image reads remain
-provided by DSH's `read_image` tool.
+The Session Action Bar sends `/plan`, `/execute`, and `/fleet` as one-shot
+commands over the ordinary turn-submission channel. The daemon parses each
+command and injects its working-intent guidance into the current Invocation
+only; nothing is persisted, so reloads and later plain turns stay neutral.
+Approvals still use the daemon's Ask and approval owners rather than
+browser-invented state.
 
 ## Start with the outcome
 
@@ -136,8 +137,9 @@ offline cache; only immutable app assets are cached.
 
 ## Session attach
 
-Sessions are workspace-bound. Start `spark web` against the same daemon and
-open the workspace and Session from the list.
+Start `spark web` against the same daemon and open the Session from the
+daemon-wide tree. Workspace-scoped Sessions retain their cwd/repository context;
+daemon Channel Sessions do not require a Workspace.
 Do not invent execution state from the browser timer or transcript text;
 inspect the daemon when two views disagree:
 

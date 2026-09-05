@@ -1,4 +1,4 @@
-import type { ProjectRef, TaskRef } from "@zendev-lab/spark-core";
+import type { ProjectRef, TaskRef } from "@zendev-lab/spark-invocation";
 
 import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
 import { loadRoleRunActivityEvents } from "./role-run-activity-events.ts";

@@ -1,4 +1,4 @@
-name: "CE - Mutation Tests"
+name: "CE - Mutation"
 
 on:
   schedule:
