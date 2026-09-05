@@ -57,26 +57,6 @@ surface instead of `SparkHostAPI`.
 
 `@zendev-lab/spark-llm-providers/models-extension` registers the read-only `models` tool for inspecting the active Spark host model registry. The tool lists available models by default, can include unavailable registered models with auth status, and keeps route/provider details as catalog data rather than a separate model-selection package.
 
-## DSH compatibility adapter
-
-`src/dsh-plugin.ts` is the host-neutral Cordis adapter bundled and mounted by
-`@zendev-lab/spark-web-dsh`. It registers the bundled `baidu-oneapi`,
-`kimi-coding`, and `openai-codex` routes through `SparkProviderLlmAdapter`, so
-the optional DSH workbench shares Spark's provider catalog and credential
-resolution instead of maintaining another owner. The Web DSH composition
-disables stock `llm-pi-ai` before mounting this adapter.
-Reasoning-capable routes advertise Spark's `high` default effort to DSH while
-preserving an explicit lower or higher effort selected for a Session.
-The generated DSH profile keeps the compatibility plugin id and directory
-`spark-llm`; those are runtime profile surfaces, not package aliases.
-The adapter uses DSH's `llm-pi-ai` settings-layout namespace only so the stock
-Models page renders its write-only API-key editor; this does not remount the
-stock provider or transfer provider ownership away from `spark-llm-providers`.
-
-API-key routes resolve credentials from the DSH credentials service, the
-launching environment, and Spark's auth store. OpenAI Codex reuses Spark's
-OAuth credential and must be configured through a Spark OAuth login surface.
-
 ## Baidu OneAPI provider
 
 `@zendev-lab/spark-llm-providers/baidu-oneapi-provider` is the bundled standalone

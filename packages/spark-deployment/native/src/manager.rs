@@ -809,7 +809,7 @@ impl Manager {
         let root_package = current.join("node_modules/@zendev-lab/spark");
         let cli_package = current.join("node_modules/@zendev-lab/spark-cli");
         let launcher = format!(
-            "#!/bin/sh\nset -eu\nexport SPARK_STABLE_LAUNCHER={}\nexport SPARK_CLI_COMMAND_PATH={}\nexport SPARK_MANAGED_VERSIONS_DIR={}\nexport SPARK_MANAGED_CONFIG_FILE={}\nexport SPARK_MANAGED_STATE_DIR={}\nexport SPARK_MANAGED_CACHE_DIR={}\nexport SPARK_DEPLOYMENT_ROOT={}\nexport SPARK_DEPLOYMENT_WATCH_PATH={}\nexport SPARK_PRODUCT_DIST={}\nexport SPARK_BUILD_INFO_PATH={}\nexport SPARK_DAEMON_COMMAND={}\nexport SPARK_HUB_COMMAND={}\nexport SPARK_ACP_COMMAND={}\nexport SPARK_MCP_COMMAND={}\nexport SPARK_PATHS_COMMAND={}\nexport SPARK_WEB_COMMAND={}\nexport SPARK_WEB_DSH_COMMAND={}\nexec {} \"$@\"\n",
+            "#!/bin/sh\nset -eu\nexport SPARK_STABLE_LAUNCHER={}\nexport SPARK_CLI_COMMAND_PATH={}\nexport SPARK_MANAGED_VERSIONS_DIR={}\nexport SPARK_MANAGED_CONFIG_FILE={}\nexport SPARK_MANAGED_STATE_DIR={}\nexport SPARK_MANAGED_CACHE_DIR={}\nexport SPARK_DEPLOYMENT_ROOT={}\nexport SPARK_DEPLOYMENT_WATCH_PATH={}\nexport SPARK_PRODUCT_DIST={}\nexport SPARK_BUILD_INFO_PATH={}\nexport SPARK_DAEMON_COMMAND={}\nexport SPARK_HUB_COMMAND={}\nexport SPARK_ACP_COMMAND={}\nexport SPARK_MCP_COMMAND={}\nexport SPARK_PATHS_COMMAND={}\nexport SPARK_WEB_COMMAND={}\nexec {} \"$@\"\n",
             shell_quote(self.paths.launcher_path.as_os_str()),
             shell_quote(self.paths.launcher_path.as_os_str()),
             shell_quote(self.paths.versions_dir.as_os_str()),
@@ -836,11 +836,6 @@ impl Manager {
             shell_quote(
                 current
                     .join("node_modules/@zendev-lab/spark-web/bin/spark-web")
-                    .as_os_str()
-            ),
-            shell_quote(
-                current
-                    .join("node_modules/@zendev-lab/spark-web-dsh/bin/spark-web-dsh")
                     .as_os_str()
             ),
             shell_quote(binary.as_os_str()),

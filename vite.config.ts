@@ -2,13 +2,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: [
-      "**/*.md",
-      "packages/spark-i18n/src/paraglide/**",
-      "apps/spark-web-dsh/presets/upstream-package/**",
-      "prek.toml",
-      "_typos.toml",
-    ],
+    ignorePatterns: ["**/*.md", "packages/spark-i18n/src/paraglide/**", "prek.toml", "_typos.toml"],
   },
   lint: {
     plugins: ["typescript"],

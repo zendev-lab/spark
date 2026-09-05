@@ -28,12 +28,11 @@ Usage:
   spark acp
   spark mcp
   spark web [--host 127.0.0.1] [--port 4310]
-  spark web-dsh [--host 127.0.0.1] [--port 3080]
   spark --help
   spark --version
 
 The native CLI owns root parsing, diagnostics, routing, and deployment updates.
-Daemon execution, Hub coordination, ACP/MCP, Web, and DSH remain Node companions.
+Daemon execution, Hub coordination, ACP/MCP, and Web remain Node companions.
 "#;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -147,8 +146,13 @@ fn run(args: Vec<OsString>) -> Result<i32, UpdateError> {
         Some("acp") => exec_target(Target::Acp, args[1..].to_vec()),
         Some("mcp") => exec_target(Target::Mcp, args[1..].to_vec()),
         Some("web") => exec_target(Target::Web, args[1..].to_vec()),
-        Some("web-dsh") => exec_target(Target::WebDsh, args[1..].to_vec()),
         Some("tui" | "server") => Ok(print_diagnostic("COMMAND_REMOVED", None, first, &[])),
+        Some("web-dsh") => Ok(print_diagnostic(
+            "COMMAND_REMOVED",
+            None,
+            first,
+            &["Use \"spark web\" for the local browser workbench.".to_owned()],
+        )),
         Some(command) => Ok(print_diagnostic(
             "UNKNOWN_COMMAND",
             Some(&format!("Unknown Spark command: {command}")),
@@ -520,7 +524,6 @@ enum Target {
     Mcp,
     Paths,
     Web,
-    WebDsh,
 }
 
 impl Target {
@@ -532,7 +535,6 @@ impl Target {
             Self::Mcp => "spark-mcp",
             Self::Paths => "spark-paths",
             Self::Web => "spark-web",
-            Self::WebDsh => "spark-web-dsh",
         }
     }
 
@@ -543,7 +545,6 @@ impl Target {
             Self::Mcp => Some("SPARK_MCP_COMMAND"),
             Self::Paths => Some("SPARK_PATHS_COMMAND"),
             Self::Web => Some("SPARK_WEB_COMMAND"),
-            Self::WebDsh => Some("SPARK_WEB_DSH_COMMAND"),
             Self::Acp => Some("SPARK_ACP_COMMAND"),
         }
     }
@@ -557,7 +558,6 @@ impl Target {
             Self::Mcp => "packages/spark-mcp/bin/spark-mcp.ts",
             Self::Paths => "apps/spark-cli/bin/spark-paths",
             Self::Web => "apps/spark-web/bin/spark-web",
-            Self::WebDsh => "apps/spark-web-dsh/bin/spark-web-dsh",
         })
     }
 }

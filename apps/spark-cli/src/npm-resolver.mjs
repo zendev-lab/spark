@@ -86,7 +86,6 @@ function configureCompanions() {
   process.env.SPARK_MCP_COMMAND ??= resolve(packageDirectory, "bin", "spark-mcp");
   process.env.SPARK_PATHS_COMMAND ??= resolve(packageDirectory, "bin", "spark-paths");
   process.env.SPARK_WEB_COMMAND ??= executable("@zendev-lab/spark-web/executable");
-  process.env.SPARK_WEB_DSH_COMMAND ??= executable("@zendev-lab/spark-web-dsh/executable");
 }
 
 function executable(specifier) {

@@ -1,3 +1,0 @@
-name: Spark Standard
-description: Spark Cue-first 编码 Agent；命令、脚本和后台作业由 Cue 工具提供，不挂载 DSH Bash、Pwsh 或 Jobs 工具。
-order: 1

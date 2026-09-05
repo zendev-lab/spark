@@ -80,10 +80,10 @@
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 38,
-      "ceiling": 38,
+      "current": 37,
+      "ceiling": 37,
       "nonGrowth": true,
-      "reason": "The normalized 38-workspace graph keeps native spark-web and spark-web-dsh as explicit applications while daemon product composition owns the former host and turn facades; spark-modes was removed: durable session modes are retired in favor of one-shot /plan, /execute, and /fleet commands."
+      "reason": "The normalized 37-workspace graph keeps native spark-web as the only local browser application while daemon product composition owns the former host and turn facades; spark-web-dsh was retired after explicit owner approval on 2026-09-04 and spark-modes was removed: durable session modes are retired in favor of one-shot /plan, /execute, and /fleet commands."
     },
     "packageNaming": {
       "temporaryDshDependencyExceptionsNonGrowth": true
@@ -359,15 +359,6 @@
       "stability": "supported",
       "stateWriter": "none",
       "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-web-dsh": {
-      "path": "apps/spark-web-dsh",
-      "layer": "application",
-      "owner": "web",
-      "stability": "supported",
-      "stateWriter": "none",
-      "distribution": "public-npm",
-      "namingRationale": "Spark Web DSH is a retained Spark application surface, not a reusable DSH tool consumer."
     },
     "@zendev-lab/spark-workflows": {
       "path": "packages/spark-workflows",

@@ -18,6 +18,5 @@ typebox = "typebox"
 extend-exclude = [
   ".spark/**",
   "**/.pi-lens/**",
-  "apps/spark-web-dsh/lib/**",
   "packages/spark-i18n/src/paraglide/**"
 ]

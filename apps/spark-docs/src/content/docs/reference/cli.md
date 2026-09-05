@@ -28,7 +28,6 @@ Hub, or workflow.
 | --- | --- | --- |
 | `spark` | Print help or invoke top-level foreground, background, installation, diagnostic, and version workflows | `spark --help` |
 | `spark web` | Start the local loopback browser workbench bound to the daemon | `spark web --help` |
-| `spark web-dsh` | Start the Spark product workbench hosted by DeepSeek Harness | `spark web-dsh --help` |
 | `spark daemon` | Operate the daemon-owned execution, session, workspace, model, authentication, and channel state | `spark daemon --help` |
 | `spark hub` | Run and administer Hub coordination and Web surfaces | `spark hub --help` |
 | ACP and MCP adapters | Connect compatible clients through their configured Spark adapter | See [collaboration and clients](/guides/collaboration/) |
@@ -104,25 +103,6 @@ WebSocket requests retain carrier-level
 401/503 responses rather than HTML login pages. Missing, wrong, expired, and
 revoked tokens do not expose token-state detail, and verification fails closed
 while the daemon is unreachable.
-
-The additional `spark web-dsh` command starts the separately packaged
-DSH-hosted Spark product app without changing `spark web`. It remains available
-until the native Spark Web replacement gate has passed. Its DSH server stays on
-loopback behind Spark's access proxy. That proxy uses the same all-peer token
-rule, local-IP trust semantics, and Spark Access page as native Web:
-
-```bash
-spark web-dsh --host 0.0.0.0 --port 8888
-```
-
-On first use, Spark initializes the DSH `web` profile from the installed release
-and installs its managed presets. It then starts the exact pinned public DSH CLI
-as `dsh --profile web --patch ...`; it does not require a preparatory manual
-`dsh web` run or replace later user edits to the profile.
-
-This command also expands wildcard binds into immediately usable local URLs
-without opening a browser. Every launch starts or reconnects the daemon and
-uses the same tokenized-link flow as native Web.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.

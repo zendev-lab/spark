@@ -166,15 +166,12 @@ public package.
 
 @zendev-lab/spark-hub
   spark-hub + embedded Web build + Hub migrations
-
-@zendev-lab/spark-web-dsh
-  independent spark-web-dsh fallback app
 ```
 
 The root package is the complete-installation meta package and managed-update
 identity; it contains no parser implementation. `spark-cli` owns the native
 `spark` parser, diagnostics, updater, router, ACP/MCP adapters, and the
-supported macOS/Linux optional payload aliases. Daemon, Hub, local web, and DSH web are
+supported macOS/Linux optional payload aliases. Daemon, Hub, and local web are
 also independently installable deployment closures. All product packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
@@ -218,9 +215,6 @@ Cordis plugin happens to be exported:
   implementation (`dsh-<seam>-<implementation>`). The generic
   `dsh-plugin-*` form is not used because plugin is a composition mechanism,
   not an owner;
-- a Spark product application hosted on DSH remains
-  `spark-<surface>-dsh`. `spark-web-dsh` is therefore an application, not a
-  candidate for `dsh-tool-*` naming;
 - an exceptional retained name must carry its reason in that package's
   `architecture/packages.json` entry. A temporary DSH independence exception
   names its exact local Spark dependencies and exit condition; the architecture

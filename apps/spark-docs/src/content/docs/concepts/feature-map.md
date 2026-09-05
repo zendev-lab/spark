@@ -118,7 +118,7 @@ and [Side Threads](/guides/side-threads/).
 - Memory, bounded context providers, artifacts, and internal evidence
   preserve useful results with separate visibility.
 - Saved workflows extend repeatable procedures. Fusion is part of the supported
-  daemon and DSH-web product composition; Graft remains a Pi-compatibility path,
+  daemon product composition; Graft remains a Pi-compatibility path,
   not a discoverable Spark product extension.
 - Managed updates, backups, access keys, workspace registration, diagnostics,
   and recovery support operation beyond the first local run.

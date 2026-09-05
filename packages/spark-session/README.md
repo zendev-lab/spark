@@ -28,8 +28,7 @@ for the official DSH HOST (`ctx.subagents`). Official `subagent` /
 with an explicit Role bind is a subagent; the human operator is not a Role.
 The native `session({ action })` tool stays the standalone surface. Daemon
 always passes a durable host so spawn stays `createManagedChildSession` and
-send stays `session.send`. spark-web-dsh mounts the same plugin onto stock
-`dsh-subagent` and disables in-process spawn/fork backends. See
+send stays `session.send`. See
 [`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
 
 All mailbox reads and writes cross the daemon-owned `session.inbox`, `session.mail.read`, `session.mail.ack`, and `session.send` RPC boundary; extension hosts never open the mailbox store directly.

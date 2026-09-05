@@ -11,6 +11,7 @@ Status meanings:
 - `automated`: owner tests pass; a real-browser or daemon acceptance run is still required.
 - `partial`: a bounded subset is implemented and the remaining boundary is named.
 - `blocked`: the required capability cannot be added without first resolving the named owner or lifecycle boundary.
+- `dropped`: a Web-DSH-only surface consciously retired with `apps/spark-web-dsh`; native Web will not implement it.
 
 | Capability | Status | Authoritative owner | Automated coverage | Runtime evidence |
 | --- | --- | --- | --- | --- |
@@ -22,17 +23,17 @@ Status meanings:
 | Full-history and global search | automated | daemon snapshot/artifact/workspace projections | `workbench` service tests; protocol controller tests | Real cold-history search pending |
 | Recursive Session tree lifecycle | automated | daemon spawn/fork/archive/restore/close | daemon service tests; shared `SessionTree` tests | Full lifecycle browser run pending |
 | Ask and approval recovery | automated | daemon human-wait registry | daemon human-interaction tests; shared UI tests | Refresh-with-pending-Ask run pending |
-| Action Bar commands | partial | protocol action catalog and daemon owner methods | protocol action-bar tests; Web one-shot directive turn submission; Web explicit rejection paths | Plan/execute/fleet one-shot commands are wired; Goal/Loop/Repro configuration and native Plan review remain |
+| Action Bar commands | dropped | protocol action catalog and daemon owner methods | protocol action-bar tests; Web one-shot directive turn submission; Web explicit rejection paths | Plan/execute/fleet one-shot commands stay wired; Goal/Loop/Repro configuration and native Plan review are dropped as Web-DSH-only surfaces |
 | Work, Tool, Task, Workflow, Jobs projections | automated | daemon Session Work projection | protocol/daemon projection tests; shared `SessionWorkPanel` tests | Live Cue Job navigation pending |
 | Artifact list/read/preview | automated | `spark-artifacts` and daemon Git owner | artifact service tests; bounded preview route tests | Real GitChange/PR stack fixture pending |
 | Provider API key, OAuth, logout, Pi import and model policy | automated | daemon model/auth control | daemon model-control tests; Web settings tests | Settings loaded without browser errors; live provider OAuth pending |
 | Session Role/model/thinking/cwd context | automated | daemon Session control and Role catalog | daemon catalog/directory tests; Web type checks | Real Session creation passed; authenticated model run pending |
 | Directory browsing and symlink confinement | automated | daemon workspace/GitChange cwd resolver | traversal, unregistered root, and symlink-escape service tests | Registered-root directory picker passed; owning worktree pending |
-| Extra `--browse-root` | blocked | requires a daemon-owned launch capability | none | Web cannot safely expand the daemon's registered workspace/worktree roots without an explicit launch-time authorization contract |
+| Extra `--browse-root` | dropped | requires a daemon-owned launch capability | none | Dropped as a Web-DSH-only surface; the daemon's registered workspace/worktree roots stay the only launch boundary |
 | Role list/create and model list/get/set/delete; Skill list | automated | `spark-roles` stores through daemon controllers | catalog, model validation, same-name, and path-redaction tests | Real project/user precedence run pending |
-| Compaction admission | partial | daemon `session.compact` | protocol/daemon idempotency, queue, failure and replay tests | Native DSH compaction needs an ownership migration that removes the current competing auto/manual implementation before mounting its state and policy |
-| Plan Review | partial | daemon-parsed one-shot `/plan` directive today; DSH native Plan mode after owner migration | Web Action Bar checks | Basic plan/execute/fleet one-shot commands are wired; DSH plan state, questions projection and Ask/Approval exit gate still require a single-owner migration |
-| DSH Schedule | partial | `dsh-schedule` mounted on the persistent daemon root | native create/list/delete policy and persisted `schedule/change` integration test | Change events persist; cold-resume, live on-time delivery, and the full live/cold/fork daemon matrix remain blocked on Agent lifecycle integration |
+| Compaction admission | dropped | daemon `session.compact` | protocol/daemon idempotency, queue, failure and replay tests | Dropped as a Web-DSH-only surface; native DSH compaction admission would have required an ownership migration away from the competing auto/manual implementation |
+| Plan Review | dropped | daemon-parsed one-shot `/plan` directive | Web Action Bar checks | Basic plan/execute/fleet one-shot commands stay wired; DSH plan state, questions projection, and the Ask/Approval exit gate are dropped as Web-DSH-only surfaces |
+| DSH Schedule | dropped | `dsh-schedule` mounted on the persistent daemon root | native create/list/delete policy and persisted `schedule/change` integration test | Change events persist; cold-resume, live on-time delivery, and the full live/cold/fork daemon matrix are dropped as Web-DSH-only surfaces pending Agent lifecycle integration |
 | Memory reference feedback | automated | daemon turn authority and `spark-memory` verifier | receipt replay/stale/cross-turn tests; Web ref extraction and surface compatibility tests | Real referenced-memory turn pending |
 | JSONL/JSON/text/HTML export | automated | daemon revision-pinned snapshot export | protocol/service and Web streaming tests | Very long history download pending |
 | Process-local read-only Share | automated | Spark Web process memory only | token, capacity, sanitation, and lifetime tests | Browser open/expiry run pending |
@@ -43,8 +44,14 @@ Status meanings:
 
 ## Replacement gate
 
-Do not remove `apps/spark-web-dsh`, its CLI route, build/updater inventory, or
-architecture entry until every `partial` and `blocked` row required for
-replacement is implemented and every pending runtime-evidence cell has a
-reproducible passing run against fresh and existing daemon databases. Removal
-must be a separate PR and must not delete user DSH profiles or Session data.
+Removal of `apps/spark-web-dsh`, its CLI route, build/updater inventory, and
+architecture entry was approved explicitly by the repository owner on
+2026-09-04 ("spark-web-dsh 可以全量移除了，我们现在全力做原生 spark-web
+(dsh内核）"), satisfying the manual-approval clause of the
+[2026-08-23 replacement decision](../../.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md);
+see
+[2026-09-04 retire-spark-web-dsh](../../.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md).
+The rows marked `dropped` above are Web-DSH-only surfaces consciously retired
+with the application rather than reimplemented for native Web. Removal never
+deletes user DSH profiles or Session data: `~/.dsh` profiles and presets on
+user machines become inert and no cleanup code is added.

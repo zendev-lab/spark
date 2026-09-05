@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一本地 Web / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-30
+updated: 2026-09-05
 ---
 
 ## 起源
@@ -19,7 +19,7 @@ updated: 2026-08-30
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - `/plan`、`/execute`、`/fleet` 是 daemon 在 turn 提交通道上解析的一次性命令：仅向当前 Invocation 注入工作意图指导，不改变工具集合、sandbox、审批、授权或 admission，不持久化，普通下一轮恢复中性。持久 Session mode 已整体废除；fleet 协调复用现有 TaskGraph、TaskRun、资源调度器与 Session Registry，worker 只消费 Task 已关联的 `git_change` worktree，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
-- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh` 保留为独立 DSH-hosted fallback，默认进入托管的 Cue-first `spark-standard` mode 并提供 PTC Mode 的 `spark-ptc`；受支持 DSH release 在 boot 时把 preset 发现 root 固定为内置 root，因此 stock preset 仍由 DSH 自身挂载，独占发现有待 DSH 支持可配置 roots。
+- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh`（DSH-hosted fallback 及其托管 `spark-standard` / `spark-ptc` preset）已经所有者明确批准全量退场，见 [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md)。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm-providers` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 daemon 内部产品模块静态组合 Spark 策略与受支持的 DSH/Cordis 插件；不新增 `spark-base`、Spark extension 发现路径或 Spark-owned `package.json#pi`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
@@ -81,7 +81,7 @@ updated: 2026-08-30
 
 ## 当前方向
 
-- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 保持独立 fallback；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
+- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 已按 [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md) 全量退场；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
 - 公共 CLI argv 只使用 Optique 作为解析器。
 - 对齐跨表面的 ask、gate 与 submit 语义，让协议成为唯一判定来源。
 - 为本地 RPC 兼容层定义可验证的退出条件，不向兼容传输增加新行为。
@@ -89,7 +89,8 @@ updated: 2026-08-30
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
 - Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。
-  `spark-web-dsh` 作为独立的 DSH-hosted Spark 产品应用保留；新增 workspace
+  `spark-web-dsh` 已经所有者批准全量退场（见
+  [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md)）；新增 workspace
   必须更新 `architecture/packages.json` 并说明新的硬边界。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
   persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
@@ -117,16 +118,12 @@ updated: 2026-08-30
 - DSH Phase 2 已通过 `@zendev-lab/dsh-cue` service 与私有
   `@zendev-lab/dsh-tool-cue` adapter 接入 SystemPrompt + Tools：`dsh-cue`
   仍唯一拥有 Cue 语义，DSH
-  只适配受支持 DSH release 的 host ABI、权限和 presenter；当前
-  `spark-standard` / `spark-ptc` 用 Cue 取代 DSH Bash/Pwsh/Jobs，两个 preset 组合
-  作为静态文件随 `@zendev-lab/spark-web-dsh` 版本化，启动时幂等安装进 DSH 用户
-  preset root，并清理未被用户改过的 `spark-code` 遗留目录。两个托管 preset 的文本文件工具由
-  `spark-files/dsh` 通过 DSH `ctx.fs` 提供显式版本 CAS 和逐调用沙箱策略；官方
-  `read_image` 与 `dsh-tool-fs-search` 保留。
+  只适配受支持 DSH release 的 host ABI、权限和 presenter；原随
+  `spark-web-dsh` 版本化的 `spark-standard` / `spark-ptc` 托管 preset 已随该应用一并退场。
 - DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark
   运行且通过 real-host smoke，通用模型工具通常命名为 `dsh-tool-*`；`spark-*`
-  承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`
-  与 `spark-acp` 保持产品 owner；Web 工具已迁入 Cordis-native `dsh-tool-web`，
+  承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-acp`
+  保持产品 owner；Web 工具已迁入 Cordis-native `dsh-tool-web`，
   使用官方 `ctx.web` provider seam，只保留 Agent 生命周期内的有界内存恢复缓存，并删除 `code_search` 与旧
   `fetch_content` 名称。`spark-fusion` 同样已改名为 `dsh-tool-fusion`，旧
   SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon durable admission seam，
@@ -134,11 +131,11 @@ updated: 2026-08-30
   [DSH Web 决策](.agents/notes/decisions/2026-08-25-dsh-tool-web.md)。
 - 产品 subagent 是 Role-bound 子 Session：官方 `@deepseek-ai/dsh-subagent`
   作为 HOST（`ctx.subagents`），`spark-session` 注册 spawn/fork provider。
-  daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）；
-  spark-web-dsh 插入同一插件并关掉 stock in-process spawn/fork。不重写
+  daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）。
+  不重写
   `ctx.subagents`，不新增 `dsh-spark` 包。DSH 精确锁定 `0.1.2-alpha.2` 后，
   daemon-backed provider 使用官方 `AgentOptions` 与终态 `result`：新 Agent 获取
   创建时的完整 `enabledModels` 快照，子 Session 原子固化路由、reasoning 与输出
   上限；fresh spawn 使用官方模型选择面，fork 保持父路由以复用继承前缀；dispose
-  通过 daemon 取消并等待静止；Web fallback 不获得本地执行权。
+  通过 daemon 取消并等待静止。
   compaction 与 jobs 仍是后续 owner 决策。

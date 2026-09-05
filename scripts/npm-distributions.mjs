@@ -4,9 +4,6 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-const webDshManifest = JSON.parse(
-  await readFile(resolve(root, "apps/spark-web-dsh/package.json"), "utf8"),
-);
 
 export const releaseVersion = rootManifest.version;
 export const npmTag = releaseVersion.includes("-") ? "next" : "latest";
@@ -69,7 +66,6 @@ export const npmDistributions = [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
       "@zendev-lab/spark-web",
-      "@zendev-lab/spark-web-dsh",
     ],
     declaredRuntimePackages: [],
     exports: {},
@@ -89,7 +85,6 @@ export const npmDistributions = [
       "spark-mcp": "spark-mcp.js",
       "spark-paths": "spark-paths.js",
       "spark-web": "spark-web-companion.js",
-      "spark-web-dsh": "spark-web-dsh-companion.js",
     },
     bundles: {
       "spark-acp.js": "packages/spark-acp/bin/spark-acp.ts",
@@ -102,7 +97,6 @@ export const npmDistributions = [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
       "@zendev-lab/spark-web",
-      "@zendev-lab/spark-web-dsh",
     ],
     declaredRuntimePackages: [],
     exports: {
@@ -112,7 +106,6 @@ export const npmDistributions = [
       "./paths-executable": "./bin/spark-paths",
       "./resolver": "./dist/npm-resolver.mjs",
       "./web-executable": "./bin/spark-web",
-      "./web-dsh-executable": "./bin/spark-web-dsh",
     },
     optionalDependencies: nativeOptionalDependencies,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
@@ -172,30 +165,6 @@ export const npmDistributions = [
     exactDependencies: [],
     declaredRuntimePackages: [],
     exports: { "./executable": "./bin/spark-web" },
-  },
-  {
-    id: "web-dsh",
-    packageName: "@zendev-lab/spark-web-dsh",
-    description: "Optional DeepSeek Harness compatibility workbench for Spark.",
-    directory: resolve(productsDirectory, "web-dsh"),
-    assetName: `spark-web-dsh-v${releaseVersion}.tgz`,
-    manifestName: "web-dsh-release-manifest.json",
-    bins: { "spark-web-dsh": "spark-web-dsh.js" },
-    bundles: {
-      "spark-web-dsh.js": "apps/spark-web-dsh/src/cli-entry.ts",
-    },
-    files: ["bin", "dist", "lib", "presets", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-    exactDependencies: [],
-    // The public DSH CLI is resolved from the installed package at runtime, so
-    // its literal package name does not appear in the esbuild output.
-    declaredRuntimePackages: ["@deepseek-ai/dsh"],
-    dsh: webDshManifest.dsh,
-    exports: {
-      ".": "./lib/index.js",
-      "./client": "./lib/client.js",
-      "./executable": "./bin/spark-web-dsh",
-      "./package.json": "./package.json",
-    },
   },
 ];
 

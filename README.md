@@ -96,7 +96,6 @@ browser / Hub Web ─────────────► spark-hub ◄──
 | --- | --- | --- |
 | `spark` | Stable command dispatch to companion executables | Product state |
 | `spark-web` | Local interactive presentation and session attachment | Durable business state |
-| `spark-web-dsh` | Optional DeepSeek Harness compatibility presentation | Canonical Spark daemon state |
 | `spark-daemon` | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
 | `spark-hub` | Authentication, daemon gateway, workspace registry, delegation, audit, and embedded management UI | Target execution, repositories, or internal evidence |
 | `spark-acp` | Stateless protocol translation | Sessions or invocations |
@@ -165,8 +164,7 @@ native CLI payloads from the same private monorepo:
   companion routing, ACP/MCP adapters, and platform-specific optional payloads.
 
 - `@zendev-lab/spark-daemon`, `@zendev-lab/spark-hub`, and
-  `@zendev-lab/spark-web` are independently installable executable apps;
-  `@zendev-lab/spark-web-dsh` is the optional DSH compatibility app.
+  `@zendev-lab/spark-web` are independently installable executable apps.
 
 The split is a deployment and trust boundary, not a source-code ownership split.
 The private app composition roots and internal adapter/capability workspaces

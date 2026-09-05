@@ -88,64 +88,6 @@ only; nothing is persisted, so reloads and later plain turns stay neutral.
 Approvals still use the daemon's Ask and approval owners rather than
 browser-invented state.
 
-## DSH-hosted Spark workbench
-
-`spark web-dsh` starts the separately packaged Spark product surface hosted by
-DeepSeek Harness; it does not replace or change `spark web`. It remains
-available until the native Spark Web replacement gate has passed. It prints
-reachable local URLs without opening a browser:
-
-```bash
-spark web-dsh --host 0.0.0.0 --port 8888
-```
-
-The DSH server itself stays on a randomized loopback port protected by a
-per-process credential. Every listener belongs to Spark's outer access proxy,
-which uses the same authentication rule and Spark Access page as native Web:
-loopback and remote peers require the same daemon-owned access token, while
-local interface IP literals are discovered automatically.
-DSH's own browser credential remains an inner-loopback gateway detail: the
-child mints its authority-bound cookie through the public Connection API and
-hands it to the proxy over an inherited pipe. It is never placed in argv, the
-environment, process output, or a browser-visible URL, so the browser sees no
-second login.
-On every startup, `spark web-dsh` starts or reconnects the daemon, prints those
-URLs with a newly issued process token, and revokes it during normal shutdown
-just like native Web. The printed links follow the same cookie promotion and
-address-bar cleanup flow as native Web.
-Host, Origin, and Fetch Metadata checks still run before token verification.
-API and WebSocket requests retain carrier-level authentication errors, and the
-proxy fails closed while the daemon is unreachable.
-
-The DSH-hosted app restores the Spark LLM and Cue plugins and mounts the verified
-`cue` Skill in the DSH Skill catalog. Spark initializes the installed DSH
-`web` profile on first use, installs its managed presets, and then launches the
-exact pinned DSH CLI with `--profile web` plus Spark's patch overlay. It handles
-plain-HTTP UUID and remote credential onboarding, and rejects oversized cold
-history artifacts before DSH materializes the whole transcript. For histories
-that are safe to inspect, it predicts a smaller initial page, enforces a
-response-byte budget at the public Session Controller `page` and `follow`
-boundaries, compacts redundant token chunks, and returns a marked preview
-instead of timing out when one final message is unusually large.
-Directory symlinks are exposed as non-traversable entries in DSH filesystem
-listings, preventing recursive consumers from following a symlink cycle;
-explicit file access through symlink paths is unchanged.
-
-The DSH LLM plugin exposes the configured `baidu-oneapi`, `kimi-coding`, and
-`openai-codex` routes. API-key providers can be configured during DSH
-onboarding; OpenAI Codex reuses credentials created by Spark's OAuth login flow.
-Reasoning-capable routes default to `high`; an explicit Session-level effort
-still takes precedence.
-The Models page asks for an API key when adding Baidu OneAPI or Kimi For
-Coding. Kimi For Coding does not provide OAuth authentication.
-
-The managed `spark-standard` and `spark-ptc` presets expose versioned Spark
-file tools over DSH's filesystem provider. Read the file first, then pass its
-opaque `version` as `expectedVersion` to `write` or `edit`; use `missing` only
-when creating a file. DSH still enforces the current session sandbox, while
-the schemas omit escalation arguments that cannot succeed. Image reads remain
-provided by DSH's `read_image` tool.
-
 ## Start with the outcome
 
 Create or open a session, then describe the intended result in ordinary
