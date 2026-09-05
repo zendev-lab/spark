@@ -1339,7 +1339,12 @@ fn build_fingerprint(version: &str, git_sha: &str, protocol: u32, migration_head
     hash.update(format!(
         "{version}\n{git_sha}\n{protocol}\n{migration_head}"
     ));
-    format!("sha256:{:x}", hash.finalize())
+    let digest: String = hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("sha256:{digest}")
 }
 
 fn validate_candidate(build: &BuildInfo, version: &str) -> Result<()> {
@@ -1585,6 +1590,14 @@ fn current_uid() -> u32 {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn build_fingerprint_preserves_sha256_wire_format() {
+        assert_eq!(
+            build_fingerprint("0.5.0", "abc123", 3, "source-checkout"),
+            "sha256:6545e13f717ed14be1334375cc30346acf871ac3ce1623a6aaba0122dbc59bdd"
+        );
+    }
 
     fn temporary_paths(label: &str) -> UpdatePaths {
         let root = env::temp_dir().join(format!(

@@ -2,10 +2,9 @@ import { defineConfig } from "vitest/config";
 
 export const capabilitySentinelTestFiles = Object.freeze([
   "apps/spark-daemon/src/spark-tools-capability-sentinel.test.ts",
-  "apps/spark-daemon/src/spark-tools-repro-lifecycle.test.ts",
+  "apps/spark-daemon/src/repro-owner.test.ts",
   "apps/spark-daemon/src/store/loop-cycle-review.test.ts",
   "apps/spark-daemon/src/spark/loop-goal-settlements.test.ts",
-  "apps/spark-daemon/src/spark/repro-loop-evaluator.test.ts",
 ]);
 
 export function capabilitySentinelCommand(vitestOptions: readonly string[] = []): string[] {

@@ -79,7 +79,7 @@
     "@fontsource-variable/geist-mono": "5.3.0",
     "@fontsource-variable/inter": "5.3.0",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
-    "@vitest/browser-playwright": "4.1.10",
+    "@vitest/browser-playwright": "4.1.11",
     "axe-core": "catalog:",
     "playwright": "1.62.1",
     "svelte": "^5.38.8",

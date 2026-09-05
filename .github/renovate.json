@@ -1,4 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>zrr1999/renovate-config"]
+  "extends": ["github>zrr1999/renovate-config"],
+  "packageRules": [
+    {
+      "description": "Keep DSH on the supported session persistence contract until the rc event-log migration is implemented.",
+      "matchPackageNames": ["@deepseek-ai/dsh", "@deepseek-ai/dsh-*"],
+      "allowedVersions": "0.1.2-alpha.2"
+    }
+  ]
 }
