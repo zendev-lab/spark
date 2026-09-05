@@ -53,6 +53,7 @@
     "test:browser:web": "pnpm --filter @zendev-lab/spark-web run test:browser",
     "test:capability": "vp test run --config vitest.capability.config.ts",
     "test:capability:ce": "node --experimental-strip-types scripts/run-nightly-capability-ce.mts",
+    "test:capability:compare": "node --experimental-strip-types scripts/compare-capability-ce.mts",
     "test:capability:repro-live": "node --experimental-strip-types scripts/run-repro-live-capability.mts",
     "test:mutation": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test:mutation",
     "bench": "vp test bench --config benchmarks/vitest.config.ts",
