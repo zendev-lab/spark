@@ -16,14 +16,14 @@
     "deploy:cloudflare": "wrangler deploy"
   },
   "dependencies": {
-    "@astrojs/starlight": "0.41.7",
-    "astro": "7.2.2",
-    "starlight-versions": "0.9.1"
+    "@astrojs/starlight": "0.42.0",
+    "astro": "7.3.1",
+    "starlight-versions": "0.10.1"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
     "typescript": "catalog:",
-    "wrangler": "4.123.0"
+    "wrangler": "4.129.0"
   },
   "engines": {
     "pnpm": ">=11 <12"

@@ -98,7 +98,7 @@
   "devDependencies": {
     "@codspeed/vitest-plugin": "5.7.1",
     "@deepseek-ai/dsh-web": "catalog:dsh",
-    "@j178/prek": "0.4.13",
+    "@j178/prek": "0.5.2",
     "@types/node": "^24.13.3",
     "@zendev-lab/spark-daemon": "workspace:*",
     "@zendev-lab/spark-daemon-client": "workspace:*",
@@ -110,7 +110,7 @@
     "esbuild": "^0.28.0",
     "jscpd": "^5.0.12",
     "knip": "^6.27.0",
-    "publint": "0.3.23",
+    "publint": "0.3.24",
     "syncpack": "15.3.3",
     "tsx": "^4.20.5",
     "typescript": "catalog:",
@@ -122,7 +122,7 @@
     "node": ">=24.0.0",
     "pnpm": ">=11 <12"
   },
-  "packageManager": "pnpm@11.22.0",
+  "packageManager": "pnpm@11.25.0",
   "sparkRelease": {
     "minimumUpdaterVersion": "0.5.0",
     "rollbackCompatibility": ">=0.5.0 <0.6.0",
