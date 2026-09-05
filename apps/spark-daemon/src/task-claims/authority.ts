@@ -23,16 +23,19 @@ export async function acquireMainTaskClaim(
   now = new Date().toISOString(),
 ): Promise<SparkTaskClaimMutationResult> {
   const workspace = requireTaskClaimWorkspace(db, input, now);
-  if (input.recovery) {
-    await assertTaskClaimRecoveryEvidence(workspace.localPath, {
-      ...input.recovery,
-      taskRef: input.taskRef,
-      sessionId: input.sessionId,
-    });
-    assertPreviousSessionInactive(db, input.workspaceId, input.recovery.previousSessionId, now);
-  }
+  const assertRecoveryClaim = input.recovery
+    ? await assertTaskClaimRecoveryEvidence(workspace.localPath, {
+        ...input.recovery,
+        taskRef: input.taskRef,
+        sessionId: input.sessionId,
+      })
+    : undefined;
   const task = await updateTaskGraph(workspace.localPath, (graph) => {
     const current = requireTask(graph, input.taskRef);
+    if (input.recovery) {
+      assertRecoveryClaim!(current);
+      assertPreviousSessionInactive(db, input.workspaceId, input.recovery.previousSessionId, now);
+    }
     const claimOwner = mainClaimSessionId(current);
     if (claimOwner && claimOwner !== input.sessionId) {
       if (!input.recovery || input.recovery.previousSessionId !== claimOwner) {
@@ -101,10 +104,11 @@ export async function recoverTaskClaim(
   now = new Date().toISOString(),
 ): Promise<SparkTaskClaimMutationResult> {
   const workspace = requireTaskClaimWorkspace(db, input, now);
-  await assertTaskClaimRecoveryEvidence(workspace.localPath, input);
-  assertPreviousSessionInactive(db, input.workspaceId, input.previousSessionId, now);
+  const assertRecoveryClaim = await assertTaskClaimRecoveryEvidence(workspace.localPath, input);
   const task = await updateTaskGraph(workspace.localPath, (graph) => {
     const current = requireTask(graph, input.taskRef);
+    assertRecoveryClaim(current);
+    assertPreviousSessionInactive(db, input.workspaceId, input.previousSessionId, now);
     if (taskClaimSessionId(current) !== input.previousSessionId) {
       throw new SparkDaemonControlError(
         "task_claim_recovery_refused",

@@ -8,6 +8,7 @@ import type {
   SparkTaskClaimAcquireRequest,
   SparkTaskClaimRecoverRequest,
 } from "@zendev-lab/spark-protocol/task-claim";
+import type { Task } from "@zendev-lab/spark-tasks";
 import { SparkDaemonControlError } from "../control-error.ts";
 
 export async function assertTaskClaimRecoveryEvidence(
@@ -18,7 +19,7 @@ export async function assertTaskClaimRecoveryEvidence(
         taskRef: string;
         sessionId: string;
       }),
-): Promise<void> {
+): Promise<(task: Task) => void> {
   const evidence = input.evidenceRef.startsWith("evidence:")
     ? await defaultEvidenceStore(cwd).tryGet(input.evidenceRef as EvidenceRef)
     : await defaultArtifactStore(cwd).tryGet(input.evidenceRef as ArtifactRef);
@@ -39,6 +40,30 @@ export async function assertTaskClaimRecoveryEvidence(
       `Task claim recovery evidence does not authorize ${input.sessionId} to recover ${input.taskRef}.`,
     );
   }
+  const previousClaim = body.previousClaim;
+  return (task) => {
+    const claim = task.claim;
+    const fields = [
+      "kind",
+      "claimedBy",
+      "sessionId",
+      "claimedAt",
+      "heartbeatAt",
+      "expiresAt",
+      "roleRef",
+      "runName",
+      "runRef",
+    ] as const;
+    if (
+      !claim ||
+      fields.some((field) => (claim[field] ?? null) !== (previousClaim[field] ?? null))
+    ) {
+      throw new SparkDaemonControlError(
+        "task_claim_recovery_refused",
+        `Task ${task.ref} claim changed after recovery was authorized.`,
+      );
+    }
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

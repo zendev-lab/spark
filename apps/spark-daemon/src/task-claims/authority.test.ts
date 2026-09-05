@@ -187,6 +187,9 @@ describe("daemon task claim authority", () => {
           taskRef: roleTask.ref,
           recoveredBy: "session:new",
           previousClaim: {
+            roleRef: claimed.claim!.roleRef ?? null,
+            runName: claimed.claim!.runName ?? null,
+            runRef: claimed.claim!.runRef ?? null,
             kind: claimed.claim!.kind,
             claimedBy: claimed.claim!.claimedBy,
             sessionId: claimed.claim!.sessionId ?? null,
@@ -240,6 +243,9 @@ describe("daemon task claim authority", () => {
           taskRef: context.task.ref,
           recoveredBy: "session:new",
           previousClaim: {
+            roleRef: claimed.claim!.roleRef ?? null,
+            runName: claimed.claim!.runName ?? null,
+            runRef: claimed.claim!.runRef ?? null,
             kind: claimed.claim!.kind,
             claimedBy: claimed.claim!.claimedBy,
             sessionId: claimed.claim!.sessionId ?? null,
