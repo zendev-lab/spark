@@ -28,8 +28,7 @@ repeated non-blocking CE lane is documented in
 | Evidence-backed Goal completion | `spark-tools-capability-sentinel.test.ts`, `store/loop-cycle-review.test.ts` | Bare completion claims, missing Evidence, unexpected extra ticks |
 | Stale Goal settlement fencing | `spark-tools-capability-sentinel.test.ts`, `spark/loop-goal-settlements.test.ts` | An old review completing a replacement Goal, duplicate settlement after restart |
 | Open-ended Loop lifecycle | `spark-tools-capability-sentinel.test.ts`, `store/loop-cycle-review.test.ts` | Loop acquiring completion authority, failed scheduling, token use during a skipped tick |
-| Repro continuation and stagnation | `spark-tools-repro-lifecycle.test.ts` | Continuing without `settle`, infinite unchanged ticks, missing Recover Ask |
-| Trusted Repro decision/completion evaluation | `spark/repro-loop-evaluator.test.ts` | Model-dependent decision gating, non-durable formal proof, forged complete status |
+| Repro v10 checkpoint and attention recovery | `repro-owner.test.ts` | Incorrect five-checkpoint order, replaced lane Sessions, unbound Evidence, lost attention across restart |
 
 ## Hard budgets
 
@@ -53,8 +52,8 @@ into an aggregate score:
 - inspect the failing Vitest case and its public command/tool action;
 - inspect Loop status, generation, binding, and invocation counts;
 - inspect Goal review Evidence and settlement status;
-- inspect Repro stage, Stop Guard, pending Ask, and whether `settle` scheduled a
-  successor;
+- inspect the Repro checkpoint, lane Session, TaskRun-bound Evidence, and pending
+  attention Ask;
 - treat any model/reviewer call or token-usage row in the public-surface test as
   a sentinel failure, even when the final state appears correct.
 
