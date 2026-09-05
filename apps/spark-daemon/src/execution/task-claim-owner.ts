@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { parseLocalRpcInput } from "../local-rpc/parse.ts";
 import {
   acquireMainTaskClaim,
-  recoverMainTaskClaim,
+  recoverTaskClaim,
   releaseMainTaskClaim,
 } from "../task-claims/authority.ts";
 import type { ExecutionOwnerHandlers } from "./owner-capabilities.ts";
@@ -22,7 +22,7 @@ export function createTaskClaimExecutionOwner(
       return releaseMainTaskClaim(db, parseLocalRpcInput("task.claim.release", params));
     }
     if (action === "recover") {
-      return recoverMainTaskClaim(db, parseLocalRpcInput("task.claim.recover", params));
+      return recoverTaskClaim(db, parseLocalRpcInput("task.claim.recover", params));
     }
     throw new Error(`unknown Task Claim execution capability action: ${String(action)}`);
   };

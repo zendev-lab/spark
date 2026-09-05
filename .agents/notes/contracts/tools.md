@@ -181,6 +181,15 @@ Daemon execution attaches a fenced Session lease to every workspace-owned
 persistent Session turn, including the owning root Loop and managed Task
 Sessions. Task claim mutation must present that exact current Session lease;
 unowned or mismatched Sessions receive no claim authority.
+Recovery supports both main and role-run claims; main acquisition and release
+remain main-only. Recovery Evidence binds the task, recovering Session, reason,
+and exact previous claim, including lease timestamps and run identity. The daemon
+rechecks that snapshot and previous Session inactivity under the TaskGraph write
+lock, for explicit recovery and acquisition with recovery alike. Renewed,
+replaced, or already released claims invalidate earlier authorization; callers
+must reassess and record fresh Evidence. Expiry recovery retains the daemon's
+lease grace boundary and uses TaskGraph expiry to cancel a linked queued or
+running TaskRun with `claim_stale`; already terminal runs retain their outcome.
 When a managed Task Session closes, its existing `TaskRunCompletionSummary`
 becomes the semantic close candidate. `task_run` includes that attempt;
 `task_revision` uses the final run summary and merges terminal Invocation IDs,
