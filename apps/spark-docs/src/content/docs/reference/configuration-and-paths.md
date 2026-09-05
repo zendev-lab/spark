@@ -12,6 +12,14 @@ spark paths --json
 
 These commands inspect effective paths without creating files.
 
+## Default model
+
+New model selections default to `openai-codex/gpt-6-astra` (GPT-6 Astra). Configure
+OpenAI Codex OAuth in Settings to use it. Explicit default or session model choices
+remain authoritative. The native host and model settings use the same default
+selection rule; roles and child sessions continue to inherit their owning session's
+model unless explicitly overridden.
+
 ## Self-contained SPARK_HOME
 
 Set `SPARK_HOME` when you want one explicit root:

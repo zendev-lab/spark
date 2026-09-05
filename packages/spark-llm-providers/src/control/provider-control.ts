@@ -26,6 +26,7 @@ import {
 } from "./pi-auth-import.ts";
 import { SparkOAuthFlowBroker, type SparkOAuthFlowSnapshot } from "./oauth-flow.ts";
 import {
+  resolveSparkDefaultModelSelection,
   defaultSparkProviderConfigPath,
   loadSparkProviderCatalog,
   readSparkProviderConfig,
@@ -409,9 +410,7 @@ function resolveEffectiveSelection(
       // A removed provider/model should not make the whole settings surface fail.
     }
   }
-  const provider = registry.listProviders()[0];
-  const model = provider?.models[0];
-  return provider && model ? { providerName: provider.name, modelId: model.id } : undefined;
+  return resolveSparkDefaultModelSelection(registry);
 }
 
 function resolveModelSelection(

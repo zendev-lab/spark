@@ -129,6 +129,19 @@ model selection and its own OAuth credential store. Configure it from Hub or
 `spark web` Settings (OAuth login); Spark does not read Pi or Codex CLI auth
 files at runtime.
 
+New default selection is `openai-codex/gpt-6-astra` across provider control and the
+native host. An explicitly selected model remains authoritative. The default Codex
+enabled scope is Astra; migration recognizes previous complete bundled scopes and
+preserves custom scopes.
+
+Until pinned pi-ai supplies Astra, this adapter supplements its catalog using the
+[official model metadata](https://developers.openai.com/api/docs/models/gpt-6-astra):
+$10 input, $50 output, $1 cached input and $12.50 cache write per million tokens.
+The existing 272k Codex context ceiling remains in place because Spark's current
+model contract does not preserve long-context pricing tiers. The official model's
+larger context window is not enabled by this catalog supplement. OAuth subscription
+billing is distinct from these API cost estimates.
+
 ## Kimi For Coding provider
 
 `@zendev-lab/spark-llm-providers/kimi-coding-provider` is the thin Spark adapter over

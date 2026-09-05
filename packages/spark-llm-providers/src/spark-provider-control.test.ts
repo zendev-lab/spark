@@ -163,10 +163,10 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
       true,
     );
     assert.equal(codex?.name, "OpenAI Codex");
-    assert.equal(codex?.modelCount, 7);
+    assert.equal(codex?.modelCount, 8);
     assert.equal(codex?.auth.kind, "oauth");
     assert.equal(codex?.auth.configured, false);
-    assert.equal(snapshot.models.filter((model) => model.providerId === "openai-codex").length, 7);
+    assert.equal(snapshot.models.filter((model) => model.providerId === "openai-codex").length, 8);
     assert.equal(
       snapshot.models.some(
         (model) => model.providerId === "openai-codex" && model.modelId === "gpt-5.3-codex-spark",
@@ -488,3 +488,14 @@ async function waitForTerminal(
   }
   throw new Error(`OAuth flow ${flowId} did not finish`);
 }
+
+test("default provider control selects GPT-6 Astra and preserves an explicit model", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+    const initial = await control.snapshot();
+    assert.equal(initial.activeModelId, "openai-codex/gpt-6-astra");
+    assert.equal(initial.enabledModelIds.includes(initial.activeModelId!), true);
+    await control.setDefaultModel("baidu-oneapi/claude-opus-5");
+    assert.equal((await control.snapshot()).activeModelId, "baidu-oneapi/claude-opus-5");
+  });
+});
