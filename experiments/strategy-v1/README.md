@@ -4,6 +4,10 @@ This opt-in experiment measures whether a Spark-generated strategy improves a fi
 model's repairs of historical Spark regressions. It does not promote strategies into
 production or claim recursive self-improvement.
 
+The [completed GPT-6 run](results/gpt6-r1/RESULTS.md) found no reliable improvement:
+the selected candidate passed 4/10 holdout trials against the baseline's 5/10.
+Its full evidence dataset can be audited offline without model calls.
+
 - `tasks.json` pins the production source commit, eight historical repair commits,
   regression mechanisms and the development/holdout assignment.
 - `cases.json` owns the independent public and hidden acceptance cases. Correct

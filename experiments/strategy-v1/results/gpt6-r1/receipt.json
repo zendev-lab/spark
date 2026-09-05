@@ -1,0 +1,629 @@
+{
+  "archiveSha256": "150254fe8c982cb54af810b0f713488c57d1ab0df35faaae8ce3f1769187c968",
+  "schema": "spark.strategy-report/v1",
+  "comparable": true,
+  "freezeDigest": "9c3057c59cb4478c2959d1b30e49c142260267ef7e8217dadf8df0d9fc70ce0b",
+  "source": {
+    "commitSha": "31bde84350ee230ea4d193058baaffd7d9749df7",
+    "clean": true,
+    "evaluatorDigest": "ab52314fa87cbc6e63c50503021a4210b36395f7695955834cfb354c3b208a28",
+    "dependencyDigest": "3c1d7cabbb2d846b8a04a106b85bafac1f8c02712c815c6db37d27efae4f846b",
+    "environment": {
+      "node": "v24.20.0",
+      "platform": "darwin",
+      "release": "27.0.0",
+      "arch": "arm64",
+      "cpu": "Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro;Apple M5 Pro"
+    }
+  },
+  "model": {
+    "provider": "openai-codex",
+    "id": "gpt-6-astra",
+    "api": "openai-codex-responses",
+    "baseUrl": "https://chatgpt.com/backend-api",
+    "cost": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 1,
+      "cacheWrite": 12.5
+    }
+  },
+  "startedAt": "2026-09-05T06:57:18.629Z",
+  "completedAt": "2026-09-05T07:17:05.375Z",
+  "selection": {
+    "selectedId": "candidate-1",
+    "scores": [
+      {
+        "id": "candidate-1",
+        "index": 1,
+        "passes": 0,
+        "tokens": 39804,
+        "eligible": true,
+        "regressions": []
+      },
+      {
+        "id": "candidate-2",
+        "index": 2,
+        "passes": 0,
+        "tokens": 126820,
+        "eligible": true,
+        "regressions": []
+      },
+      {
+        "id": "candidate-3",
+        "index": 3,
+        "passes": 0,
+        "tokens": 65406,
+        "eligible": true,
+        "regressions": []
+      }
+    ],
+    "eligibilityFallback": false
+  },
+  "development": {
+    "baselinePasses": 0,
+    "trialsPerStrategy": 6,
+    "candidates": [
+      {
+        "id": "candidate-1",
+        "index": 1,
+        "passes": 0,
+        "tokens": 39804,
+        "eligible": true,
+        "regressions": []
+      },
+      {
+        "id": "candidate-2",
+        "index": 2,
+        "passes": 0,
+        "tokens": 126820,
+        "eligible": true,
+        "regressions": []
+      },
+      {
+        "id": "candidate-3",
+        "index": 3,
+        "passes": 0,
+        "tokens": 65406,
+        "eligible": true,
+        "regressions": []
+      }
+    ]
+  },
+  "holdout": {
+    "status": "regressed",
+    "baselinePasses": 5,
+    "candidatePasses": 4,
+    "trialsPerArm": 10,
+    "cases": [
+      {
+        "taskId": "cross-realm",
+        "baselinePasses": 1,
+        "candidatePasses": 0,
+        "difference": -1
+      },
+      {
+        "taskId": "terminal-width",
+        "baselinePasses": 0,
+        "candidatePasses": 0,
+        "difference": 0
+      },
+      {
+        "taskId": "sqlite-scope",
+        "baselinePasses": 2,
+        "candidatePasses": 2,
+        "difference": 0
+      },
+      {
+        "taskId": "python-request",
+        "baselinePasses": 2,
+        "candidatePasses": 2,
+        "difference": 0
+      },
+      {
+        "taskId": "optional-arguments",
+        "baselinePasses": 0,
+        "candidatePasses": 0,
+        "difference": 0
+      }
+    ],
+    "signTest": {
+      "unit": "task",
+      "alternative": "candidate improves task pass count",
+      "wins": 0,
+      "losses": 1,
+      "ties": 4,
+      "p": 1,
+      "alpha": 0.05
+    },
+    "baselineResources": {
+      "tokens": 177393,
+      "estimatedCostUsd": 1.7405700000000002,
+      "billedCostUsd": null,
+      "solverDurationMs": 266745,
+      "gradingDurationMs": 5481
+    },
+    "candidateResources": {
+      "tokens": 187643,
+      "estimatedCostUsd": 1.8320620000000003,
+      "billedCostUsd": null,
+      "solverDurationMs": 286281,
+      "gradingDurationMs": 4939
+    },
+    "pairedTrials": [
+      {
+        "taskId": "cross-realm",
+        "repetition": 1,
+        "baseline": true,
+        "candidate": false
+      },
+      {
+        "taskId": "cross-realm",
+        "repetition": 2,
+        "baseline": false,
+        "candidate": false
+      },
+      {
+        "taskId": "terminal-width",
+        "repetition": 1,
+        "baseline": false,
+        "candidate": false
+      },
+      {
+        "taskId": "terminal-width",
+        "repetition": 2,
+        "baseline": false,
+        "candidate": false
+      },
+      {
+        "taskId": "sqlite-scope",
+        "repetition": 1,
+        "baseline": true,
+        "candidate": true
+      },
+      {
+        "taskId": "sqlite-scope",
+        "repetition": 2,
+        "baseline": true,
+        "candidate": true
+      },
+      {
+        "taskId": "python-request",
+        "repetition": 1,
+        "baseline": true,
+        "candidate": true
+      },
+      {
+        "taskId": "python-request",
+        "repetition": 2,
+        "baseline": true,
+        "candidate": true
+      },
+      {
+        "taskId": "optional-arguments",
+        "repetition": 1,
+        "baseline": false,
+        "candidate": false
+      },
+      {
+        "taskId": "optional-arguments",
+        "repetition": 2,
+        "baseline": false,
+        "candidate": false
+      }
+    ],
+    "uncertainty": "Small purposive retrospective task set from one repository; task outcomes can be correlated. No model seed or immutable server weight revision is available. The sign test is diagnostic, not evidence of RSI or broad coding generalization."
+  },
+  "totals": {
+    "trials": 44,
+    "generatedCandidates": 3,
+    "modelCalls": 199,
+    "tokens": 698017,
+    "estimatedCostUsd": 6.8802340000000015,
+    "billedCostUsd": null,
+    "modelDurationMs": 1078694
+  },
+  "trials": [
+    {
+      "id": "development-pr-checks-baseline-r1",
+      "passed": false,
+      "tokens": 8319,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:331090d1-89c4-4eb2-a42b-075a064bac7f",
+      "receipt": "trials/development-pr-checks-baseline-r1/result.json"
+    },
+    {
+      "id": "development-pr-checks-baseline-r2",
+      "passed": false,
+      "tokens": 6631,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:a88cd4ef-c8dd-4c1c-a726-025614d07fbc",
+      "receipt": "trials/development-pr-checks-baseline-r2/result.json"
+    },
+    {
+      "id": "development-ask-partial-baseline-r1",
+      "passed": false,
+      "tokens": 11085,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:9f07a9d5-eea6-4e48-848f-ce8226b4e1ef",
+      "receipt": "trials/development-ask-partial-baseline-r1/result.json"
+    },
+    {
+      "id": "development-ask-partial-baseline-r2",
+      "passed": false,
+      "tokens": 8274,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:712e7329-6fa7-4438-b346-b2d141926b9f",
+      "receipt": "trials/development-ask-partial-baseline-r2/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-baseline-r1",
+      "passed": false,
+      "tokens": 11040,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:d269265d-e2e8-4c5e-85bc-424d69f26baa",
+      "receipt": "trials/development-cleanup-cwd-baseline-r1/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-baseline-r2",
+      "passed": false,
+      "tokens": 11010,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:bd0566d7-d38b-4b25-aa8c-37726fcd203b",
+      "receipt": "trials/development-cleanup-cwd-baseline-r2/result.json"
+    },
+    {
+      "id": "development-pr-checks-candidate-1-r1",
+      "passed": false,
+      "tokens": 4468,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:b1aa2775-6f85-4eff-bf98-fa9b02505069",
+      "receipt": "trials/development-pr-checks-candidate-1-r1/result.json"
+    },
+    {
+      "id": "development-pr-checks-candidate-1-r2",
+      "passed": false,
+      "tokens": 4462,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:5b26b6d4-b7a2-42c4-a8dd-781ee5efd6af",
+      "receipt": "trials/development-pr-checks-candidate-1-r2/result.json"
+    },
+    {
+      "id": "development-ask-partial-candidate-1-r1",
+      "passed": false,
+      "tokens": 5328,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:17211b6c-c690-4d38-abba-4cff77332cf6",
+      "receipt": "trials/development-ask-partial-candidate-1-r1/result.json"
+    },
+    {
+      "id": "development-ask-partial-candidate-1-r2",
+      "passed": false,
+      "tokens": 7163,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:e349c679-b70b-41bd-b47e-3df252923168",
+      "receipt": "trials/development-ask-partial-candidate-1-r2/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-candidate-1-r1",
+      "passed": false,
+      "tokens": 9193,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:c34ef50b-e709-4847-9d95-0c75fe0f9841",
+      "receipt": "trials/development-cleanup-cwd-candidate-1-r1/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-candidate-1-r2",
+      "passed": false,
+      "tokens": 9190,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:67097502-cbaa-452a-959f-eca86c5459d9",
+      "receipt": "trials/development-cleanup-cwd-candidate-1-r2/result.json"
+    },
+    {
+      "id": "development-pr-checks-candidate-2-r1",
+      "passed": false,
+      "tokens": 9497,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:a892ef90-3edd-4c72-bb65-efbde6784ee1",
+      "receipt": "trials/development-pr-checks-candidate-2-r1/result.json"
+    },
+    {
+      "id": "development-pr-checks-candidate-2-r2",
+      "passed": false,
+      "tokens": 9468,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:3d47f13c-a8b7-41ab-a4a3-13e96eb4bcef",
+      "receipt": "trials/development-pr-checks-candidate-2-r2/result.json"
+    },
+    {
+      "id": "development-ask-partial-candidate-2-r1",
+      "passed": false,
+      "tokens": 26417,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:e42ad225-91ff-49e4-af13-916b72a77086",
+      "receipt": "trials/development-ask-partial-candidate-2-r1/result.json"
+    },
+    {
+      "id": "development-ask-partial-candidate-2-r2",
+      "passed": false,
+      "tokens": 31145,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:01480ea0-e042-4af9-b5cd-ab1bb8d2903a",
+      "receipt": "trials/development-ask-partial-candidate-2-r2/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-candidate-2-r1",
+      "passed": false,
+      "tokens": 36927,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:b11b004a-0b68-4762-bbbb-c4dbf788c607",
+      "receipt": "trials/development-cleanup-cwd-candidate-2-r1/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-candidate-2-r2",
+      "passed": false,
+      "tokens": 13366,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:0c5e1dca-f311-4b14-a356-57e96deb514e",
+      "receipt": "trials/development-cleanup-cwd-candidate-2-r2/result.json"
+    },
+    {
+      "id": "development-pr-checks-candidate-3-r1",
+      "passed": false,
+      "tokens": 4664,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:6c9c5b91-0d97-458b-9775-60fc9d887671",
+      "receipt": "trials/development-pr-checks-candidate-3-r1/result.json"
+    },
+    {
+      "id": "development-pr-checks-candidate-3-r2",
+      "passed": false,
+      "tokens": 4664,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["merged-skipped", "merged-all-skipped"],
+      "evidenceRef": "evidence:46484b49-086b-4599-b3ed-bbbf6cd971d1",
+      "receipt": "trials/development-pr-checks-candidate-3-r2/result.json"
+    },
+    {
+      "id": "development-ask-partial-candidate-3-r1",
+      "passed": false,
+      "tokens": 7391,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:60ce5d6a-ffa5-4fea-9d5d-12759a1a5fa8",
+      "receipt": "trials/development-ask-partial-candidate-3-r1/result.json"
+    },
+    {
+      "id": "development-ask-partial-candidate-3-r2",
+      "passed": false,
+      "tokens": 15525,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["partial-submission", "empty-submission", "whitespace-answer"],
+      "evidenceRef": "evidence:da487b99-797e-4d20-93a6-a6cf1ec29b79",
+      "receipt": "trials/development-ask-partial-candidate-3-r2/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-candidate-3-r1",
+      "passed": false,
+      "tokens": 13302,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:b3a59f4d-8a2a-48f9-9e8c-9121458f0a50",
+      "receipt": "trials/development-cleanup-cwd-candidate-3-r1/result.json"
+    },
+    {
+      "id": "development-cleanup-cwd-candidate-3-r2",
+      "passed": false,
+      "tokens": 19860,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["unrelated-daemon", "related-daemon"],
+      "evidenceRef": "evidence:655a4fcb-0509-473c-a85a-fa6e76a4bbc8",
+      "receipt": "trials/development-cleanup-cwd-candidate-3-r2/result.json"
+    },
+    {
+      "id": "holdout-cross-realm-baseline-r1",
+      "passed": true,
+      "tokens": 21913,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:adb6a933-8d70-4d5f-aa9a-4b7db2297fd6",
+      "receipt": "trials/holdout-cross-realm-baseline-r1/result.json"
+    },
+    {
+      "id": "holdout-cross-realm-candidate-1-r1",
+      "passed": false,
+      "tokens": 14090,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["remote-native"],
+      "evidenceRef": "evidence:52f7f966-ef09-4de4-89fe-ec30a61c0f1a",
+      "receipt": "trials/holdout-cross-realm-candidate-1-r1/result.json"
+    },
+    {
+      "id": "holdout-cross-realm-candidate-1-r2",
+      "passed": false,
+      "tokens": 14539,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["remote-native"],
+      "evidenceRef": "evidence:7cee8afb-866f-474c-aa8c-6c842b395109",
+      "receipt": "trials/holdout-cross-realm-candidate-1-r2/result.json"
+    },
+    {
+      "id": "holdout-cross-realm-baseline-r2",
+      "passed": false,
+      "tokens": 15846,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["remote-native"],
+      "evidenceRef": "evidence:10a3c514-7a8f-4e71-beb2-6f8ba8a27bca",
+      "receipt": "trials/holdout-cross-realm-baseline-r2/result.json"
+    },
+    {
+      "id": "holdout-terminal-width-candidate-1-r1",
+      "passed": false,
+      "tokens": 7936,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["chinese", "ansi-chinese", "mixed", "combining"],
+      "evidenceRef": "evidence:bd6f4eac-8088-4f2f-ab4f-30ea19234d34",
+      "receipt": "trials/holdout-terminal-width-candidate-1-r1/result.json"
+    },
+    {
+      "id": "holdout-terminal-width-baseline-r1",
+      "passed": false,
+      "tokens": 19753,
+      "budgetFailures": [],
+      "failedCaseIds": ["zero-clamped"],
+      "evidenceRef": "evidence:b71e5e86-62dd-4b72-a9a0-4c6d83161cb9",
+      "receipt": "trials/holdout-terminal-width-baseline-r1/result.json"
+    },
+    {
+      "id": "holdout-terminal-width-baseline-r2",
+      "passed": false,
+      "tokens": 21002,
+      "budgetFailures": [],
+      "failedCaseIds": ["zero-clamped"],
+      "evidenceRef": "evidence:10717cdd-191c-4918-ae67-f22473e96cb9",
+      "receipt": "trials/holdout-terminal-width-baseline-r2/result.json"
+    },
+    {
+      "id": "holdout-terminal-width-candidate-1-r2",
+      "passed": false,
+      "tokens": 12023,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["chinese", "ansi-chinese", "mixed", "combining"],
+      "evidenceRef": "evidence:9d1b95cc-b11f-4d1f-bd59-d0ab3376acec",
+      "receipt": "trials/holdout-terminal-width-candidate-1-r2/result.json"
+    },
+    {
+      "id": "holdout-sqlite-scope-baseline-r1",
+      "passed": true,
+      "tokens": 29481,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:da47c3af-eb61-4b03-9cb3-b203676deaf1",
+      "receipt": "trials/holdout-sqlite-scope-baseline-r1/result.json"
+    },
+    {
+      "id": "holdout-sqlite-scope-candidate-1-r1",
+      "passed": true,
+      "tokens": 30756,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:0af8ad9e-54e3-4aee-ae05-d96286db0ab0",
+      "receipt": "trials/holdout-sqlite-scope-candidate-1-r1/result.json"
+    },
+    {
+      "id": "holdout-sqlite-scope-candidate-1-r2",
+      "passed": true,
+      "tokens": 25791,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:b94ac08f-d877-4586-8677-789593ffa919",
+      "receipt": "trials/holdout-sqlite-scope-candidate-1-r2/result.json"
+    },
+    {
+      "id": "holdout-sqlite-scope-baseline-r2",
+      "passed": true,
+      "tokens": 17223,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:8748b1fa-c7a9-4d17-9d48-d491069df918",
+      "receipt": "trials/holdout-sqlite-scope-baseline-r2/result.json"
+    },
+    {
+      "id": "holdout-python-request-candidate-1-r1",
+      "passed": true,
+      "tokens": 30575,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:3ca58ea0-0ea3-41c3-ab30-28910fbefdff",
+      "receipt": "trials/holdout-python-request-candidate-1-r1/result.json"
+    },
+    {
+      "id": "holdout-python-request-baseline-r1",
+      "passed": true,
+      "tokens": 16831,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:c7e03caa-8771-416f-8d40-89f7df33d640",
+      "receipt": "trials/holdout-python-request-baseline-r1/result.json"
+    },
+    {
+      "id": "holdout-python-request-baseline-r2",
+      "passed": true,
+      "tokens": 17062,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:b9939db2-4c93-4472-bdb1-cf7ffa2ddcbe",
+      "receipt": "trials/holdout-python-request-baseline-r2/result.json"
+    },
+    {
+      "id": "holdout-python-request-candidate-1-r2",
+      "passed": true,
+      "tokens": 24743,
+      "budgetFailures": [],
+      "failedCaseIds": [],
+      "evidenceRef": "evidence:8446f76a-e5b1-4eb0-9498-3f6db39b4d42",
+      "receipt": "trials/holdout-python-request-candidate-1-r2/result.json"
+    },
+    {
+      "id": "holdout-optional-arguments-baseline-r1",
+      "passed": false,
+      "tokens": 8668,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["optional-empty", "null", "optional-undefined"],
+      "evidenceRef": "evidence:3aced836-8b2e-4d0d-b012-f4f3e4cc635e",
+      "receipt": "trials/holdout-optional-arguments-baseline-r1/result.json"
+    },
+    {
+      "id": "holdout-optional-arguments-candidate-1-r1",
+      "passed": false,
+      "tokens": 14708,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["optional-empty", "null", "optional-undefined"],
+      "evidenceRef": "evidence:009a3cf8-9486-4b42-a1df-f0631b1e033d",
+      "receipt": "trials/holdout-optional-arguments-candidate-1-r1/result.json"
+    },
+    {
+      "id": "holdout-optional-arguments-candidate-1-r2",
+      "passed": false,
+      "tokens": 12482,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["optional-empty", "null", "optional-undefined"],
+      "evidenceRef": "evidence:443e99cd-8c4e-4038-a98a-52ca3e7a4922",
+      "receipt": "trials/holdout-optional-arguments-candidate-1-r2/result.json"
+    },
+    {
+      "id": "holdout-optional-arguments-baseline-r2",
+      "passed": false,
+      "tokens": 9614,
+      "budgetFailures": ["maxRequestBytes"],
+      "failedCaseIds": ["optional-empty", "null", "optional-undefined"],
+      "evidenceRef": "evidence:84911460-724d-48ba-ae98-051b84bb6e51",
+      "receipt": "trials/holdout-optional-arguments-baseline-r2/result.json"
+    }
+  ],
+  "limitations": [
+    "A small retrospective within-repository strategy experiment. Public historical fixes may have appeared in model training. This does not demonstrate RSI, autonomous promotion, or broad coding ability.",
+    "Provider-reported usage priced by the frozen Spark/pi-ai catalog; estimated USD, not an invoice. OAuth subscription billed amount is unavailable and recorded as null. The Codex transport rejects temperature, so it is consistently omitted. It does not send max_output_tokens; maxOutputTokens is a post-response acceptance ceiling, while the wall deadline, request count, and conservative token reservation bound execution. Overshoots remain recorded failures.",
+    "Small purposive retrospective task set from one repository; task outcomes can be correlated. No model seed or immutable server weight revision is available. The sign test is diagnostic, not evidence of RSI or broad coding generalization."
+  ]
+}

@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { test } from "vitest";
 import {
   auditAcceptance,
+  auditExperiment,
   unpackExperiment,
   verifyFiles,
 } from "../scripts/strategy-experiment/audit.mts";
@@ -39,6 +41,33 @@ import {
 
 const suite = await loadSuite();
 const budget = suite.protocol.budget;
+
+test("published model experiment reproduces its full receipt without model calls", async () => {
+  const dataset = new URL("../experiments/strategy-v1/results/gpt6-r1/", import.meta.url);
+  const archivePath = new URL("evidence.json.gz", dataset);
+  const { archiveSha256, ...receipt } = JSON.parse(
+    await readFile(new URL("receipt.json", dataset), "utf8"),
+  );
+  assert.equal(digest(await readFile(archivePath)), archiveSha256);
+  const root = await mkdtemp(join(tmpdir(), "spark-strategy-published-test-"));
+  try {
+    await unpackExperiment(fileURLToPath(archivePath), root);
+    assert.deepEqual(await auditExperiment(root), receipt);
+    const strategies = JSON.parse(await readFile(new URL("strategies.json", dataset), "utf8"));
+    for (const strategy of strategies) {
+      const candidate = JSON.parse(
+        await readFile(join(root, "candidates", strategy.id, "candidate.json"), "utf8"),
+      );
+      for (const [key, value] of Object.entries(strategy)) assert.deepEqual(candidate[key], value);
+    }
+    const missingTrial = join(root, "trials", receipt.trials[0].id);
+    await rm(missingTrial, { recursive: true });
+    await assert.rejects(auditExperiment(root));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
 function trial(taskId: string, passed: boolean, tokens = 10): Trial {
   return {
     schema: "spark.strategy-trial/v1",

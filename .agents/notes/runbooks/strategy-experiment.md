@@ -76,6 +76,17 @@ commit and the `replay` command; no model credential is needed. Archive audits r
 sandbox, credentials or model calls. An archive can be unpacked with `unpackExperiment`
 from `audit.mts` for patch replay under its recorded harness.
 
+For example, from the harness worktree, unpack an exported dataset into a fresh
+receipt directory and replay one recorded patch (replace the archive's absolute path):
+
+```sh
+node --experimental-strip-types --input-type=module -e '
+const { unpackExperiment } = await import("./scripts/strategy-experiment/audit.mts");
+await unpackExperiment(process.argv[1], process.argv[2]);
+' /absolute/path/to/export/evidence.json.gz reports/strategy-experiments/replay-gpt6-r1
+pnpm experiment:strategy replay replay-gpt6-r1 holdout-cross-realm-baseline-r1
+```
+
 ## Interpret results
 
 Only complete comparable data can support the preregistered improvement result. Report
