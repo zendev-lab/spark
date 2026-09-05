@@ -135,6 +135,25 @@ it can read that snapshot without the workbench token. A share is limited to
 them all. Session, Artifact, and credential data are never stored in the PWA
 offline cache; only immutable app assets are cached.
 
+## Reconnecting after an interruption
+
+A disconnected Session page keeps its last received history and shows a
+reconnection notice. It reconnects automatically with its event cursor, then
+replaces stale state with the daemon snapshot. Sending is temporarily disabled
+while reconnecting; the current composer draft stays in the open page.
+Reloading the page restores daemon-owned history, not unsent drafts.
+
+If the daemon exits unexpectedly, restart it against the same state directory.
+The daemon resumes eligible interrupted Invocations under the same identity;
+queued turns remain durable. Resume guidance is hidden runtime control, so it
+does not change the submitted user message. Retrying an unchanged message after
+a lost submission response reuses its idempotency key. The home composer also
+reuses a Session it already created when the first submission failed.
+
+Restarting Spark Web reconnects to the existing daemon. If normal shutdown
+revoked the previous process token, open the newly printed URL. Local Share
+links do not survive a Web process restart.
+
 ## Session attach
 
 Start `spark web` against the same daemon and open the Session from the

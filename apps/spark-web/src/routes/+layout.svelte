@@ -190,6 +190,7 @@
   navigationId="spark-primary-navigation"
   closeNavigationLabel={copy.close}
   navigationSize="compact"
+  contentMode={page.route.id === "/sessions/[sessionId]" ? "flush" : "padded"}
   mainId="spark-main"
   navigationKey={page.url.pathname}
   designDirection="conversation-canvas-5a7f18fc"

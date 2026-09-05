@@ -60,7 +60,7 @@
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
   import { conversationMessageFromView } from "$lib/conversation";
-  import { attachWebSessionEvents } from "$lib/live-events";
+  import { attachWebSessionEvents, type WebSessionConnectionState } from "$lib/live-events";
   import { explicitMemoryRefs, sparkWebTurnMessageMetadata } from "$lib/memory-feedback";
   import {
     parsePendingHumanInteractions,
@@ -93,6 +93,7 @@
   let pendingCloseSession = $state<SparkSessionProjection | null>(null);
   let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
+  let connectionState = $state<WebSessionConnectionState>("connecting");
   let prompt = $state("");
   let pendingAttachments = $state<
     Array<{
@@ -105,6 +106,7 @@
   >([]);
   let attachmentError = $state<string | null>(null);
   let submitting = $state(false);
+  let pendingSubmission: { fingerprint: string; idempotencyKey: string } | null = null;
   let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
   let artifactPreview = $state<{
     ref: string;
@@ -134,6 +136,8 @@
   let workDetailsOpen = $state(false);
   let conversationSettingsOpen = $state(false);
   let moreActionsOpen = $state(false);
+  let conversationSettingsTrigger: HTMLElement | undefined;
+  let moreActionsTrigger: HTMLElement | undefined;
   let shareHref = $state<string | null>(null);
   let sharing = $state(false);
   let memoryFeedbackBusy = $state("");
@@ -377,6 +381,8 @@
         );
       }
       void refreshAsks(sessionId);
+    }, (state) => {
+      if (activeOwnerSessionId === sessionId) connectionState = state;
     });
   });
 
@@ -384,7 +390,15 @@
 
   $effect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (conversationSettingsOpen || moreActionsOpen) {
+        const trigger = conversationSettingsOpen ? conversationSettingsTrigger : moreActionsTrigger;
+        conversationSettingsOpen = false;
+        moreActionsOpen = false;
+        trigger?.focus();
+        event.preventDefault();
+        return;
+      }
       if (searchOpen) {
         searchOpen = false;
       }
@@ -403,10 +417,16 @@
   async function submitPrompt(event?: Event) {
     event?.preventDefault();
     const text = prompt.trim();
-    if ((!text && pendingAttachments.length === 0) || submitting) return;
+    if ((!text && pendingAttachments.length === 0) || submitting || connectionState === "reconnecting") return;
     const ownerSessionId = snapshot.sessionId;
     const feedbackRequestToken = ++actionFeedbackRequestToken;
     const attachments = pendingAttachments;
+    const submittedPrompt = prompt;
+    const fingerprint = JSON.stringify([ownerSessionId, text, attachments]);
+    if (pendingSubmission?.fingerprint !== fingerprint) {
+      pendingSubmission = { fingerprint, idempotencyKey: crypto.randomUUID() };
+    }
+    const submission = pendingSubmission;
     submitting = true;
     try {
       actionFeedback = null;
@@ -418,14 +438,16 @@
       } else {
         await webRpc("turn.submit", {
           sessionId: ownerSessionId,
+          idempotencyKey: submission.idempotencyKey,
           prompt: text,
           ...(attachments.length > 0 ? { attachments } : {}),
           messageMetadata: sparkWebTurnMessageMetadata(),
         });
       }
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
-      prompt = "";
-      pendingAttachments = [];
+      if (pendingSubmission === submission) pendingSubmission = null;
+      if (prompt === submittedPrompt) prompt = "";
+      pendingAttachments = pendingAttachments.filter((attachment) => !attachments.includes(attachment));
       attachmentError = null;
     } catch (error) {
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
@@ -1133,6 +1155,8 @@
   );
 </script>
 
+<svelte:head><title>{currentSession?.name ?? copy.tree.untitled} · Spark</title></svelte:head>
+
 {#snippet queueActions(item: { id: string })}
   <Button variant="ghost" size="compact" onclick={() => void cancelQueuedTurn(item.id)}>
     {copy.removeQueued}
@@ -1204,8 +1228,8 @@
         <Icon name="workspace" size={15} />
         <span>{copy.workDetails}</span>
       </Button>
-      <details class="conversation-settings" bind:open={conversationSettingsOpen}>
-        <summary><Icon name="settings" size={15} />{copy.conversationSettings}</summary>
+      <details class="conversation-settings" name="session-controls" bind:open={conversationSettingsOpen}>
+        <summary bind:this={conversationSettingsTrigger}><Icon name="settings" size={15} />{copy.conversationSettings}</summary>
         <div class="conversation-settings-panel">
           <ModelSelector
             id="spark-web-model"
@@ -1239,8 +1263,8 @@
           </div>
         </div>
       </details>
-      <details class="more-actions" bind:open={moreActionsOpen}>
-        <summary><Icon name="menu" size={15} />{copy.moreActions}</summary>
+      <details class="more-actions" name="session-controls" bind:open={moreActionsOpen}>
+        <summary bind:this={moreActionsTrigger}><Icon name="menu" size={15} />{copy.moreActions}</summary>
         <div class="more-actions-panel">
           <Button variant="ghost" size="compact" onclick={() => { searchOpen = !searchOpen; moreActionsOpen = false; }}>
             <Icon name="search" size={14} />{copy.searchHistory}
@@ -1262,6 +1286,12 @@
       </details>
     </div>
   </header>
+  {#if connectionState === "reconnecting"}
+    <div class="connection-notice" role="status">
+      <Icon name="retry" size={16} />
+      <div><strong>{copy.reconnecting}</strong><span>{copy.reconnectingHint}</span></div>
+    </div>
+  {/if}
   {#if searchOpen}
     <section class="history-search" aria-label={copy.historySearchRegion}>
       <form onsubmit={(event) => void searchHistory(event)}>
@@ -1441,6 +1471,7 @@
       ariaLabel={copy.promptLabel}
       multilineHint={copy.sendHint}
       submitting={submitting}
+      submitDisabled={submitting || connectionState === "reconnecting" || (!prompt.trim() && pendingAttachments.length === 0)}
     >
       {#snippet attachments()}
         <div class="attachment-list">
@@ -1560,7 +1591,7 @@
   .workbench-shell {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    height: calc(100dvh - 53px);
+    height: 100%;
     min-height: 0;
   }
 
@@ -1639,6 +1670,27 @@
     min-height: 0;
     padding: 0 clamp(12px, 3vw, 32px) 12px;
     width: 100%;
+  }
+
+  .connection-notice {
+    align-items: center;
+    background: var(--color-surface-soft);
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    display: flex;
+    flex: 0 0 auto;
+    font-size: var(--text-caption);
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+  }
+
+  .connection-notice > div {
+    display: grid;
+    gap: var(--spacing-xxs);
+  }
+
+  .connection-notice strong {
+    color: var(--color-ink);
   }
 
   .conversation-header {
@@ -1923,7 +1975,7 @@
     .workbench-shell.conversation-list-open,
     .workbench-shell.work-details-open {
       grid-template-columns: minmax(0, 1fr);
-      height: calc(100dvh - 53px);
+      height: 100%;
       overflow: hidden;
       position: relative;
     }
@@ -1952,31 +2004,30 @@
     }
 
     .conversation-view-controls {
-      overflow-x: auto;
-      padding-bottom: 2px;
-      scrollbar-width: none;
-    }
-
-    .conversation-view-controls::-webkit-scrollbar {
-      display: none;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      position: relative;
     }
 
     .conversation-view-controls > :global(.ui-button),
     .conversation-view-controls > details {
-      flex: 0 0 auto;
+      min-width: 0;
+      position: static;
     }
 
     .conversation-view-controls > :global(.ui-button),
     .conversation-view-controls summary {
       min-height: var(--control-height-touch);
-      width: auto;
+      width: 100%;
     }
 
     .conversation-settings-panel,
     .more-actions-panel {
       left: 0;
-      min-width: min(320px, calc(100vw - 24px));
-      right: auto;
+      min-width: 0;
+      right: 0;
+      max-height: calc(100dvh - 260px);
+      overflow-y: auto;
     }
   }
 </style>

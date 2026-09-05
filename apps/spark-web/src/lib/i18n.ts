@@ -165,6 +165,9 @@ const en = {
     },
     actions: "Session actions",
     currentSession: "Current conversation",
+    reconnecting: "Reconnecting to Spark…",
+    reconnectingHint:
+      "This view may be out of date. It will sync automatically when Spark is back.",
     you: "You",
     spark: "Spark",
     agent: "Agent",
@@ -594,6 +597,8 @@ const zhCN = {
     },
     actions: "会话操作",
     currentSession: "当前对话",
+    reconnecting: "正在重新连接 Spark…",
+    reconnectingHint: "当前内容可能不是最新状态，连接恢复后会自动同步。",
     you: "你",
     spark: "Spark",
     agent: "智能体",

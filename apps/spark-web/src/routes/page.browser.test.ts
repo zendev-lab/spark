@@ -120,6 +120,32 @@ describe("Spark Web conversation-first routes", () => {
     await screen.unmount();
   });
 
+  it("reuses the created Session and turn identity after a lost submission response", async () => {
+    let attempts = 0;
+    mocks.webRpc.mockImplementation(async (method: string) => {
+      if (method === "session.create") return { sessionId: "session-created" };
+      if (method === "turn.submit") {
+        if (++attempts === 1) throw new Error("connection lost");
+        return { invocationId: "inv-created" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const screen = await render(DashboardPage, { data: dashboardData() });
+    await screen.getByRole("textbox", { name: "First message" }).fill("Recover this turn");
+    await screen.getByRole("button", { name: "Start conversation" }).click();
+    await expect.element(screen.getByRole("alert")).toBeVisible();
+    await screen.getByRole("button", { name: "Start conversation" }).click();
+    await expect.poll(() => mocks.goto).toHaveBeenCalledWith("/sessions/session-created");
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0][1].idempotencyKey).toEqual(expect.any(String));
+    expect(submissions[1][1]).toEqual(submissions[0][1]);
+    expect(mocks.webRpc.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(
+      1,
+    );
+    await screen.unmount();
+  });
+
   it("renders one Invocation independently from its Session transcript", async () => {
     const screen = await render(InvocationPage, { data: invocationData() });
 
