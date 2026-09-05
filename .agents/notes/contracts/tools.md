@@ -188,7 +188,8 @@ rechecks that snapshot and previous Session inactivity under the TaskGraph write
 lock, for explicit recovery and acquisition with recovery alike. Renewed,
 replaced, or already released claims invalidate earlier authorization; callers
 must reassess and record fresh Evidence. Expiry recovery retains the daemon's
-lease grace boundary.
+lease grace boundary and uses TaskGraph expiry to cancel a linked queued or
+running TaskRun with `claim_stale`; already terminal runs retain their outcome.
 When a managed Task Session closes, its existing `TaskRunCompletionSummary`
 becomes the semantic close candidate. `task_run` includes that attempt;
 `task_revision` uses the final run summary and merges terminal Invocation IDs,

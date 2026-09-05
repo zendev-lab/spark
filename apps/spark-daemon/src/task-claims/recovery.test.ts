@@ -30,6 +30,9 @@ for (const entry of ["recover-main", "recover-role-run", "acquire"] as const) {
       "missing-claim",
       "within-grace",
       "stale-fence",
+      "run-queued",
+      "run-running",
+      "run-succeeded",
     ] as const)("handles %s recovery without releasing unrelated work", async (scenario) => {
       await withTaskClaimTestContext(async (context) => {
         const store = defaultTaskGraphStore(context.root);
@@ -41,8 +44,27 @@ for (const entry of ["recover-main", "recover-role-run", "acquire"] as const) {
           leaseMs: scenario === "within-grace" ? 60_000 : 1,
           now: taskClaimTestNow,
         });
+        const runStatus =
+          scenario === "run-queued"
+            ? "queued"
+            : scenario === "run-running"
+              ? "running"
+              : scenario === "run-succeeded"
+                ? "succeeded"
+                : undefined;
+        const runRef = "run:previous" as const;
+        const run = runStatus
+          ? graph.recordRun({
+              ref: runRef,
+              projectRef: context.project.ref,
+              taskRef: task.ref,
+              status: runStatus,
+              outputEvidenceRefs: [],
+            })
+          : undefined;
         const claim = {
           ...task.claim!,
+          ...(run ? { runRef } : {}),
           sessionId: scenario === "legacy-owner" ? undefined : "session:old",
           ...(entry === "recover-role-run"
             ? {
@@ -94,6 +116,7 @@ for (const entry of ["recover-main", "recover-role-run", "acquire"] as const) {
           attachTaskClaimTestSession(context, "session:old", recoveryNow);
         }
         const before = await loadedTaskClaimTestTask(context);
+        const beforeRun = graph.runs().find((item) => item.ref === runRef);
         const recovery = {
           previousSessionId: "session:old",
           reason: "claim_expired" as const,
@@ -104,19 +127,29 @@ for (const entry of ["recover-main", "recover-role-run", "acquire"] as const) {
           taskRef: task.ref,
           ...(scenario === "stale-fence" ? { leaseFence: "stale" } : {}),
         };
-        const run = () =>
+        const recover = () =>
           entry === "acquire"
             ? acquireMainTaskClaim(context.db, { ...input, recovery }, recoveryNow)
             : recoverTaskClaim(context.db, { ...input, ...recovery }, recoveryNow);
-        if (scenario === "unchanged" || scenario === "legacy-owner") {
-          await expect(run()).resolves.toMatchObject({ changed: true });
+        if (scenario === "unchanged" || scenario === "legacy-owner" || run) {
+          await expect(recover()).resolves.toMatchObject({ changed: true });
           const after = await loadedTaskClaimTestTask(context);
+          if (run) {
+            const persistedRun = (await store.load())!.runs().find((item) => item.ref === runRef);
+            if (run.status === "succeeded") expect(persistedRun).toEqual(beforeRun);
+            else
+              expect(persistedRun).toMatchObject({
+                status: "cancelled",
+                failureKind: "claim_stale",
+                finishedAt: recoveryNow,
+              });
+          }
           if (entry === "acquire") expect(after?.claim?.sessionId).toBe("session:new");
           else expect(after?.claim).toBeUndefined();
-          await expect(run()).rejects.toMatchObject({ code: "task_claim_recovery_refused" });
+          await expect(recover()).rejects.toMatchObject({ code: "task_claim_recovery_refused" });
           expect(await loadedTaskClaimTestTask(context)).toEqual(after);
         } else {
-          await expect(run()).rejects.toMatchObject({
+          await expect(recover()).rejects.toMatchObject({
             code:
               scenario === "stale-fence"
                 ? "task_claim_lease_invalid"

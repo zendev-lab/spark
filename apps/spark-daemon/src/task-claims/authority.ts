@@ -45,7 +45,9 @@ export async function acquireMainTaskClaim(
         );
       }
       assertRecoveryReasonAllowed(current, input.recovery.reason, now);
-      graph.releaseTaskClaim(current.ref, current.claim?.claimedBy);
+      if (!graph.expireTaskClaim(current.ref, now)) {
+        graph.releaseTaskClaim(current.ref, current.claim?.claimedBy);
+      }
     }
     try {
       return graph.claimTask(current.ref, {
@@ -116,7 +118,10 @@ export async function recoverTaskClaim(
       );
     }
     assertRecoveryReasonAllowed(current, input.reason, now);
-    return graph.releaseTaskClaim(current.ref, current.claim?.claimedBy);
+    return (
+      graph.expireTaskClaim(current.ref, now) ??
+      graph.releaseTaskClaim(current.ref, current.claim?.claimedBy)
+    );
   });
   return taskClaimResult(task, input.sessionId, "recovered", true, now);
 }
