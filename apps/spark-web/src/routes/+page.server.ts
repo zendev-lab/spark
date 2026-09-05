@@ -1,11 +1,12 @@
 import { invokeSparkWebRpc } from "$lib/server/rpc";
 import { isUnregisteredWorkspaceError } from "$lib/daemon-surface";
 import { loadSparkWebDashboard } from "$lib/server/dashboard";
+import { sparkWebLaunchDirectory } from "$lib/server/launch-directory";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async () => {
   const dashboard = await loadSparkWebDashboard();
-  const launchCwd = process.cwd();
+  const launchCwd = sparkWebLaunchDirectory();
   let cwdWorkspaceId: string | null = null;
   try {
     const cwd = await invokeSparkWebRpc("workspace.ensure-local", {

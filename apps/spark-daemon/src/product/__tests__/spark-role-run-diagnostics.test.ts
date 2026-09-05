@@ -6,6 +6,7 @@ import { test } from "vitest";
 
 import type { AssistantMessage } from "@zendev-lab/spark-llm-providers";
 import { createSparkDshTurnTestRuntime } from "../host/agent-runtime/testing/dsh-runtime.ts";
+import { SparkAgentSession, sessionRecordToPromptItems } from "../host/agent-session.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   createSparkCliHostServices,
@@ -165,6 +166,46 @@ test("Channel hosts do not create Workspace Memory direct-intent authority", asy
     assert.equal("memoryDirectIntent" in services.runtime.makeContext(), false);
     assert.equal("memoryFeedback" in services.runtime.makeContext(), false);
     await services.disposeLlm?.();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("interrupted turns persist resume guidance as hidden runtime control and preserve user content", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-resume-transcript-"));
+  try {
+    const cwd = join(dir, "repo");
+    await mkdir(cwd);
+    const services = await makeFakeServices({
+      cwd,
+      sparkHome: join(dir, "home"),
+      allowedTools: [],
+    });
+    try {
+      const session = new SparkAgentSession(services);
+      const prompt = [{ type: "text" as const, text: "Resume my work" }];
+      const result = await session.run({
+        sessionId: "resume-transcript",
+        prompt,
+        resumeFromInterrupt: true,
+      });
+      assert.equal(result.outcome?.status, "completed", JSON.stringify(result.outcome));
+      const record = await services.sessionStore.findById(result.sessionId);
+      assert.ok(record);
+      const persisted = sessionRecordToPromptItems(record);
+      const user = persisted.filter((item) => item.authority === "user");
+      assert.equal(user.length, 1);
+      assert.equal(user[0]?.content.kind, "provider_message");
+      if (user[0]?.content.kind === "provider_message")
+        assert.deepEqual(user[0].content.message.content, prompt);
+      const notice = persisted.find((item) => item.customType === "spark-daemon-resume");
+      assert.equal(notice?.authority, "runtime_control");
+      assert.equal(notice?.visibility, "hidden");
+      assert.equal(notice?.trust, "trusted");
+      assert.equal(notice?.persistence, "session");
+    } finally {
+      await services.disposeLlm?.();
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

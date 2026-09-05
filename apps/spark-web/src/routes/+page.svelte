@@ -28,6 +28,7 @@
   let starting = $state(false);
   let startError = $state("");
   let createdSessionId = $state<string | null>(null);
+  let startAttempt: { workspaceId: string; message: string; idempotencyKey: string } | null = null;
   let localPath = $state("");
   let displayName = $state("");
   let registering = $state(false);
@@ -95,19 +96,26 @@
 
     starting = true;
     startError = "";
-    createdSessionId = null;
+    if (startAttempt?.workspaceId !== workspaceId || startAttempt.message !== message) {
+      createdSessionId = null;
+      startAttempt = { workspaceId, message, idempotencyKey: crypto.randomUUID() };
+    }
     try {
-      const created = await webRpc("session.create", {
-        scope: { kind: "workspace", workspaceId },
-        supervisorSessionId,
-        placement: "child",
-        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-        name: conversationName(message),
-      });
-      createdSessionId = created.sessionId;
+      if (!createdSessionId) {
+        const created = await webRpc("session.create", {
+          scope: { kind: "workspace", workspaceId },
+          supervisorSessionId,
+          placement: "child",
+          roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+          name: conversationName(message),
+        });
+        createdSessionId = created.sessionId;
+      }
+      const sessionId = createdSessionId;
       try {
         await webRpc("turn.submit", {
-          sessionId: created.sessionId,
+          sessionId,
+          idempotencyKey: startAttempt.idempotencyKey,
           prompt: message,
           messageMetadata: sparkWebTurnMessageMetadata(),
         });
@@ -117,7 +125,7 @@
         return;
       }
       try {
-        await goto(`/sessions/${encodeURIComponent(created.sessionId)}`);
+        await goto(`/sessions/${encodeURIComponent(sessionId)}`);
       } catch (caught) {
         const detail = caught instanceof Error ? caught.message : String(caught);
         startError = `${copy.navigationFailed}: ${detail}`;

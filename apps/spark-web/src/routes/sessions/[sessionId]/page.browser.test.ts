@@ -1,9 +1,19 @@
+import "@zendev-lab/spark-ui/tokens.css";
 import { render } from "vitest-browser-svelte";
+import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "svelte";
 
 const mocks = vi.hoisted(() => ({
-  attachWebSessionEvents: vi.fn(() => () => undefined),
+  attachWebSessionEvents: vi.fn(
+    (
+      _id: string,
+      _snapshot: unknown,
+      _connection?: (state: "connecting" | "connected" | "reconnecting") => void,
+    ) =>
+      () =>
+        undefined,
+  ),
   goto: vi.fn(),
   webRpc: vi.fn(),
 }));
@@ -219,6 +229,92 @@ afterEach(() => {
 });
 
 describe("Session page owner state", () => {
+  it("retains the turn identity on retry and preserves a newer draft during submission", async () => {
+    const response = deferred<{ invocationId: string }>();
+    let attempts = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") {
+        if (++attempts === 1) return Promise.reject(new Error("connection lost"));
+        return response.promise;
+      }
+      throw new Error(`Unexpected RPC ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("connection lost");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await composer.fill("My next message");
+    response.resolve({ invocationId: "inv-a" });
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await expect.element(composer).toHaveValue("My next message");
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0][1].idempotencyKey).toEqual(expect.any(String));
+    expect(submissions[1][1]).toEqual(submissions[0][1]);
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    const next = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit")[2];
+    expect(next[1].idempotencyKey).not.toBe(submissions[0][1].idempotencyKey);
+    await screen.unmount();
+  });
+
+  it("shows reconnection without losing the draft and enables sending after recovery", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("After reconnect");
+    const onConnection = mocks.attachWebSessionEvents.mock.calls.at(-1)?.[2];
+    expect(onConnection).toBeTypeOf("function");
+    onConnection?.("reconnecting");
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Reconnecting");
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    onConnection?.("connected");
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await expect
+      .element(screen.getByRole("textbox", { name: "Prompt" }))
+      .toHaveValue("After reconnect");
+    await screen.unmount();
+  });
+
+  it("keeps mobile menus inside the viewport and their actions clickable", async () => {
+    await page.viewport(390, 844);
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionDataWithModels("a") });
+    try {
+      await screen.getByText("Conversation settings", { exact: true }).click();
+      const panel = screen.container.querySelector<HTMLElement>(".conversation-settings-panel");
+      expect(panel).not.toBeNull();
+      const bounds = panel!.getBoundingClientRect();
+      expect(bounds.left).toBeGreaterThanOrEqual(0);
+      expect(bounds.right).toBeLessThanOrEqual(390);
+      const visiblePoint = document.elementFromPoint(bounds.left + 12, bounds.top + 12);
+      expect(panel!.contains(visiblePoint)).toBe(true);
+      await userEvent.keyboard("{Escape}");
+      expect(
+        screen.container.querySelector<HTMLDetailsElement>(".conversation-settings")?.open,
+      ).toBe(false);
+      expect(document.activeElement).toBe(
+        screen.container.querySelector(".conversation-settings > summary"),
+      );
+      await screen.getByText("Conversation settings", { exact: true }).click();
+      await screen.getByText("More actions", { exact: true }).click();
+      expect(
+        screen.container.querySelector<HTMLDetailsElement>(".conversation-settings")?.open,
+      ).toBe(false);
+      await expect
+        .element(screen.getByRole("button", { name: "Search history", exact: true }))
+        .toBeVisible();
+      await screen.getByRole("button", { name: "Search history", exact: true }).click();
+      await expect
+        .element(screen.getByRole("searchbox", { name: "Search every durable message" }))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+      await page.viewport(1280, 720);
+    }
+  });
+
   it("renders readable message metadata, safe user links, copy actions, and error details", async () => {
     mocks.webRpc.mockResolvedValue({ waits: [] });
     const screen = await render(SessionPage, { data: sessionDataWithReadableMessages("a") });

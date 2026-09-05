@@ -108,6 +108,20 @@ Create Local Share 会生成随机的只读 URL，HTML 只保留在当前 Spark 
 最多 16 MiB，每个进程最多保留 20 个分享；重启 Spark Web 会全部清除。PWA 离线
 缓存只保存不可变应用资源，不保存 Session、Artifact 或 credential 数据。
 
+## 中断后的重新连接
+
+Session 页面断线时保留最后收到的历史记录，并显示重连提示。页面会携带事件游标
+自动重连，再用 daemon 快照更新过时状态。重连期间暂时禁止发送，当前输入草稿
+保留在已打开的页面中。刷新页面会恢复 daemon 保存的历史，不会恢复未发送的草稿。
+
+daemon 意外退出后，请使用同一状态目录重新启动。daemon 会以同一身份恢复符合
+条件的中断 Invocation，排队中的 turn 仍然持久保存。恢复指导属于隐藏的运行时
+控制，不会改变用户提交的消息。提交响应丢失后重试未改动的消息，会复用幂等键；
+首页在第一条消息提交失败后，也会复用已经创建成功的 Session。
+
+重启 Spark Web 会重新连接原有 daemon。如果正常退出已撤销旧进程 token，请打开
+新打印的 URL。Local Share 链接不会跨 Web 进程重启保留。
+
 ## 会话 attach
 
 请连接同一 daemon，启动 `spark web`，再从 daemon 全局会话树打开 Session。
