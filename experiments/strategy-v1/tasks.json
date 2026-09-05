@@ -1,0 +1,123 @@
+{
+  "schema": "spark.strategy-tasks/v1",
+  "baseCommit": "35148d273477862dc67040e9a19429c2d5eceaac",
+  "construction": "Historical regression mechanisms replayed in current production modules. All task defects coexist in every solver snapshot; tests and experiment material are withheld.",
+  "tasks": [
+    {
+      "id": "pr-checks",
+      "split": "development",
+      "sourceCommit": "5f4a9d53841feb7162ea68dc39993eee28835f39",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "apps/spark-daemon/src/lens/pr-check-provider.ts",
+      "prompt": "A merged pull request has no currently configured required checks. Its recorded CI checks passed, while a publish job was skipped. Spark Lens reports the merged change as inconclusive. Correct that result while keeping open PR required checks, pending checks, failures, missing checks, dirty worktrees, and mismatched heads conservative.",
+      "regressions": [
+        {
+          "fixed": "(check) => check.bucket !== \"pass\" && !(checkSet === \"recorded\" && check.bucket === \"skipping\"),",
+          "broken": "(check) => check.bucket !== \"pass\","
+        }
+      ]
+    },
+    {
+      "id": "ask-partial",
+      "split": "development",
+      "sourceCommit": "c3884b9577c63010b20cb3b475038d7be7e36d84",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "packages/spark-ask/src/flow.ts",
+      "prompt": "An Ask decision flow has two required questions. The interaction surface returns status=answered with only the first question answered. The result still says answered even though the gate is incomplete. Normalize incomplete submissions without losing partial answers; keep pending, cancelled, optional questions, and complete decisions consistent.",
+      "regressions": [
+        {
+          "fixed": ": normalized.status === \"answered\" && !submittedRequiredAnswers\n        ? \"no_selection\"\n        : normalized.status;",
+          "broken": ": normalized.status;"
+        }
+      ]
+    },
+    {
+      "id": "cleanup-cwd",
+      "split": "development",
+      "sourceCommit": "84732dad3b429f2a88440de59831a39cb8dfc447",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "packages/spark-artifacts/src/git/lifecycle.ts",
+      "prompt": "A completed Spark-owned Git change cannot clean up its worktree when the daemon was started from an unrelated non-Git directory. The artifact knows the repository common Git directory. Make cleanup use the owning repository after its existing gates pass. Dirty worktrees, unpushed commits, nonterminal PRs, external ownership, and unmanaged paths must remain protected.",
+      "regressions": [
+        {
+          "fixed": "const removalCwd = commonGitDir ? dirname(commonGitDir) : this.cwd;",
+          "broken": "const removalCwd = this.cwd;"
+        }
+      ]
+    },
+    {
+      "id": "cross-realm",
+      "split": "holdout",
+      "sourceCommit": "c619d1eb758cd4bf20e52aa83a87600463471d7c",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "packages/spark-invocation/src/index.ts",
+      "prompt": "A reviewer native-executor initialization error is recognized when thrown in the local JavaScript realm, but the exact same native TypeError from another Node realm does not trigger compatibility handling. Recognize the exact native compatibility error across realms while rejecting ordinary errors and forged name/message objects.",
+      "regressions": [
+        {
+          "fixed": "if (!isNativeError(error)) return false;",
+          "broken": "if (!(error instanceof TypeError)) return false;"
+        }
+      ]
+    },
+    {
+      "id": "terminal-width",
+      "split": "holdout",
+      "sourceCommit": "a82ad1a9101982d6a2d083aee431f11021af5ed0",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "packages/spark-text-rendering/src/tool-call-text.ts",
+      "prompt": "A long tool-call title containing Chinese text and ANSI styling overflows the terminal row. Correct the shared single-line tool-call renderer so output respects visible column width, including narrow rows and plain ASCII. Keep the existing ellipsis and styling behavior.",
+      "regressions": [
+        {
+          "fixed": "return [truncateToWidth(this.text, Math.max(1, width), \"…\")];",
+          "broken": "return [this.text.length > width ? this.text.slice(0, Math.max(0, width - 1)) + \"…\" : this.text];"
+        }
+      ]
+    },
+    {
+      "id": "sqlite-scope",
+      "split": "holdout",
+      "sourceCommit": "ca8e1980e0b61a0e9dccd64296780674616233a8",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "packages/spark-platform-node/src/sqlite.ts",
+      "prompt": "Opening a shared Hub SQLite connection unexpectedly installs the daemon resource limits, including process-global heap limits. Keep shared database safety pragmas, but make daemon resource limits apply only when explicitly requested. Preserve in-memory, file-backed, and incremental auto-vacuum behavior.",
+      "regressions": [
+        {
+          "fixed": "db.exec(\"PRAGMA busy_timeout = 5000\");",
+          "broken": "db.exec(\"PRAGMA busy_timeout = 5000\");\n  applyDaemonSqliteResourceLimits(db);"
+        }
+      ]
+    },
+    {
+      "id": "python-request",
+      "split": "holdout",
+      "sourceCommit": "575d9c8140bfdc7781dd8582e384e3279392521f",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "packages/dsh-cue/src/operations/definitions.ts",
+      "prompt": "Python execution through Cue fails when a configured interpreter path is supplied: an unwanted /bin/python is appended. uv owns interpreter and environment request resolution. Preserve the configured request exactly for interpreter paths, environment directories, relative paths, and version requests in script and non-script modes; preserve the no-override default.",
+      "regressions": [
+        {
+          "fixed": "[\"uv\", \"run\", \"--python\", options.venv, \"--script\"]",
+          "broken": "[\"uv\", \"run\", \"--python\", options.venv.replace(/\\/+$/u, \"\") + \"/bin/python\", \"--script\"]"
+        },
+        {
+          "fixed": "[\"uv\", \"run\", \"--python\", options.venv, \"python\"]",
+          "broken": "[\"uv\", \"run\", \"--python\", options.venv.replace(/\\/+$/u, \"\") + \"/bin/python\", \"python\"]"
+        }
+      ]
+    },
+    {
+      "id": "optional-arguments",
+      "split": "holdout",
+      "sourceCommit": "550a7dc72df641aa304c8d317a6469ce0da02ea2",
+      "repository": "https://github.com/zendev-lab/spark",
+      "path": "apps/spark-daemon/src/product/host/agent-runtime/tool-dispatch.ts",
+      "prompt": "Provider tool calls sometimes include declared optional arguments as null, undefined, or whitespace-only strings. Passing those placeholders on to the tool changes default behavior and causes errors. Normalize absent optional values before dispatch, while preserving required values, unknown keys, meaningful strings, zero, false, arrays, and objects.",
+      "regressions": [
+        {
+          "fixed": "  if (!isPlainRecord(parameters) || !isPlainRecord(parameters.properties)) return { ...args };\n  const required = new Set(\n    Array.isArray(parameters.required)\n      ? parameters.required.filter((value): value is string => typeof value === \"string\")\n      : [],\n  );\n  const properties = parameters.properties;\n  return Object.fromEntries(\n    Object.entries(args).filter(([key, value]) => {\n      if (required.has(key) || !(key in properties)) return true;\n      if (value === undefined || value === null) return false;\n      return typeof value !== \"string\" || value.trim().length > 0;\n    }),\n  );",
+          "broken": "  return { ...args };"
+        }
+      ]
+    }
+  ]
+}

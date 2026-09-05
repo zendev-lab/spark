@@ -242,6 +242,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:packages/spark-daemon-client
+      '@zendev-lab/spark-files':
+        specifier: workspace:^
+        version: link:packages/spark-files
       '@zendev-lab/spark-hub-storage-sqlite':
         specifier: workspace:*
         version: link:packages/spark-hub-storage-sqlite

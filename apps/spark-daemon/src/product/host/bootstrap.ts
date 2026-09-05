@@ -10,6 +10,7 @@ import {
   type Model,
   type SparkProviderAttemptObservation,
 } from "@zendev-lab/spark-llm-providers";
+import { resolveSparkDefaultModelSelection } from "@zendev-lab/spark-llm-providers/control";
 import { createSparkLlmComposition } from "../llm-runtime.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-memory/direct-intent";
 import {
@@ -581,10 +582,8 @@ export function selectInitialModel(
     }
   }
 
-  const provider = registry.listProviders()[0];
-  const model = provider?.models[0];
-  if (!provider || !model) return undefined;
-  const selection = { providerName: provider.name, modelId: model.id };
+  const selection = resolveSparkDefaultModelSelection(registry);
+  if (!selection) return undefined;
   registry.setActive(selection);
   config.activeModelId = sparkModelSelectionValue(selection);
   delete config.activeProvider;

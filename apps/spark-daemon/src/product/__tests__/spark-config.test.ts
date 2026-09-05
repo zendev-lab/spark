@@ -20,7 +20,7 @@ test("default Spark providers include shared Baidu OneAPI, OpenAI Codex, and Kim
   ]);
   assert.equal(DEFAULT_SPARK_CONFIG.activeThinkingLevel, "high");
   assert.deepEqual(DEFAULT_SPARK_CONFIG.enabledModels, [
-    "openai-codex/gpt-5.6-*",
+    "openai-codex/gpt-6-astra",
     "baidu-oneapi/claude-opus-5",
     "baidu-oneapi/deepseek-v4-flash",
     "baidu-oneapi/gpt-5.6-*",

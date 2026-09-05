@@ -1,0 +1,48 @@
+{
+  "schema": "spark.strategy-protocol/v1",
+  "model": "openai-codex/gpt-6-astra",
+  "reasoning": "low",
+  "temperature": null,
+  "maxRetries": 0,
+  "repetitions": 2,
+  "maxCandidates": 3,
+  "budget": {
+    "modelCalls": 10,
+    "toolCalls": 24,
+    "totalTokens": 200000,
+    "maxOutputTokens": 2048,
+    "maxRequestBytes": 65536,
+    "wallTimeMs": 180000,
+    "maxEstimatedCostUsd": 3
+  },
+  "generatorBudget": {
+    "modelCalls": 1,
+    "toolCalls": 0,
+    "totalTokens": 90000,
+    "maxOutputTokens": 2048,
+    "maxRequestBytes": 262144,
+    "wallTimeMs": 90000,
+    "maxEstimatedCostUsd": 1.25
+  },
+  "maxExperimentEstimatedCostUsd": 140,
+  "baselineStrategy": "Locate the code responsible for the reported behavior, make the smallest correct patch, and verify it with the available checks before finishing.",
+  "candidateMaxChars": 4000,
+  "selection": {
+    "primary": "Number of development trials passing every independent acceptance case within all budgets.",
+    "eligible": "No development task may have fewer passing repetitions than baseline.",
+    "tieBreak": "Lower total reported provider tokens, then lower candidate index; baseline is a reference, not a generated candidate.",
+    "stop": "Generate at most three candidates. Stop when an eligible candidate improves development pass count; otherwise stop after three. If none is eligible select the highest development pass count, tie-breaking by tokens then index, and record the regression explicitly.",
+    "holdout": "Lock the selected candidate and selection receipt before any holdout model call. Evaluate baseline and selected candidate in alternating AB/BA order for each task and repetition. No further strategy generation or tuning.",
+    "reliableImprovement": "Complete, comparable data; higher holdout pass count; no holdout task regression; a one-sided exact sign test on per-task pass-count differences has p <= 0.05. Ties excluded. Repetitions are not independent task samples.",
+    "uncertainty": "Report task-level wins/losses/ties and sign-test p, paired trial outcomes, per-task regressions, token/cost/time totals. Failed, timed-out, missing-usage and invalid trials remain in the inventory. Missing/integrity-invalid evidence invalidates comparison; a valid task-budget failure is a failure.",
+    "infrastructure": "Provider failures, missing usage, sandbox failures, or source/evaluator drift invalidate the affected experiment. Preserve them and start a separately named frozen experiment after fixing the cause; never silently retry or delete a trial."
+  },
+  "isolation": {
+    "candidateSurface": "A UTF-8 strategy string only; no executable strategy plugins.",
+    "solver": "SparkAgentLoop with fenced Spark Files read/edit/grep/find plus public verify and diff. No shell, network, evaluator, Git history, or other trials.",
+    "execution": "Candidate modules are bundled with allowlisted source/dependency resolution and run under macOS sandbox-exec. Hidden expected values remain in the trusted parent; the child sees one input and returns observed output.",
+    "generator": "Only development prompts, public traces, failed acceptance identifiers, and metrics; no holdout prompts, tests, expected outputs, or source access."
+  },
+  "scope": "A small retrospective within-repository strategy experiment. Public historical fixes may have appeared in model training. This does not demonstrate RSI, autonomous promotion, or broad coding ability.",
+  "cost": "Provider-reported usage priced by the frozen Spark/pi-ai catalog; estimated USD, not an invoice. OAuth subscription billed amount is unavailable and recorded as null. The Codex transport rejects temperature, so it is consistently omitted. It does not send max_output_tokens; maxOutputTokens is a post-response acceptance ceiling, while the wall deadline, request count, and conservative token reservation bound execution. Overshoots remain recorded failures."
+}
