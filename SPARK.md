@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一本地 Web / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-30
+updated: 2026-09-05
 ---
 
 ## 起源
@@ -81,7 +81,7 @@ updated: 2026-08-30
 
 ## 当前方向
 
-- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 保持独立 fallback；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
+- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 已按 [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md) 全量退场；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
 - 公共 CLI argv 只使用 Optique 作为解析器。
 - 对齐跨表面的 ask、gate 与 submit 语义，让协议成为唯一判定来源。
 - 为本地 RPC 兼容层定义可验证的退出条件，不向兼容传输增加新行为。
@@ -137,5 +137,5 @@ updated: 2026-08-30
   daemon-backed provider 使用官方 `AgentOptions` 与终态 `result`：新 Agent 获取
   创建时的完整 `enabledModels` 快照，子 Session 原子固化路由、reasoning 与输出
   上限；fresh spawn 使用官方模型选择面，fork 保持父路由以复用继承前缀；dispose
-  通过 daemon 取消并等待静止；Web fallback 不获得本地执行权。
+  通过 daemon 取消并等待静止。
   compaction 与 jobs 仍是后续 owner 决策。

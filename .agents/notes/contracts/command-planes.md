@@ -215,9 +215,10 @@ published artifacts.
 
 The distribution stage of `pnpm run check:static` validates the generated
 manifest inventory, app names, lockstep versions, exact dependency edges, and
-cross-distribution assets. `pnpm run smoke` installs all ten candidate tarballs,
+cross-distribution assets. `pnpm run smoke` installs the complete candidate tarball set
+declared in `scripts/npm-distributions.mjs`,
 checks the real CLI and complete meta installation, then exercises independent
-daemon, web, DSH, and Hub installations. `pnpm run release:pack` creates ten
+daemon, web, and Hub installations. `pnpm run release:pack` creates the inventory's
 immutable npm tarballs, bounded release manifests, and one checksum file. Only
 `.github/workflows/cd-publish.yml`, triggered by a version-matching tag, may
 publish those exact artifacts to npm and GitHub Releases; `main` and source
