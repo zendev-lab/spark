@@ -1,25 +1,29 @@
 <script lang="ts">
-  import { BrandIcon, Icon } from "@zendev-lab/spark-ui";
+  import Icon from "./Icon.svelte";
+  import qqLogo from "./assets/qq-logo.png";
   import {
     channelSessionScopeKind,
     type ChannelSessionAdapter,
     type ChannelSessionScope,
-  } from "$lib/channel-session-title";
-  import type { IconName } from "@zendev-lab/spark-ui";
+  } from "./channel-session";
+  import type { IconName } from "./icons";
 
   let {
     adapter,
     scope,
     label,
+    avatarUrl,
   }: {
     adapter: ChannelSessionAdapter;
     scope: ChannelSessionScope;
     label: string;
+    avatarUrl?: string;
   } = $props();
 
-  let adapterIcon = $derived<IconName>(
-    adapter === "qqbot" ? "agents" : adapter === "feishu" ? "send" : "waves",
-  );
+  let failedAvatarUrl = $state<string | undefined>();
+  let avatar = $derived(avatarUrl && avatarUrl !== failedAvatarUrl ? avatarUrl : undefined);
+
+  let adapterIcon = $derived<IconName>(adapter === "feishu" ? "send" : "waves");
   let scopeKind = $derived(channelSessionScopeKind(adapter, scope));
   let scopeIcon = $derived<IconName>(
     scopeKind === "private"
@@ -38,8 +42,10 @@
   aria-label={label}
   title={label}
 >
-  {#if adapter === "qqbot"}
-    <BrandIcon name="qq" size={14} />
+  {#if avatar}
+    <img class="bot-avatar" src={avatar} width="22" height="22" alt="" draggable="false" referrerpolicy="no-referrer" onerror={() => failedAvatarUrl = avatarUrl} />
+  {:else if adapter === "qqbot"}
+    <img src={qqLogo} width="18" height="18" alt="" draggable="false" />
   {:else}
     <Icon name={adapterIcon} size={14} stroke={2.1} />
   {/if}
@@ -64,6 +70,8 @@
     position: relative;
     width: 22px;
   }
+
+  .bot-avatar { border-radius: inherit; object-fit: cover; }
 
   .channel-session-icon.qqbot {
     --channel-color: #1677d2;
@@ -103,10 +111,6 @@
 
   .scope-group {
     --scope-color: var(--color-purple);
-  }
-
-  .scope-group .scope-icon {
-    border-radius: 4px;
   }
 
   .scope-channel {

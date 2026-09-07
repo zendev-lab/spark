@@ -24,6 +24,9 @@ import {
   SPARK_WEB_TOKEN_QUERY,
   tokenFromRequest,
   verifySparkWebAccessToken,
+  resolveSparkWebBrowserSession,
+  SPARK_WEB_REFRESH_COOKIE,
+  type SparkWebBrowserSession,
 } from "./lib/server/auth.ts";
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -67,7 +70,29 @@ export const handle: Handle = async ({ event, resolve }) => {
   // The daemon owns the daemon-user token family; a daemon that cannot be
   // reached fails closed instead of falling back to any local comparison.
   const provided = tokenFromRequest(credentials);
-  const verification = provided ? await verifySparkWebAccessToken(provided) : "missing";
+  let verification: "missing" | "valid" | "invalid" | "unavailable" = provided
+    ? await verifySparkWebAccessToken(provided)
+    : "missing";
+  let browserSession: SparkWebBrowserSession | undefined;
+  const refreshToken = event.cookies.get(SPARK_WEB_REFRESH_COOKIE);
+  if (
+    verification !== "valid" &&
+    verification !== "unavailable" &&
+    refreshToken &&
+    (authSource === "cookie" || authSource === "none")
+  ) {
+    const refreshed = await resolveSparkWebBrowserSession("refresh", refreshToken);
+    verification = refreshed.verification;
+    browserSession = refreshed.session;
+  } else if (
+    verification === "valid" &&
+    provided &&
+    (authSource === "query" || (authSource === "cookie" && provided.startsWith("sdu_")))
+  ) {
+    const exchanged = await resolveSparkWebBrowserSession("exchange", provided);
+    verification = exchanged.verification;
+    browserSession = exchanged.session;
+  }
   if (verification !== "valid") {
     const challenge = resolveSparkWebAccessChallenge({
       htmlNavigation: isHtmlNavigation(event.request),
@@ -83,9 +108,7 @@ export const handle: Handle = async ({ event, resolve }) => {
         : "Spark web token required",
     );
   }
-  if (event.url.searchParams.has(SPARK_WEB_TOKEN_QUERY) && provided) {
-    setAccessCookie(event, provided);
-  }
+  if (browserSession) setSessionCookies(event, browserSession);
   if (event.url.searchParams.has(SPARK_WEB_TOKEN_QUERY)) {
     const next = new URL(event.url);
     next.searchParams.delete(SPARK_WEB_TOKEN_QUERY);
@@ -107,7 +130,16 @@ async function handleAccessPage(event: RequestEvent): Promise<Response> {
   });
   if (outcome.type === "methodNotAllowed") error(405, "Method not allowed");
   if (outcome.type === "redirect") {
-    if (outcome.token) setAccessCookie(event, outcome.token);
+    if (outcome.token) {
+      const exchanged = await resolveSparkWebBrowserSession("exchange", outcome.token);
+      if (!exchanged.session)
+        return accessPage(
+          exchanged.verification === "unavailable" ? "unavailable" : "invalid",
+          outcome.location,
+          exchanged.verification === "unavailable" ? 503 : 401,
+        );
+      setSessionCookies(event, exchanged.session);
+    }
     redirect(303, outcome.location);
   }
   return accessPage(outcome.state, outcome.returnTo, outcome.status);
@@ -131,10 +163,16 @@ function accessPage(
   });
 }
 
-function setAccessCookie(event: RequestEvent, token: string): void {
-  event.cookies.set(SPARK_WEB_TOKEN_COOKIE, token, {
+function setSessionCookies(event: RequestEvent, session: SparkWebBrowserSession): void {
+  event.cookies.set(SPARK_WEB_TOKEN_COOKIE, session.sessionToken, {
     ...SPARK_WEB_ACCESS_COOKIE,
     secure: event.url.protocol === "https:",
+    expires: new Date(session.expiresAt),
+  });
+  event.cookies.set(SPARK_WEB_REFRESH_COOKIE, session.refreshToken, {
+    ...SPARK_WEB_ACCESS_COOKIE,
+    secure: event.url.protocol === "https:",
+    expires: new Date(session.refreshExpiresAt),
   });
 }
 

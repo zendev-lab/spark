@@ -1,5 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "status_idle": "空闲",
   "status_ready": "就绪",
   "status_pending": "待处理",
   "status_queued": "已排队",

@@ -10,6 +10,7 @@ import {
   lookupOAuthSettingsProvider,
   oauthHref,
   providerAuthKindLabel,
+  providerSettingsHref,
   providerAuthStatusLabel,
 } from "./provider-auth.ts";
 
@@ -39,6 +40,8 @@ const apiKeyProvider: SparkModelCatalogProvider = {
 };
 
 test("settings href and labels distinguish OAuth from API-key providers", () => {
+  assert.equal(providerSettingsHref(oauthProvider), "/settings/oauth/openai-codex");
+  assert.equal(providerSettingsHref(apiKeyProvider), "/settings#api-key-kimi-coding");
   assert.equal(oauthHref("openai-codex"), "/settings/oauth/openai-codex");
   assert.equal(oauthHref("openai/codex"), "/settings/oauth/openai%2Fcodex");
   assert.equal(providerAuthKindLabel("oauth"), "OAuth");

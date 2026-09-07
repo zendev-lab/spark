@@ -3,6 +3,7 @@
  * Protocol behavior aligned with tencent-connect/openclaw-qqbot; no OpenClaw dependency.
  */
 
+import type { ChannelBotProfile } from "./types.ts";
 import type { QqbotMarkdownKeyboardMessageRequest } from "./qqbot-types.ts";
 
 export const QQBOT_API_PRODUCTION_BASE = "https://api.sgroup.qq.com";
@@ -76,6 +77,7 @@ export interface QqbotApiClient {
   nextMessageSequence(messageId?: string): number;
   getAccessToken(appId: string, clientSecret: string): Promise<string>;
   getGatewayUrl(accessToken: string): Promise<string>;
+  getBotProfile(accessToken: string): Promise<ChannelBotProfile>;
   sendC2CMessage(
     accessToken: string,
     openid: string,
@@ -414,6 +416,31 @@ export function createQqbotApiClient(
       const data = await apiRequest<{ url: string }>(accessToken, "GET", "/gateway");
       if (!data.url?.trim()) throw new Error("QQ Bot /gateway response missing url");
       return data.url;
+    },
+    async getBotProfile(accessToken) {
+      const data = await apiRequest<{ username?: unknown; avatar?: unknown }>(
+        accessToken,
+        "GET",
+        "/users/@me",
+      );
+      const displayName = typeof data?.username === "string" ? data.username.trim() : undefined;
+      let avatarUrl: string | undefined;
+      if (typeof data?.avatar === "string" && data.avatar.trim()) {
+        try {
+          const url = new URL(data.avatar);
+          if (
+            (url.protocol === "https:" || url.protocol === "http:") &&
+            !url.username &&
+            !url.password
+          ) {
+            url.protocol = "https:";
+            avatarUrl = url.href;
+          }
+        } catch {
+          /* A malformed avatar must not hide the bot name. */
+        }
+      }
+      return { ...(displayName ? { displayName } : {}), ...(avatarUrl ? { avatarUrl } : {}) };
     },
     async sendC2CMessage(accessToken, openid, content, msgId) {
       return await apiRequest<QqbotMessageResponse>(

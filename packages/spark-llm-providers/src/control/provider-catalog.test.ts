@@ -91,3 +91,16 @@ test("previous grok-4.6 default set migrates onto Kimi Coding", () => {
     [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS],
   );
 });
+
+test("GPT-5.6 bundled defaults migrate to GPT-6 while custom selections survive", () => {
+  const previous: string[] = DEFAULT_SPARK_ENABLED_MODEL_PATTERNS.map((pattern) =>
+    pattern === "openai-codex/gpt-6-*" ? "openai-codex/gpt-5.6-*" : pattern,
+  );
+  const migrated = normalizeSparkEnabledModelPatterns(previous);
+  assert.equal(migrated.includes("openai-codex/gpt-6-*"), true);
+  assert.equal(migrated.includes("openai-codex/gpt-5.6-*"), false);
+  assert.deepEqual(migrated, [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS]);
+  assert.deepEqual(normalizeSparkEnabledModelPatterns(migrated), migrated);
+  const custom = ["openai-codex/gpt-5.6-sol"];
+  assert.deepEqual(normalizeSparkEnabledModelPatterns(custom), custom);
+});

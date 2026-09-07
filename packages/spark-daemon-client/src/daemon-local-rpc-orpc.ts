@@ -280,6 +280,11 @@ const daemonAccessInvokers = {
       sparkLocalRpcProcedureSchemas["daemon.access.revoke"].output,
       client.daemon.access.revoke(input, options),
     ),
+  "daemon.access.session": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["daemon.access.session"].output,
+      client.daemon.access.session(input, options),
+    ),
   "daemon.access.verify": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["daemon.access.verify"].output,
@@ -287,7 +292,11 @@ const daemonAccessInvokers = {
     ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
-  "daemon.access.create" | "daemon.access.list" | "daemon.access.revoke" | "daemon.access.verify"
+  | "daemon.access.create"
+  | "daemon.access.list"
+  | "daemon.access.revoke"
+  | "daemon.access.verify"
+  | "daemon.access.session"
 >;
 
 const invocationLoopInvokers = {

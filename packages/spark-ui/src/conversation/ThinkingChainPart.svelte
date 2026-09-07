@@ -19,16 +19,17 @@
     labels: ConversationPartLabels;
     statusLabel: (status: string) => string;
     active?: boolean;
+    summaryLabel?: string;
   };
 
-  let { state: chainState, steps, labels, statusLabel, active = false }: Props = $props();
+  let { state: chainState, steps, labels, statusLabel, active = false, summaryLabel }: Props = $props();
   let visibleSteps = $derived(visibleThinkingChainSteps(steps));
   let needsFailureSummary = $derived(thinkingChainNeedsFailureSummary(steps));
   let shouldRender = $derived(isVisibleThinkingChain(chainState, steps));
   let derivedHeadline = $derived(thinkingChainHeadline(visibleSteps));
   let usesFailureHeadline = $derived(!derivedHeadline && needsFailureSummary);
   let headline = $derived(
-    derivedHeadline ??
+    summaryLabel ?? derivedHeadline ??
       (usesFailureHeadline
         ? labels.chainFailed
         : chainState === "streaming"
@@ -146,7 +147,7 @@
     min-height: 22px;
     padding: 0 3px;
     width: fit-content;
-    transition: color 120ms ease;
+    transition: color var(--motion-fast) ease;
   }
 
   summary::-webkit-details-marker {
@@ -158,8 +159,10 @@
     outline: none;
   }
 
-  summary:hover {
-    color: var(--color-ink-muted);
+  @media (hover: hover) and (pointer: fine) {
+    summary:hover {
+      color: var(--color-ink-muted);
+    }
   }
 
   .thinking-chain.issue summary {
@@ -180,7 +183,7 @@
   .disclosure {
     display: inline-flex;
     flex: 0 0 auto;
-    transition: transform 120ms ease;
+    transition: transform var(--motion-fast) var(--ease-out);
   }
 
   .chain-label {

@@ -34,9 +34,19 @@ spark web --host 0.0.0.0 --port 4310
 异常退出后或不再需要长期 token 时，用 `spark daemon access revoke` 吊销。
 启动 token 被吊销前，终端打印的 URL 属于 bearer secret；不要分享终端输出或尚未清理的链接。
 
-打开终端打印的 URL 后，Spark 会通过 daemon 校验 token，写入 HttpOnly、SameSite=Lax
-cookie，从地址栏移除 token，再进入目标页面。没有有效 token 的页面导航会进入统一的
-Spark Access 页面供手工输入。`?token=…` 只用于页面导航；API 与 WebSocket 请求不会收到
+首次打开终端打印的 URL 后，Spark 会通过 daemon 将启动 token 换成 15 分钟有效的 access token
+和 7 天有效的 refresh token，并从地址栏移除启动 token。两者均保存在持久 HttpOnly、SameSite=Lax
+cookie 中，HTTPS 下启用 Secure。access token 到期后，活跃使用会自动轮换两种凭据，refresh token
+的有效期随之延长为新的 7 天；daemon 数据库只保存哈希。已有的有效启动 token cookie 会自动升级。
+
+同一 Web 进程中的并发请求、导航取消后的重试，可以在 30 秒内复用已成功的续期响应，
+复用前仍向 daemon 检查吊销状态。响应缓存限制数量并自动到期，不改变 daemon 的一次性 refresh 轮换。
+
+使用同一状态目录重启 Web 或 daemon 不需要重新认证，Web 正常退出仅撤销启动 token。
+连续 7 天未续期、主动撤销浏览器会话或清除 cookie 后才需要重新认证。
+`spark daemon access list` 也会列出浏览器会话，撤销当前会话 ID 会使其两种凭据失效。
+Web 与 Hub 复用凭据签发和原子刷新逻辑，但凭据家族、存储与权限归属保持独立。
+没有有效浏览器凭据的页面导航会进入 Spark Access 页面供手工输入。`?token=…` 只用于页面导航；API 与 WebSocket 请求不会收到
 HTML 登录页，未认证时仍返回 transport-level 401/503。缺失、
 错误、过期和已吊销 token 不暴露具体 token 状态；daemon 不可达时 fail closed。
 
@@ -80,6 +90,8 @@ spark bg --json "Run the repository validation."
 
 ## 设置与模型控制
 
+模型选择器只展示 daemon 已启用的模型。OpenAI Codex 内置默认策略使用 GPT-6；已保存的旧内置默认策略会自动迁移，自定义策略与现有会话选择保持不变。点击供应商标题可直接前往对应 OAuth 页面或 API key 输入框。
+
 在工作台的 Settings 中查看 daemon 生命周期与脱敏日志、配置 Provider 认证和
 为 Baidu OneAPI 或 Kimi For Coding 保存 API key、配置 enabled/default model，
 或在活动 invocation draining 后请求确认重启。OpenAI Codex 等 OAuth
@@ -108,6 +120,20 @@ Create Local Share 会生成随机的只读 URL，HTML 只保留在当前 Spark 
 最多 16 MiB，每个进程最多保留 20 个分享；重启 Spark Web 会全部清除。PWA 离线
 缓存只保存不可变应用资源，不保存 Session、Artifact 或 credential 数据。
 
+## 中断后的重新连接
+
+Session 页面断线时保留最后收到的历史记录，并显示重连提示。页面会携带事件游标
+自动重连，再用 daemon 快照更新过时状态。重连期间暂时禁止发送，当前输入草稿
+保留在已打开的页面中。刷新页面会恢复 daemon 保存的历史，不会恢复未发送的草稿。
+
+daemon 意外退出后，请使用同一状态目录重新启动。daemon 会以同一身份恢复符合
+条件的中断 Invocation，排队中的 turn 仍然持久保存。恢复指导属于隐藏的运行时
+控制，不会改变用户提交的消息。提交响应丢失后重试未改动的消息，会复用幂等键；
+首页在第一条消息提交失败后，也会复用已经创建成功的 Session。
+
+重启 Spark Web 会重新连接原有 daemon，通过持久 refresh cookie 保留登录状态。
+Local Share 链接不会跨 Web 进程重启保留。
+
 ## 会话 attach
 
 请连接同一 daemon，启动 `spark web`，再从 daemon 全局会话树打开 Session。
@@ -121,3 +147,13 @@ spark daemon session list --json
 ```
 
 详见[界面与所有权](/zh/concepts/surfaces/)和[运行与会话](/zh/guides/runs-and-sessions/)。
+
+同一轮连续的思考、工具调用和结果共用一个 Spark 消息头，并收起为执行过程摘要。最终答复显示在摘要下方；展开可查看原始详情，历史搜索会打开命中的执行过程，图片仍从原始消息加载。
+
+渠道会话置于侧栏工作空间分组上方，使用共享的易读名称与渠道图标；QQ 使用官网原始企鹅图片。每个工作空间旁的“＋”打开已选定该工作空间的输入页，侧栏不再提供全局“新对话”或“全部对话”入口。中间区域独立滚动，每组先显示最近五条，可展开更多，较旧的当前会话仍保留；“设置”固定在底部。侧栏文字按导航控件处理，不可拖选，会话正文仍可选中复制。页面切换、窗口聚焦和当前会话活动状态变化时，侧栏重新读取 daemon 投影。手机菜单在选择会话后自动关闭。
+
+输入区将编辑、附件与发送操作分层显示；没有附件时不保留空白附件区，键盘焦点由外框统一呈现。底部工作目录相对当前工作空间显示，长路径省略中间层级；悬停仍可查看完整目录。工作空间外的目录保留绝对路径语义，不冒充工作空间内的位置。
+
+QQ 渠道会话优先显示已连接机器人的名称和头像，资料由 daemon 从 QQ 机器人资料接口读取，凭据保留在 daemon。资料或头像加载失败时，侧栏保留渠道名称或 QQ 图标；通过账号身份匹配，避免多个机器人之间串用资料。
+
+点击侧栏设置上方的 **添加工作空间**，可直接打开添加表单。填写本地目录和可选显示名称，添加成功后进入该工作空间。

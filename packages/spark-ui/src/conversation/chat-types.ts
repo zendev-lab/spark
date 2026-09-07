@@ -46,6 +46,7 @@ export type ConversationModelGroup = Readonly<{
   label: string;
   description?: string;
   brandIcon?: BrandIconName;
+  settingsHref?: string;
   options: readonly ConversationModelOption[];
 }>;
 

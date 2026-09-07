@@ -1,3 +1,4 @@
+export { default as ChannelSessionIcon } from "./ChannelSessionIcon.svelte";
 export { default as BrandIcon } from "./BrandIcon.svelte";
 export { brandIconForModelProvider } from "./brand-icons";
 export type { BrandIconName } from "./brand-icons";

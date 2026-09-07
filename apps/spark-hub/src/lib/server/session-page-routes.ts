@@ -37,7 +37,7 @@ import {
   createHubSubmissionId,
 } from "$lib/server/submission-idempotency";
 import { workspaceIdForWorkbenchSession } from "$lib/workbench-session-scope";
-import { sessionHasChannelBinding } from "$lib/channel-session-title";
+import { sessionHasChannelBinding } from "@zendev-lab/spark-ui/channel-session";
 import { hubSlashSubmissionError } from "$lib/slash-actions";
 import { workbenchSessionsPathFromPathname, workspaceSessionsPath } from "$lib/workspace-routes";
 import type { Actions } from "@sveltejs/kit";

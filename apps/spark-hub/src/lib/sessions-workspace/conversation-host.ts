@@ -17,7 +17,7 @@ import type {
   SparkActionView,
   SparkSessionView,
 } from "@zendev-lab/spark-protocol";
-import type { ChannelSessionPresentation } from "$lib/channel-session-title";
+import type { ChannelSessionPresentation } from "@zendev-lab/spark-ui/channel-session";
 import type {
   ModelControlState,
   SessionRecord,

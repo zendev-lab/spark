@@ -109,15 +109,6 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-function promptWithResumeNotice(
-  prompt: UserMessage["content"],
-  resumeFromInterrupt: boolean | undefined,
-): UserMessage["content"] {
-  if (!resumeFromInterrupt) return prompt;
-  if (typeof prompt === "string") return `${DAEMON_RESUME_NOTICE}\n\n${prompt}`;
-  return [{ type: "text", text: DAEMON_RESUME_NOTICE }, ...prompt];
-}
-
 /**
  * Slash commands the daemon resolves itself on the turn-submission channel.
  * Each one injects its working-intent guidance into the current invocation
@@ -283,7 +274,19 @@ export class SparkAgentSession {
           options.restartCheckpoint,
         );
       }
-      const prompt = promptWithResumeNotice(options.prompt, options.resumeFromInterrupt);
+      const prompt = options.prompt;
+      if (options.resumeFromInterrupt) {
+        this.appendPromptItemsToSessionRecord(record, [
+          sparkRuntimePromptItem({
+            authority: "runtime_control",
+            trust: "trusted",
+            visibility: "hidden",
+            persistence: "session",
+            customType: "spark-daemon-resume",
+            content: DAEMON_RESUME_NOTICE,
+          }),
+        ]);
+      }
       await this.dispatchSparkOneShotCommand(prompt);
       await this.tryPreflightCompaction(record, prompt);
       let beforeCount = this.loadPromptItems(record);

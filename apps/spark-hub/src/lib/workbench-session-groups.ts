@@ -3,7 +3,7 @@ import {
   channelSessionScopeKind,
   sessionHasChannelBinding,
   type ChannelSessionLabels,
-} from "./channel-session-title";
+} from "@zendev-lab/spark-ui/channel-session";
 import {
   orderWorkbenchSessionsByAttention,
   type WorkbenchSessionOrderLike,

@@ -1,11 +1,19 @@
 import { invokeSparkWebRpc } from "$lib/server/rpc";
 import { isUnregisteredWorkspaceError } from "$lib/daemon-surface";
 import { loadSparkWebDashboard } from "$lib/server/dashboard";
+import { sparkWebLaunchDirectory } from "$lib/server/launch-directory";
+import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ url }) => {
   const dashboard = await loadSparkWebDashboard();
-  const launchCwd = process.cwd();
+  const requestedWorkspaceId = url.searchParams.get("workspace");
+  if (
+    requestedWorkspaceId &&
+    !dashboard.workspaces.some((workspace) => workspace.id === requestedWorkspaceId)
+  )
+    error(404, "Workspace not found");
+  const launchCwd = sparkWebLaunchDirectory();
   let cwdWorkspaceId: string | null = null;
   try {
     const cwd = await invokeSparkWebRpc("workspace.ensure-local", {
@@ -18,6 +26,8 @@ export const load: PageServerLoad = async () => {
   return {
     ...dashboard,
     cwdWorkspaceId,
+    requestedWorkspaceId,
+    setupWorkspace: url.searchParams.get("setup") === "workspace",
     launchCwd,
   };
 };

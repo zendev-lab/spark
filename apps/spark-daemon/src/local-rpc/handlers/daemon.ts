@@ -1,3 +1,4 @@
+import { SparkDaemonBrowserSessionStore } from "../../store/daemon-browser-sessions.ts";
 import { SparkInvocationStore } from "../../store/invocations.ts";
 import { SparkChannelDeliveryStore } from "../../store/channel-deliveries.ts";
 import { SparkDaemonUserTokenStore } from "../../store/daemon-user-tokens.ts";
@@ -16,7 +17,8 @@ type DaemonRequest = Extract<
       | "daemon.access.create"
       | "daemon.access.list"
       | "daemon.access.revoke"
-      | "daemon.access.verify";
+      | "daemon.access.verify"
+      | "daemon.access.session";
   }
 >;
 
@@ -35,11 +37,25 @@ export async function handleDaemonRequest(
       return created;
     }
     case "daemon.access.list": {
-      return { tokens: new SparkDaemonUserTokenStore(db).list() };
+      return {
+        tokens: [
+          ...new SparkDaemonUserTokenStore(db).list(),
+          ...new SparkDaemonBrowserSessionStore(db).list(),
+        ],
+      };
     }
     case "daemon.access.revoke": {
-      const revoked = new SparkDaemonUserTokenStore(db).revoke(request.params.id);
+      const revoked =
+        new SparkDaemonUserTokenStore(db).revoke(request.params.id) ||
+        new SparkDaemonBrowserSessionStore(db).revoke(request.params.id);
       return { id: request.params.id, revoked };
+    }
+    case "daemon.access.session": {
+      const store = new SparkDaemonBrowserSessionStore(db);
+      const { action, token } = request.params;
+      if (action === "verify") return { valid: store.verify(token) };
+      const session = action === "exchange" ? store.exchange(token) : store.refresh(token);
+      return session ? { valid: true, session } : { valid: false };
     }
     case "daemon.access.verify": {
       const record = new SparkDaemonUserTokenStore(db).verify(request.params.token);

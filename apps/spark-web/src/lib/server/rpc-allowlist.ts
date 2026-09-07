@@ -2,6 +2,7 @@ import type { SparkLocalRpcMethod } from "@zendev-lab/spark-protocol/local-rpc-o
 
 export const SPARK_WEB_RPC_ALLOWLIST = [
   "session.list",
+  "channel.status",
   "session.get",
   "session.snapshot",
   "session.search",

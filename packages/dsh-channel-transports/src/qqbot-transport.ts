@@ -30,7 +30,12 @@ import {
 } from "./reply.ts";
 import { QQBOT_MARKDOWN_MAX_BYTES, chunkQqbotMarkdownText } from "./qqbot-markdown.ts";
 import { tryCreateQqbotC2CReplyStream } from "./qqbot-reply-stream.ts";
-import type { ChannelConnectionState, ChannelTransport, QqbotAdapterConfig } from "./types.ts";
+import type {
+  ChannelBotProfile,
+  ChannelConnectionState,
+  ChannelTransport,
+  QqbotAdapterConfig,
+} from "./types.ts";
 import {
   parseQqbotRecipient,
   type QqbotKeyboardPermission,
@@ -122,6 +127,7 @@ export function createQqbotTransport(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
   let connectionGeneration = 0;
+  let botProfile: ChannelBotProfile | undefined;
   let cancelPendingConnect: ((error: Error) => void) | null = null;
   let accessTokenForRedaction: string | undefined;
   let sessionId: string | null = null;
@@ -490,6 +496,15 @@ export function createQqbotTransport(
     assertConnectAttemptActive(generation);
     const token = await resolveToken();
     assertConnectAttemptActive(generation);
+    // Identity is display metadata, never a gateway readiness dependency.
+    void api
+      .getBotProfile(token)
+      .then((profile) => {
+        if (running && !stopping && generation === connectionGeneration) {
+          botProfile = profile.displayName || profile.avatarUrl ? profile : undefined;
+        }
+      })
+      .catch(() => undefined);
     const gatewayUrl = await api.getGatewayUrl(token);
     assertConnectAttemptActive(generation);
     const socket = webSocketFactory(gatewayUrl);
@@ -808,6 +823,7 @@ export function createQqbotTransport(
     status() {
       return {
         state: connectionState,
+        ...(botProfile ? { botProfile } : {}),
         ...(connectionError ? { error: connectionError } : {}),
       };
     },

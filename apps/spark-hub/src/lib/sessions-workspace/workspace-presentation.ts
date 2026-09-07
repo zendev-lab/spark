@@ -1,7 +1,7 @@
 import {
   channelSessionPresentation,
   type ChannelSessionPresentation,
-} from "$lib/channel-session-title";
+} from "@zendev-lab/spark-ui/channel-session";
 import { workbenchSessionScope } from "$lib/workbench-session-scope";
 import { workspacePath } from "$lib/workspace-routes";
 import type {

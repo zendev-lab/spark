@@ -80,7 +80,13 @@ export type ChannelConnectionState =
   | "reconnecting"
   | "degraded";
 
+export interface ChannelBotProfile {
+  displayName?: string;
+  avatarUrl?: string;
+}
+
 export interface ChannelTransportStatus {
+  botProfile?: ChannelBotProfile;
   state: ChannelConnectionState;
   error?: string;
 }

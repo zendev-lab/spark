@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { goto } from "$app/navigation";
+  import { goto, invalidate } from "$app/navigation";
   import {
     brandIconForModelProvider,
     Button,
@@ -33,6 +33,7 @@
     SlashCommandMenu,
     TaskRunPart,
     ThinkingChainPart,
+    thinkingChainHasTerminalIssue,
     ToolCallPart,
     visibleConversationParts,
     visibleConversationPartText,
@@ -45,6 +46,7 @@
     mergeEarlierSparkSessionSnapshotWindow,
     isTerminalSparkHumanInteractionDelivery,
     parseSparkModelValue,
+    sparkModelValue,
     resolveSessionActivityState,
     sparkActionBarDefaultAction,
     sparkActionViewSchema,
@@ -59,13 +61,15 @@
     type SparkActionView,
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
-  import { conversationMessageFromView } from "$lib/conversation";
-  import { attachWebSessionEvents } from "$lib/live-events";
+  import { formatChannelSessionTitle } from "@zendev-lab/spark-ui/channel-session";
+  import { conversationMessagesFromViews } from "$lib/conversation";
+  import { attachWebSessionEvents, type WebSessionConnectionState } from "$lib/live-events";
   import { explicitMemoryRefs, sparkWebTurnMessageMetadata } from "$lib/memory-feedback";
   import {
     parsePendingHumanInteractions,
     type PendingHumanInteraction,
   } from "$lib/pending-human-interactions";
+  import { providerSettingsHref } from "$lib/provider-auth";
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
@@ -93,6 +97,7 @@
   let pendingCloseSession = $state<SparkSessionProjection | null>(null);
   let treeError = $state<string | null>(null);
   let historyError = $state<string | null>(null);
+  let connectionState = $state<WebSessionConnectionState>("connecting");
   let prompt = $state("");
   let pendingAttachments = $state<
     Array<{
@@ -105,6 +110,7 @@
   >([]);
   let attachmentError = $state<string | null>(null);
   let submitting = $state(false);
+  let pendingSubmission: { fingerprint: string; idempotencyKey: string } | null = null;
   let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
   let artifactPreview = $state<{
     ref: string;
@@ -123,6 +129,7 @@
   let modelCommitRequestToken = 0;
   let searchOpen = $state(false);
   let searchQuery = $state("");
+  let focusedActivityMessageId = $state<string | null>(null);
   let searchResults = $state<
     Array<{ messageId: string; ref: string; role: string; excerpt: string }>
   >([]);
@@ -134,6 +141,8 @@
   let workDetailsOpen = $state(false);
   let conversationSettingsOpen = $state(false);
   let moreActionsOpen = $state(false);
+  let conversationSettingsTrigger: HTMLElement | undefined;
+  let moreActionsTrigger: HTMLElement | undefined;
   let shareHref = $state<string | null>(null);
   let sharing = $state(false);
   let memoryFeedbackBusy = $state("");
@@ -161,9 +170,7 @@
   }
 
   $effect(() => {
-    const selected = snapshot.model
-      ? `${snapshot.model.providerName}/${snapshot.model.modelId}`
-      : "";
+    const selected = snapshot.model ? sparkModelValue(snapshot.model) : "";
     if (ownerModelValue !== selected) {
       ownerModelValue = selected;
       modelValue = selected;
@@ -217,9 +224,10 @@
       },
     ];
   });
-  let messages = $derived(snapshot.messages.map(conversationMessageFromView));
+  let messages = $derived(conversationMessagesFromViews(snapshot.messages));
   let activity = $derived(resolveSessionActivityState({ session: snapshot, projectedTurns: [] }));
   let currentSession = $derived(treeSessions.find((session) => session.sessionId === snapshot.sessionId));
+  let currentSessionTitle = $derived(formatChannelSessionTitle(currentSession?.name, { fallback: copy.tree.untitled, labels: data.messages.web.shell.channelLabels }));
   let currentWorkspaceId = $derived(currentSession?.scope.kind === "workspace" ? currentSession.scope.workspaceId : undefined);
   let partLabels: ConversationPartLabels = $derived({
     reasoning: workbenchCopy.reasoning,
@@ -363,12 +371,11 @@
     void refreshAsks(sessionId);
     detachSessionEvents = attachWebSessionEvents(sessionId, (latest) => {
       if (latest.snapshot.sessionId !== sessionId) return;
-      const wasBusy = ["queued", "running", "streaming"].includes(snapshot.status);
-      adoptLiveSnapshot(latest);
-      if (
-        wasBusy &&
-        !["queued", "running", "streaming"].includes(latest.snapshot.status)
-      ) {
+      const statusChanged = snapshot.status !== latest.snapshot.status;
+      const wasBusy = isBusySessionStatus(snapshot.status);
+      windowOverride = latest;
+      if (statusChanged) void invalidate("spark:navigation");
+      if (wasBusy && !isBusySessionStatus(latest.snapshot.status)) {
         void notifyWhenHidden(
           "Spark turn completed",
           currentSession?.name ?? sessionId,
@@ -377,6 +384,8 @@
         );
       }
       void refreshAsks(sessionId);
+    }, (state) => {
+      if (activeOwnerSessionId === sessionId) connectionState = state;
     });
   });
 
@@ -384,7 +393,15 @@
 
   $effect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (conversationSettingsOpen || moreActionsOpen) {
+        const trigger = conversationSettingsOpen ? conversationSettingsTrigger : moreActionsTrigger;
+        conversationSettingsOpen = false;
+        moreActionsOpen = false;
+        trigger?.focus();
+        event.preventDefault();
+        return;
+      }
       if (searchOpen) {
         searchOpen = false;
       }
@@ -403,10 +420,16 @@
   async function submitPrompt(event?: Event) {
     event?.preventDefault();
     const text = prompt.trim();
-    if ((!text && pendingAttachments.length === 0) || submitting) return;
+    if ((!text && pendingAttachments.length === 0) || submitting || connectionState === "reconnecting") return;
     const ownerSessionId = snapshot.sessionId;
     const feedbackRequestToken = ++actionFeedbackRequestToken;
     const attachments = pendingAttachments;
+    const submittedPrompt = prompt;
+    const fingerprint = JSON.stringify([ownerSessionId, text, attachments]);
+    if (pendingSubmission?.fingerprint !== fingerprint) {
+      pendingSubmission = { fingerprint, idempotencyKey: crypto.randomUUID() };
+    }
+    const submission = pendingSubmission;
     submitting = true;
     try {
       actionFeedback = null;
@@ -418,14 +441,16 @@
       } else {
         await webRpc("turn.submit", {
           sessionId: ownerSessionId,
+          idempotencyKey: submission.idempotencyKey,
           prompt: text,
           ...(attachments.length > 0 ? { attachments } : {}),
           messageMetadata: sparkWebTurnMessageMetadata(),
         });
       }
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
-      prompt = "";
-      pendingAttachments = [];
+      if (pendingSubmission === submission) pendingSubmission = null;
+      if (prompt === submittedPrompt) prompt = "";
+      pendingAttachments = pendingAttachments.filter((attachment) => !attachments.includes(attachment));
       attachmentError = null;
     } catch (error) {
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
@@ -823,10 +848,12 @@
       }
       if (!ownsReveal()) return;
       windowOverride = current;
+      focusedActivityMessageId = messageId;
       await tick();
       if (!ownsReveal()) return;
+      const presentationId = messages.find((item) => item.sourceMessageIds.includes(messageId))?.id ?? messageId;
       document
-        .getElementById(messageId)
+        .getElementById(presentationId)
         ?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
     } catch (error) {
       if (!ownsReveal()) return;
@@ -964,8 +991,8 @@
     invokeSessionControl(ownerSessionId, () => setThinking(thinkingLevel, ownerSessionId));
   }
 
-  function adoptLiveSnapshot(latest: SparkSessionSnapshotPage) {
-    windowOverride = latest;
+  function isBusySessionStatus(status: string): boolean {
+    return status === "queued" || status === "running" || status === "streaming";
   }
 
   async function loadEarlier() {
@@ -1009,6 +1036,7 @@
                 reason: "Closed from Spark Web",
               });
       if (data.window.snapshot.sessionId !== ownerSessionId) return;
+      void invalidate("spark:navigation");
       treeSessionsOverride = {
         ownerSessionId,
         sessions: treeSessions.map((item) =>
@@ -1115,23 +1143,31 @@
     requestAnimationFrame(() => artifactPreviewReturnFocus?.focus());
   }
 
-  function mediaHref(item: ConversationMessageView, contentIndex: number): string {
-    return `/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/media/${encodeURIComponent(item.sourceMessageId ?? item.id)}/${contentIndex}`;
+  function mediaHref(item: ConversationMessageView, contentIndex: number, sourceMessageId?: string): string {
+    return `/api/v1/sessions/${encodeURIComponent(snapshot.sessionId)}/media/${encodeURIComponent(sourceMessageId ?? item.id)}/${contentIndex}`;
   }
 
+  const enabledModels = $derived(
+    new Set((data.catalog.enabledModels ?? []).map(sparkModelValue)),
+  );
   const modelGroups = $derived(
     data.catalog.providers.map((provider) => ({
       id: provider.providerName,
       label: provider.label,
       brandIcon: brandIconForModelProvider(provider.providerName),
-      options: provider.models.map((entry) => ({
-        value: `${entry.model.providerName}/${entry.model.modelId}`,
-        label: entry.model.modelLabel ?? entry.model.modelId,
-        disabled: !entry.available,
-      })),
+      settingsHref: providerSettingsHref(provider),
+      options: provider.models
+        .filter((entry) => enabledModels.has(sparkModelValue(entry.model)))
+        .map((entry) => ({
+          value: sparkModelValue(entry.model),
+          label: entry.model.modelLabel ?? entry.model.modelId,
+          disabled: !entry.available,
+        })),
     })),
   );
 </script>
+
+<svelte:head><title>{currentSessionTitle} · Spark</title></svelte:head>
 
 {#snippet queueActions(item: { id: string })}
   <Button variant="ghost" size="compact" onclick={() => void cancelQueuedTurn(item.id)}>
@@ -1179,7 +1215,7 @@
   <header class="conversation-header">
     <div class="conversation-identity">
       <span>{copy.currentSession}</span>
-      <h1>{currentSession?.name ?? copy.tree.untitled}</h1>
+      <h1>{currentSessionTitle}</h1>
     </div>
     <div class="conversation-view-controls" aria-label={copy.actions}>
       <Button
@@ -1204,8 +1240,8 @@
         <Icon name="workspace" size={15} />
         <span>{copy.workDetails}</span>
       </Button>
-      <details class="conversation-settings" bind:open={conversationSettingsOpen}>
-        <summary><Icon name="settings" size={15} />{copy.conversationSettings}</summary>
+      <details class="conversation-settings" name="session-controls" bind:open={conversationSettingsOpen}>
+        <summary bind:this={conversationSettingsTrigger}><Icon name="settings" size={15} />{copy.conversationSettings}</summary>
         <div class="conversation-settings-panel">
           <ModelSelector
             id="spark-web-model"
@@ -1219,7 +1255,7 @@
             emptyLabel={copy.noModels}
             closeLabel={copy.close}
             clearSearchLabel={copy.clear}
-            selectedLabel={copy.selected}
+            selectedLabel={snapshot.model?.modelLabel ?? snapshot.model?.modelId ?? copy.selected}
             onCommit={commitModelValue}
           />
           <div class="thinking-control">
@@ -1239,8 +1275,8 @@
           </div>
         </div>
       </details>
-      <details class="more-actions" bind:open={moreActionsOpen}>
-        <summary><Icon name="menu" size={15} />{copy.moreActions}</summary>
+      <details class="more-actions" name="session-controls" bind:open={moreActionsOpen}>
+        <summary bind:this={moreActionsTrigger}><Icon name="menu" size={15} />{copy.moreActions}</summary>
         <div class="more-actions-panel">
           <Button variant="ghost" size="compact" onclick={() => { searchOpen = !searchOpen; moreActionsOpen = false; }}>
             <Icon name="search" size={14} />{copy.searchHistory}
@@ -1262,6 +1298,12 @@
       </details>
     </div>
   </header>
+  {#if connectionState === "reconnecting"}
+    <div class="connection-notice" role="status">
+      <Icon name="retry" size={16} />
+      <div><strong>{copy.reconnecting}</strong><span>{copy.reconnectingHint}</span></div>
+    </div>
+  {/if}
   {#if searchOpen}
     <section class="history-search" aria-label={copy.historySearchRegion}>
       <form onsubmit={(event) => void searchHistory(event)}>
@@ -1291,6 +1333,7 @@
   <ConversationViewport label={copy.transcript} followKey={snapshot.updatedAt} jumpToLatestLabel={copy.jumpToLatest}>
     {#each messages as item (item.id)}
       {@const copyableText = visibleConversationPartText(item.parts)}
+      {@const memoryRefs = memoryRefsInMessage(item)}
       <MessageShell
         id={item.id}
         actor={item.actor}
@@ -1318,11 +1361,11 @@
             {:else if part.type === "image"}
               <ImagePart
                 sessionId={snapshot.sessionId}
-                messageId={item.sourceMessageId ?? item.id}
+                messageId={part.sourceMessageId ?? item.id}
                 contentIndex={part.contentIndex}
                 mediaType={part.mediaType}
                 name={part.name}
-                mediaHref={mediaHref(item, part.contentIndex)}
+                mediaHref={mediaHref(item, part.contentIndex, part.sourceMessageId)}
               />
             {:else if part.type === "reasoning" || part.type === "commentary"}
               <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
@@ -1330,6 +1373,8 @@
               <ThinkingChainPart
                 state={part.state}
                 steps={part.steps}
+                active={focusedActivityMessageId !== null && item.sourceMessageIds.includes(focusedActivityMessageId)}
+                summaryLabel={thinkingChainHasTerminalIssue(part.steps) ? undefined : `${part.state === "streaming" ? partLabels.chainStreaming : partLabels.chain} · ${part.steps.length}`}
                 labels={partLabels}
                 {statusLabel}
               />
@@ -1384,9 +1429,9 @@
               <p>{partLabels.unknown}: {part.label}</p>
             {/if}
           {/each}
-          {#if memoryRefsInMessage(item).length > 0}
+          {#if memoryRefs.length > 0}
             <div class="memory-feedback">
-              {#each memoryRefsInMessage(item) as memoryRef (memoryRef)}
+              {#each memoryRefs as memoryRef (memoryRef)}
                 <code>{memoryRef}</code>
                 <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryHelpful}: ${memoryRef}`} title={copy.memoryHelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "positive")}><Icon name="thumbs-up" size={14} /></Button>
                 <Button variant="ghost" size="compact" ariaLabel={`${copy.memoryUnhelpful}: ${memoryRef}`} title={copy.memoryUnhelpful} disabled={Boolean(memoryFeedbackBusy)} onclick={() => void submitMemoryFeedback(memoryRef, "negative")}><Icon name="thumbs-down" size={14} /></Button>
@@ -1441,17 +1486,20 @@
       ariaLabel={copy.promptLabel}
       multilineHint={copy.sendHint}
       submitting={submitting}
+      submitDisabled={submitting || connectionState === "reconnecting" || (!prompt.trim() && pendingAttachments.length === 0)}
     >
       {#snippet attachments()}
-        <div class="attachment-list">
-          {#each pendingAttachments as attachment, index (`${attachment.name}:${attachment.size}:${index}`)}
-            <span>
-              {attachment.name} · {Math.ceil(attachment.size / 1024)} KiB
-              <Button variant="ghost" size="compact" ariaLabel={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}><Icon name="close" size={13} /></Button>
-            </span>
-          {/each}
-          {#if attachmentError}<span class="attachment-error" role="alert">{attachmentError}</span>{/if}
-        </div>
+        {#if pendingAttachments.length > 0 || attachmentError}
+          <div class="attachment-list">
+            {#each pendingAttachments as attachment, index (`${attachment.name}:${attachment.size}:${index}`)}
+              <span>
+                {attachment.name} · {Math.ceil(attachment.size / 1024)} KiB
+                <Button variant="ghost" size="compact" ariaLabel={`${copy.removeAttachment} ${attachment.name}`} onclick={() => (pendingAttachments = pendingAttachments.filter((_, itemIndex) => itemIndex !== index))}><Icon name="close" size={13} /></Button>
+              </span>
+            {/each}
+            {#if attachmentError}<span class="attachment-error" role="alert">{attachmentError}</span>{/if}
+          </div>
+        {/if}
       {/snippet}
       {#snippet actions()}
         {#if slashActionBar}
@@ -1473,8 +1521,8 @@
         {/if}
       {/snippet}
       {#snippet tools()}
-        <label class="attach-button">
-          <Icon name="file" size={14} />
+        <label class="attach-button" title={copy.addFiles}>
+          <Icon name="plus" size={18} />
           <span>{copy.addFiles}</span>
           <input type="file" multiple onchange={(event) => void addAttachments(event)} />
         </label>
@@ -1499,6 +1547,7 @@
   <SessionStatusBar
     labels={statusLabels}
     cwd={snapshot.cwd ?? ""}
+    workspacePath={data.navigation?.workspaces.find((workspace) => workspace.id === currentWorkspaceId)?.localPath}
     gitBranch={snapshot.gitBranch}
     inputTokens={snapshot.usage?.inputTokens}
     outputTokens={snapshot.usage?.outputTokens}
@@ -1560,7 +1609,7 @@
   .workbench-shell {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    height: calc(100dvh - 53px);
+    height: 100%;
     min-height: 0;
   }
 
@@ -1641,6 +1690,34 @@
     width: 100%;
   }
 
+  .connection-notice {
+    align-items: center;
+    background: var(--color-surface-soft);
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    display: flex;
+    flex: 0 0 auto;
+    font-size: var(--text-caption);
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    transition: opacity var(--motion-default) var(--ease-out);
+  }
+
+  @starting-style {
+    .connection-notice {
+      opacity: 0;
+    }
+  }
+
+  .connection-notice > div {
+    display: grid;
+    gap: var(--spacing-xxs);
+  }
+
+  .connection-notice strong {
+    color: var(--color-ink);
+  }
+
   .conversation-header {
     align-items: center;
     border-bottom: 1px solid var(--color-border);
@@ -1683,8 +1760,7 @@
     position: relative;
   }
 
-  .conversation-view-controls summary,
-  .attach-button {
+  .conversation-view-controls summary {
     align-items: center;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -1696,24 +1772,27 @@
     font-size: var(--text-caption);
     font-weight: var(--weight-button);
     gap: 6px;
+    list-style: none;
     min-height: var(--control-height-compact);
     padding: 5px 10px;
     text-decoration: none;
-  }
-
-  .conversation-view-controls summary {
-    list-style: none;
   }
 
   .conversation-view-controls summary::-webkit-details-marker {
     display: none;
   }
 
-  .conversation-view-controls summary:hover,
   .conversation-view-controls summary:focus-visible,
   .conversation-view-controls details[open] > summary {
     background: var(--color-surface-soft);
     color: var(--color-ink);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .conversation-view-controls summary:hover {
+      background: var(--color-surface-soft);
+      color: var(--color-ink);
+    }
   }
 
   .conversation-view-controls summary:focus-visible {
@@ -1733,7 +1812,19 @@
     position: absolute;
     right: 0;
     top: calc(100% + 7px);
+    transform-origin: top right;
+    transition:
+      opacity var(--motion-default) var(--ease-out),
+      transform var(--motion-default) var(--ease-out);
     z-index: 20;
+  }
+
+  @starting-style {
+    .conversation-settings-panel,
+    .more-actions-panel {
+      opacity: 0;
+      transform: scale(0.96);
+    }
   }
 
   .conversation-settings-panel {
@@ -1776,11 +1867,17 @@
     text-decoration: none;
   }
 
-  .export-actions a:hover,
   .export-actions a:focus-visible {
     background: var(--color-primary-weak);
     color: var(--color-primary);
     outline: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .export-actions a:hover {
+      background: var(--color-primary-weak);
+      color: var(--color-primary);
+    }
   }
 
   .history-search {
@@ -1792,6 +1889,13 @@
     max-height: 34vh;
     overflow: auto;
     padding: 10px;
+    transition: opacity var(--motion-default) var(--ease-out);
+  }
+
+  @starting-style {
+    .history-search {
+      opacity: 0;
+    }
   }
   .history-search form,
   .history-search form div {
@@ -1873,7 +1977,7 @@
     align-items: center;
     background: var(--color-surface-soft);
     border: 1px solid var(--color-border-soft);
-    border-radius: 999px;
+    border-radius: var(--rounded-full);
     display: inline-flex;
     gap: 4px;
     padding: 3px 8px;
@@ -1881,11 +1985,32 @@
   .attachment-error {
     color: var(--color-danger);
   }
+  .attach-button {
+    align-items: center;
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    display: inline-flex;
+    gap: var(--spacing-xs);
+    min-height: var(--control-height-default);
+    overflow: hidden;
+    padding: 0 var(--spacing-xs);
+    font-size: var(--text-caption);
+    position: relative;
+    transition: transform var(--motion-fast) var(--ease-out), background var(--motion-fast) ease;
+  }
+  .attach-button:active { transform: scale(0.97); }
+  .attach-button:focus-within { box-shadow: var(--shadow-focus); outline: none; }
+  @media (hover: hover) and (pointer: fine) { .attach-button:hover { background: var(--color-surface-soft); color: var(--color-ink); } }
+  @media (pointer: coarse), (max-width: 640px) { .attach-button { min-height: var(--control-height-touch); } }
   .attach-button input {
-    block-size: 1px;
-    inline-size: 1px;
+    cursor: pointer;
+    height: 100%;
+    inset: 0;
+    margin: 0;
     opacity: 0;
     position: absolute;
+    width: 100%;
   }
   .artifact-preview { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 320px; }
   .artifact-preview header { align-items: start; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; padding: var(--spacing-lg) var(--spacing-xl); }
@@ -1893,7 +2018,9 @@
   :global(.artifact-title) { font-size: var(--text-section-title); font-weight: var(--weight-section-title); margin: 0; }
   .artifact-preview pre { font-family: var(--font-mono); margin: 0; overflow: auto; padding: var(--spacing-lg) var(--spacing-xl); white-space: pre-wrap; }
   :global(.artifact-close) { align-items: center; background: transparent; border: 0; border-radius: var(--rounded-md); color: var(--color-ink-muted); cursor: pointer; display: inline-flex; height: 32px; justify-content: center; width: 32px; }
-  :global(.artifact-close:hover) { background: var(--color-surface-soft); }
+  @media (hover: hover) and (pointer: fine) {
+    :global(.artifact-close:hover) { background: var(--color-surface-soft); }
+  }
 
   @media (max-width: 900px) {
     .conversation-header {
@@ -1923,7 +2050,7 @@
     .workbench-shell.conversation-list-open,
     .workbench-shell.work-details-open {
       grid-template-columns: minmax(0, 1fr);
-      height: calc(100dvh - 53px);
+      height: 100%;
       overflow: hidden;
       position: relative;
     }
@@ -1952,31 +2079,42 @@
     }
 
     .conversation-view-controls {
-      overflow-x: auto;
-      padding-bottom: 2px;
-      scrollbar-width: none;
-    }
-
-    .conversation-view-controls::-webkit-scrollbar {
-      display: none;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      position: relative;
     }
 
     .conversation-view-controls > :global(.ui-button),
     .conversation-view-controls > details {
-      flex: 0 0 auto;
+      min-width: 0;
+      position: static;
     }
 
     .conversation-view-controls > :global(.ui-button),
     .conversation-view-controls summary {
       min-height: var(--control-height-touch);
-      width: auto;
+      width: 100%;
     }
 
     .conversation-settings-panel,
     .more-actions-panel {
       left: 0;
-      min-width: min(320px, calc(100vw - 24px));
-      right: auto;
+      min-width: 0;
+      right: 0;
+      max-height: calc(100dvh - 260px);
+      overflow-y: auto;
+      transform-origin: top center;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .connection-notice,
+    .history-search,
+    .conversation-settings-panel,
+    .more-actions-panel,
+    .attach-button {
+      transition: none;
+      transform: none;
     }
   }
 </style>
