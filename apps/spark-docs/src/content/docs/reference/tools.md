@@ -179,3 +179,21 @@ shell, files, Git, Task, Role fan-out, assignment, or Workflow execution.
 
 Private implementation helpers are not public tools. For the commands available
 in your installed version, see [command discovery](/reference/cli/).
+
+## Local command and network access
+
+Native daemon sessions include Cue execution tools, subject to the session's
+role and tool policy. The daemon mounts local sandbox and approval services;
+its full-access default needs no sandbox escalation. Restricted sessions do not
+silently escalate when approval is unavailable.
+
+The current Cue client requires IPC v3 and the `client target resolve --json`
+command. Cue IPC v4 is not yet supported; matching executable version labels
+alone do not establish protocol compatibility.
+
+The local Spark daemon permits `web_fetch` to reach private-IP and internal
+HTTP(S) services by default. Redirect targets still undergo URL validation;
+embedded URL credentials and non-HTTP(S) schemes remain rejected. This setting
+also permits loopback and metadata addresses, so use it only with a trusted local
+agent. Fetched content remains untrusted. Generic DSH Web hosts retain the
+private-host rejection default unless their host explicitly opts in.

@@ -149,3 +149,17 @@ assignment 或 Workflow execution。
 
 私有实现 helper 不是公开工具。要查看当前安装版本的命令，请阅读
 [命令发现](/zh/reference/cli/)。
+
+## 本地命令与网络访问
+
+原生 daemon 会话包含 Cue 执行工具，仍受会话角色和工具策略约束。daemon 挂载
+本地 sandbox 与 approval 服务，默认完整访问模式无需 sandbox 提权。
+受限会话在无法取得批准时不会静默提权。
+
+当前 Cue 客户端要求 IPC v3 及 `client target resolve --json` 命令，尚未支持
+Cue IPC v4；可执行文件的版本标签相同，并不代表协议兼容。
+
+本地 Spark daemon 默认允许 `web_fetch` 访问解析到私有 IP 的内网 HTTP(S)
+服务。重定向目标仍检查 URL，继续拒绝 URL 内嵌凭据及非 HTTP(S) 协议。
+此设置也允许回环与元数据地址，适用于受信任的本地 agent。抓取内容仍作为
+不可信数据处理。通用 DSH Web 宿主在未显式启用时仍默认拒绝私有地址。
