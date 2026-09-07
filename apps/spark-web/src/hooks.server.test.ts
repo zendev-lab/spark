@@ -5,6 +5,7 @@ import { isHttpError, isRedirect, type Handle } from "@sveltejs/kit";
 
 import { handle } from "./hooks.server.ts";
 import {
+  resolveSparkWebBrowserSession,
   setSparkWebTokenVerifier,
   setSparkWebBrowserSessionClient,
   SPARK_WEB_BIND_HOST_ENV,
@@ -331,4 +332,42 @@ test("failed bootstrap exchange preserves the requested destination without sett
   assert.equal(response.status, 503);
   assert.match(await response.text(), /value="\/sessions\/sess_1"/u);
   assert.equal(cookieSet.mock.calls.length, 0);
+});
+
+test("cancelled navigation retries reuse rotation briefly and honor revocation", async () => {
+  vi.useFakeTimers();
+  try {
+    let revoked = false;
+    setSparkWebTokenVerifier(async () => (revoked ? "invalid" : "valid"));
+    const rotate = vi.fn(async () => ({ valid: true, session: browserSession }));
+    setSparkWebBrowserSessionClient(rotate);
+    const first = await resolveSparkWebBrowserSession("refresh", "retry-refresh");
+    const retry = await resolveSparkWebBrowserSession("refresh", "retry-refresh");
+    assert.deepEqual(retry, first);
+    assert.equal(rotate.mock.calls.length, 1);
+    revoked = true;
+    assert.deepEqual(await resolveSparkWebBrowserSession("refresh", "retry-refresh"), {
+      verification: "invalid",
+    });
+    revoked = false;
+    rotate.mockImplementation(async () => ({ valid: false, session: browserSession }));
+    await vi.advanceTimersByTimeAsync(30_001);
+    assert.deepEqual(await resolveSparkWebBrowserSession("refresh", "retry-refresh"), {
+      verification: "invalid",
+    });
+    assert.equal(rotate.mock.calls.length, 2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("concurrent refresh requests share one daemon rotation", async () => {
+  setSparkWebTokenVerifier(async () => "valid");
+  const rotate = vi.fn(async () => ({ valid: true, session: browserSession }));
+  setSparkWebBrowserSessionClient(rotate);
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () => resolveSparkWebBrowserSession("refresh", "concurrent-refresh")),
+  );
+  assert.equal(rotate.mock.calls.length, 1);
+  assert.ok(results.every((result) => result.session === browserSession));
 });

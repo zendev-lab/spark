@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SparkLocalRpcOutput } from "@zendev-lab/spark-protocol";
 import {
   requestSparkDaemon,
@@ -153,18 +154,56 @@ type BrowserSessionClient = (
 const defaultBrowserSessionClient: BrowserSessionClient = (action, token) =>
   requestSparkDaemon("daemon.access.session", { action, token });
 let browserSessionClient = defaultBrowserSessionClient;
+type BrowserSessionResolution = {
+  verification: SparkWebTokenVerification;
+  session?: SparkWebBrowserSession;
+};
+// Reloads can cancel a response after the daemon consumes its refresh token.
+// Briefly share that response with retries, while rechecking daemon revocation.
+const refreshResponses = new Map<
+  string,
+  { expiresAt: number; result: Promise<BrowserSessionResolution> }
+>();
+const refreshRetryWindowMs = 30_000;
 
 export function setSparkWebBrowserSessionClient(client?: BrowserSessionClient): void {
   browserSessionClient = client ?? defaultBrowserSessionClient;
+  refreshResponses.clear();
 }
 
 export async function resolveSparkWebBrowserSession(
   action: "exchange" | "refresh",
   token: string,
-): Promise<{
-  verification: SparkWebTokenVerification;
-  session?: SparkWebBrowserSession;
-}> {
+): Promise<BrowserSessionResolution> {
+  if (action === "exchange") return requestBrowserSession(action, token);
+  const now = Date.now();
+  for (const [key, entry] of refreshResponses) {
+    if (entry.expiresAt <= now) refreshResponses.delete(key);
+  }
+  const key = createHash("sha256").update(token).digest("hex");
+  const cached = refreshResponses.get(key);
+  if (cached) {
+    const result = await cached.result;
+    if (!result.session) return result;
+    const verification = await verifySparkWebAccessToken(result.session.sessionToken);
+    return verification === "valid" ? result : { verification };
+  }
+  const result = requestBrowserSession(action, token);
+  if (refreshResponses.size >= 256) refreshResponses.delete(refreshResponses.keys().next().value!);
+  const entry = { expiresAt: now + refreshRetryWindowMs, result };
+  refreshResponses.set(key, entry);
+  setTimeout(() => {
+    if (refreshResponses.get(key) === entry) refreshResponses.delete(key);
+  }, refreshRetryWindowMs).unref();
+  const resolved = await result;
+  if (!resolved.session && refreshResponses.get(key) === entry) refreshResponses.delete(key);
+  return resolved;
+}
+
+async function requestBrowserSession(
+  action: "exchange" | "refresh",
+  token: string,
+): Promise<BrowserSessionResolution> {
   try {
     const result = await browserSessionClient(action, token);
     return result.valid && result.session

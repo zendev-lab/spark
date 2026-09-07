@@ -48,6 +48,10 @@ SameSite=Lax cookies (Secure on HTTPS). When access expires, active use rotates
 both tokens and starts another 7-day refresh period. The daemon stores only
 hashes in its database. Valid older startup-token cookies upgrade automatically.
 
+Concurrent requests and cancelled-navigation retries share a successful refresh response for up to
+30 seconds within the same Web process. Reuse still checks daemon revocation. The response cache
+is bounded, expires automatically, and does not change the daemon's one-time refresh rotation.
+
 Browser login survives Web and daemon restarts against the same state directory;
 normal Web shutdown revokes only its startup token. Seven days without renewal,
 explicit browser-session revocation, or clearing cookies requires authentication

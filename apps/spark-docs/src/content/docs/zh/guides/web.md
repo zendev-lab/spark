@@ -39,6 +39,9 @@ spark web --host 0.0.0.0 --port 4310
 cookie 中，HTTPS 下启用 Secure。access token 到期后，活跃使用会自动轮换两种凭据，refresh token
 的有效期随之延长为新的 7 天；daemon 数据库只保存哈希。已有的有效启动 token cookie 会自动升级。
 
+同一 Web 进程中的并发请求、导航取消后的重试，可以在 30 秒内复用已成功的续期响应，
+复用前仍向 daemon 检查吊销状态。响应缓存限制数量并自动到期，不改变 daemon 的一次性 refresh 轮换。
+
 使用同一状态目录重启 Web 或 daemon 不需要重新认证，Web 正常退出仅撤销启动 token。
 连续 7 天未续期、主动撤销浏览器会话或清除 cookie 后才需要重新认证。
 `spark daemon access list` 也会列出浏览器会话，撤销当前会话 ID 会使其两种凭据失效。
