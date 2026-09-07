@@ -22,7 +22,10 @@ export async function startSparkWebDevelopmentServer(
       },
     });
     await vite.listen();
-  } finally {
+    // SvelteKit resolves fallback components on later requests against cwd.
+    // This dedicated web process must retain the app root for its lifetime.
+  } catch (error) {
     process.chdir(launchCwd);
+    throw error;
   }
 }
