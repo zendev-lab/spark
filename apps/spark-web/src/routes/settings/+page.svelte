@@ -16,6 +16,7 @@
     Panel,
     Select,
     StatusPill,
+    Textarea,
     type SelectGroup,
   } from "@zendev-lab/spark-ui";
   import { oauthHref } from "$lib/provider-auth";
@@ -30,6 +31,7 @@
   let keyByProvider = $state<Record<string, string>>({});
   let enabledValues = $state<string[]>([]);
   let defaultValue = $state("");
+  let enabledPatterns = $state("");
   let modelPolicyInitialized = $state(false);
   let piSourcePath = $state("");
   let piOverwrite = $state(false);
@@ -60,6 +62,7 @@
   $effect(() => {
     if (modelPolicyInitialized) return;
     enabledValues = catalog.enabledModels?.map(modelValue) ?? [];
+    enabledPatterns = (catalog.enabledModelPatterns ?? enabledValues).join("\n");
     defaultValue = catalog.defaultModel ? modelValue(catalog.defaultModel) : "";
     modelPolicyInitialized = true;
   });
@@ -123,7 +126,22 @@
         models,
         intent: { kind: "user-initiated", via: "settings-ui" },
       });
+      enabledPatterns = (catalogOverride.enabledModelPatterns ?? models.map(modelValue)).join("\n");
       return `Saved ${models.length} enabled model${models.length === 1 ? "" : "s"}.`;
+    });
+  }
+
+  async function saveEnabledPatterns() {
+    if (catalog.enabledModelPatterns === undefined) return;
+    const patterns = enabledPatterns.split("\n").map((pattern) => pattern.trim()).filter(Boolean);
+    await run(copy.saveModelPatterns, async () => {
+      catalogOverride = await webRpc("model.enabled.set", {
+        models: [], patterns,
+        intent: { kind: "user-initiated", via: "settings-ui" },
+      });
+      enabledPatterns = (catalogOverride.enabledModelPatterns ?? patterns).join("\n");
+      enabledValues = catalogOverride.enabledModels?.map(modelValue) ?? [];
+      return copy.modelPatternsSaved;
     });
   }
 
@@ -177,6 +195,12 @@
       </Field>
       <Button disabled={!defaultValue || Boolean(busy)} onclick={() => void saveDefaultModel()}>{copy.saveDefault}</Button>
     </div>
+    {#if catalog.enabledModelPatterns !== undefined}
+    <Field id="enabled-model-patterns" label={copy.modelPatterns} hint={copy.modelPatternsHint}>
+      <Textarea id="enabled-model-patterns" bind:value={enabledPatterns} rows={6} />
+    </Field>
+    <Button class="panel-action" disabled={Boolean(busy)} onclick={() => void saveEnabledPatterns()}>{copy.saveModelPatterns}</Button>
+    {/if}
     <fieldset>
       <legend>{copy.enabledModels}</legend>
       <div class="model-grid">

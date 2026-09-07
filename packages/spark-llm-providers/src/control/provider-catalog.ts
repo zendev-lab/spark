@@ -20,15 +20,23 @@ const CURRENT_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm-providers";
 
 /** Initial enabled-model policy for daemon-selectable models. */
 export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
-  "openai-codex/gpt-5.6-*",
+  "openai-codex/gpt-*",
   "baidu-oneapi/claude-opus-5",
   "baidu-oneapi/deepseek-v4-flash",
-  "baidu-oneapi/gpt-5.6-*",
+  "baidu-oneapi/gpt-*",
   "baidu-oneapi/grok-4.6",
   "kimi-coding/*",
 ] as const;
 
 const LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS = [
+  [
+    "openai-codex/gpt-5.6-*",
+    "baidu-oneapi/claude-opus-5",
+    "baidu-oneapi/deepseek-v4-flash",
+    "baidu-oneapi/gpt-5.6-*",
+    "baidu-oneapi/grok-4.6",
+    "kimi-coding/*",
+  ],
   [
     "openai-codex/gpt-5.6-luna",
     "openai-codex/gpt-5.6-sol",
