@@ -20,6 +20,7 @@ import {
 import { SparkProviderRegistry } from "./provider-registry.ts";
 
 const BAIDU_MODEL_IDS = [
+  "gpt-6-astra-尝鲜",
   "claude-opus-5",
   "deepseek-v4-flash",
   "gpt-5.6-sol",
@@ -531,3 +532,27 @@ test("Baidu stream done event carries redacted thinking in the final message", a
     { type: "text", text: "final" },
   ]);
 });
+
+test.each(["gpt-6-astra-尝鲜", "gpt-7-future"])(
+  "Baidu GPT discovery model %s uses Responses with the exact wire identity",
+  async (id) => {
+    let seen: unknown;
+    const responses: ProviderStreams = {
+      stream: (model) => terminalStream(model),
+      streamSimple: (model, _context, options) =>
+        terminalStream(model, async () => {
+          expect(model.api).toBe("openai-responses");
+          seen = await options?.onPayload?.({ model: "incorrect" }, model);
+        }),
+    };
+    const unexpected = () => {
+      throw new Error("GPT routed to Anthropic");
+    };
+    const adapter = createBaiduOneApiProviderAdapter({
+      anthropicMessages: { stream: unexpected, streamSimple: unexpected },
+      openAIResponses: responses,
+    });
+    await consume(adapter.stream(testModel(id), { messages: [] }));
+    expect(seen).toMatchObject({ model: id });
+  },
+);

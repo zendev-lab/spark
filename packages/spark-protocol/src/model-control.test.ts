@@ -147,3 +147,22 @@ describe("Spark model-control protocol", () => {
     });
   });
 });
+
+it("round-trips explicit model rules and rejects ambiguous writes", () => {
+  const intent = sparkUserInitiatedEnabledModelsIntent("settings-ui");
+  expect(
+    parseSparkEnabledModelsSetRequest({ models: [], patterns: ["baidu-oneapi/gpt-*"], intent })
+      .patterns,
+  ).toEqual(["baidu-oneapi/gpt-*"]);
+  expect(
+    sparkEnabledModelsSetRequestSchema.safeParse({ models: [model], patterns: ["*"], intent })
+      .success,
+  ).toBe(false);
+  expect(
+    sparkEnabledModelsSetRequestSchema.safeParse({ models: [], patterns: [" "], intent }).success,
+  ).toBe(false);
+  expect(
+    parseSparkModelControlSnapshot({ enabledModelPatterns: ["baidu-oneapi/gpt-*"] })
+      .enabledModelPatterns,
+  ).toEqual(["baidu-oneapi/gpt-*"]);
+});

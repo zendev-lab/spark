@@ -106,6 +106,7 @@ export interface SparkProviderControlSnapshot {
   providers: SparkProviderControlProviderSnapshot[];
   /** Canonical provider/model ids permitted by the user's enabledModels policy. */
   enabledModelIds: string[];
+  enabledModelPatterns?: string[];
   /** Complete provider capability catalog; enabled filtering never removes catalog entries. */
   models: SparkProviderControlModelSnapshot[];
   oauthProviders: Array<{ id: string; name: string; configured: boolean }>;
@@ -118,6 +119,7 @@ export interface SparkProviderControl {
   setEnabledModels(
     modelRefs: readonly string[],
     intent?: SparkEnabledModelsWriteIntent,
+    patterns?: readonly string[],
   ): Promise<void>;
   setApiKey(providerId: string, apiKey: string): Promise<void>;
   logout(providerId: string): Promise<boolean>;
@@ -214,6 +216,7 @@ class LocalSparkProviderControl implements SparkProviderControl {
       ...(state.config.loadError ? { configError: state.config.loadError } : {}),
       providers,
       enabledModelIds,
+      enabledModelPatterns: [...state.config.enabledModels],
       models,
       oauthProviders: listOAuthProviderSummaries().map((provider) => ({
         ...provider,
@@ -240,11 +243,28 @@ class LocalSparkProviderControl implements SparkProviderControl {
   async setEnabledModels(
     modelRefs: readonly string[],
     intent?: SparkEnabledModelsWriteIntent,
+    patterns?: readonly string[],
   ): Promise<void> {
     requireExplicitEnabledModelsWriteIntent(intent);
     const state = await this.#loadState();
     if (state.config.loadError) {
       throw new Error(`Refusing to overwrite unreadable Spark config: ${state.config.loadError}`);
+    }
+    if (patterns !== undefined) {
+      if (
+        modelRefs.length > 0 ||
+        patterns.length > 256 ||
+        patterns.some(
+          (pattern) =>
+            typeof pattern !== "string" || !pattern.trim() || pattern.trim().length > 256,
+        )
+      ) {
+        throw new Error("Invalid enabled model patterns");
+      }
+      await writeSparkEnabledModels(this.#configPath, [
+        ...new Set(patterns.map((pattern) => pattern.trim())),
+      ]);
+      return;
     }
     const unique: string[] = [];
     for (const modelRef of modelRefs) {
@@ -296,7 +316,8 @@ class LocalSparkProviderControl implements SparkProviderControl {
     sourcePath: string;
     overwrite?: boolean;
   }): Promise<SparkAuthImportReport> {
-    const state = await this.#loadState();
+    // Import owns auth-store validation and its redacted failure vocabulary.
+    const state = await this.#loadState(false);
     const targets: SparkAuthImportTarget[] = state.registry.listProviders().map((provider) => {
       const ref = normalizeProviderAuthRef(provider.apiKey);
       return {
@@ -345,13 +366,25 @@ class LocalSparkProviderControl implements SparkProviderControl {
     })(request);
   }
 
-  async #loadState(): Promise<LoadedControlState> {
+  async #loadState(discover = true): Promise<LoadedControlState> {
     const config = await readSparkProviderConfig(this.#configPath);
     const loaded = await loadSparkProviderCatalog({
       specifiers: this.#providerSpecs ?? config.providerSpecs,
       ...(this.#importer ? { importer: this.#importer } : {}),
     });
-    return { registry: loaded.registry, config, outcomes: loaded.outcomes };
+    if (!discover) return { registry: loaded.registry, config, outcomes: loaded.outcomes };
+    await this.#reloadAuth();
+    const diagnostics = await loaded.registry.discoverModels((provider) =>
+      this.#authResolver.resolveApiKey(provider),
+    );
+    return {
+      registry: loaded.registry,
+      config,
+      outcomes: [
+        ...loaded.outcomes,
+        ...diagnostics.map((error) => ({ specifier: "model discovery", ok: false, error })),
+      ],
+    };
   }
 
   async #reloadAuth(): Promise<void> {
