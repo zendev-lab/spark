@@ -10,7 +10,7 @@ vi.mock("vite", () => ({ createServer: vite.createServer }));
 
 import { startSparkWebDevelopmentServer } from "./vite-server.ts";
 
-test("source web loads SvelteKit from its app directory without changing launch cwd", async () => {
+test("source web keeps the app cwd for deferred SvelteKit module loading", async () => {
   const appDir = await mkdtemp(join(tmpdir(), "spark-web-vite-root-"));
   const resolvedAppDir = await realpath(appDir);
   const launchCwd = process.cwd();
@@ -29,6 +29,22 @@ test("source web loads SvelteKit from its app directory without changing launch 
     await startSparkWebDevelopmentServer({ appDir, host: "127.0.0.1", port: 4310, hmr: false });
     assert.equal(createCwd, resolvedAppDir);
     assert.equal(listenCwd, resolvedAppDir);
+    assert.equal(process.cwd(), resolvedAppDir);
+  } finally {
+    process.chdir(launchCwd);
+    await rm(appDir, { recursive: true, force: true });
+  }
+});
+
+test("source web restores launch cwd when startup fails", async () => {
+  const appDir = await mkdtemp(join(tmpdir(), "spark-web-vite-failure-"));
+  const launchCwd = process.cwd();
+  vite.createServer.mockRejectedValueOnce(new Error("startup failed"));
+  try {
+    await assert.rejects(
+      startSparkWebDevelopmentServer({ appDir, host: "127.0.0.1", port: 4310, hmr: false }),
+      /startup failed/,
+    );
     assert.equal(process.cwd(), launchCwd);
   } finally {
     process.chdir(launchCwd);
