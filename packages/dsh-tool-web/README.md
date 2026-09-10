@@ -32,6 +32,9 @@ explicit provider when more than one usable implementation is registered.
 The local fetch provider supports direct, Jina, and GitHub raw-file retrieval
 as deployment configuration. It validates every redirect and rejects local,
 private, metadata, credential-bearing, and non-HTTP(S) targets by default.
+The native Spark daemon explicitly sets `allowPrivateHosts: true` for trusted
+local use; this also permits loopback and metadata addresses. URL scheme and
+embedded-credential checks still apply, including at redirects.
 
 ## Recovery cache
 

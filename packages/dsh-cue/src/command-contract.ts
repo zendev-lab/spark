@@ -89,7 +89,7 @@ export async function inspectCueCommandContract(
     const aggregateDaemon = await probeVersion(
       runner,
       { command: "cue", args: ["daemon", "--version"] },
-      /^Version:\s+(\S+)$/u,
+      /^(?:Version:|cued)\s+(\S+)$/u,
       probeOptions,
     );
     probes.push(aggregateClient.result, aggregateDaemon.result);
@@ -130,7 +130,7 @@ export async function inspectCueCommandContract(
   const directDaemon = await probeVersion(
     runner,
     { command: "cued", args: ["--version"] },
-    /^Version:\s+(\S+)$/u,
+    /^(?:Version:|cued)\s+(\S+)$/u,
     probeOptions,
   );
   probes.push(directClient.result, directDaemon.result);
