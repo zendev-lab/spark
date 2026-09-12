@@ -38,6 +38,6 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "vitest-browser-svelte": "3.0.0"
+    "vitest-browser-svelte": "3.1.0"
   }
 }

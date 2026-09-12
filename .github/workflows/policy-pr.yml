@@ -42,7 +42,7 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           github.event.pull_request.user.login != 'renovate[bot]'
-        uses: zendev-lab/zendev/actions/validate-body@6add4d100898f7a1a3c7643a5ca15051a0088e43 # v0.3.0
+        uses: zendev-lab/zendev/actions/validate-body@91087d4d4e9841aaf8cead8b7c6d294a3db63b10 # v0.4.0
         with:
           body: ${{ github.event.pull_request.body }}
 
