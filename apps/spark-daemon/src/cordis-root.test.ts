@@ -450,7 +450,14 @@ describe("spark daemon Cordis root", () => {
         { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
       ]);
       expect(nativeToolNames).toEqual(
-        expect.arrayContaining(["schedule_create", "schedule_list", "schedule_delete"]),
+        expect.arrayContaining([
+          "cue_exec",
+          "cue_jobs",
+          "cue_scope",
+          "schedule_create",
+          "schedule_list",
+          "schedule_delete",
+        ]),
       );
       expect(scheduleCreatePolicy).toMatchObject({
         name: "schedule_create",

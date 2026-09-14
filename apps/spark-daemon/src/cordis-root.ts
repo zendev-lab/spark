@@ -18,6 +18,8 @@ import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
 import SandboxPolicy from "@deepseek-ai/dsh-sandbox-policy";
+import LocalSandbox from "@deepseek-ai/dsh-sandbox-local";
+import UserApproval from "@deepseek-ai/dsh-user-approval";
 import * as ScheduleRuntime from "@deepseek-ai/dsh-schedule";
 import { SessionStore } from "@deepseek-ai/dsh-session";
 import SessionProjectionRegistry from "@deepseek-ai/dsh-session-projection";
@@ -218,12 +220,14 @@ async function mountSparkDshRuntime(
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
   await ctx.plugin(WebRuntime);
-  await ctx.plugin(DshWebProvider, {});
+  await ctx.plugin(DshWebProvider, { allowPrivateHosts: true });
   await ctx.plugin(DshCueService);
   await ctx.plugin(SandboxPolicy, {
     mode: "danger-full-access",
     workspaceRoot: process.cwd(),
   });
+  await ctx.plugin(LocalSandbox, {});
+  await ctx.plugin(UserApproval, { policy: "never" });
   await ctx.plugin(ShellEnv, { dshHome: options.dshHome });
   await ctx.plugin(SkillRegistry);
   await ctx.plugin(SkillFileSystem, {

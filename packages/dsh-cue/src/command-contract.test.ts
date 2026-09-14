@@ -191,3 +191,22 @@ test("foreign, incomplete, and missing diagnostics carry distinct paths and reco
     assert.match(inspection.message, /uv tool install/u);
   }
 });
+
+test("Cue IPC v4 CLI identities are accepted for aggregate and direct installations", async () => {
+  for (const aggregate of [true, false]) {
+    const inspection = await inspectCueCommandContract({
+      runner: fixtureRunner((spec) => {
+        const invocation = [spec.command, ...spec.args].join(" ");
+        if (invocation === "cue --version")
+          return aggregate ? result(spec, { stdout: "cue 0.1.2\n" }) : missing(spec);
+        if (invocation === "cue client --version" || invocation === "cue-client --version")
+          return result(spec, { stdout: "cue-client 0.1.2\n" });
+        if (invocation === "cue daemon --version" || invocation === "cued --version")
+          return result(spec, { stdout: "cued 0.1.2\n" });
+        throw new Error(`unexpected probe ${invocation}`);
+      }, []),
+    });
+    assert.equal(inspection.status, aggregate ? "aggregate" : "companion");
+    assert.equal(inspection.contract?.version, "0.1.2");
+  }
+});

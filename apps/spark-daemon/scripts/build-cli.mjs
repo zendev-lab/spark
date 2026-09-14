@@ -25,6 +25,9 @@ const require = __sparkCreateRequire(import.meta.url);`,
   bundle: true,
   entryPoints: ["src/cli.ts"],
   external: [
+    // Sandbox native loaders locate platform binaries relative to their package.
+    "koffi",
+    "@deepseek-ai/node-addon-landlock-run",
     "@zendev-lab/cue",
     "@ast-grep/napi",
     "ws",

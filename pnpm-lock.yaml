@@ -91,6 +91,9 @@ catalogs:
     '@deepseek-ai/dsh-sandbox':
       specifier: 0.1.2-alpha.2
       version: 0.1.2-alpha.2
+    '@deepseek-ai/dsh-sandbox-local':
+      specifier: 0.1.2-alpha.2
+      version: 0.1.2-alpha.2
     '@deepseek-ai/dsh-sandbox-policy':
       specifier: 0.1.2-alpha.2
       version: 0.1.2-alpha.2
@@ -339,6 +342,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/dsh-sandbox-local':
+        specifier: catalog:dsh
+        version: 0.1.2-alpha.2(8adffb6e2f5e8c99c57098bf45a97eb2)
       '@deepseek-ai/dsh-sandbox-policy':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(3357c717c4eec41932cb2ef673561c2f)
@@ -387,12 +393,18 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(1121451e7f334db134f1e0d3fbe914bd)
+      '@deepseek-ai/dsh-user-approval':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(9cdc226149e6d0b272bb0eb03937b6d5)
       '@deepseek-ai/dsh-util-values':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
       '@deepseek-ai/dsh-web':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: 0.1.1
+        version: 0.1.1
       '@optique/core':
         specifier: 'catalog:'
         version: 1.2.5
@@ -480,6 +492,9 @@ importers:
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:../../packages/spark-workflows
+      koffi:
+        specifier: 3.2.1
+        version: 3.2.1
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.13.3)
@@ -2447,6 +2462,15 @@ packages:
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
+  '@deepseek-ai/dsh-sandbox-local@0.1.2-alpha.2':
+    resolution: {integrity: sha512-Wh22DQX8+WswC8MCOCkNo9ZQJDWjQZPgLMpQBBkuAn2D6SbARrkrYQjSytEUg/0/n0q/GF0I937QUWHr6EVmCg==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
+      '@deepseek-ai/dsh-invariants': ^0.1.2-alpha.2
+      '@deepseek-ai/dsh-llm': ^0.1.2-alpha.2
+      '@deepseek-ai/dsh-sandbox': ^0.1.2-alpha.2
+      '@deepseek-ai/dsh-session': ^0.1.2-alpha.2
+
   '@deepseek-ai/dsh-sandbox-policy@0.1.2-alpha.2':
     resolution: {integrity: sha512-Af7DWZTEjF/70YWSiN0jfbZli1XRk6Bo9W61QHxfShS79I8//mOPrItEPtJRWL/RCmGNfudFglNFyyGKdaqBIg==}
     peerDependencies:
@@ -2457,6 +2481,11 @@ packages:
       '@deepseek-ai/dsh-session': ^0.1.2-alpha.2
       '@deepseek-ai/dsh-session-projection': ^0.1.2-alpha.2
       '@deepseek-ai/dsh-system-prompt': ^0.1.2-alpha.2
+
+  '@deepseek-ai/dsh-sandbox-windows-acl@0.1.2-rc.1':
+    resolution: {integrity: sha512-BPaOnN86YDNzLywOCUHNFW9KbUXFZpVUbuU2Djmnnsi+tl/g3qyhOR0ROJDV1Jb5NMYDcw3c5E72Hi0fgCrIAA==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
 
   '@deepseek-ai/dsh-sandbox@0.1.2-alpha.2':
     resolution: {integrity: sha512-InfHYn5B0MxF5QLz0AjbwPS5W0G9VtIvjEFl5o/049KzH6khGKhjqOAVZtu1Z46f1+K/dbjF50VkTdnX3pgIJA==}
@@ -2760,6 +2789,27 @@ packages:
       '@deepseek-ai/cordis': ^4.0.2
       '@deepseek-ai/dsh-invariants': ^0.1.2-alpha.2
       '@deepseek-ai/dsh-llm': ^0.1.2-alpha.2
+
+  '@deepseek-ai/dsh-win32-process@0.1.2-rc.1':
+    resolution: {integrity: sha512-egG88t1NDajO8YfjYQpHxBx0xR8CB/K+GTU9c0W1Tn8YX6GiFXqOZLiaCNj2mVIv7WnMShzZIX6bVkFrg5oTag==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
+
+  '@deepseek-ai/node-addon-landlock-run-linux-arm64@0.1.1':
+    resolution: {integrity: sha512-lYY2RbcPW4rGRM5hVJbrXlvLqyBxeJBjBqvt+QTHTU+GtfUVVjTODKa4e3CRwMQoCEpOjoARdQBHbN7HvE72WQ==}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@deepseek-ai/node-addon-landlock-run-linux-x64@0.1.1':
+    resolution: {integrity: sha512-OHAzPW2Coe/iYobAJAAA8CeVrBoKV4BnNHsgwvXwOfishxkUVSWSvdyxrZPiwYRXutpIGVrSo9zV3WOQy2euBA==}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+
+  '@deepseek-ai/node-addon-landlock-run@0.1.1':
+    resolution: {integrity: sha512-aHGhlQJEutfobKM/4K59SERbT7RmQdD2oMKzD8Bne/Ps7TeT8AweCN+dpdfuxQhMNbFcJMymrgPnID0WYQ30Tw==}
+    engines: {node: '>=20'}
 
   '@deepseek-ai/schemastery@3.18.2':
     resolution: {integrity: sha512-njDtZsznjYxok7KLLlHOPyuv2efdWVbSflAHgztSfbMsg+CVraEoRe2DjOCgClYv3ZCSm7WXoaUkbB/+RY7tWQ==}
@@ -3900,6 +3950,96 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
+
+  '@koromix/koffi-android-arm64@3.2.1':
+    resolution: {integrity: sha512-1pJQ4jnZlUJduK9u9DC5CGy3aOgDUPvIXpNb6syV3+Dh5Q/ugezAIGCqvY+w+1mgXsve0pd0NVvJRjdZNHQ6MA==}
+    cpu: [arm64]
+    os: [android]
+
+  '@koromix/koffi-android-x64@3.2.1':
+    resolution: {integrity: sha512-HH40xGh3gVQifjOBnhwT2tECC0lL1lYe+nxHvWNSzxDIyQNcVPXg38ta7vuONRFpD+uIrw7fqGYLzbZIagkVcg==}
+    cpu: [x64]
+    os: [android]
+
+  '@koromix/koffi-darwin-arm64@3.2.1':
+    resolution: {integrity: sha512-Vj4h+xcjc5+Cn0DhPHjgRX4omKAv96Kehtcd+1YgYuY2W7FvQn9vS+3SmzVwhC5Qmg9bIwUZObYQ8T/4hBqQqA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@koromix/koffi-darwin-x64@3.2.1':
+    resolution: {integrity: sha512-gFCWxNBTZIvxo1p+PURWfsy2Ctj5FGnVVs1f03lTLhBvmxEto70pdIiFztdFLDFkAJ1pmtQmruRKapeK+E8YPA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@koromix/koffi-freebsd-arm64@3.2.1':
+    resolution: {integrity: sha512-qj+f1s2e6vULaUG1cdlTcCXmunCq2t+rjxku1+esaMIqVnHpOwj0QzPuInG0AFdXjwBNQhyVR/HpDj8daEwwsQ==}
+    cpu: [arm64]
+    os: [freebsd]
+
+  '@koromix/koffi-freebsd-ia32@3.2.1':
+    resolution: {integrity: sha512-6olHb1Qfgai0jjs6ddlDDD0ZfsCxy7SPi8rMRpuYQWH0qhgtyQu82hw5b1p7z+TJ0zZP3ZeQQ6l+U/MlM1ICHQ==}
+    cpu: [ia32]
+    os: [freebsd]
+
+  '@koromix/koffi-freebsd-x64@3.2.1':
+    resolution: {integrity: sha512-Dikhw1ySYNVMkmeFvFVjnU5Wdk6mffNoOjJxm9bTG96vg7OlemylxqdEven47R1YJ3yzNVJn/MlQ207ORWfi2w==}
+    cpu: [x64]
+    os: [freebsd]
+
+  '@koromix/koffi-linux-arm64@3.2.1':
+    resolution: {integrity: sha512-K+cGUL5iBcDqxmsocrjmlASqDf24gc7artbVW3PewG2c9AqwC63lezgwvB85Nx4lZAQjB6zIFHh9A7t1yGbwhw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@koromix/koffi-linux-arm@3.2.1':
+    resolution: {integrity: sha512-OfwUwZylidq95wQKp6ClInULrfB2giu7dqM6Rhe0zAe6lES5I2SXNw15T9+GnRHk3/9hKT2XZ37OZLaKSyWNLA==}
+    cpu: [arm]
+    os: [linux]
+
+  '@koromix/koffi-linux-ia32@3.2.1':
+    resolution: {integrity: sha512-rxj6UYjU1qd98gxNQOSCdLpc5cPRi5Giq9rNd3jnGuSNIyMkwa6Dxw4cUjmhIBCYESMJtmNt5NWnJp5u9wTfYQ==}
+    cpu: [ia32]
+    os: [linux]
+
+  '@koromix/koffi-linux-loong64@3.2.1':
+    resolution: {integrity: sha512-aHhnHzkPRmT/IHDlGvESJ/Bs32m8N6UE6Ab6kMeJzgk74IN8af2m/81/wZJtybR1M2UxCV4NmlVNUYQQvSAO3Q==}
+    cpu: [loong64]
+    os: [linux]
+
+  '@koromix/koffi-linux-riscv64@3.2.1':
+    resolution: {integrity: sha512-qtQBsjbm3LiirLJvajWmKkNb7ARk7fvJVXdftJ7NtAnF3Xw8EbDvrtvmvtNI1yLPlYcBmlzCCD71hwhWYk0SIA==}
+    cpu: [riscv64]
+    os: [linux]
+
+  '@koromix/koffi-linux-x64@3.2.1':
+    resolution: {integrity: sha512-c7hw7Qs/r5gnFRTQLcbifBwRU7wiocj+2pVuDQ5Ahb3r36SZmupmgYbTWcLvTW+hul1jd7SKRV0d14ZJq/tvSw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@koromix/koffi-openbsd-ia32@3.2.1':
+    resolution: {integrity: sha512-mmY8fY8LQ/CB52+h3yrMYmVyoxzW3x08S0yI6VNfHWdfU6yJtZkKCbhjmQCYMrWbYKC4gMvwZwCywIGPAkLyeA==}
+    cpu: [ia32]
+    os: [openbsd]
+
+  '@koromix/koffi-openbsd-x64@3.2.1':
+    resolution: {integrity: sha512-k4ig6aAPbFSRATOIIOfdf/KtlOGH4SVls6L9fy0QnTxRJYvY2oSltTsQtBDANgEQldlq8Kl5WnpRa1VSibP4Lw==}
+    cpu: [x64]
+    os: [openbsd]
+
+  '@koromix/koffi-win32-arm64@3.2.1':
+    resolution: {integrity: sha512-cTWBJGK//pDMeKQJE/79Aq9MiOAF4H8QyLZHSQ9IWm8czOfwjG4J1AhsQ9DjI9KFOykH77hhnpmQTGVMIubGig==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@koromix/koffi-win32-ia32@3.2.1':
+    resolution: {integrity: sha512-Z50EM6TAZ7CFyMmyX6thv8eNpJchqe9eenhibSIy2Eq/FQYF76gU2VK/LEoaF46L8hfC7TpTp9b10MvReHEyFA==}
+    cpu: [ia32]
+    os: [win32]
+
+  '@koromix/koffi-win32-x64@3.2.1':
+    resolution: {integrity: sha512-ZmZNiBO6bkOSh3QNzgfvb1cMY0yMobn6ZQrSMqbAce21qyYL8niIbyipz9N/PIRDciGhsV0wUxnZsxIO+yWsHQ==}
+    cpu: [x64]
+    os: [win32]
 
   '@larksuiteoapi/node-sdk@1.73.3':
     resolution: {integrity: sha512-14Zj8r3f5CEIvpRuzb5HSYyp6O092N1kQkGHg6Kwi/c7B0CmXeCHBVM3Pmn0ozP5JvvAQd/PXBzW48rMH6cj4Q==}
@@ -6958,6 +7098,9 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
+  koffi@3.2.1:
+    resolution: {integrity: sha512-0qE3lZ8jllRqPN4Ob6Ajl7c2bJSJDhQWuKLGP5hIEpHLllJWv1ydHFMhHmHc5p/W9GticKVDbYzZd7TBoQ4CZg==}
+
   kysely-codegen@0.20.0:
     resolution: {integrity: sha512-LSi2KBG7uDmNCZ+XurLSA9LH7XFyyoQ6xb5DLJSInPTSYLVApjOP2KwO8mSaREWTtoX+C2AG2GTlYR0DLjTbcA==}
     engines: {node: '>=20.0.0'}
@@ -9850,6 +9993,18 @@ snapshots:
     transitivePeerDependencies:
       - '@deepseek-ai/dsh-invariants'
 
+  '@deepseek-ai/dsh-sandbox-local@0.1.2-alpha.2(8adffb6e2f5e8c99c57098bf45a97eb2)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@deepseek-ai/dsh-invariants': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-llm': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/dsh-sandbox': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-session@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))))
+      '@deepseek-ai/dsh-sandbox-windows-acl': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-session': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
+      '@deepseek-ai/dsh-util-values': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/node-addon-landlock-run': 0.1.1
+      '@deepseek-ai/schemastery': 3.18.2
+
   '@deepseek-ai/dsh-sandbox-policy@0.1.2-alpha.2(3357c717c4eec41932cb2ef673561c2f)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
@@ -9861,6 +10016,12 @@ snapshots:
       '@deepseek-ai/dsh-system-prompt': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
       '@deepseek-ai/schemastery': 3.18.2
       zod: 4.4.3
+
+  '@deepseek-ai/dsh-sandbox-windows-acl@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@deepseek-ai/dsh-win32-process': 0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)
+      koffi: 3.2.1
 
   '@deepseek-ai/dsh-sandbox@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-session@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))))':
     dependencies:
@@ -10154,6 +10315,22 @@ snapshots:
       '@deepseek-ai/dsh-invariants': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-llm': 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
       '@deepseek-ai/schemastery': 3.18.2
+
+  '@deepseek-ai/dsh-win32-process@0.1.2-rc.1(@deepseek-ai/cordis@4.0.2)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      koffi: 3.2.1
+
+  '@deepseek-ai/node-addon-landlock-run-linux-arm64@0.1.1':
+    optional: true
+
+  '@deepseek-ai/node-addon-landlock-run-linux-x64@0.1.1':
+    optional: true
+
+  '@deepseek-ai/node-addon-landlock-run@0.1.1':
+    optionalDependencies:
+      '@deepseek-ai/node-addon-landlock-run-linux-arm64': 0.1.1
+      '@deepseek-ai/node-addon-landlock-run-linux-x64': 0.1.1
 
   '@deepseek-ai/schemastery@3.18.2':
     dependencies:
@@ -10995,6 +11172,60 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@koromix/koffi-android-arm64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-android-x64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-darwin-arm64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-darwin-x64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-freebsd-arm64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-freebsd-ia32@3.2.1':
+    optional: true
+
+  '@koromix/koffi-freebsd-x64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-linux-arm64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-linux-arm@3.2.1':
+    optional: true
+
+  '@koromix/koffi-linux-ia32@3.2.1':
+    optional: true
+
+  '@koromix/koffi-linux-loong64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-linux-riscv64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-linux-x64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-openbsd-ia32@3.2.1':
+    optional: true
+
+  '@koromix/koffi-openbsd-x64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-win32-arm64@3.2.1':
+    optional: true
+
+  '@koromix/koffi-win32-ia32@3.2.1':
+    optional: true
+
+  '@koromix/koffi-win32-x64@3.2.1':
+    optional: true
 
   '@larksuiteoapi/node-sdk@1.73.3(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
@@ -14023,6 +14254,27 @@ snapshots:
       unbash: 4.0.10
       yaml: 2.9.0
       zod: 4.4.3
+
+  koffi@3.2.1:
+    optionalDependencies:
+      '@koromix/koffi-android-arm64': 3.2.1
+      '@koromix/koffi-android-x64': 3.2.1
+      '@koromix/koffi-darwin-arm64': 3.2.1
+      '@koromix/koffi-darwin-x64': 3.2.1
+      '@koromix/koffi-freebsd-arm64': 3.2.1
+      '@koromix/koffi-freebsd-ia32': 3.2.1
+      '@koromix/koffi-freebsd-x64': 3.2.1
+      '@koromix/koffi-linux-arm': 3.2.1
+      '@koromix/koffi-linux-arm64': 3.2.1
+      '@koromix/koffi-linux-ia32': 3.2.1
+      '@koromix/koffi-linux-loong64': 3.2.1
+      '@koromix/koffi-linux-riscv64': 3.2.1
+      '@koromix/koffi-linux-x64': 3.2.1
+      '@koromix/koffi-openbsd-ia32': 3.2.1
+      '@koromix/koffi-openbsd-x64': 3.2.1
+      '@koromix/koffi-win32-arm64': 3.2.1
+      '@koromix/koffi-win32-ia32': 3.2.1
+      '@koromix/koffi-win32-x64': 3.2.1
 
   kysely-codegen@0.20.0(better-sqlite3@13.0.3)(kysely@0.29.5)(typescript@6.0.3):
     dependencies:

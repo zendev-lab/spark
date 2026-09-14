@@ -343,3 +343,9 @@ Workspace symlinks can otherwise hide missing manifest edges; npm's
 explains that workspaces are linked into `node_modules`. Spark therefore checks
 that every production import of another workspace is also a declared runtime
 dependency.
+
+Native daemon execution composes the official DSH local sandbox and user-approval
+services alongside Cue. The default full-access host uses approval policy `never`
+(escalation requests are denied); it does not install a parallel approval queue.
+Reusable Web providers retain their private-host rejection default; the trusted
+local Spark daemon explicitly permits private-host retrieval.
