@@ -120,9 +120,9 @@
   },
   "engines": {
     "node": ">=24.0.0",
-    "pnpm": ">=11 <12"
+    "pnpm": ">=11 <13"
   },
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.4.1",
   "sparkRelease": {
     "minimumUpdaterVersion": "0.5.0",
     "rollbackCompatibility": ">=0.5.0 <0.6.0",
