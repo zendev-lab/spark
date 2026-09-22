@@ -3,9 +3,14 @@
   "extends": ["github>zrr1999/renovate-config"],
   "packageRules": [
     {
-      "description": "Keep DSH on the supported session persistence contract until the rc event-log migration is implemented.",
+      "description": "Keep the DSH package family on the validated session persistence contract.",
       "matchPackageNames": ["@deepseek-ai/dsh", "@deepseek-ai/dsh-*"],
-      "allowedVersions": "0.1.2-alpha.2"
+      "allowedVersions": "0.1.7-alpha.1"
+    },
+    {
+      "description": "The historical Spark v4 reader must retain its original codec.",
+      "matchDepNames": ["spark-dsh-session-v0"],
+      "enabled": false
     }
   ]
 }

@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { Context, Plugin } from "@deepseek-ai/cordis";
-import { type AgentHandle } from "@deepseek-ai/dsh-agent";
+import { type Agent, type AgentHandle } from "@deepseek-ai/dsh-agent";
 import {
   ToolCallId,
   LlmAdapter,
@@ -19,6 +19,7 @@ import {
   type ToolResultMessage as DshToolResultMessage,
   type ToolSchema,
 } from "@deepseek-ai/dsh-llm";
+import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { idleWatchdog } from "@deepseek-ai/dsh-timeout";
 import { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
@@ -194,13 +195,11 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
     );
     const concurrency: SparkTurnConcurrencyGate = { sequential: false };
     const driverProvider = `${SPARK_TURN_PROVIDER}/${randomUUID()}`;
-    const setup = async (agentCtx: Context): Promise<void> => {
+    const setup = async (agentCtx: Context, agent: Agent): Promise<void> => {
       const executionCtx = invocationLabel
         ? agentCtx.isolate("sparkInvocation", invocationLabel)
         : agentCtx;
       if (!persisted && input.sessionMetadata) {
-        const agent = executionCtx.agent;
-        if (!agent) throw new Error("DSH Agent setup is missing its scoped Agent");
         appendSparkSessionMetadata(agent.session, input.sessionMetadata);
       }
       installSparkHangTimeoutPlugin(executionCtx, input.streamIdleTimeoutMs);
@@ -237,10 +236,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
     };
     const sessionId = SessionId(input.sessionId);
     const persistence = ctx.get("sessionPersistence");
-    const persisted =
-      persistence?.supportsRawArtifacts === true
-        ? await persistence.readRaw(sessionId, input.signal)
-        : undefined;
+    const persisted = await persistence?.stat(sessionId, { signal: input.signal });
     handle = persisted
       ? await ctx.agents.resume({
           resumeSessionId: sessionId,
@@ -265,7 +261,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       if (!persistence) {
         throw new Error("Spark Invocation Session has no persistence owner");
       }
-      await persistence.ensureMaterialized(handle.agent.session);
+      await handle.agent.ctx.sessions.flush(handle.agent.session);
       input.signal.throwIfAborted();
     }
     handle.agent.followup(
@@ -493,7 +489,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     if (this.registeredNames.has(name)) return;
     // A Cordis-native plugin owns this name in the Agent scope. Do not shadow
     // it with the compatibility dispatcher after the model selects it.
-    if (this.ctx.tools.get(name, this.ctx.agent)) return;
+    if (this.ctx.tools.get(name, scopeOf(this.ctx))) return;
     this.registeredNames.add(name);
     this.ctx.tools.register(
       sparkHostToolDefinition({ name, description: name }, this.hooks, this.concurrency),
@@ -528,12 +524,24 @@ function mergeNativeDshComposition(
   const existingNames = new Set(existingTools.map((tool) => tool.name));
   const nativeTools = (options.tools ?? []).flatMap((schema): SparkDshToolDescriptor[] => {
     if (sparkHostTools.has(schema.name) || existingNames.has(schema.name)) return [];
-    const policy = sparkDshToolPolicy(ctx, schema.name, ctx.agent);
+    const policy = sparkDshToolPolicy(ctx, schema.name, scopeOf(ctx));
     if (hooks.isDshToolAvailable?.(schema.name, policy) === false) return [];
     return [{ schema, policy }];
   });
   if (nativeTools.length === 0) return { context, tools: [] };
-  const systemPrompt = joinPromptSections(context.systemPrompt, options.system);
+  const instructions = options.messages
+    .filter((message) => message.role === "system" || message.role === "developer")
+    .map((message) =>
+      message.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n"),
+    )
+    .join("\n\n");
+  const systemPrompt = joinPromptSections(
+    context.systemPrompt,
+    joinPromptSections(options.system, instructions),
+  );
   return {
     context: {
       ...context,
@@ -625,8 +633,7 @@ function sparkToolResultFromDsh(
   toolName: string,
   meta: unknown,
 ): ToolResultMessage {
-  const block = message.content[0];
-  const content = block.content.flatMap((part) => {
+  const content = message.content.flatMap((part) => {
     if (part.type === "text") return [{ type: "text" as const, text: part.text }];
     if (part.type === "image") {
       return [
@@ -640,11 +647,11 @@ function sparkToolResultFromDsh(
   });
   return {
     role: "toolResult",
-    toolCallId: String(block.toolCallId),
+    toolCallId: String(message.toolCallId),
     toolName,
     content,
     ...(meta !== undefined ? { details: meta } : parsedJsonDetails(content)),
-    isError: Boolean(block.isError),
+    isError: Boolean(message.isError),
     timestamp: Date.now(),
   };
 }

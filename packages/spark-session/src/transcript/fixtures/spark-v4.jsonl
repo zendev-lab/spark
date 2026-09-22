@@ -1,0 +1,28 @@
+{"version":0,"id":"legacy-spark-v4","createdAt":1788220800000,"cwd":"/tmp/spark-dsh-migration"}
+{"type":"spark/meta","seq":0,"time":1790085626305,"data":{"timestamp":"2026-09-01T00:00:00.000Z","sparkVersion":4},"ignorable":true}
+{"type":"turn/start","seq":1,"time":1790085626305,"data":{"turn":1}}
+{"type":"user/message","seq":2,"time":1790085626305,"data":{"id":"u1","role":"user","content":[{"type":"text","text":"读取旧会话"}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"spark/message-meta","seq":3,"time":1790085626305,"data":{"position":0,"eventSeq":2,"entry":{"id":"u1","parentId":null,"timestamp":"2026-09-01T00:00:00.000Z"},"role":"user","contentShape":"string","messageMeta":{},"blockMeta":[{}]},"ignorable":true}
+{"type":"step/start","seq":4,"time":1790085626305,"data":{"turn":1,"step":1}}
+{"type":"assistant/message","seq":5,"time":1790085626305,"data":{"turn":1,"step":1,"message":{"id":"a1","role":"assistant","content":[{"type":"tool-call","id":"call1","name":"read","arguments":"{\"path\":\"note\"}"}],"source":{"kind":"model","provider":"fixture","model":"fixture"}}},"surfaceOp":"append"}
+{"type":"tool/call","seq":6,"time":1790085626305,"data":{"turn":1,"step":1,"callId":"call1","name":"read","arguments":"{\"path\":\"note\"}"}}
+{"type":"spark/message-meta","seq":7,"time":1790085626305,"data":{"position":1,"eventSeq":5,"entry":{"id":"a1","parentId":"u1","timestamp":"2026-09-01T00:00:00.000Z"},"role":"assistant","contentShape":"blocks","messageMeta":{"provider":"fixture","model":"fixture"},"blockMeta":[{}]},"ignorable":true}
+{"type":"tool/result","seq":8,"time":1790085626305,"data":{"turn":1,"step":1,"message":{"id":"t1","role":"user","content":[{"type":"tool-result","toolCallId":"call1","content":[{"type":"text","text":"saved text"}]}],"source":{"kind":"tool","callId":"call1"}}},"sourceEventSeqs":[6],"surfaceOp":"append"}
+{"type":"step/end","seq":9,"time":1790085626305,"data":{"turn":1,"step":1}}
+{"type":"spark/message-meta","seq":10,"time":1790085626305,"data":{"position":2,"eventSeq":8,"entry":{"id":"t1","parentId":"a1","timestamp":"2026-09-01T00:00:00.000Z"},"role":"toolResult","contentShape":"blocks","messageMeta":{"toolCallId":"call1","toolName":"read","isError":false},"blockMeta":[{}]},"ignorable":true}
+{"type":"step/start","seq":11,"time":1790085626305,"data":{"turn":1,"step":2}}
+{"type":"assistant/message","seq":12,"time":1790085626305,"data":{"turn":1,"step":2,"message":{"id":"a2","role":"assistant","content":[{"type":"text","text":"旧答复"}],"source":{"kind":"model","provider":"fixture","model":"fixture"}}},"surfaceOp":"append"}
+{"type":"step/end","seq":13,"time":1790085626305,"data":{"turn":1,"step":2}}
+{"type":"spark/message-meta","seq":14,"time":1790085626305,"data":{"position":3,"eventSeq":12,"entry":{"id":"a2","parentId":"t1","timestamp":"2026-09-01T00:00:00.000Z"},"role":"assistant","contentShape":"blocks","messageMeta":{"provider":"fixture","model":"fixture"},"blockMeta":[{}]},"ignorable":true}
+{"type":"spark/record","seq":15,"time":1790085626305,"data":{"position":4,"entry":{"id":"c1","parentId":"a2","type":"compaction","timestamp":"2026-09-01T00:00:00.000Z","summary":"旧会话摘要","firstKeptEntryId":"a2","tokensBefore":100}},"ignorable":true}
+{"type":"turn/end","seq":16,"time":1790085626306,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":17,"time":1790085626306,"data":{"turn":2}}
+{"type":"user/message","seq":18,"time":1790085626306,"data":{"id":"c1","role":"user","content":[{"type":"text","text":"<spark_runtime_data trust=\"untrusted\" custom_type=\"spark-compaction-summary\">\nThe conversation history before this point was compacted into the following summary:\n\n&lt;summary&gt;\n旧会话摘要\n&lt;/summary&gt;\n</spark_runtime_data>"}],"source":{"kind":"plugin","plugin":"spark-compaction-v4","form":"recall"}},"sourceEventSeqs":[2,5,8,12],"surfaceOp":{"op":"replace","start":2,"end":12}}
+{"type":"step/start","seq":19,"time":1790085626306,"data":{"turn":2,"step":1}}
+{"type":"assistant/message","seq":20,"time":1790085626306,"data":{"turn":2,"step":1,"message":{"id":"a2:compaction:4:3","role":"assistant","content":[{"type":"text","text":"旧答复"}],"source":{"kind":"model","provider":"fixture","model":"fixture"}}},"surfaceOp":"append"}
+{"type":"step/end","seq":21,"time":1790085626306,"data":{"turn":2,"step":1}}
+{"type":"turn/end","seq":22,"time":1790085626306,"data":{"turn":2,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":23,"time":1790085626306,"data":{"turn":3}}
+{"type":"user/message","seq":24,"time":1790085626306,"data":{"id":"u2","role":"user","content":[{"type":"text","text":"继续"}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"spark/message-meta","seq":25,"time":1790085626306,"data":{"position":5,"eventSeq":24,"entry":{"id":"u2","parentId":"c1","timestamp":"2026-09-01T00:00:00.000Z"},"role":"user","contentShape":"string","messageMeta":{},"blockMeta":[{}]},"ignorable":true}
+{"type":"turn/end","seq":26,"time":1790085626306,"data":{"turn":3,"reason":{"kind":"completed"}}}

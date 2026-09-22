@@ -1,6 +1,12 @@
+import SessionStore, { Session, SessionId } from "@deepseek-ai/dsh-session";
+import FileSystem from "@deepseek-ai/dsh-fs-local";
+import Subprocess from "@deepseek-ai/dsh-subprocess-local";
+import Sandbox from "@deepseek-ai/dsh-sandbox-local";
+import SandboxPolicy from "@deepseek-ai/dsh-sandbox-policy";
+import SessionProjections from "@deepseek-ai/dsh-session-projection";
 import { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { WorkerThreadCodeRuntime } from "@deepseek-ai/dsh-code-runtime-worker-thread";
+import { NodePtcRuntime } from "@deepseek-ai/dsh-ptc-runtime-node";
 import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import { apply as ShellEnv } from "@deepseek-ai/dsh-shell-env";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
@@ -13,11 +19,13 @@ const signal = new AbortController().signal;
 
 function agent(): Agent {
   return {
-    session: {
-      id: "code-session",
-      header: { id: "code-session", cwd: "/workspace" },
-      append: vi.fn(),
-    },
+    session: Session.create(SessionId("code-session"), undefined, {
+      version: 4,
+      id: SessionId("code-session"),
+      createdAt: 0,
+      isSeeded: false,
+      cwd: process.cwd(),
+    }),
   } as unknown as Agent;
 }
 
@@ -26,13 +34,14 @@ describe("DSH PTC contract", () => {
     const ctx = new Context();
     await ctx.plugin(SystemPrompt, {});
     await ctx.plugin(ToolRuntime, { mode: "ptc" });
-    await ctx.plugin(WorkerThreadCodeRuntime, {});
+    await ctx.plugin(SessionStore);
+    await ctx.plugin(FileSystem);
+    await ctx.plugin(Subprocess);
+    await ctx.plugin(Sandbox, {});
+    await ctx.plugin(SessionProjections);
+    await ctx.plugin(SandboxPolicy, { mode: "danger-full-access", workspaceRoot: process.cwd() });
+    await ctx.plugin(NodePtcRuntime, {});
     await ctx.plugin(ShellEnv, { dshHome: "/tmp/dsh-code-test" });
-    Object.assign(ctx as unknown as Record<string, unknown>, {
-      sandboxPolicy: {
-        resolve: () => ({ mode: "danger-full-access", workspaceRoot: "/workspace" }),
-      },
-    });
 
     const execute = vi.fn(async () => ({
       tool: "cue_exec" as const,
