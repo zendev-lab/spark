@@ -44,25 +44,30 @@ test("source web preserves its launch context while keeping SvelteKit in its app
   }
 });
 
-test("failed development startup restores the caller's directory and launch context", async () => {
-  const launchCwd = process.cwd();
-  const previousLaunchCwd = process.env[SPARK_WEB_LAUNCH_CWD_ENV];
-  const appDir = await mkdtemp(join(tmpdir(), "spark-web-vite-failure-"));
-  const failure = new Error("address in use");
-  vite.createServer.mockResolvedValueOnce({
-    listen: async () => {
-      throw failure;
-    },
-  });
-  try {
-    await assert.rejects(
-      startSparkWebDevelopmentServer({ appDir, host: "127.0.0.1", port: 4310, hmr: true }),
-      (error: unknown) => error === failure,
-    );
-    assert.equal(process.cwd(), launchCwd);
-    assert.equal(process.env[SPARK_WEB_LAUNCH_CWD_ENV], previousLaunchCwd);
-  } finally {
-    process.chdir(launchCwd);
-    await rm(appDir, { recursive: true, force: true });
-  }
-});
+test.each(["create", "listen"])(
+  "failed development %s restores the caller's directory and launch context",
+  async (phase) => {
+    const launchCwd = process.cwd();
+    const previousLaunchCwd = process.env[SPARK_WEB_LAUNCH_CWD_ENV];
+    const appDir = await mkdtemp(join(tmpdir(), "spark-web-vite-failure-"));
+    const failure = new Error("address in use");
+    if (phase === "create") vite.createServer.mockRejectedValueOnce(failure);
+    else
+      vite.createServer.mockResolvedValueOnce({
+        listen: async () => {
+          throw failure;
+        },
+      });
+    try {
+      await assert.rejects(
+        startSparkWebDevelopmentServer({ appDir, host: "127.0.0.1", port: 4310, hmr: true }),
+        (error: unknown) => error === failure,
+      );
+      assert.equal(process.cwd(), launchCwd);
+      assert.equal(process.env[SPARK_WEB_LAUNCH_CWD_ENV], previousLaunchCwd);
+    } finally {
+      process.chdir(launchCwd);
+      await rm(appDir, { recursive: true, force: true });
+    }
+  },
+);

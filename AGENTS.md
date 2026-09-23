@@ -74,28 +74,20 @@ for interpreting this file.
 
 ## Change protocol
 
-1. Identify the authoritative owner before editing.
-2. Inspect the relevant specification, package README, nearby tests, and
-   machine-readable inventory.
-3. Make the smallest change that preserves dependency and state ownership.
-4. Move shared validation or semantics into the existing owner or protocol
-   before adding another surface adapter.
-5. Add focused tests for observable behavior, state transitions, persisted
-   effects, boundary calls, failure modes, schemas, compatibility, and every
-   newly reachable state. Do not encode source, prompt, or prose wording in
-   literal or substring assertions, snapshots, or fixed hashes unless the exact
-   representation or digest is itself an intentional contract, such as a
-   complete serialized or rendered artifact, content-addressed identity, or
-   integrity/wire digest.
-6. Update the public guide, normative specification, or operation that owns any
-   changed behavior. Link instead of copying.
-7. Follow the validation matrix in
-   [`CONTRIBUTING.md`](./CONTRIBUTING.md#validation) and report exactly what ran.
-8. Review the final diff for unrelated edits, generated output, secrets,
-   runtime state, and accidental package-boundary changes.
-9. For a PR, follow the title and body checks documented in
-   [`CONTRIBUTING.md`](./CONTRIBUTING.md#pull-requests); the body's `##`
-   headings must match the template exactly (CI enforces it).
+Use the workflow and validation matrix in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#change-workflow). Resolve routine details
+from the owning code and contracts, and continue work within the user's scope.
+Ask only when a missing decision materially changes behavior, authority, or
+irreversible cost; continue independent work while that decision is pending.
+
+Test observable behavior and boundaries. Do not assert source, prompt, or prose
+wording through substrings, snapshots, or hashes unless the exact representation
+is an intentional serialization, rendering, identity, or integrity contract.
+Run applicable required checks; repeat or broaden them only for new changes,
+failures, or unresolved risks. Report what ran and what remains unverified.
+
+For a PR, use an English title in the repository's required format and follow
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#pull-requests) for the body template.
 
 ## Architecture discipline
 
@@ -111,18 +103,11 @@ measured requirement.
 
 ## Documentation discipline
 
-Use the ownership table in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md#documentation-ownership):
-
-- keep `README.md` stable and user-oriented;
-- keep exhaustive commands and workflows in `apps/spark-docs`;
-- keep internal contracts in `.agents/notes/contracts`;
-- keep maintainer procedures in `.agents/notes/runbooks`;
-- keep dated engineering decisions in `.agents/notes/decisions`;
-- keep temporary migration status and open design direction in `SPARK.md`;
-- keep this file limited to stable, self-contained standing orders;
-- place reusable agent methods or orchestration in their Role, Skill, Workflow,
-  or Note owner without making this file depend on those assets.
+Follow the documentation ownership table in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#documentation-ownership).
+Keep this file limited to stable, self-contained standing orders; reusable
+methods belong in their Role, Skill, Workflow, or Note owner without making
+standing orders depend on those assets.
 
 When changing public documentation, update English and Chinese pages together.
 Do not modify archived versions unless the task explicitly targets an archive.

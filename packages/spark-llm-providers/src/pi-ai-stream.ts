@@ -80,9 +80,25 @@ export function readSparkPiGenerateCarrier(
 export function generateOptionsToPiContext(options: GenerateOptions): Context {
   const carrier = readSparkPiGenerateCarrier(options);
   if (carrier) return carrier.context;
+  const instructions = options.messages.filter(
+    (message) => message.role === "system" || message.role === "developer",
+  );
+  const systemPrompt = [
+    options.system,
+    ...instructions.map((message) =>
+      message.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n"),
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   return {
-    ...(options.system ? { systemPrompt: options.system } : {}),
-    messages: options.messages.flatMap(dshMessageToPiMessages),
+    ...(systemPrompt ? { systemPrompt } : {}),
+    messages: options.messages
+      .filter((message) => message.role !== "system" && message.role !== "developer")
+      .flatMap(dshMessageToPiMessages),
     ...(options.tools
       ? {
           tools: options.tools.map((tool) => ({
@@ -461,8 +477,8 @@ function dshMessageToPiMessages(message: GenerateOptions["messages"][number]): M
       } as AssistantMessage,
     ];
   }
-  const toolResult = message.content.find((block) => block.type === "tool-result");
-  if (toolResult && toolResult.type === "tool-result") {
+  if (message.role === "tool") {
+    const toolResult = message;
     return [
       {
         role: "toolResult",

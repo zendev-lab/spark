@@ -15,11 +15,19 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     body = await request.json();
   } catch (caught) {
+    // Keep upload failures separate from errors after an RPC may have taken effect.
+    if (
+      request.signal.aborted ||
+      (caught instanceof Error &&
+        (caught.name === "AbortError" || ("code" in caught && caught.code === "ECONNRESET")))
+    ) {
+      return new Response(null, { status: 499 });
+    }
     if (caught instanceof SyntaxError) return invalidRequest("Request body must be valid JSON");
     throw caught;
   }
 
-  if (body === null || typeof body !== "object" || !("method" in body)) {
+  if (body === null || typeof body !== "object" || Array.isArray(body) || !("method" in body)) {
     return invalidRequest("RPC method is required");
   }
   const { method, input } = body as { method?: unknown; input?: unknown };

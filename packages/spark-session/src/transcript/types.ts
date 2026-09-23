@@ -7,7 +7,7 @@
 
 import type { SubagentDescriptorData } from "@deepseek-ai/dsh-subagent";
 
-export const CURRENT_SPARK_SESSION_VERSION = 4;
+export const CURRENT_SPARK_SESSION_VERSION = 5;
 
 export interface SparkSessionHeader {
   type: "session";

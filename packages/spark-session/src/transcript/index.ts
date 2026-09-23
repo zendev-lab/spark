@@ -30,7 +30,7 @@ export {
   SPARK_DSH_MESSAGE_META_EVENT_TYPE,
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
-  isSparkDshV4Document,
+  isNativeSparkDshDocument,
 } from "./dsh-format.ts";
 export {
   SparkSessionStore,

@@ -12,7 +12,7 @@ export async function startSparkWebDevelopmentServer(
   const previousLaunchCwd = process.env[SPARK_WEB_LAUNCH_CWD_ENV];
   try {
     process.env[SPARK_WEB_LAUNCH_CWD_ENV] = launchCwd;
-    // SvelteKit route discovery and its watcher both resolve paths against cwd.
+    // Route discovery and deferred SvelteKit imports need the app cwd for this process's lifetime.
     process.chdir(options.appDir);
     const vite = await createViteServer({
       configFile: join(options.appDir, "vite.config.ts"),

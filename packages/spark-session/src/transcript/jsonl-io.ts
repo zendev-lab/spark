@@ -1,6 +1,6 @@
 /** JSONL I/O helpers for Spark Session transcripts. */
 
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { SparkSessionAtomicWriteOptions, SparkSessionFileEntry } from "./types.ts";
@@ -15,6 +15,12 @@ export async function writeJsonLinesAtomically(
   let committed = false;
   try {
     await writeFile(tmp, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+    const file = await open(tmp, "r+");
+    try {
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     throwIfAtomicWriteAborted(options.signal);
     let replacement: Promise<void> | undefined;
     const replace = (): Promise<void> => {
@@ -24,6 +30,12 @@ export async function writeJsonLinesAtomically(
         throwIfAtomicWriteAborted(options.signal);
         await rename(tmp, path);
         committed = true;
+        const directory = await open(dirname(path), "r");
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
       })();
       return replacement;
     };

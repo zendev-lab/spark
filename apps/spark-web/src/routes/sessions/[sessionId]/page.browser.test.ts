@@ -266,6 +266,89 @@ describe("Session page owner state", () => {
     await screen.unmount();
   });
 
+  it("releases a completed turn identity while viewing another session", async () => {
+    const response = deferred<{ invocationId: string }>();
+    mocks.webRpc.mockImplementation((method: string) =>
+      method === "turn.submit" ? response.promise : Promise.resolve({ waits: [] }),
+    );
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Repeat this");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    response.resolve({ invocationId: "inv-a" });
+    await tick();
+    await screen.rerender({ data: sessionData("a") });
+    await composer.fill("Repeat this");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[1][1].idempotencyKey).not.toBe(submissions[0][1].idempotencyKey);
+    await screen.unmount();
+  });
+
+  it("fences stale turn responses after returning to the same session", async () => {
+    const first = deferred<{ invocationId: string }>();
+    const second = deferred<{ invocationId: string }>();
+    let attempts = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "turn.submit") return ++attempts === 1 ? first.promise : second.promise;
+      return Promise.resolve({ waits: [] });
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Repeat this");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    await screen.rerender({ data: sessionData("a") });
+    await composer.fill("Next message");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await composer.fill("Repeat this");
+    first.resolve({ invocationId: "inv-first" });
+    await tick();
+    await expect.element(composer).toHaveValue("Repeat this");
+    await expect
+      .element(
+        screen.getByRole("button", { name: getDictionary("en").web.session.sending, exact: true }),
+      )
+      .toBeDisabled();
+    second.resolve({ invocationId: "inv-second" });
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await expect.element(composer).toHaveValue("Repeat this");
+    await screen.unmount();
+  });
+
+  it("keeps the retry identity when an older attempt succeeds before a retry fails", async () => {
+    const first = deferred<{ invocationId: string }>();
+    const second = deferred<{ invocationId: string }>();
+    let attempts = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method !== "turn.submit") return Promise.resolve({ waits: [] });
+      if (++attempts === 1) return first.promise;
+      if (attempts === 2) return second.promise;
+      return Promise.resolve({ invocationId: "inv-a" });
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    await screen.rerender({ data: sessionData("a") });
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    first.resolve({ invocationId: "inv-a" });
+    await tick();
+    second.reject(new Error("connection lost"));
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("connection lost");
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(3);
+    expect(submissions[1][1].idempotencyKey).toBe(submissions[0][1].idempotencyKey);
+    expect(submissions[2][1].idempotencyKey).toBe(submissions[0][1].idempotencyKey);
+    await screen.unmount();
+  });
+
   it("shows reconnection without losing the draft and enables sending after recovery", async () => {
     mocks.webRpc.mockResolvedValue({ waits: [] });
     const screen = await render(SessionPage, { data: sessionData("a") });

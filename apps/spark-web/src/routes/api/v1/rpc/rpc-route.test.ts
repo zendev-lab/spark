@@ -103,7 +103,7 @@ test("returns 400 when the RPC method is missing", async () => {
 });
 
 test("returns 400 for non-object bodies and non-string methods", async () => {
-  for (const body of [null, [], { method: 42 }]) {
+  for (const body of [null, [], 1, { method: 42 }]) {
     const response = await postJson(body);
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), {
@@ -111,6 +111,23 @@ test("returns 400 for non-object bodies and non-string methods", async () => {
       message: "RPC method is required",
     });
   }
+  assert.equal(invokeSparkWebRpcMock.mock.calls.length, 0);
+});
+
+test("aborted uploads do not dispatch an RPC or become server errors", async () => {
+  const request = new Request("http://localhost/api/v1/rpc", { method: "POST", body: "{}" });
+  vi.spyOn(request, "json").mockRejectedValueOnce(
+    Object.assign(new Error("aborted"), { code: "ECONNRESET" }),
+  );
+  const response = await POST({ request } as never);
+  assert.equal(response.status, 499);
+  assert.equal(invokeSparkWebRpcMock.mock.calls.length, 0);
+});
+
+test("unrelated body-read failures remain observable", async () => {
+  const request = new Request("http://localhost/api/v1/rpc", { method: "POST", body: "{}" });
+  vi.spyOn(request, "json").mockRejectedValueOnce(new Error("unexpected read failure"));
+  await assert.rejects(async () => await POST({ request } as never), /unexpected read failure/);
   assert.equal(invokeSparkWebRpcMock.mock.calls.length, 0);
 });
 

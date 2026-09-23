@@ -110,6 +110,7 @@
   >([]);
   let attachmentError = $state<string | null>(null);
   let submitting = $state(false);
+  let submitRequestToken = 0;
   let pendingSubmission: { fingerprint: string; idempotencyKey: string } | null = null;
   let actionFeedback = $state<{ tone: "status" | "error"; message: string } | null>(null);
   let artifactPreview = $state<{
@@ -348,6 +349,7 @@
     pendingAttachments = [];
     attachmentError = null;
     submitting = false;
+    submitRequestToken += 1;
     actionFeedback = null;
     artifactPreview = null;
     artifactPreviewOpen = false;
@@ -422,14 +424,18 @@
     const text = prompt.trim();
     if ((!text && pendingAttachments.length === 0) || submitting || connectionState === "reconnecting") return;
     const ownerSessionId = snapshot.sessionId;
+    const requestToken = ++submitRequestToken;
     const feedbackRequestToken = ++actionFeedbackRequestToken;
     const attachments = pendingAttachments;
     const submittedPrompt = prompt;
     const fingerprint = JSON.stringify([ownerSessionId, text, attachments]);
-    if (pendingSubmission?.fingerprint !== fingerprint) {
-      pendingSubmission = { fingerprint, idempotencyKey: crypto.randomUUID() };
-    }
-    const submission = pendingSubmission;
+    const submission = {
+      fingerprint,
+      idempotencyKey: pendingSubmission?.fingerprint === fingerprint
+        ? pendingSubmission.idempotencyKey
+        : crypto.randomUUID(),
+    };
+    pendingSubmission = submission;
     submitting = true;
     try {
       actionFeedback = null;
@@ -447,8 +453,11 @@
           messageMetadata: sparkWebTurnMessageMetadata(),
         });
       }
-      if (data.window.snapshot.sessionId !== ownerSessionId) return;
       if (pendingSubmission === submission) pendingSubmission = null;
+      if (
+        data.window.snapshot.sessionId !== ownerSessionId ||
+        requestToken !== submitRequestToken
+      ) return;
       if (prompt === submittedPrompt) prompt = "";
       pendingAttachments = pendingAttachments.filter((attachment) => !attachments.includes(attachment));
       attachmentError = null;
@@ -461,7 +470,10 @@
         };
       }
     } finally {
-      if (data.window.snapshot.sessionId === ownerSessionId) submitting = false;
+      if (
+        data.window.snapshot.sessionId === ownerSessionId &&
+        requestToken === submitRequestToken
+      ) submitting = false;
     }
   }
 

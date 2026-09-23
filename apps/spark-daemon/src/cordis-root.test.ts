@@ -256,7 +256,9 @@ describe("spark daemon Cordis root", () => {
       sessionsRoot: store.sessionsRoot,
     });
     try {
-      const loaded = await root.ctx.sessionPersistence.load(SessionId("sess_persist"));
+      const reader = await root.ctx.sessionPersistence.open(SessionId("sess_persist"), "read");
+      const loaded = { meta: reader.header, ...(await reader.read()) };
+      await reader.close();
       expect(loaded.meta.id).toBe("sess_persist");
       expect(loaded.meta.cwd).toBe(store.cwd);
       expect(loaded.events.some((event) => event.type === "user/message")).toBe(true);
@@ -276,8 +278,8 @@ describe("spark daemon Cordis root", () => {
       sessionId,
       agentOptions: { provider: "schedule-test", model: "schedule-test" },
       meta: { cwd: join(storageRoot, "workspace") },
-      setup(agentCtx) {
-        agentCtx.agent?.session.append("spark/meta", {
+      setup(_agentCtx, agent) {
+        agent.session.append("spark/meta", {
           timestamp: "2026-08-21T00:00:00.000Z",
           sparkVersion: CURRENT_SPARK_SESSION_VERSION,
         });
@@ -328,7 +330,10 @@ describe("spark daemon Cordis root", () => {
         value: { id: "schedule-1", deleted: true },
       });
 
-      const inspection = await root.ctx.sessionPersistence.inspect(sessionId);
+      await root.ctx.sessions.flush(handle.agent.session);
+      const reader = await root.ctx.sessionPersistence.open(sessionId, "read");
+      const inspection = await reader.read();
+      await reader.close();
       expect(
         inspection.events
           .filter((event) => event.type === "schedule/change")
@@ -450,7 +455,14 @@ describe("spark daemon Cordis root", () => {
         { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
       ]);
       expect(nativeToolNames).toEqual(
-        expect.arrayContaining(["schedule_create", "schedule_list", "schedule_delete"]),
+        expect.arrayContaining([
+          "cue_exec",
+          "cue_jobs",
+          "cue_scope",
+          "schedule_create",
+          "schedule_list",
+          "schedule_delete",
+        ]),
       );
       expect(scheduleCreatePolicy).toMatchObject({
         name: "schedule_create",

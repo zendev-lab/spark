@@ -1,32 +1,34 @@
 /**
- * Spark Session's explicit transcript v3 reader and v3 -> v4 hard-cut migrator.
+ * Spark Session's explicit transcript v3 reader and v3/v4 -> v5 migrator.
  *
  * This is the only production reader for the retired `spark/entry` envelope.
- * Runtime writers emit native DSH v4 events only.
+ * Runtime writers emit Spark v5 transcripts on DSH log format 4.
  */
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Session, SessionId, type SessionEvent } from "@deepseek-ai/dsh-session";
+import { restoreLegacyDshSession } from "./legacy-dsh-session.js";
 
 import {
   decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
   encodeSparkRecordAsDsh,
   isDshSessionHeader,
   isPiSessionHeader,
   isRecord,
-  isSparkDshV4Document,
+  isNativeSparkDshDocument,
   serializeDshSessionDocument,
   sparkHeaderFromDshLine,
   type SparkDshSessionDocument,
   type SparkDshSessionMetaData,
 } from "./dsh-format.ts";
 import { writeJsonLinesAtomically } from "./jsonl-io.ts";
-import type {
-  SparkSessionAtomicWriteOptions,
-  SparkSessionEntry,
-  SparkSessionFileEntry,
-  SparkSessionHeader,
-  SparkSessionRecord,
+import {
+  CURRENT_SPARK_SESSION_VERSION,
+  type SparkSessionAtomicWriteOptions,
+  type SparkSessionEntry,
+  type SparkSessionFileEntry,
+  type SparkSessionHeader,
+  type SparkSessionRecord,
 } from "./types.ts";
 
 const LEGACY_SPARK_ENTRY_EVENT_TYPE = "spark/entry";
@@ -50,10 +52,12 @@ export async function migrateSparkSessionJsonlToDsh(
   }
 
   const document = decodeSparkDshSessionJsonl(content);
-  if (document && isSparkDshV4Document(document)) return "already-dsh";
   const record = document
-    ? legacySparkDshDocumentToRecord(path, document)
+    ? isNativeSparkDshDocument(document)
+      ? dshDocumentToSparkRecord(path, document)
+      : legacySparkDshDocumentToRecord(path, document)
     : legacySessionJsonlToSparkRecord(path, content);
+  if (record.header.version === CURRENT_SPARK_SESSION_VERSION) return "already-dsh";
   const migrated = await encodeSparkRecordAsDsh(record, {
     attachmentRoot: options.attachmentRoot ?? defaultMigrationAttachmentRoot(path),
   });
@@ -113,11 +117,7 @@ export function legacySparkDshDocumentToRecord(
       throw new Error(`Spark transcript ${path} contains unknown required event ${event.type}`);
     }
   }
-  Session.fromRestore(
-    SessionId(String(document.header.id)),
-    structuredClone(document.events) as SessionEvent[],
-    structuredClone(document.header),
-  );
+  restoreLegacyDshSession(document);
   const meta = legacyMeta(document);
   const entries: SparkSessionEntry[] = [];
   for (const event of document.events) {

@@ -10,6 +10,11 @@ import type {
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
+import {
+  createBaiduModelDiscovery,
+  discoveredBaiduGptModel,
+} from "./baidu-oneapi-model-discovery.ts";
+
 import { classifyProviderFailure } from "./provider-failure.ts";
 import {
   isMalformedProviderJsonFailure,
@@ -39,13 +44,6 @@ const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "grok-4.5": "grok-4.5",
   "grok-4.6": "grok-4.6",
 };
-const BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS = new Set([
-  "gpt-5.6-luna",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "grok-4.5",
-  "grok-4.6",
-]);
 // Note (measured 2026-08-19): grok-* rows keep the Responses route, but the
 // gateway currently 404s /v1/responses for them ("Unknown endpoint") — this
 // is an upstream limitation reported by the gateway operator, not something
@@ -84,6 +82,7 @@ export interface BaiduOneApiProviderAdapter {
 export function createBaiduOneApiProviderAdapter(
   transports: BaiduOneApiTransports,
 ): BaiduOneApiProviderAdapter {
+  const discoverModels = createBaiduModelDiscovery();
   const streamAnthropic = (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
     streamBaiduOneApiAnthropicWith(transports, model, context, options);
   const streamOpenAIResponses = (
@@ -92,12 +91,12 @@ export function createBaiduOneApiProviderAdapter(
     options?: SimpleStreamOptions,
   ) => streamBaiduOneApiOpenAIResponsesWith(transports, model, context, options);
   const stream = (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
-    BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS.has(model.id)
+    /^(?:gpt-|grok-)/u.test(model.id)
       ? streamOpenAIResponses(model, context, options)
       : streamAnthropic(model, context, options);
 
   return {
-    register: (api) => registerBaiduOneApiProvider(api, stream),
+    register: (api) => registerBaiduOneApiProvider(api, stream, discoverModels),
     stream,
     streamAnthropic,
     streamOpenAIResponses,
@@ -539,6 +538,7 @@ export function repairBaiduOneApiSseLine(line: string): string {
 function registerBaiduOneApiProvider(
   pi: ProviderRegistrationAPI,
   streamSimple: BaiduOneApiProviderAdapter["stream"],
+  discoverModels: ReturnType<typeof createBaiduModelDiscovery>,
 ): void {
   pi.registerProvider(BAIDU_ONEAPI_PROVIDER, {
     name: "Baidu OneAPI",
@@ -546,7 +546,16 @@ function registerBaiduOneApiProvider(
     apiKey: "BAIDU_ONEAPI_API_KEY",
     api: BAIDU_ONEAPI_API,
     streamSimple,
+    discoverModels,
     models: [
+      {
+        ...discoveredBaiduGptModel(
+          "gpt-6-astra-尝鲜",
+          process.env.BAIDU_ONEAPI_BASE_URL ?? BAIDU_ONEAPI_BASE_URL,
+        ),
+        aliases: ["gpt-6-astra"],
+        name: "GPT-6 Astra (尝鲜)",
+      },
       {
         id: "claude-opus-5",
         name: "Claude Opus 5",

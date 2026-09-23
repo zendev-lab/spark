@@ -37,6 +37,7 @@ export async function handleModelRequest(
       const snapshot = await requireModelControl(options).setEnabledModels(
         request.params.models,
         request.params.intent,
+        request.params.patterns,
       );
       return snapshot;
     }

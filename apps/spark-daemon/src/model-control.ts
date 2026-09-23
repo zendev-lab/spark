@@ -45,6 +45,7 @@ export interface SparkDaemonModelControl {
   setEnabledModels(
     models: readonly SparkModelRef[],
     intent?: SparkEnabledModelsWriteIntent,
+    patterns?: readonly string[],
   ): Promise<SparkModelControlSnapshot>;
   setSessionModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setSessionThinkingLevel(
@@ -114,11 +115,20 @@ class DaemonModelControl implements SparkDaemonModelControl {
   async setEnabledModels(
     models: readonly SparkModelRef[],
     intent?: SparkEnabledModelsWriteIntent,
+    patterns?: readonly string[],
   ): Promise<SparkModelControlSnapshot> {
     const explicitIntent = requireEnabledModelsWriteIntent(intent);
     const snapshot = await this.snapshot();
     const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
-    await this.#providerControl.setEnabledModels(canonical.map(modelValue), explicitIntent);
+    if (patterns !== undefined) {
+      await this.#providerControl.setEnabledModels(
+        canonical.map(modelValue),
+        explicitIntent,
+        patterns,
+      );
+    } else {
+      await this.#providerControl.setEnabledModels(canonical.map(modelValue), explicitIntent);
+    }
     return await this.snapshot();
   }
 
@@ -479,6 +489,7 @@ function modelControlSnapshot(
     providers,
     ...(defaultModel ? { defaultModel } : {}),
     enabledModels,
+    ...(control.enabledModelPatterns ? { enabledModelPatterns: control.enabledModelPatterns } : {}),
     ...(sessionId
       ? {
           session: {

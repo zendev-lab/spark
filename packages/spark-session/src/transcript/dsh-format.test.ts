@@ -1,10 +1,12 @@
 /** Native DSH transcript codec behavior owned by spark-session. */
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   Session,
   SessionId,
+  SessionLogOffset,
+  type SessionHeader,
   TOOL_OUTCOME_UNKNOWN,
   type SessionEvent,
 } from "@deepseek-ai/dsh-session";
@@ -15,6 +17,7 @@ import {
   dshDocumentToSparkRecord,
   type SparkDshSessionEvent,
 } from "./dsh-format.ts";
+import { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";
 import { SparkSessionStore } from "./store.ts";
 import type { SparkSessionMessage, SparkSessionMessageEntry, SparkSessionRecord } from "./types.ts";
 
@@ -58,7 +61,9 @@ describe("native DSH transcript v4", () => {
     const session = Session.fromRestore(
       SessionId(record.header.id),
       structuredClone(document.events) as SessionEvent[],
-      structuredClone(document.header),
+      structuredClone(document.header) as SessionHeader,
+      SessionLogOffset(0),
+      "detached",
     );
     expect(session.deriveMessages().map((value) => value.content)).toEqual([
       [{ type: "text", text: "question" }],
@@ -157,7 +162,9 @@ describe("native DSH transcript v4", () => {
       Session.fromRestore(
         SessionId(record.header.id),
         structuredClone(document.events) as SessionEvent[],
-        structuredClone(document.header),
+        structuredClone(document.header) as SessionHeader,
+        SessionLogOffset(0),
+        "detached",
       ),
     ).not.toThrow();
   });
@@ -192,7 +199,9 @@ describe("native DSH transcript v4", () => {
     const session = Session.fromRestore(
       SessionId(record.header.id),
       structuredClone(document.events) as SessionEvent[],
-      structuredClone(document.header),
+      structuredClone(document.header) as SessionHeader,
+      SessionLogOffset(0),
+      "detached",
     );
     const texts = session
       .deriveMessages()
@@ -409,3 +418,32 @@ function message(
     message: value,
   };
 }
+
+it("refuses rewriting a historical fork without changing its source", async () => {
+  const { record } = await fixture("fork-refusal");
+  const source = await readFile(new URL("./fixtures/spark-v4.jsonl", import.meta.url), "utf8");
+  // The old fork API admits this closed turn, before the pending compaction surface replacement.
+  const lines = source.trim().split("\n").slice(0, 18);
+  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), seedLength: 17, parentSession: "parent" });
+  lines.push(JSON.stringify({ type: "session/end-seed", seq: 17, time: 1790085626306, data: {} }));
+  const original = `${lines.join("\n")}\n`;
+  await mkdir(dirname(record.path), { recursive: true });
+  await writeFile(record.path, original);
+  await expect(migrateSparkSessionJsonlToDsh(record.path)).rejects.toThrow(
+    /fork-inherited event prefix/,
+  );
+  expect(await readFile(record.path, "utf8")).toBe(original);
+});
+
+it("migrates a header-only legacy session and is idempotent", async () => {
+  const { record } = await fixture("empty-legacy");
+  await mkdir(dirname(record.path), { recursive: true });
+  await writeFile(
+    record.path,
+    `${JSON.stringify({ id: record.header.id, version: 0, createdAt: 1, cwd: record.header.cwd })}\n`,
+  );
+  expect(await migrateSparkSessionJsonlToDsh(record.path)).toBe("migrated");
+  const migrated = await readFile(record.path, "utf8");
+  expect(await migrateSparkSessionJsonlToDsh(record.path)).toBe("already-dsh");
+  expect(await readFile(record.path, "utf8")).toBe(migrated);
+});
