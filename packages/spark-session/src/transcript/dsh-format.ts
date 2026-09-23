@@ -179,7 +179,7 @@ export async function encodeSparkRecordAsDsh(
   record: SparkSessionRecord,
   options: EncodeSparkRecordAsDshOptions,
 ): Promise<SparkDshSessionDocument> {
-  if ((record.header.seedLength ?? 0) > 0) {
+  if (record.header.seedLength !== undefined) {
     throw new Error(
       `Spark session ${record.header.id} has a fork-inherited event prefix; automatic transcript migration requires an explicit mapped inherited cut`,
     );
@@ -893,12 +893,23 @@ function validateDshDocument(document: SparkDshSessionDocument): {
       throw new Error(`unknown required event ${event.type}`);
     }
   }
-  const { inheritedEventCount = 0, ...header } = document.header;
+  const { inheritedEventCount, ...header } = document.header;
+  const inheritedMarker = document.events.findLast(
+    (event) =>
+      event.type === "session/end-seed" && isRecord(event.data) && event.data.inherited === true,
+  );
+  if (
+    header.isSeeded
+      ? inheritedEventCount === undefined || inheritedMarker?.seq !== inheritedEventCount
+      : (inheritedEventCount ?? 0) !== 0 || inheritedMarker !== undefined
+  ) {
+    throw new Error("Session inherited event count does not match its seeded header and marker");
+  }
   return Session.fromRestore(
     SessionId(String(document.header.id)),
     structuredClone(document.events) as SessionEvent[],
     structuredClone(header) as SessionHeader,
-    SessionLogOffset(inheritedEventCount),
+    SessionLogOffset(inheritedEventCount ?? 0),
     "detached",
   );
 }

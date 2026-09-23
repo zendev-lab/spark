@@ -6,6 +6,7 @@ import {
   Session,
   SessionId,
   SessionLogOffset,
+  SessionSeq,
   type SessionHeader,
   TOOL_OUTCOME_UNKNOWN,
   type SessionEvent,
@@ -433,6 +434,34 @@ it("refuses rewriting a historical fork without changing its source", async () =
     /fork-inherited event prefix/,
   );
   expect(await readFile(record.path, "utf8")).toBe(original);
+});
+
+it.each([
+  { isSeeded: true, inheritedEventCount: undefined },
+  { isSeeded: true, inheritedEventCount: 0 },
+  { isSeeded: false, inheritedEventCount: 0 },
+])("rejects inconsistent inherited prefix metadata: %j", (metadata) => {
+  const id = SessionId("seeded-metadata");
+  const session = Session.create(
+    id,
+    [
+      {
+        type: "spark/meta",
+        seq: SessionSeq(0),
+        time: 1,
+        data: { sparkVersion: 5, timestamp: new Date(1).toISOString() },
+        ignorable: true,
+      },
+    ],
+    { id, version: 4, isSeeded: true, createdAt: 1 },
+    SessionLogOffset(1),
+  );
+  expect(() =>
+    dshDocumentToSparkRecord("seeded-metadata.jsonl", {
+      header: { ...session.header, ...metadata },
+      events: [...session.snapshotEvents()],
+    }),
+  ).toThrow(/inherited event count/);
 });
 
 it("migrates a header-only legacy session and is idempotent", async () => {

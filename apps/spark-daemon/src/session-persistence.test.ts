@@ -9,7 +9,12 @@ import {
   SessionAlreadyOwnedError,
   SessionReadOnlyError,
 } from "@deepseek-ai/dsh-session-persistence";
-import { SparkJsonlSessionFiles } from "@zendev-lab/spark-session/transcript";
+import {
+  SparkJsonlSessionFiles,
+  SparkSessionStore,
+  decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
+} from "@zendev-lab/spark-session/transcript";
 import { mkdtemp, rm, appendFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,3 +118,40 @@ test("write-open repairs a UTF-8 torn tail before appending and keeps complete r
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.each([false, true])(
+  "fork identity survives persistence and refuses projection rewrites (nonempty: %s)",
+  async (nonempty) => {
+    const root = await mkdtemp(join(tmpdir(), "spark-fork-identity-"));
+    const ctx = await openBackend(root);
+    const files = new SparkJsonlSessionFiles(root);
+    const meta = { sparkVersion: 5, timestamp: new Date(1).toISOString() };
+    try {
+      const parent = ctx.sessions.create(SessionId("parent"), { meta: { cwd: root } });
+      if (nonempty) parent.append("spark/meta", meta);
+      const child = ctx.sessions.fork(parent, undefined, SessionId("child"));
+      if (!nonempty) child.append("spark/meta", meta);
+      const inheritedEventCount = child.inheritedEventCount;
+      expect(inheritedEventCount).toBe(nonempty ? 1 : 0);
+      const writer = await ctx.sessionPersistence.create(child.header, { inheritedEventCount });
+      await writer.append(child.snapshotEvents());
+      await writer.close();
+      const reader = await ctx.sessionPersistence.open(child.id, "read");
+      expect(reader.header.isSeeded).toBe(true);
+      expect(reader.inheritedEventCount).toBe(inheritedEventCount);
+      await reader.close();
+
+      const path = files.canonicalPath(child.header);
+      const content = await readFile(path, "utf8");
+      const document = decodeSparkDshSessionJsonl(content)!;
+      const record = dshDocumentToSparkRecord(path, document);
+      expect(record.header.seedLength).toBe(inheritedEventCount);
+      const store = new SparkSessionStore({ cwd: root, sparkHome: root });
+      await expect(store.save(record)).rejects.toThrow(/fork-inherited event prefix/);
+      expect(await readFile(path, "utf8")).toBe(content);
+    } finally {
+      await ctx.fiber.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

@@ -41,14 +41,16 @@ Channel hosts expose only same-workspace coordination actions. Sends require a l
 
 See [`../../.agents/notes/contracts/sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).
 
-DSH 0.1.7-alpha.1 uses log format 4; Spark transcript metadata now identifies
+DSH 0.1.7-rc.1 uses log format 4; Spark transcript metadata now identifies
 version 5. The daemon backs up registered transcripts under
 `backups/session-transcript-v5` before replacing them. The frozen DSH 0.1.2
 reader is used only for historical files, with its declarations isolated from
 the active Cordis graph. The checked-in `fixtures/spark-v4.jsonl` was emitted by
 the Spark v4 writer at commit `5a4e92d7` and covers tools, compaction, and Chinese text.
 
-This adaptation is incomplete for historical DSH forks with a non-empty inherited
-prefix: rewriting one refuses with an explicit error and keeps the source file.
-The inherited cut must be mapped into the new event coordinate space before
-these transcripts can migrate. Do not deploy this upgrade over such histories.
+This adaptation is incomplete for seeded DSH forks, including empty forks:
+rewriting one refuses with an explicit error and keeps the source file. Current
+seeded Spark-framed DSH logs must carry an explicit inherited count matching their final
+inherited marker. The inherited cut and seeded identity must be preserved in the
+new event coordinate space before these transcripts can migrate or be rewritten.
+Do not deploy this upgrade over such histories.
