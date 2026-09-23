@@ -72,6 +72,8 @@ export const sparkModelControlSnapshotSchema = z.object({
   defaultModel: sparkModelRefSchema.optional(),
   /** Models resolved from the user's enabledModels policy; absent on older daemons. */
   enabledModels: z.array(sparkModelRefSchema).optional(),
+  /** Persisted selection rules, including globs; older daemons omit them. */
+  enabledModelPatterns: z.array(z.string()).optional(),
   session: sparkSessionModelSelectionSchema.optional(),
   diagnostics: z.array(z.string()).default([]),
 });
@@ -105,11 +107,16 @@ export function requireSparkEnabledModelsWriteIntent(
   return parsed.data;
 }
 
-/** Replace the user's enabledModels policy with exact catalog model refs. */
-export const sparkEnabledModelsSetRequestSchema = z.object({
-  models: z.array(sparkModelRefSchema),
-  intent: sparkEnabledModelsWriteIntentSchema,
-});
+/** Replace enabledModels with exact catalog refs or explicit rules, never both. */
+export const sparkEnabledModelsSetRequestSchema = z
+  .object({
+    models: z.array(sparkModelRefSchema),
+    patterns: z.array(z.string().trim().min(1).max(256)).max(256).optional(),
+    intent: sparkEnabledModelsWriteIntentSchema,
+  })
+  .refine((value) => value.patterns === undefined || value.models.length === 0, {
+    message: "Specify model refs or patterns, not both",
+  });
 
 export const sparkModelConnectivityTestRequestSchema = z.object({
   model: sparkModelRefSchema,

@@ -28,9 +28,8 @@ const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "u
 const buildNativeProducts = process.env.SPARK_SKIP_NATIVE_PRODUCTS !== "1";
 
 const externalPackages = [
-  // Keep the sandbox's native loaders beside their platform-specific binaries.
+  "@deepseek-ai/node-addon-system",
   "koffi",
-  "@deepseek-ai/node-addon-landlock-run",
   "@zendev-lab/cue",
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",

@@ -9,12 +9,8 @@ Apply one home per fact and progressive disclosure.
 
 ## Classification
 
-- `AGENTS.md`: short, stable standing orders that apply automatically within its subtree.
-- Agent Notes: internal contracts, dated decisions, and runbooks read on demand; never runtime-loaded context.
-- Role: one responsibility, its authority ceiling, stop conditions, output contract, and ordered preloaded Skill names.
-- Skill: a reusable task decision procedure whose description starts with `Use when ...`.
-- Workflow: stage order, handoff data, parallel boundaries, rejection rules, and completion conditions.
-- Public product behavior: current English and Chinese pages in `apps/spark-docs`, not Agent Notes.
+Use [agent knowledge instructions](../../AGENTS.md) for asset ownership and
+loading rules, and `CONTRIBUTING.md` for public documentation ownership.
 
 ## Procedure
 
@@ -24,4 +20,4 @@ Apply one home per fact and progressive disclosure.
 4. Update all active inbound links atomically and leave archived public docs unchanged unless explicitly requested.
 5. Run the repository agent-knowledge and documentation checks that apply.
 
-Stop when classification would make internal Notes runtime context, when public behavior would become internal-only, or when an enforced contract conflicts with prose. Return `classification`, `authoritativeHomes`, `moves`, `linksUpdated`, `validation`, and `blockers`.
+Preserve the runtime-context and public-documentation boundaries. Reconcile stale prose with verified enforced contracts; escalate a conflict only when resolving it requires a product or authority decision. Return `classification`, `authoritativeHomes`, `moves`, `linksUpdated`, `validation`, and `blockers`.

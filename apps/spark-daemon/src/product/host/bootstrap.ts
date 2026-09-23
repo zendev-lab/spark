@@ -144,10 +144,6 @@ export async function createSparkCliHostServices(
         message: `Provider ${outcome.specifier}: ${outcome.error}`,
       });
   }
-  const activeSelection = selectInitialModel(providerRegistry, config);
-  if (!activeSelection) {
-    diagnostics.push({ type: "warning", message: "No Spark model is registered yet." });
-  }
   const authStore =
     options.authStore ??
     new SparkAuthStore({ path: options.authPath ?? defaultSparkAuthPath(options.sparkHome) });
@@ -161,6 +157,13 @@ export async function createSparkCliHostServices(
   const authResolver = new SparkProviderAuthResolver(authStore, { env: options.authEnv });
   const resolveApiKey = (provider: Parameters<typeof authResolver.resolveApiKeyAsync>[0]) =>
     authResolver.resolveApiKeyAsync(provider);
+  for (const message of await providerRegistry.discoverModels(resolveApiKey)) {
+    diagnostics.push({ type: "warning", message });
+  }
+  const activeSelection = selectInitialModel(providerRegistry, config);
+  if (!activeSelection) {
+    diagnostics.push({ type: "warning", message: "No Spark model is registered yet." });
+  }
   runtime.setLeafRunner(
     createProviderRegistryLeafRunner({
       registry: providerRegistry,

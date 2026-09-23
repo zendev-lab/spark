@@ -488,3 +488,23 @@ async function waitForTerminal(
   }
   throw new Error(`OAuth flow ${flowId} did not finish`);
 }
+
+test("enabled model rules persist through readback and admit future GPT models without expanding to fixed IDs", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+    const intent = { kind: "user-initiated", via: "settings-ui" } as const;
+    await control.setEnabledModels([], intent, ["baidu-oneapi/gpt-*", "openai-codex/gpt-6-*"]);
+    const snapshot = await control.snapshot();
+    assert.deepEqual(snapshot.enabledModelPatterns, ["baidu-oneapi/gpt-*", "openai-codex/gpt-6-*"]);
+    assert.equal(snapshot.enabledModelIds.includes("baidu-oneapi/gpt-6-astra-尝鲜"), true);
+    const fresh = createSparkProviderControl({ sparkHome, env: {} });
+    assert.deepEqual((await fresh.snapshot()).enabledModelPatterns, snapshot.enabledModelPatterns);
+    await assert.rejects(control.setEnabledModels([], undefined, ["*"]), /user-initiated/);
+    await assert.rejects(
+      control.setEnabledModels(["baidu-oneapi/gpt-6-astra"], intent, ["*"]),
+      /Invalid/,
+    );
+    await control.setEnabledModels([], intent, []);
+    assert.deepEqual((await control.snapshot()).enabledModelIds, []);
+  });
+});

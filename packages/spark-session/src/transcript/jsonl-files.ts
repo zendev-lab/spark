@@ -1,4 +1,4 @@
-/** Session-owned filesystem primitives behind Spark's DSH JSONL PersistenceBackend. */
+/** Session-owned filesystem primitives behind Spark's DSH session handles. */
 
 import { createHash } from "node:crypto";
 import { open, readdir, readFile, stat, truncate } from "node:fs/promises";
@@ -62,22 +62,16 @@ export class SparkJsonlSessionFiles {
     if (!isDshSessionHeader(header) || header.id !== id) return undefined;
     const events: SparkDshSessionEvent[] = [];
     for (const value of parsed.objects.slice(1)) {
-      if (!isRecord(value) || typeof value.type !== "string" || typeof value.seq !== "number") {
-        continue;
+      if (
+        !isRecord(value) ||
+        typeof value.type !== "string" ||
+        typeof value.seq !== "number" ||
+        typeof value.time !== "number" ||
+        !("data" in value)
+      ) {
+        throw new Error(`Malformed Spark session event in ${path}`);
       }
-      events.push({
-        type: value.type,
-        seq: value.seq,
-        time: typeof value.time === "number" ? value.time : 0,
-        data: value.data,
-        ...(value.ignorable === true ? { ignorable: true as const } : {}),
-        ...(Array.isArray(value.sourceEventSeqs)
-          ? { sourceEventSeqs: value.sourceEventSeqs as number[] }
-          : {}),
-        ...(value.surfaceOp === "append" || isSurfaceReplacement(value.surfaceOp)
-          ? { surfaceOp: value.surfaceOp }
-          : {}),
-      });
+      events.push(value as unknown as SparkDshSessionEvent);
     }
     const sparkMeta = events.find((event) => event.type === "spark/meta");
     if (
@@ -86,7 +80,7 @@ export class SparkJsonlSessionFiles {
         !isRecord(sparkMeta.data) ||
         sparkMeta.data.sparkVersion !== CURRENT_SPARK_SESSION_VERSION)
     ) {
-      throw new Error(`Spark JSONL persistence refuses pre-v4 transcript: ${path}`);
+      throw new Error(`Spark JSONL persistence refuses pre-v5 transcript: ${path}`);
     }
     this.paths.set(id, path);
     const revision = await this.revisionFor(path);
@@ -104,6 +98,15 @@ export class SparkJsonlSessionFiles {
     const path = this.paths.get(id) ?? (await this.findPath(id));
     if (!path) return undefined;
     return await this.revisionFor(path);
+  }
+
+  async readStoredHeader(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<SparkDshSessionHeader | undefined> {
+    signal?.throwIfAborted();
+    const path = await this.findPath(id);
+    return path ? readDshHeader(path) : undefined;
   }
 
   async appendBatch(
@@ -187,13 +190,22 @@ export class SparkJsonlSessionFiles {
   private async findPath(id: string): Promise<string | undefined> {
     const cached = this.paths.get(id);
     if (cached) return cached;
+    const paths = await this.listJsonlPaths();
+    const canonicalSuffix = `/${encodeURIComponent(id)}.jsonl`;
+    for (const path of paths.filter((candidate) => candidate.endsWith(canonicalSuffix))) {
+      if ((await readAnyHeader(path))?.id === id) {
+        this.paths.set(id, path);
+        return path;
+      }
+    }
     const matches: string[] = [];
-    for (const path of await this.listJsonlPaths()) {
+    for (const path of paths) {
       const header = await readAnyHeader(path);
       if (header?.id === id) matches.push(path);
     }
-    const canonicalSuffix = `/${encodeURIComponent(id)}.jsonl`;
-    return matches.find((path) => path.endsWith(canonicalSuffix)) ?? matches.sort().at(-1);
+    const path = matches.sort().at(-1);
+    if (path) this.paths.set(id, path);
+    return path;
   }
 
   private async listJsonlPaths(): Promise<string[]> {
@@ -300,17 +312,6 @@ async function readNthJsonLine(path: string, index: number): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSurfaceReplacement(
-  value: unknown,
-): value is { op: "replace"; start: number; end: number } {
-  return (
-    isRecord(value) &&
-    value.op === "replace" &&
-    typeof value.start === "number" &&
-    typeof value.end === "number"
-  );
 }
 
 function workspaceSessionHash(cwd: string): string {

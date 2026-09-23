@@ -262,6 +262,11 @@ const en = {
     defaultModel: "Default model",
     chooseDefault: "Choose a default",
     saveDefault: "Save default",
+    modelPatterns: "Model selection rules",
+    modelPatternsHint:
+      "One rule per line, for example baidu-oneapi/gpt-*. New matching models are enabled automatically. Saving individual models below replaces these rules with exact IDs.",
+    saveModelPatterns: "Save rules",
+    modelPatternsSaved: "Model selection rules saved.",
     enabledModels: "Enabled models",
     saveEnabledModels: "Save enabled models",
     providers: "Providers",
@@ -691,6 +696,11 @@ const zhCN = {
     defaultModel: "默认模型",
     chooseDefault: "选择默认模型",
     saveDefault: "保存默认模型",
+    modelPatterns: "模型启用规则",
+    modelPatternsHint:
+      "每行一条，例如 baidu-oneapi/gpt-*。匹配的新模型会自动启用。保存下方逐个勾选的模型会将规则替换为固定 ID。",
+    saveModelPatterns: "保存规则",
+    modelPatternsSaved: "模型启用规则已保存。",
     enabledModels: "已启用模型",
     saveEnabledModels: "保存已启用模型",
     providers: "服务商",

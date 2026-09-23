@@ -192,7 +192,7 @@ test("foreign, incomplete, and missing diagnostics carry distinct paths and reco
   }
 });
 
-test("Cue IPC v4 CLI identities are accepted for aggregate and direct installations", async () => {
+test("cued version labels are accepted for aggregate and direct installations", async () => {
   for (const aggregate of [true, false]) {
     const inspection = await inspectCueCommandContract({
       runner: fixtureRunner((spec) => {

@@ -14,7 +14,7 @@ append, compact, and close independently. Fork creation checks the parent
 transcript before and after reading, retries once on change, writes the child
 transcript atomically, and registers the child only after the seed is durable.
 The `@zendev-lab/spark-session/transcript` subpath owns the DSH JSONL codec,
-v3-to-v4 migration, filesystem layout, and atomic replacement.
+v3/v4-to-v5 migration, filesystem layout, and atomic replacement.
 
 Native snapshot paging uses a rebuildable active-branch location index while
 the JSONL transcript remains authoritative. Index hits validate the transcript
@@ -40,3 +40,15 @@ For `kind=request`, omitting `onActive` is an idle-only attempt: an idle target 
 Channel hosts expose only same-workspace coordination actions. Sends require a local target. Child creation and lifecycle actions are rejected from channel callers.
 
 See [`../../.agents/notes/contracts/sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).
+
+DSH 0.1.7-alpha.1 uses log format 4; Spark transcript metadata now identifies
+version 5. The daemon backs up registered transcripts under
+`backups/session-transcript-v5` before replacing them. The frozen DSH 0.1.2
+reader is used only for historical files, with its declarations isolated from
+the active Cordis graph. The checked-in `fixtures/spark-v4.jsonl` was emitted by
+the Spark v4 writer at commit `5a4e92d7` and covers tools, compaction, and Chinese text.
+
+This adaptation is incomplete for historical DSH forks with a non-empty inherited
+prefix: rewriting one refuses with an explicit error and keeps the source file.
+The inherited cut must be mapped into the new event coordinate space before
+these transcripts can migrate. Do not deploy this upgrade over such histories.

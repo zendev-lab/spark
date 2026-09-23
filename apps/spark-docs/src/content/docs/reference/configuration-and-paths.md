@@ -143,3 +143,25 @@ share the same precedence contract. `.spark/skills` contains workspace-specific
 Spark skills.
 
 There are no `$SPARK_HOME/skills` or `$SPARK_HOME/workflows` directories.
+
+## Model discovery and selection rules
+
+In Spark Web **Settings → Model policy**, edit one selection rule per line, such
+as `baidu-oneapi/gpt-*`. Saving rules keeps wildcards in `config.json`; newly
+discovered matching models are enabled automatically. Saving individual model
+checkboxes replaces those rules with exact IDs. An empty policy disables all
+models. Existing custom rules are preserved; previous bundled defaults migrate
+to GPT-family wildcards, including GPT-6.
+
+Baidu OneAPI discovers GPT models through authenticated `/v1/models` requests,
+with a five-minute process cache and cached/bundled fallback on failure. Opening
+the catalog or starting a turn refreshes an expired cache. Other model families
+retain their curated transport definitions. `gpt-6-astra` is an alias for the
+bundled `gpt-6-astra-尝鲜` entry; if the gateway publishes an exact stable ID,
+that discovered entry takes precedence.
+
+The model-list endpoint provides no pricing or capability limits. Newly
+discovered GPT entries use text input, a conservative 128k context and 16,384-token
+output budget; those are operational defaults, not measured model limits. Their
+cost is unpriced (recorded as zero), so cost totals can underestimate actual
+charges. Existing curated entries retain their known metadata.

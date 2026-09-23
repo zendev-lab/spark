@@ -81,7 +81,7 @@ function settle(
 
 describe("DSH Cue spawn adapter broker", () => {
   it("confines every prepared segment once and records backend-specific denial facts", async () => {
-    const confine = vi.fn(() => ({
+    const confine = vi.fn(async () => ({
       argv: ["sandbox-runner", "--", "printf", "hello"],
       enforcement: "full" as const,
       denialSignatures: ["operation not permitted"],
@@ -115,7 +115,7 @@ describe("DSH Cue spawn adapter broker", () => {
   });
 
   it("classifies runner failure before denial and fails settlement closed", async () => {
-    const broker = await fixture(() => ({
+    const broker = await fixture(async () => ({
       argv: ["sandbox-runner", "--", "true"],
       enforcement: "partial",
       denialSignatures: ["denied"],
