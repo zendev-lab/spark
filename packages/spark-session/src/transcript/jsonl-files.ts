@@ -100,6 +100,15 @@ export class SparkJsonlSessionFiles {
     return await this.revisionFor(path);
   }
 
+  async readStoredHeader(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<SparkDshSessionHeader | undefined> {
+    signal?.throwIfAborted();
+    const path = await this.findPath(id);
+    return path ? readDshHeader(path) : undefined;
+  }
+
   async appendBatch(
     meta: SparkDshSessionHeader,
     events: readonly SparkDshSessionEvent[],
@@ -181,13 +190,22 @@ export class SparkJsonlSessionFiles {
   private async findPath(id: string): Promise<string | undefined> {
     const cached = this.paths.get(id);
     if (cached) return cached;
+    const paths = await this.listJsonlPaths();
+    const canonicalSuffix = `/${encodeURIComponent(id)}.jsonl`;
+    for (const path of paths.filter((candidate) => candidate.endsWith(canonicalSuffix))) {
+      if ((await readAnyHeader(path))?.id === id) {
+        this.paths.set(id, path);
+        return path;
+      }
+    }
     const matches: string[] = [];
-    for (const path of await this.listJsonlPaths()) {
+    for (const path of paths) {
       const header = await readAnyHeader(path);
       if (header?.id === id) matches.push(path);
     }
-    const canonicalSuffix = `/${encodeURIComponent(id)}.jsonl`;
-    return matches.find((path) => path.endsWith(canonicalSuffix)) ?? matches.sort().at(-1);
+    const path = matches.sort().at(-1);
+    if (path) this.paths.set(id, path);
+    return path;
   }
 
   private async listJsonlPaths(): Promise<string[]> {

@@ -139,9 +139,7 @@ export class SparkDaemonSessionPersistence extends SessionPersistence {
     options?.signal?.throwIfAborted();
     const writer = this.writers.get(id);
     if (writer) return writer.snapshot();
-    const header = (await this.files.list(options?.signal)).find(
-      (candidate) => candidate.id === id,
-    );
+    const header = await this.files.readStoredHeader(id, options?.signal);
     if (!header) return undefined;
     const revision = await this.files.readStoredRevision(id, options?.signal);
     if (!revision) return undefined;

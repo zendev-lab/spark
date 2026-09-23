@@ -40,6 +40,10 @@ test("write ownership excludes another backend, readers see commits, and close d
     const session = ctx.sessions.create(id, { meta: { cwd: root } });
     session.append("spark/meta", { sparkVersion: 5, timestamp: new Date(1).toISOString() });
     await writer.flush();
+    expect(await other.sessionPersistence.stat(id)).toMatchObject({ header });
+    expect(await other.sessionPersistence.list()).toEqual([
+      await other.sessionPersistence.stat(id),
+    ]);
     await expect(other.sessionPersistence.open(id, "write")).rejects.toBeInstanceOf(
       SessionAlreadyOwnedError,
     );

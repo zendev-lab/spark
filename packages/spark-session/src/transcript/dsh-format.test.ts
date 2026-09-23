@@ -422,8 +422,10 @@ function message(
 it("refuses rewriting a historical fork without changing its source", async () => {
   const { record } = await fixture("fork-refusal");
   const source = await readFile(new URL("./fixtures/spark-v4.jsonl", import.meta.url), "utf8");
-  const lines = source.trim().split("\n");
-  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), seedLength: 4, parentSession: "parent" });
+  // The old fork API admits this closed turn, before the pending compaction surface replacement.
+  const lines = source.trim().split("\n").slice(0, 18);
+  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), seedLength: 17, parentSession: "parent" });
+  lines.push(JSON.stringify({ type: "session/end-seed", seq: 17, time: 1790085626306, data: {} }));
   const original = `${lines.join("\n")}\n`;
   await mkdir(dirname(record.path), { recursive: true });
   await writeFile(record.path, original);
