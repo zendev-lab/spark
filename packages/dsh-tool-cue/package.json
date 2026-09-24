@@ -22,7 +22,7 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-agent": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox-policy": "catalog:dsh",
@@ -33,10 +33,14 @@
     "@zendev-lab/dsh-cue": "workspace:^"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-code-runtime": "catalog:dsh",
-    "@deepseek-ai/dsh-code-runtime-worker-thread": "catalog:dsh",
+    "@deepseek-ai/dsh-fs-local": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
+    "@deepseek-ai/dsh-ptc-runtime": "catalog:dsh",
+    "@deepseek-ai/dsh-ptc-runtime-node": "catalog:dsh",
+    "@deepseek-ai/dsh-sandbox-local": "catalog:dsh",
     "@deepseek-ai/dsh-session": "catalog:dsh",
+    "@deepseek-ai/dsh-session-projection": "catalog:dsh",
+    "@deepseek-ai/dsh-subprocess-local": "catalog:dsh",
     "esbuild": "^0.28.0",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
-import type { Context } from "@deepseek-ai/cordis";
+import { Context } from "@deepseek-ai/cordis";
 import { test } from "vitest";
+import type { Agent } from "@deepseek-ai/dsh-agent";
+import { Session, SessionId } from "@deepseek-ai/dsh-session";
 
 import {
   SparkHostRuntime,
@@ -64,22 +66,16 @@ test("Spark product composition snapshots enabled model routes into subagent plu
     ],
   );
 
-  const events: Array<{ type: string; data: unknown }> = [];
   const policy = plugins.find(
     (plugin) => plugin.name === "spark-subagent-model-selection-policy",
   ) as { apply(ctx: Context): void };
-  const ctx = {
-    agent: {
-      session: {
-        events,
-        append(type: string, data: unknown) {
-          events.push({ type, data });
-        },
-      },
-    },
-  } as unknown as Context;
+  const ctx = new Context();
+  const session = Session.create(SessionId("policy-test"));
+  const agent = { session } as Agent;
   policy.apply(ctx);
-  policy.apply(ctx);
+  ctx.emit("agent/created", { agent, source: "startup" });
+  ctx.emit("agent/created", { agent, source: "startup" });
+  const events = session.snapshotEvents().map(({ type, data }) => ({ type, data }));
   assert.deepEqual(events, [
     {
       type: "subagent/model-selection-policy",

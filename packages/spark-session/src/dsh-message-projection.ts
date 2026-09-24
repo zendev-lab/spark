@@ -90,7 +90,7 @@ function dshMessageContent(message: Record<string, unknown>, path: string): unkn
   if (!Array.isArray(message.content)) {
     throw new Error(`Spark session ${path} has invalid DSH message content`);
   }
-  if (isRecord(message.source) && message.source.kind === "tool") {
+  if (message.role !== "tool" && isRecord(message.source) && message.source.kind === "tool") {
     const result = message.content[0];
     if (!isRecord(result) || result.type !== "tool-result" || !Array.isArray(result.content)) {
       throw new Error(`Spark session ${path} has invalid DSH tool result content`);

@@ -9,7 +9,7 @@ import {
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
   encodeSparkRecordAsDsh,
-  isSparkDshV4Document,
+  isNativeSparkDshDocument,
   serializeDshSessionDocument,
 } from "./dsh-format.ts";
 import { readDshOrPiSessionHeader } from "./jsonl-files.ts";
@@ -109,7 +109,7 @@ export class SparkSessionStore {
   async load(path: string): Promise<SparkSessionRecord> {
     const content = await readFile(path, "utf8");
     const document = decodeSparkDshSessionJsonl(content);
-    if (document && isSparkDshV4Document(document)) {
+    if (document && isNativeSparkDshDocument(document)) {
       return dshDocumentToSparkRecord(path, document);
     }
     if (document) return legacySparkDshDocumentToRecord(path, document);

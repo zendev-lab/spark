@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,6 +36,10 @@ import {
   installSparkConsentPlugin,
   runSparkDshTurn,
 } from "./dsh-turn-driver.ts";
+import {
+  SparkSessionStore,
+  CURRENT_SPARK_SESSION_VERSION,
+} from "@zendev-lab/spark-session/transcript";
 import { createSparkDaemonSessionPersistencePlugin } from "../../../session-persistence.ts";
 
 class ScriptedAdapter extends LlmAdapter {
@@ -252,7 +256,7 @@ test("runSparkDshTurn starts no model work when the Invocation Session cannot ma
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
-  vi.spyOn(ctx.sessionPersistence, "ensureMaterialized").mockImplementation(async () => {
+  vi.spyOn(ctx.sessions, "flush").mockImplementation(async () => {
     throw new Error("session materialization failed");
   });
   const controller = new AbortController();
@@ -363,8 +367,9 @@ test("runSparkDshTurn starts no model work when cancellation arrives during Sess
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
-  vi.spyOn(ctx.sessionPersistence, "ensureMaterialized").mockImplementation(async () => {
+  vi.spyOn(ctx.sessions, "flush").mockImplementation(async () => {
     controller.abort(new Error("abort during Session materialization"));
+    return true;
   });
 
   try {
@@ -573,9 +578,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
     /"ok":true/,
   );
   assert.equal(
-    requests[1]?.messages.some((message) =>
-      message.content.some((part) => part.type === "tool-result"),
-    ),
+    requests[1]?.messages.some((message) => message.role === "tool"),
     true,
   );
 });
@@ -806,4 +809,82 @@ test("runSparkDshTurn isolates sparkInvocation across concurrent Agents", async 
   }
 
   assert.deepEqual([...seen].sort(), ["concurrent-agent-a", "concurrent-agent-b"]);
+});
+
+test("migrates a Spark v4 transcript, resumes DSH, and restores the continued log after restart", async () => {
+  const home = await mkdtemp(join(tmpdir(), "spark-dsh-upgrade-"));
+  const store = new SparkSessionStore({ cwd: home, sparkHome: join(home, "spark-home") });
+  const source = await readFile(
+    new URL(
+      "../../../../../../packages/spark-session/src/transcript/fixtures/spark-v4.jsonl",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const lines = source.trim().split("\n");
+  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), cwd: home });
+  const path = store.canonicalSessionPath("legacy-spark-v4");
+  await mkdir(store.sessionDir, { recursive: true });
+  await writeFile(path, `${lines.join("\n")}\n`);
+  const legacy = await store.load(path);
+  assert.equal(legacy.header.version, 4);
+  assert.equal(legacy.entries.length, 6);
+  await store.save(legacy);
+  assert.equal((await store.load(path)).header.version, CURRENT_SPARK_SESSION_VERSION);
+
+  const ctx = new Context();
+  const restarted = new Context();
+  try {
+    await mountLoop(ctx);
+    await ctx.plugin(createSparkDaemonSessionPersistencePlugin(store.sessionsRoot));
+    const adapter = new ScriptedAdapter();
+    adapter.calls = 1;
+    ctx.llm.registerAdapter(["scripted"], adapter);
+    const handle = await ctx.agents.resume({
+      resumeSessionId: SessionId("legacy-spark-v4"),
+      agentOptions: { provider: "scripted", model: "scripted-model" },
+    });
+    assert.ok(
+      handle.agent.session
+        .deriveMessages()
+        .some((message) =>
+          message.content.some(
+            (block) => block.type === "text" && block.text.includes("旧会话摘要"),
+          ),
+        ),
+    );
+    handle.agent.followup(
+      createUserMessage({
+        content: [{ type: "text", text: "resume after upgrade" }],
+        source: { kind: "user" },
+      }),
+    );
+    await handle.agent.whenIdle();
+    await handle.dispose();
+    await ctx.fiber.dispose();
+
+    await mountLoop(restarted);
+    await restarted.plugin(createSparkDaemonSessionPersistencePlugin(store.sessionsRoot));
+    const reader = await restarted.sessionPersistence.open(SessionId("legacy-spark-v4"), "read");
+    const stored = await reader.read();
+    assert.ok(
+      stored.events.some(
+        (event) =>
+          event.type === "assistant/message" &&
+          event.data.message.content.some(
+            (block) => block.type === "text" && block.text === "pong from dsh-agent-loop",
+          ),
+      ),
+    );
+    assert.ok(
+      stored.events.some(
+        (event) => event.type === "tool/result" && event.data.message.role === "tool",
+      ),
+    );
+    await reader.close();
+  } finally {
+    await ctx.fiber.dispose();
+    await restarted.fiber.dispose();
+    await rm(home, { recursive: true, force: true });
+  }
 });

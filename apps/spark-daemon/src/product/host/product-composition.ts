@@ -1,3 +1,4 @@
+import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { resolve } from "node:path";
 
 import type { Context, Plugin } from "@deepseek-ai/cordis";
@@ -244,12 +245,15 @@ export function loadSparkProductAgentPlugins(options?: {
     name: "spark-subagent-model-selection-policy",
     apply(ctx) {
       if (!modelSelection) return;
-      const agent = ctx.agent;
-      if (!agent) throw new Error("Spark subagent model policy requires an Agent scope");
-      if (agent.session.events.some((event) => event.type === "subagent/model-selection-policy")) {
-        return;
-      }
-      agent.session.append("subagent/model-selection-policy", { allowedModels: routes });
+      ctx.on("agent/created", ({ agent }) => {
+        if (
+          agent.session
+            .snapshotEvents()
+            .some((event) => event.type === "subagent/model-selection-policy")
+        )
+          return;
+        agent.session.append("subagent/model-selection-policy", { allowedModels: routes });
+      });
     },
   };
   const subagent = (provider: "spawn" | "fork", toolName: string, selectable: boolean): Plugin => ({
@@ -315,7 +319,7 @@ export async function loadSparkProductDshToolSurfaces(): Promise<SparkProductDsh
 
 function attachSparkCuePolicies(ctx: Context): void {
   for (const name of CUE_TOOL_NAMES) {
-    const definition = ctx.tools.get(name, ctx.agent);
+    const definition = ctx.tools.get(name, scopeOf(ctx));
     if (!definition) throw new Error(`Spark daemon failed to register DSH Cue tool: ${name}`);
     Object.assign(definition, { sparkPolicy: SPARK_CUE_POLICIES[name] });
   }
@@ -323,7 +327,7 @@ function attachSparkCuePolicies(ctx: Context): void {
 
 function attachSparkWebPolicies(ctx: Context): void {
   for (const name of Object.keys(SPARK_WEB_POLICIES) as SparkWebToolName[]) {
-    const definition = ctx.tools.get(name, ctx.agent);
+    const definition = ctx.tools.get(name, scopeOf(ctx));
     if (!definition) throw new Error(`Spark daemon failed to register DSH Web tool: ${name}`);
     Object.assign(definition, { sparkPolicy: SPARK_WEB_POLICIES[name] });
   }

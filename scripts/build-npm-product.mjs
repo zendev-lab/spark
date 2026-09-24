@@ -28,6 +28,7 @@ const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "u
 const buildNativeProducts = process.env.SPARK_SKIP_NATIVE_PRODUCTS !== "1";
 
 const externalPackages = [
+  "@deepseek-ai/node-addon-system",
   "@zendev-lab/cue",
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",

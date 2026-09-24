@@ -123,7 +123,7 @@ export const npmDistributions = [
     },
     files: ["bin", "dist", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
-    declaredRuntimePackages: [],
+    declaredRuntimePackages: ["sharp"],
     exports: {
       "./entrypoint": "./dist/spark-daemon.js",
       "./executable": "./bin/spark-daemon",

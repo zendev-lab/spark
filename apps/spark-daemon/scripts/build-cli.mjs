@@ -25,6 +25,7 @@ const require = __sparkCreateRequire(import.meta.url);`,
   bundle: true,
   entryPoints: ["src/cli.ts"],
   external: [
+    "@deepseek-ai/node-addon-system",
     "@zendev-lab/cue",
     "@ast-grep/napi",
     "ws",
