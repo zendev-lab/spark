@@ -1,7 +1,10 @@
-import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
-import type {
-  SparkLocalRpcInput,
-  SparkLocalRpcOutput,
+import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
+import {
+  isSparkLocalRpcOrpcErrorCodeForMethod,
+  sparkLocalRpcOrpcErrors,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcOrpcErrorCode,
+  type SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 
 import { isAllowedSparkWebRpcMethod, type SparkWebRpcMethod } from "./rpc-allowlist.ts";
@@ -20,6 +23,30 @@ export type SparkWebDaemonInvoker = <M extends SparkWebRpcMethod>(
   method: M,
   input: SparkLocalRpcInput<M>,
 ) => Promise<SparkLocalRpcOutput<M>>;
+
+export interface SparkWebRpcErrorProjection {
+  status: number;
+  code: SparkLocalRpcOrpcErrorCode;
+  message: string;
+}
+
+export function projectSparkWebRpcRemoteError(
+  method: string,
+  error: unknown,
+): SparkWebRpcErrorProjection | undefined {
+  if (
+    !(error instanceof SparkDaemonRemoteError) ||
+    !isAllowedSparkWebRpcMethod(method) ||
+    !isSparkLocalRpcOrpcErrorCodeForMethod(method, error.code)
+  ) {
+    return undefined;
+  }
+  return {
+    status: sparkLocalRpcOrpcErrors[error.code].status,
+    code: error.code,
+    message: error.message,
+  };
+}
 
 /** Local path binding only. Hub origin and enrollment tokens stay on daemon login. */
 export function sanitizeSparkWebRpcInput(method: string, input: unknown): unknown {

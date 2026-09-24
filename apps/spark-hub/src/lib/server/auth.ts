@@ -1,4 +1,10 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import {
+  hashBrowserSessionSecret as hashSecret,
+  issueBrowserSessionTokens,
+  rotateBrowserSession,
+} from "@zendev-lab/spark-platform-node/browser-session";
+export { hashBrowserSessionSecret as hashSecret } from "@zendev-lab/spark-platform-node/browser-session";
 import {
   consumeHubAccessToken,
   grantUserDaemons,
@@ -194,50 +200,23 @@ export function refreshHubSession(
   refreshToken: string | null,
   now = new Date(),
 ): HubSession | null {
-  if (!refreshToken) return null;
   const nowIso = now.toISOString();
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const current = db
-      .prepare(
-        `SELECT s.id AS sessionId,
-                s.user_id AS userId
-         FROM sessions s
-         JOIN users u ON u.id = s.user_id
-         WHERE s.refresh_token_hash = ?
-           AND s.revoked_at IS NULL
-           AND s.refresh_expires_at > ?
-           AND u.status = 'active'
-         LIMIT 1`,
-      )
-      .get(hashSecret(refreshToken), nowIso) as
-      | {
-          sessionId: string;
-          userId: string;
-        }
-      | undefined;
-    if (!current) {
-      db.exec("ROLLBACK");
-      return null;
-    }
-    const rotated = db
-      .prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
-      .run(nowIso, current.sessionId);
-    if (rotated.changes !== 1) {
-      db.exec("ROLLBACK");
-      return null;
-    }
-    const session = insertHubSession(db, current.userId, now);
-    db.exec("COMMIT");
-    return session;
-  } catch (error) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      // Preserve the refresh error.
-    }
-    throw error;
-  }
+  return rotateBrowserSession(db, refreshToken, {
+    findActive: (hash) =>
+      db
+        .prepare(
+          `SELECT s.id AS sessionId, s.user_id AS userId
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.refresh_token_hash = ? AND s.revoked_at IS NULL
+         AND s.refresh_expires_at > ? AND u.status = 'active' LIMIT 1`,
+        )
+        .get(hash, nowIso) as { sessionId: string; userId: string } | undefined,
+    consume: (current) =>
+      db
+        .prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+        .run(nowIso, current.sessionId).changes === 1,
+    issue: (current) => insertHubSession(db, current.userId, now),
+  });
 }
 
 export function ensureCurrentOwnerSession(
@@ -314,10 +293,6 @@ export function setHubSessionCookies(
     ...common,
     expires: new Date(session.refreshExpiresAt),
   });
-}
-
-export function hashSecret(secret: string): string {
-  return createHash("sha256").update(secret).digest("hex");
 }
 
 /**
@@ -437,11 +412,17 @@ function insertLocalOwnerSession(db: DatabaseSync, userId: string, now: Date): C
 
 function insertHubSession(db: DatabaseSync, userId: string, now: Date): HubSession {
   const nowIso = now.toISOString();
-  const expiresAt = new Date(now.getTime() + hubAccessTtlMs).toISOString();
-  const refreshExpiresAt = new Date(now.getTime() + hubRefreshTtlMs).toISOString();
+  const tokens = issueBrowserSessionTokens(
+    {
+      accessPrefix: "spark_hub_access_",
+      refreshPrefix: "spark_hub_refresh_",
+      accessTtlMs: hubAccessTtlMs,
+      refreshTtlMs: hubRefreshTtlMs,
+    },
+    now,
+  );
+  const { sessionToken, refreshToken, expiresAt, refreshExpiresAt } = tokens;
   const sessionId = createId("sess");
-  const sessionToken = `spark_hub_access_${randomBytes(32).toString("base64url")}`;
-  const refreshToken = `spark_hub_refresh_${randomBytes(32).toString("base64url")}`;
   db.prepare(
     `INSERT INTO sessions
       (id, user_id, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)

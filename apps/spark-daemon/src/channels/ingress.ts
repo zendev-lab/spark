@@ -146,6 +146,7 @@ export interface ChannelIngressController {
       id: string;
       type: string;
       adapterAccountIdentity?: string;
+      botProfile?: { displayName?: string; avatarUrl?: string };
       running: boolean;
       state: "stopped" | "connecting" | "connected" | "reconnecting" | "degraded";
       error?: string;
@@ -166,6 +167,7 @@ export interface DaemonChannelIngressStatus {
     id: string;
     type: string;
     adapterAccountIdentity?: string;
+    botProfile?: { displayName?: string; avatarUrl?: string };
     running: boolean;
     state: "stopped" | "connecting" | "connected" | "reconnecting" | "degraded";
     error?: string;

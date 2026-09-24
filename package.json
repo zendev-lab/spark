@@ -33,6 +33,7 @@
   ],
   "type": "module",
   "scripts": {
+    "spark": "./apps/spark-cli/bin/spark",
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
     "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-web exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings && pnpm exec prek run actionlint --all-files && pnpm exec prek run zizmor --all-files && pnpm run check:agent-knowledge && pnpm run check:cue-package && pnpm run check:architecture && pnpm run check:tool-surface && pnpm run check:boundaries && vp fmt . --check && vp lint --quiet --report-unused-disable-directives-severity error && pnpm run typecheck",
     "check:agent-knowledge": "node scripts/check-agent-knowledge.mjs",

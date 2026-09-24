@@ -75,7 +75,13 @@ Grant authority follows the daemon, not a display name. Workspace names and
 slugs are display/routing helpers and must not become authority identifiers.
 
 Session refresh rotates credentials. Replaying the previous refresh credential
-must fail. Static PWA assets and the minimum login/logout routes may remain
+must fail. Hub and direct Web share the policy-free issuance and atomic refresh
+primitive in `spark-platform-node/browser-session`. Hub keeps its own user/grant
+checks and 30-day refresh lifetime; the daemon owns direct Web browser sessions
+with 15-minute access and 7-day renewable refresh lifetimes. Startup daemon-user
+tokens bootstrap browser sessions; launcher shutdown revokes the startup token
+without revoking the established browser session. Credential hashes, expiry,
+and revocation remain in each owner's database and never cross families. Static PWA assets and the minimum login/logout routes may remain
 available before authorization, but protected data and event routes require a
 session whose grants cover the owning daemon.
 

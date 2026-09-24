@@ -243,9 +243,9 @@
       position: fixed;
       transform: translateX(-100%);
       transition:
-        opacity var(--motion-default) ease,
-        transform var(--motion-default) ease,
-        visibility var(--motion-default) ease;
+        opacity var(--motion-default) var(--ease-drawer),
+        transform var(--motion-default) var(--ease-drawer),
+        visibility var(--motion-default) var(--ease-drawer);
       visibility: hidden;
       width: min(var(--operations-shell-mobile-navigation-width), 88vw);
       z-index: 55;

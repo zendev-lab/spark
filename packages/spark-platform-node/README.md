@@ -28,3 +28,10 @@ This package is part of the Spark monorepo and targets Node 24 and newer.
 Consumers that only need workspace path resolution or atomic file helpers use
 the explicit `@zendev-lab/spark-platform-node/paths` and
 `@zendev-lab/spark-platform-node/json-files` subpaths.
+
+## Browser session primitives
+
+`./browser-session` shares random access/refresh token issuance, SHA-256 hashing,
+and transactional one-time refresh rotation between Hub and daemon owners.
+Callers supply TTLs, credential prefixes, eligibility checks, and storage
+operations; the platform module owns no credential store or authorization policy.

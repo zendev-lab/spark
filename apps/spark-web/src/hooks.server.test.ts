@@ -1,18 +1,32 @@
 import assert from "node:assert/strict";
-import { afterEach, test, vi } from "vitest";
+import { afterEach, beforeEach, test, vi } from "vitest";
 
 import { isHttpError, isRedirect, type Handle } from "@sveltejs/kit";
 
 import { handle } from "./hooks.server.ts";
 import {
+  resolveSparkWebBrowserSession,
   setSparkWebTokenVerifier,
+  setSparkWebBrowserSessionClient,
   SPARK_WEB_BIND_HOST_ENV,
   SPARK_WEB_BIND_PORT_ENV,
 } from "./lib/server/auth.ts";
 
+const browserSession = {
+  id: "dut_00000000000000000000000000000000",
+  sessionToken: "spark_web_access_good",
+  refreshToken: "spark_web_refresh_good",
+  expiresAt: "2026-09-06T00:15:00.000Z",
+  refreshExpiresAt: "2026-09-13T00:00:00.000Z",
+};
+beforeEach(() =>
+  setSparkWebBrowserSessionClient(async () => ({ valid: true, session: browserSession })),
+);
+
 afterEach(() => {
   vi.unstubAllEnvs();
   setSparkWebTokenVerifier();
+  setSparkWebBrowserSessionClient();
 });
 
 test("loopback peers require a token even when the listener binds all interfaces", async () => {
@@ -90,7 +104,12 @@ test("access form verifies with the daemon, sets the HttpOnly carrier cookie, an
       return true;
     },
   );
-  assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
+  assert.equal(cookieSet.mock.calls[0]?.[1], browserSession.sessionToken);
+  assert.equal(cookieSet.mock.calls[1]?.[1], browserSession.refreshToken);
+  assert.deepEqual(
+    cookieSet.mock.calls[1]?.[2]?.expires,
+    new Date(browserSession.refreshExpiresAt),
+  );
   assert.equal(cookieSet.mock.calls[0]?.[2]?.httpOnly, true);
   assert.equal(cookieSet.mock.calls[0]?.[2]?.sameSite, "lax");
   assert.equal(cookieSet.mock.calls[0]?.[2]?.secure, false);
@@ -147,7 +166,12 @@ test("verified query tokens remain a navigation-only compatibility carrier", asy
       return true;
     },
   );
-  assert.equal(cookieSet.mock.calls[0]?.[1], "sdu_good");
+  assert.equal(cookieSet.mock.calls[0]?.[1], browserSession.sessionToken);
+  assert.equal(cookieSet.mock.calls[1]?.[1], browserSession.refreshToken);
+  assert.deepEqual(
+    cookieSet.mock.calls[1]?.[2]?.expires,
+    new Date(browserSession.refreshExpiresAt),
+  );
   assert.equal(cookieSet.mock.calls[0]?.[2]?.sameSite, "lax");
 
   await assert.rejects(
@@ -216,6 +240,7 @@ async function runHandle(input: {
   headers?: Record<string, string>;
   body?: BodyInit;
   cookie?: string;
+  refreshCookie?: string;
   cookieSet?: ReturnType<typeof vi.fn>;
   clientAddress?: string;
 }): Promise<{ response: Response }> {
@@ -228,7 +253,12 @@ async function runHandle(input: {
   const response = await handle({
     event: {
       cookies: {
-        get: (name: string) => (name === "spark_web_token" ? input.cookie : undefined),
+        get: (name: string) =>
+          name === "spark_web_token"
+            ? input.cookie
+            : name === "spark_web_refresh"
+              ? input.refreshCookie
+              : undefined,
         set: input.cookieSet ?? vi.fn(),
       },
       getClientAddress: () => input.clientAddress ?? "127.0.0.1",
@@ -240,3 +270,104 @@ async function runHandle(input: {
   } satisfies Parameters<Handle>[0]);
   return { response };
 }
+
+test("persistent refresh cookie restores an expired access cookie without manual login", async () => {
+  stubTrust("127.0.0.1");
+  setSparkWebTokenVerifier(async () => "invalid");
+  const refresh = vi.fn(async () => ({ valid: true, session: browserSession }));
+  setSparkWebBrowserSessionClient(refresh);
+  const cookieSet = vi.fn();
+  const { response } = await runHandle({
+    url: "http://127.0.0.1:4310/",
+    cookie: "spark_web_access_expired",
+    refreshCookie: "old-refresh",
+    cookieSet,
+  });
+  assert.equal(await response.text(), "ok");
+  assert.deepEqual(refresh.mock.calls[0], ["refresh", "old-refresh"]);
+  assert.equal(cookieSet.mock.calls[0]?.[1], browserSession.sessionToken);
+  assert.equal(cookieSet.mock.calls[1]?.[1], browserSession.refreshToken);
+});
+
+test("refresh failure never persists credentials or bypasses the access gate", async () => {
+  stubTrust("127.0.0.1");
+  const cookieSet = vi.fn();
+  setSparkWebBrowserSessionClient(async () => ({ valid: false }));
+  const { response } = await runHandle({
+    url: "http://127.0.0.1:4310/",
+    refreshCookie: "expired-refresh",
+    cookieSet,
+    headers: { accept: "text/html" },
+  });
+  assert.match(await response.text(), /Continue to Spark/u);
+  assert.equal(cookieSet.mock.calls.length, 0);
+  setSparkWebBrowserSessionClient(async () => {
+    throw new Error("unavailable");
+  });
+  const unavailable = await runHandle({
+    url: "http://127.0.0.1:4310/",
+    refreshCookie: "valid-refresh",
+    headers: { accept: "text/html" },
+  });
+  assert.equal(unavailable.response.status, 503);
+});
+
+test("failed bootstrap exchange preserves the requested destination without setting cookies", async () => {
+  stubTrust("127.0.0.1");
+  setSparkWebTokenVerifier(async () => "valid");
+  setSparkWebBrowserSessionClient(async () => {
+    throw new Error("unavailable");
+  });
+  const cookieSet = vi.fn();
+  const { response } = await runHandle({
+    url: "http://127.0.0.1:4310/__spark/access",
+    method: "POST",
+    body: "token=sdu_good&returnTo=%2Fsessions%2Fsess_1",
+    cookieSet,
+    headers: {
+      origin: "http://127.0.0.1:4310",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+  });
+  assert.equal(response.status, 503);
+  assert.match(await response.text(), /value="\/sessions\/sess_1"/u);
+  assert.equal(cookieSet.mock.calls.length, 0);
+});
+
+test("cancelled navigation retries reuse rotation briefly and honor revocation", async () => {
+  vi.useFakeTimers();
+  try {
+    let revoked = false;
+    setSparkWebTokenVerifier(async () => (revoked ? "invalid" : "valid"));
+    const rotate = vi.fn(async () => ({ valid: true, session: browserSession }));
+    setSparkWebBrowserSessionClient(rotate);
+    const first = await resolveSparkWebBrowserSession("refresh", "retry-refresh");
+    const retry = await resolveSparkWebBrowserSession("refresh", "retry-refresh");
+    assert.deepEqual(retry, first);
+    assert.equal(rotate.mock.calls.length, 1);
+    revoked = true;
+    assert.deepEqual(await resolveSparkWebBrowserSession("refresh", "retry-refresh"), {
+      verification: "invalid",
+    });
+    revoked = false;
+    rotate.mockImplementation(async () => ({ valid: false, session: browserSession }));
+    await vi.advanceTimersByTimeAsync(30_001);
+    assert.deepEqual(await resolveSparkWebBrowserSession("refresh", "retry-refresh"), {
+      verification: "invalid",
+    });
+    assert.equal(rotate.mock.calls.length, 2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("concurrent refresh requests share one daemon rotation", async () => {
+  setSparkWebTokenVerifier(async () => "valid");
+  const rotate = vi.fn(async () => ({ valid: true, session: browserSession }));
+  setSparkWebBrowserSessionClient(rotate);
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () => resolveSparkWebBrowserSession("refresh", "concurrent-refresh")),
+  );
+  assert.equal(rotate.mock.calls.length, 1);
+  assert.ok(results.every((result) => result.session === browserSession));
+});

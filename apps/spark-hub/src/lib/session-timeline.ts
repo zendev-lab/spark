@@ -1,5 +1,5 @@
 import type { SparkMessageView } from "@zendev-lab/spark-protocol";
-import { shortenOpaqueChannelId } from "./channel-session-title";
+import { shortenOpaqueChannelId } from "@zendev-lab/spark-ui/channel-session";
 import { isInternalExecutionTransportFailure } from "./components/conversation/internal-execution-detail";
 import {
   conversationPartsFromMessage,

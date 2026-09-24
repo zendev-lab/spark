@@ -29,6 +29,8 @@ export type ConversationPart =
     }
   | {
       type: "image";
+      /** Original transcript owner when multiple messages share one presentation. */
+      sourceMessageId?: string;
       contentIndex: number;
       mediaType: "image/bmp" | "image/gif" | "image/jpeg" | "image/png" | "image/webp";
       name?: string;

@@ -17,7 +17,8 @@
     "./paths": "./src/paths.ts",
     "./resource-paths": "./src/resource-paths.ts",
     "./strings": "./src/strings.ts",
-    "./socket-message-port": "./src/socket-message-port.ts"
+    "./socket-message-port": "./src/socket-message-port.ts",
+    "./browser-session": "./src/browser-session.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",

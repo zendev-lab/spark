@@ -1,5 +1,8 @@
 import { workbenchSessionScope } from "../workbench-session-scope";
-import { formatChannelSessionTitle, type ChannelSessionLabels } from "../channel-session-title";
+import {
+  formatChannelSessionTitle,
+  type ChannelSessionLabels,
+} from "@zendev-lab/spark-ui/channel-session";
 import { workspaceSessionPath } from "../workspace-routes";
 import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 

@@ -271,8 +271,9 @@ Binds to 127.0.0.1 by default. Binding 0.0.0.0 exposes the workbench on this
 host's local IPv4 interfaces automatically; no trusted-host configuration is
 needed. Every normal request requires a daemon access token, including requests
 from an actual loopback peer. Every startup prints a usable token after the
-listener is ready. Manually managed tokens remain available through
-spark daemon access create. Host, same-origin
+listener is ready. Use it once to establish browser login; persistent refresh
+cookies renew for seven days of active use and survive process restarts.
+Manually managed tokens remain available through spark daemon access create. Host, same-origin
 metadata, and mutation provenance are still checked for every bind. Prints the
 reachable workbench URLs without opening a browser.
 Source-checkout launches use the Vite development server so they always serve

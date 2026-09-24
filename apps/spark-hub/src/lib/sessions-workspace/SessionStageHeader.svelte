@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Icon } from "@zendev-lab/spark-ui";
-  import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
+  import { ChannelSessionIcon } from "@zendev-lab/spark-ui";
   import { Button } from "@zendev-lab/spark-ui";
   import { enhance } from "$app/forms";
   import { visibleSessionStatus } from "$lib/conversation-status";

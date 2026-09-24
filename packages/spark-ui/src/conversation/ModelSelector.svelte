@@ -184,19 +184,30 @@
     <CommandList class="model-picker-list">
       <CommandEmpty class="model-picker-empty">{emptyLabel}</CommandEmpty>
       {#each groups as group (group.id)}
+        {#snippet providerHeading()}
+          <span class="provider-mark">
+            {#if group.brandIcon}
+              <BrandIcon name={group.brandIcon} size={16} />
+            {:else}
+              {monogram(group.label)}
+            {/if}
+          </span>
+          <span class="provider-copy">
+            <strong>{group.label}</strong>
+            {#if group.description}<small>{group.description}</small>{/if}
+          </span>
+        {/snippet}
         <CommandGroup value={group.id} class="model-picker-group">
           <CommandGroupHeading class="model-picker-group-heading">
-            <span class="provider-mark">
-              {#if group.brandIcon}
-                <BrandIcon name={group.brandIcon} size={16} />
-              {:else}
-                {monogram(group.label)}
-              {/if}
-            </span>
-            <span>
-              <strong>{group.label}</strong>
-              {#if group.description}<small>{group.description}</small>{/if}
-            </span>
+            {@const providerLink = safeConversationHref(group.settingsHref)}
+            {#if providerLink}
+              <a class="provider-settings" href={providerLink}>
+                {@render providerHeading()}
+                <Icon name="settings" size={14} />
+              </a>
+            {:else}
+              {@render providerHeading()}
+            {/if}
           </CommandGroupHeading>
           <CommandGroupItems class="model-picker-group-items">
             {#each group.options as option (option.value)}
@@ -243,14 +254,21 @@
     padding: 5px 10px;
     text-align: start;
     transition:
-      background 120ms ease,
-      border-color 120ms ease,
-      box-shadow 120ms ease;
+      background var(--motion-fast) ease,
+      border-color var(--motion-fast) ease,
+      box-shadow var(--motion-fast) ease,
+      transform var(--motion-fast) var(--ease-out);
   }
 
-  :global(.model-picker-trigger:hover:not(:disabled)) {
-    background: var(--color-surface-soft);
-    border-color: var(--color-focus-ring);
+  :global(.model-picker-trigger:active:not(:disabled)) {
+    transform: scale(0.97);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    :global(.model-picker-trigger:hover:not(:disabled)) {
+      background: var(--color-surface-soft);
+      border-color: var(--color-focus-ring);
+    }
   }
 
   :global(.model-picker-trigger:focus-visible) {
@@ -370,10 +388,12 @@
     width: 32px;
   }
 
-  :global(.model-picker-close:hover),
-  .clear-search:hover {
-    background: var(--color-surface-soft);
-    color: var(--color-ink);
+  @media (hover: hover) and (pointer: fine) {
+    :global(.model-picker-close:hover),
+    .clear-search:hover {
+      background: var(--color-surface-soft);
+      color: var(--color-ink);
+    }
   }
 
   :global(.model-picker-command) {
@@ -433,6 +453,32 @@
     padding: 5px 8px;
   }
 
+  .provider-settings {
+    align-items: center;
+    border-radius: var(--rounded-sm);
+    color: inherit;
+    display: flex;
+    gap: 10px;
+    min-height: 40px;
+    text-decoration: none;
+    width: 100%;
+  }
+
+  .provider-settings .provider-copy {
+    flex: 1;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .provider-settings:hover {
+      background: var(--color-surface-soft);
+    }
+  }
+
+  .provider-settings:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
   .provider-mark {
     align-items: center;
     background: var(--color-surface-soft);
@@ -448,7 +494,7 @@
     width: 26px;
   }
 
-  :global(.model-picker-group-heading) > span:last-child {
+  .provider-copy {
     display: grid;
     min-width: 0;
   }
@@ -535,8 +581,10 @@
     text-decoration: none;
   }
 
-  .model-picker-settings:hover {
-    color: var(--color-ink);
+  @media (hover: hover) and (pointer: fine) {
+    .model-picker-settings:hover {
+      color: var(--color-ink);
+    }
   }
 
   @media (max-width: 640px) {
@@ -553,6 +601,16 @@
 
     :global(.model-picker-list) {
       max-height: min(55dvh, 480px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.model-picker-trigger) {
+      transition: none;
+    }
+
+    :global(.model-picker-trigger:active:not(:disabled)) {
+      transform: none;
     }
   }
 </style>

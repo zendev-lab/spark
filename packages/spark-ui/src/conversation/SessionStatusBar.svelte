@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     describeSessionStatus,
+    formatSessionWorkingDirectory,
     formatCompactTokenCount,
     formatContextUsage,
     formatSessionCost,
@@ -11,6 +12,7 @@
   type Props = {
     labels: SessionStatusBarLabels;
     cwd: string;
+    workspacePath?: string;
     gitBranch?: string;
     inputTokens?: number;
     outputTokens?: number;
@@ -25,6 +27,7 @@
   let {
     labels,
     cwd,
+    workspacePath,
     gitBranch,
     inputTokens,
     outputTokens,
@@ -47,6 +50,7 @@
   );
   let cost = $derived(formatSessionCost(costUsd && costUsd > 0 ? costUsd : undefined));
   let context = $derived(formatContextUsage(contextTokens, contextWindow));
+  let branch = $derived(gitBranch?.trim() || undefined);
   let hasUsage = $derived(Boolean(input || output || cacheRead || cacheWrite || cacheHit || cost || context));
   let statusDescription = $derived(
     describeSessionStatus(labels, {
@@ -74,13 +78,9 @@
   title={statusDescription}
 >
   <div class="workspace-context" title={`${labels.workingDirectory}: ${cwd}`}>
-    <span class="cwd">{cwd}</span>
-    {#if gitBranch?.trim()}
-      <span
-        class="branch"
-        data-priority="low"
-        title={`${labels.branch}: ${gitBranch.trim()}`}
-      >({gitBranch.trim()})</span>
+    <span class="cwd">{formatSessionWorkingDirectory(cwd, workspacePath)}</span>
+    {#if branch}
+      <span class="branch" data-priority="low" title={`${labels.branch}: ${branch}`}>({branch})</span>
     {/if}
   </div>
 
@@ -162,7 +162,7 @@
     container: session-status / inline-size;
     display: flex;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-caption);
     font-variant-numeric: tabular-nums;
     gap: 0;
     line-height: 1.25;
@@ -190,7 +190,7 @@
   .workspace-context {
     color: var(--color-ink-muted);
     flex: 1 1 14rem;
-    font-weight: 650;
+    font-weight: var(--weight-body-medium);
     overflow: hidden;
   }
 
@@ -214,7 +214,7 @@
   .metric {
     color: var(--color-ink-muted);
     flex: 0 0 auto;
-    font-weight: 650;
+    font-weight: var(--weight-body-medium);
   }
 
   .context {

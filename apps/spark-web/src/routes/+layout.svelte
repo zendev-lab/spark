@@ -1,10 +1,11 @@
 <script lang="ts">
   import "@zendev-lab/spark-ui/tokens.css";
   import { onMount } from "svelte";
-  import { goto } from "$app/navigation";
+  import { afterNavigate, goto, invalidate } from "$app/navigation";
   import { page } from "$app/state";
   import { Button, Dialog, Icon, Input, OperationsShell, Select, type SelectGroup } from "@zendev-lab/spark-ui";
   import { DialogClose, DialogTitle } from "@zendev-lab/spark-ui/headless";
+  import ConversationNavigation from "$lib/ConversationNavigation.svelte";
   import { webRpc } from "$lib/web-rpc";
 
   let { children, data } = $props();
@@ -46,7 +47,13 @@
     },
   ]);
 
+  afterNavigate(({ from }) => {
+    if (from) void invalidate("spark:navigation");
+  });
+
   onMount(() => {
+    const refreshNavigation = () => void invalidate("spark:navigation");
+    addEventListener("focus", refreshNavigation);
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/service-worker.js");
     }
@@ -67,6 +74,7 @@
     };
     addEventListener("keydown", keydown);
     return () => {
+      removeEventListener("focus", refreshNavigation);
       media.removeEventListener("change", applySystemTheme);
       removeEventListener("keydown", keydown);
     };
@@ -127,10 +135,7 @@
     return "/";
   }
 
-  function navCurrent(href: string): "page" | undefined {
-    if (href === "/") return page.url.pathname === "/" ? "page" : undefined;
-    return page.url.pathname.startsWith(href) ? "page" : undefined;
-  }
+
 </script>
 
 <svelte:head>
@@ -168,21 +173,13 @@
 {/snippet}
 
 {#snippet navigation(closeNavigation: () => void)}
-  <div class="scope-navigation">
-    <nav aria-label={copy.primaryNavigation}>
-      <a href="/" aria-current={navCurrent("/")} onclick={closeNavigation}><Icon name="new-message" size={17} /><span>{copy.overview}</span></a>
-      <a href="/sessions" aria-current={navCurrent("/sessions")} onclick={closeNavigation}><Icon name="message" size={17} /><span>{copy.sessions}</span></a>
-      <a href="/workspaces" aria-current={navCurrent("/workspaces")} onclick={closeNavigation}><Icon name="workspace" size={17} /><span>{copy.workspaces}</span></a>
-      <a href="/settings" aria-current={navCurrent("/settings")} onclick={closeNavigation}><Icon name="settings" size={17} /><span>{copy.settings}</span></a>
-    </nav>
-  </div>
+  <ConversationNavigation data={data.navigation} pathname={page.url.pathname} messages={data.messages} {closeNavigation} retry={() => void invalidate("spark:navigation")} />
 {/snippet}
 
 {#snippet skipLink()}
   <a class="skip-link" href="#spark-main">{data.messages.shared.skipToContent}</a>
 {/snippet}
 
-<!-- THESIS: Spark Web is the local conversation canvas; execution topology is invisible to users and operational coordination belongs in Hub. OWN-WORLD: quiet slate surfaces, precise one-pixel rules, Spark blue focus, and conversation-shaped controls. STORY: choose project context, send the first message, then continue inside its durable Session. FIRST VIEWPORT: a 52px command bar, compact conversation rail, centered Composer, and recent Sessions below. FORM: Conversation Canvas, the user-pinned correction to surface roll 5a7f18fc. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance. -->
 <OperationsShell
   header={shellHeader}
   {navigation}
@@ -190,6 +187,7 @@
   navigationId="spark-primary-navigation"
   closeNavigationLabel={copy.close}
   navigationSize="compact"
+  contentMode={page.route.id === "/sessions/[sessionId]" ? "flush" : "padded"}
   mainId="spark-main"
   navigationKey={page.url.pathname}
   designDirection="conversation-canvas-5a7f18fc"
@@ -304,37 +302,6 @@
     justify-content: center;
     padding: 0;
     width: var(--control-height-compact);
-  }
-  .scope-navigation {
-    align-content: start;
-    display: grid;
-    height: 100%;
-    min-height: 0;
-    padding: var(--spacing-md) var(--spacing-sm);
-  }
-  .scope-navigation nav {
-    display: grid;
-    gap: var(--spacing-xxs);
-  }
-  .scope-navigation nav a {
-    align-items: center;
-    border-radius: var(--rounded-md);
-    color: var(--color-ink-muted);
-    display: flex;
-    font-size: var(--text-body);
-    font-weight: 560;
-    gap: var(--spacing-sm);
-    min-height: var(--control-height-default);
-    padding: 0 var(--spacing-sm);
-    text-decoration: none;
-  }
-  .scope-navigation nav a:hover {
-    background: var(--color-surface-soft);
-    color: var(--color-ink);
-  }
-  .scope-navigation nav a[aria-current="page"] {
-    background: var(--color-primary-weak);
-    color: var(--color-primary);
   }
   kbd {
     border: 1px solid var(--color-border);
@@ -456,11 +423,6 @@
     .top,
     :global(.search-dialog) {
       border-color: currentColor;
-    }
-    .scope-navigation nav a {
-      color: var(--color-ink);
-      text-decoration: underline;
-      text-underline-offset: 3px;
     }
   }
 </style>

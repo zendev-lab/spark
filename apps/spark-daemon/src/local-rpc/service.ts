@@ -60,6 +60,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "daemon.access.list",
     "daemon.access.revoke",
     "daemon.access.verify",
+    "daemon.access.session",
   ],
   workbench: ["search.global", "session.search", "session.export"],
   toolExecution: ["file.execute", "artifact.execute", "git.execute", "lens.execute"],

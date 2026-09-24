@@ -2,12 +2,12 @@
   import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
   import type { SparkSessionLineage } from "@zendev-lab/spark-protocol/session-assignment";
-  import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
+  import { ChannelSessionIcon } from "@zendev-lab/spark-ui";
   import {
     channelSessionPresentation,
     sessionHasChannelBinding,
     type ChannelSessionLabels,
-  } from "$lib/channel-session-title";
+  } from "@zendev-lab/spark-ui/channel-session";
   import { visibleConversationActivityStatus } from "$lib/conversation-status";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import {

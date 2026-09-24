@@ -85,6 +85,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         revoke: os.daemon.access.revoke.handler(async ({ input: params }) =>
           invoke("daemon.access.revoke", params),
         ),
+        session: os.daemon.access.session.handler(async ({ input: params }) =>
+          invoke("daemon.access.session", params),
+        ),
         verify: os.daemon.access.verify.handler(async ({ input: params }) =>
           invoke("daemon.access.verify", params),
         ),

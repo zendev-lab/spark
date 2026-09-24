@@ -143,7 +143,7 @@
         aria-label={submitting ? submittingLabel : submitLabel}
         title={submitting ? submittingLabel : submitLabel}
       >
-        <Icon name="arrow-up" size={17} stroke={2.2} />
+        <Icon name="arrow-up" size={18} stroke={2.2} />
         <span class="submit-label">{submitting ? submittingLabel : submitLabel}</span>
       </button>
     </div>
@@ -154,8 +154,8 @@
   .conversation-composer-shell {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--rounded-lg);
-    box-shadow: var(--shadow-card-raised);
+    border-radius: var(--rounded-xl);
+    box-shadow: 0 4px 16px rgb(15 23 42 / 4%);
     container-name: conversation-composer;
     container-type: inline-size;
     display: grid;
@@ -169,10 +169,8 @@
   }
 
   .conversation-composer-shell:focus-within {
-    border-color: var(--color-border-strong);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-primary) 14%, transparent),
-      0 16px 38px rgb(15 23 42 / 9%);
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 16px rgb(15 23 42 / 6%);
   }
 
   .composer-header {
@@ -191,7 +189,7 @@
 
   .composer-body {
     min-width: 0;
-    padding: 10px 12px 8px;
+    padding: var(--spacing-md) var(--spacing-md) var(--spacing-xs);
   }
 
   .composer-header + .composer-body {
@@ -215,6 +213,9 @@
 
   textarea {
     background: transparent;
+    box-sizing: border-box;
+    caret-color: var(--color-primary);
+    display: block;
     border: 0;
     color: var(--color-ink);
     field-sizing: content;
@@ -232,10 +233,9 @@
     color: var(--color-ink-subtle);
   }
 
-  textarea:focus-visible {
-    border-radius: var(--rounded-sm);
-    box-shadow: var(--shadow-focus);
-  }
+  textarea:focus-visible { box-shadow: none; }
+  textarea::selection { background: var(--color-primary-weak); color: var(--color-ink); }
+  .composer-attachments:empty { display: none; }
 
   .composer-toolbar {
     align-items: center;
@@ -245,7 +245,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
     min-height: 46px;
     min-width: 0;
-    padding: 6px 8px 8px;
+    padding: 0 var(--spacing-xs) var(--spacing-xs);
   }
 
   .composer-context {
@@ -253,7 +253,7 @@
     color: var(--color-ink-subtle);
     display: flex;
     flex-wrap: nowrap;
-    font-size: 11px;
+    font-size: var(--text-caption);
     gap: 8px;
     min-width: 0;
   }
@@ -290,11 +290,15 @@
     gap: 7px;
     justify-content: center;
     min-height: var(--control-height-default);
-    padding: 0 13px;
+    min-width: var(--control-height-default);
+    padding: 0 var(--spacing-sm);
+    transition:
+      background var(--motion-fast) ease,
+      transform var(--motion-fast) var(--ease-out);
   }
 
-  .composer-submit:hover:not(:disabled) {
-    background: var(--color-primary-hover, #1d4ed8);
+  .composer-submit:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
   .composer-submit:focus-visible {
@@ -304,7 +308,8 @@
 
   .composer-submit:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    background: var(--color-surface-soft);
+    color: var(--color-ink-subtle);
   }
 
   .submit-label {
@@ -362,10 +367,6 @@
   }
 
   @media (max-width: 640px) {
-    .conversation-composer-shell {
-      border-radius: 12px;
-    }
-
     textarea {
       font-size: 16px;
       min-height: 60px;
@@ -378,13 +379,25 @@
 
   @media (pointer: coarse) {
     .composer-submit {
+      min-width: var(--control-height-touch);
       min-height: var(--control-height-touch);
     }
   }
 
+  @media (hover: hover) and (pointer: fine) {
+    .composer-submit:hover:not(:disabled) {
+      background: var(--color-primary-hover, #1d4ed8);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .conversation-composer-shell {
+    .conversation-composer-shell,
+    .composer-submit {
       transition: none;
+    }
+
+    .composer-submit:active:not(:disabled) {
+      transform: none;
     }
   }
 </style>

@@ -71,6 +71,7 @@ describe("side-thread local RPC parsing", () => {
       "daemon.access.list",
       "daemon.access.revoke",
       "daemon.access.verify",
+      "daemon.access.session",
     ]);
     for (const method of sparkLocalRpcOrpcOnlyMethods) {
       expect(() =>

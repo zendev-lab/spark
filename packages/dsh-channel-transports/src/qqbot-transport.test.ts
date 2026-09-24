@@ -40,6 +40,9 @@ class FakeWebSocket extends EventEmitter {
 
 function createApiMock() {
   const getAccessToken = vi.fn(async () => "token");
+  const getBotProfile = vi.fn(
+    async (): Promise<{ displayName?: string; avatarUrl?: string }> => ({}),
+  );
   const getGatewayUrl = vi.fn(async () => "wss://gateway.example");
   const sendC2CMessage = vi.fn(async () => ({ id: "text-c2c" }));
   const sendGroupMessage = vi.fn(async () => ({ id: "text-group" }));
@@ -71,6 +74,7 @@ function createApiMock() {
     }),
     getAccessToken,
     getGatewayUrl,
+    getBotProfile,
     sendC2CMessage,
     sendGroupMessage,
     uploadC2CImage,
@@ -90,6 +94,7 @@ function createApiMock() {
     api,
     getAccessToken,
     getGatewayUrl,
+    getBotProfile,
     sendC2CMessage,
     sendGroupMessage,
     uploadC2CImage,
@@ -1202,4 +1207,48 @@ describe("enrichQqbotChannelQuotePreview", () => {
     ).resolves.toEqual(raw);
     expect(getChannelMessage).not.toHaveBeenCalled();
   });
+});
+
+it("loads bot identity without holding gateway connection and ignores a late stopped result", async () => {
+  const { api, getBotProfile } = createApiMock();
+  let finish!: (value: { displayName: string }) => void;
+  getBotProfile.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const socket = new FakeWebSocket();
+  const factory = vi.fn(() => socket as unknown as WebSocket);
+  const transport = createQqbotTransport(config, { api, webSocketFactory: factory });
+  await transport.start(() => undefined);
+  await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce());
+  expect(getBotProfile).toHaveBeenCalledWith("token");
+  await transport.stop();
+  finish({ displayName: "Late bot" });
+  await Promise.resolve();
+  expect(transport.status?.()).toEqual({ state: "stopped" });
+});
+
+it("projects successful bot metadata without changing connection health", async () => {
+  const { api, getBotProfile } = createApiMock();
+  getBotProfile.mockResolvedValue({
+    displayName: "Spark Bot",
+    avatarUrl: "https://qlogo.cn/bot.png",
+  });
+  const transport = createQqbotTransport(config, {
+    api,
+    webSocketFactory: () => new FakeWebSocket() as unknown as WebSocket,
+  });
+  try {
+    await transport.start(() => undefined);
+    await vi.waitFor(() =>
+      expect(transport.status?.()).toMatchObject({
+        botProfile: { displayName: "Spark Bot" },
+        state: "connecting",
+      }),
+    );
+  } finally {
+    await transport.stop();
+  }
 });

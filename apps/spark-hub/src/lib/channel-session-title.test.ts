@@ -6,7 +6,7 @@ import {
   formatChannelSessionTitle,
   sessionHasChannelBinding,
   shortenOpaqueChannelId,
-} from "./channel-session-title";
+} from "@zendev-lab/spark-ui/channel-session";
 
 const enLabels = getHubDictionary("en").sessions.channelLabels;
 const zhLabels = getHubDictionary("zh-CN").sessions.channelLabels;

@@ -78,3 +78,18 @@ export function describeSessionStatus(
     .filter((value): value is string => Boolean(value))
     .join(" · ");
 }
+
+/** Display workspace descendants relatively; keep outside locations unambiguous. */
+export function formatSessionWorkingDirectory(cwd: string, workspacePath?: string): string {
+  const path = cwd.replaceAll("\\", "/").replace(/(?<=.)\/$/u, "");
+  const root = workspacePath?.replaceAll("\\", "/").replace(/(?<=.)\/$/u, "");
+  const prefix = root ? (root.endsWith("/") ? root : `${root}/`) : undefined;
+  const relative =
+    root && path === root
+      ? "."
+      : root && prefix && path.startsWith(prefix)
+        ? `./${path.slice(prefix.length)}`
+        : path;
+  const parts = relative.split("/");
+  return parts.length > 5 ? [...parts.slice(0, 2), "…", ...parts.slice(-2)].join("/") : relative;
+}

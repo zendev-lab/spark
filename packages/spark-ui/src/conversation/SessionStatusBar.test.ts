@@ -1,6 +1,7 @@
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
+import { formatSessionWorkingDirectory } from "./session-status";
 import SessionStatusBar from "./SessionStatusBar.svelte";
 import type { SessionStatusBarLabels } from "./types";
 
@@ -71,5 +72,28 @@ describe("SessionStatusBar", () => {
 
     expect(body).toContain("~/workspace/zrr1999/spark");
     expect(body).not.toContain("usage-context");
+  });
+});
+
+describe("working directory presentation", () => {
+  it.each([
+    ["/repo/spark", "/repo/spark", "."],
+    ["/src", "/", "./src"],
+    ["/repo/spark/src/web", "/repo/spark/", "./src/web"],
+    ["/repo/spark-other/src", "/repo/spark", "/repo/spark-other/src"],
+    ["/repo/spark/.agents/worktrees/github/org/spark/task", "/repo", "./spark/…/spark/task"],
+    ["C:\\work\\spark\\src", "C:\\work\\spark", "./src"],
+  ])("formats %s relative to %s without matching sibling prefixes", (cwd, root, expected) => {
+    expect(formatSessionWorkingDirectory(cwd, root)).toBe(expected);
+  });
+  it("keeps an absolute directory when no workspace root is provided", () => {
+    expect(formatSessionWorkingDirectory("/repo/spark/src")).toBe("/repo/spark/src");
+  });
+  it("retains the absolute directory in the accessible detail and hover title", () => {
+    const { body } = render(SessionStatusBar, {
+      props: { labels, cwd: "/repo/spark/src", workspacePath: "/repo/spark" },
+    });
+    expect(body).toContain("./src</span>");
+    expect(body).toContain("Working directory: /repo/spark/src");
   });
 });

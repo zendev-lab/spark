@@ -120,6 +120,32 @@ describe("Spark Web conversation-first routes", () => {
     await screen.unmount();
   });
 
+  it("reuses the created Session and turn identity after a lost submission response", async () => {
+    let attempts = 0;
+    mocks.webRpc.mockImplementation(async (method: string) => {
+      if (method === "session.create") return { sessionId: "session-created" };
+      if (method === "turn.submit") {
+        if (++attempts === 1) throw new Error("connection lost");
+        return { invocationId: "inv-created" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const screen = await render(DashboardPage, { data: dashboardData() });
+    await screen.getByRole("textbox", { name: "First message" }).fill("Recover this turn");
+    await screen.getByRole("button", { name: "Start conversation" }).click();
+    await expect.element(screen.getByRole("alert")).toBeVisible();
+    await screen.getByRole("button", { name: "Start conversation" }).click();
+    await expect.poll(() => mocks.goto).toHaveBeenCalledWith("/sessions/session-created");
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0][1].idempotencyKey).toEqual(expect.any(String));
+    expect(submissions[1][1]).toEqual(submissions[0][1]);
+    expect(mocks.webRpc.mock.calls.filter(([method]) => method === "session.create")).toHaveLength(
+      1,
+    );
+    await screen.unmount();
+  });
+
   it("renders one Invocation independently from its Session transcript", async () => {
     const screen = await render(InvocationPage, { data: invocationData() });
 
@@ -249,3 +275,56 @@ function invocationData(): InvocationData {
     },
   } as unknown as InvocationData;
 }
+
+it("starts in the workspace selected by its sidebar plus rather than the launch workspace", async () => {
+  const data = dashboardData();
+  data.workspaces.push({ ...data.workspaces[0]!, id: "ws-b", displayName: "Repository B" });
+  data.sessions.push({
+    ...data.sessions[0]!,
+    sessionId: "admin-b",
+    scope: { kind: "workspace", workspaceId: "ws-b" },
+    lineage: { kind: "root" },
+    roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
+  });
+  mocks.webRpc.mockImplementation(async (method: string) => {
+    if (method === "session.create") return { sessionId: "new-b" };
+    if (method === "turn.submit") return { invocationId: "inv-b" };
+    throw new Error(method);
+  });
+  const screen = await render(DashboardPage, { data });
+  await screen.rerender({ data: { ...data, requestedWorkspaceId: "ws-b" } });
+  await screen.getByRole("textbox", { name: "First message" }).fill("Work in B");
+  await screen.getByRole("button", { name: "Start conversation", exact: true }).click();
+  await expect
+    .poll(() => mocks.webRpc.mock.calls.find(([method]) => method === "session.create")?.[1])
+    .toMatchObject({
+      scope: { kind: "workspace", workspaceId: "ws-b" },
+      supervisorSessionId: "admin-b",
+    });
+  await screen.unmount();
+});
+
+it("opens workspace setup from the sidebar and registers a workspace with retry", async () => {
+  const data = { ...dashboardData(), setupWorkspace: true };
+  mocks.webRpc
+    .mockRejectedValueOnce(new Error("Directory is unavailable"))
+    .mockResolvedValueOnce({ id: "new-workspace" });
+  const screen = await render(DashboardPage, { data });
+  const path = screen.getByRole("textbox", { name: "Local path" });
+  await expect.element(path).toBeVisible();
+  await expect.element(path).toHaveFocus();
+  await path.fill("/projects/new-workspace");
+  await screen.getByRole("textbox", { name: "Display name" }).fill("New workspace");
+  await screen.getByRole("button", { name: "Add workspace", exact: true }).click();
+  await expect.element(screen.getByText("Directory is unavailable")).toBeVisible();
+  expect(mocks.goto).not.toHaveBeenCalled();
+  await screen.getByRole("button", { name: "Add workspace", exact: true }).click();
+  await expect
+    .poll(() => mocks.webRpc)
+    .toHaveBeenLastCalledWith("workspace.register", {
+      localPath: "/projects/new-workspace",
+      displayName: "New workspace",
+    });
+  await expect.poll(() => mocks.goto).toHaveBeenCalledWith("/workspaces/new-workspace");
+  await screen.unmount();
+});
