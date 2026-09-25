@@ -43,7 +43,7 @@ describe("Repro Workbench projection fence", () => {
       labels,
     });
 
-    await expect.element(screen.getByRole("status")).toHaveTextContent(labels.unavailable);
+    await expect.element(screen.getByRole("status")).toMatchTextContent(labels.unavailable);
     expect(screen.container.textContent).not.toContain("stale-lane-item");
   });
 });

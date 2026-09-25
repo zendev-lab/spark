@@ -165,6 +165,10 @@ overrides:
   vite-plus: 0.3.0
   vitest: 5.0.1
 
+patchedDependencies:
+  '@codspeed/vitest-plugin@5.7.1': f1a12eefb360d00fed3fde7015261e0132e55f7a9de55e52fb328dd9d4a13b74
+  '@stryker-mutator/vitest-runner@10.0.0': 416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c
+
 importers:
 
   .:
@@ -226,7 +230,7 @@ importers:
     devDependencies:
       '@codspeed/vitest-plugin':
         specifier: 5.7.1
-        version: 5.7.1(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(supports-color@10.2.2)(tinybench@6.1.4)(vitest@5.0.1)
+        version: 5.7.1(patch_hash=f1a12eefb360d00fed3fde7015261e0132e55f7a9de55e52fb328dd9d4a13b74)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(supports-color@10.2.2)(tinybench@6.1.4)(vitest@5.0.1)
       '@deepseek-ai/dsh-web':
         specifier: catalog:dsh
         version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
@@ -495,7 +499,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
@@ -724,7 +728,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
@@ -931,7 +935,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
@@ -1084,7 +1088,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
@@ -1115,7 +1119,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       '@types/better-sqlite3':
         specifier: ^9.0.0
         version: 9.6.0
@@ -1142,7 +1146,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1295,7 +1299,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1320,7 +1324,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       '@zendev-lab/spark-invocation':
         specifier: workspace:^
         version: link:../spark-invocation
@@ -1342,7 +1346,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1357,7 +1361,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1440,7 +1444,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1493,7 +1497,7 @@ importers:
         version: 10.0.0(@types/node@24.13.3)
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
-        version: 10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
+        version: 10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -9673,7 +9677,7 @@ snapshots:
       - debug
       - supports-color
 
-  '@codspeed/vitest-plugin@5.7.1(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(supports-color@10.2.2)(tinybench@6.1.4)(vitest@5.0.1)':
+  '@codspeed/vitest-plugin@5.7.1(patch_hash=f1a12eefb360d00fed3fde7015261e0132e55f7a9de55e52fb328dd9d4a13b74)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(supports-color@10.2.2)(tinybench@6.1.4)(vitest@5.0.1)':
     dependencies:
       '@codspeed/core': 5.7.1(supports-color@10.2.2)
       tinybench: 6.1.4
@@ -11847,7 +11851,7 @@ snapshots:
 
   '@stryker-mutator/util@10.0.0': {}
 
-  '@stryker-mutator/vitest-runner@10.0.0(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)':
+  '@stryker-mutator/vitest-runner@10.0.0(patch_hash=416cf761e988c655f7e988ede0bd9d16c44961ddea6bece6893df823ac45d93c)(@stryker-mutator/core@10.0.0(@types/node@24.13.3))(vitest@5.0.1)':
     dependencies:
       '@stryker-mutator/api': 10.0.0
       '@stryker-mutator/core': 10.0.0(@types/node@24.13.3)

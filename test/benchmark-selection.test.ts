@@ -22,6 +22,7 @@ describe("CodSpeed benchmark selection", () => {
 
   it("uses a full run for benchmark harness and workspace dependency changes", () => {
     expect(requiresFullBenchmarkRun(["pnpm-lock.yaml"])).toBe(true);
+    expect(requiresFullBenchmarkRun(["patches/@codspeed__vitest-plugin@5.7.1.patch"])).toBe(true);
     expect(requiresFullBenchmarkRun(["packages/spark-session/package.json"])).toBe(true);
     expect(requiresFullBenchmarkRun(["packages/spark-session/tsconfig.json"])).toBe(true);
     expect(requiresFullBenchmarkRun(["scripts/select-benchmark-files.mts"])).toBe(true);

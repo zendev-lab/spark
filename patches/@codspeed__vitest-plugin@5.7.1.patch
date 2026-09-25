@@ -1,0 +1,342 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 0d0d9f139adf72757945ce13c497086e14e51fd0..66a941729baec5a7c82ba389aa69c1e598b37b31 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -30,7 +30,7 @@ function codspeedPlugin() {
+   return {
+     name: "codspeed:vitest",
+     apply(_, { mode }) {
+-      if (mode !== "benchmark") {
++      if (getVitestMajorVersion() !== 5 && mode !== "benchmark") {
+         return false;
+       }
+       if (getInstrumentMode() == "analysis" && !InstrumentHooks.isInstrumented()) {
+@@ -40,6 +40,19 @@ function codspeedPlugin() {
+     },
+     enforce: "post",
+     config() {
++      if (getVitestMajorVersion() === 5) {
++        const instrumentMode = getInstrumentMode();
++        if (instrumentMode === "disabled") return;
++        return {
++          test: {
++            pool: "forks",
++            execArgv: getV8Flags(),
++            ...(instrumentMode !== "disabled" && {
++              benchmark: { provider: getCodSpeedFileFromName("v5-provider") }
++            })
++          }
++        };
++      }
+       const runnerFile = getRunnerFile();
+       const runnerMode = getCodspeedRunnerMode();
+       const v8Flags = getV8Flags();
+diff --git a/dist/v5-provider.mjs b/dist/v5-provider.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..1595d76f33f567ad1dcfbf5a4ec9bfe243f4c9aa
+--- /dev/null
++++ b/dist/v5-provider.mjs
+@@ -0,0 +1,303 @@
++// Backported from CodSpeedHQ/codspeed-node#86, commit eb2042ea711614ff503854928c8476869a10aff5.
++// Copyright CodSpeed contributors. Licensed under Apache-2.0.
++import {
++  getGitDir,
++  getInstrumentMode,
++  InstrumentHooks as InstrumentHooks2,
++  setupCore,
++  teardownCore
++} from "@codspeed/core";
++import { createRequire } from "module";
++import path from "path";
++
++import {
++  calculateQuantiles,
++  InstrumentHooks,
++  MARKER_TYPE_BENCHMARK_END,
++  MARKER_TYPE_BENCHMARK_START,
++  msToNs,
++  msToS,
++  optimizeFunction,
++  optimizeFunctionSync,
++  wrapWithRootFrame,
++  wrapWithRootFrameSync,
++  writeWalltimeResults
++} from "@codspeed/core";
++var instrumentWindow = { runStart: null };
++function rootFrameRegisterFn(fn) {
++  return wrapWithRootFrame(() => fn());
++}
++async function runAnalysisTask({ fn, fnOpts }, uri) {
++  if (isAsyncFn(fn)) {
++    await runAnalysisTaskAsync(fn, fnOpts, uri);
++  } else {
++    await runAnalysisTaskSync(fn, fnOpts, uri);
++  }
++}
++function isAsyncFn(fn) {
++  return fn.constructor?.name === "AsyncFunction";
++}
++async function runAnalysisTaskAsync(fn, fnOpts, uri) {
++  await fnOpts?.beforeAll?.("run");
++  await optimizeFunction(async () => {
++    await fnOpts?.beforeEach?.("run");
++    await fn();
++    await fnOpts?.afterEach?.("run");
++  });
++  await fnOpts?.beforeEach?.("run");
++  global.gc?.();
++  await wrapWithRootFrame(async () => {
++    InstrumentHooks.startBenchmark();
++    await fn();
++    InstrumentHooks.stopBenchmark();
++    InstrumentHooks.setExecutedBenchmark(process.pid, uri);
++  })();
++  await fnOpts?.afterEach?.("run");
++  await fnOpts?.afterAll?.("run");
++}
++function runAnalysisTaskSync(fn, fnOpts, uri) {
++  fnOpts?.beforeAll?.("run");
++  optimizeFunctionSync(() => {
++    fnOpts?.beforeEach?.("run");
++    fn();
++    fnOpts?.afterEach?.("run");
++  });
++  fnOpts?.beforeEach?.("run");
++  global.gc?.();
++  wrapWithRootFrameSync(() => {
++    InstrumentHooks.startBenchmark();
++    fn();
++    InstrumentHooks.stopBenchmark();
++    InstrumentHooks.setExecutedBenchmark(process.pid, uri);
++  })();
++  fnOpts?.afterEach?.("run");
++  fnOpts?.afterAll?.("run");
++}
++function installInstrumentHooks(bench, getUri) {
++  const userSetup = bench.setup;
++  const userTeardown = bench.teardown;
++  bench.setup = async (task, mode) => {
++    await userSetup(task, mode);
++    if (mode === "run") {
++      InstrumentHooks.startBenchmark();
++      instrumentWindow.runStart = InstrumentHooks.currentTimestamp();
++    }
++  };
++  bench.teardown = async (task, mode) => {
++    if (mode === "run") {
++      closeInstrumentWindow(getUri(task.name));
++    }
++    await userTeardown(task, mode);
++  };
++}
++function closeInstrumentWindow(uri) {
++  emitBenchmarkWindow(uri, instrumentWindow.runStart);
++  instrumentWindow.runStart = null;
++}
++function emitBenchmarkWindow(uri, start) {
++  const end = InstrumentHooks.currentTimestamp();
++  const pid = process.pid;
++  InstrumentHooks.addMarker(pid, MARKER_TYPE_BENCHMARK_START, start);
++  InstrumentHooks.addMarker(pid, MARKER_TYPE_BENCHMARK_END, end);
++  InstrumentHooks.stopBenchmark();
++  InstrumentHooks.setExecutedBenchmark(pid, uri);
++}
++function writeAndLogWalltimeResults(benchmarks) {
++  if (benchmarks.length === 0) {
++    return;
++  }
++  writeWalltimeResults(benchmarks);
++  console.log(
++    `[CodSpeed] Done collecting walltime data for ${benchmarks.length} benches.`
++  );
++}
++function tinybenchTaskToBenchmark(task, uri, options) {
++  const stats = tinybenchResultToStats(task.result, options);
++  if (stats === null) {
++    return null;
++  }
++  return {
++    name: task.name,
++    uri,
++    config: {
++      max_rounds: options.iterations ?? null,
++      max_time_ns: options.time ? msToNs(options.time) : null,
++      min_round_time_ns: null,
++      // tinybench does not have an option for this
++      warmup_time_ns: options.warmupIterations !== 0 && options.warmupTime ? msToNs(options.warmupTime) : null
++    },
++    stats
++  };
++}
++function tinybenchResultToStats(result, options) {
++  if (!result) {
++    throw new Error("No benchmark data available in result");
++  }
++  const { totalTime, latency } = result;
++  const { min, max, mean, sd, samples } = latency;
++  const sortedTimesNs = (samples ?? []).map(msToNs).sort((a, b) => a - b);
++  const meanNs = msToNs(mean);
++  const stdevNs = msToNs(sd);
++  if (sortedTimesNs.length == 0) {
++    return null;
++  }
++  const { q1_ns, q3_ns, median_ns, iqr_outlier_rounds, stdev_outlier_rounds } = calculateQuantiles({ meanNs, stdevNs, sortedTimesNs });
++  return {
++    min_ns: msToNs(min),
++    max_ns: msToNs(max),
++    mean_ns: meanNs,
++    stdev_ns: stdevNs,
++    q1_ns,
++    median_ns,
++    q3_ns,
++    total_time: msToS(totalTime),
++    iter_per_round: 1,
++    // tinybench runs one iteration per round
++    rounds: sortedTimesNs.length,
++    iqr_outlier_rounds,
++    stdev_outlier_rounds,
++    warmup_iters: options.warmupIterations ?? 0
++  };
++}
++
++var isWalltime = getInstrumentMode() === "walltime";
++setupCore();
++process.once("beforeExit", () => teardownCore());
++function buildGroupUri(test) {
++  const filepath = test.file?.filepath;
++  if (!filepath) {
++    throw new Error("[CodSpeed] could not resolve the running benchmark file");
++  }
++  const gitDir = getGitDir(filepath);
++  if (gitDir === void 0) {
++    throw new Error("Could not find a git repository");
++  }
++  const relativeFile = path.relative(gitDir, filepath);
++  const testPath = test.fullTestName.split(" > ").join("::");
++  return [relativeFile, testPath].filter(Boolean).join("::");
++}
++async function importHostTinybench() {
++  const require2 = createRequire(import.meta.url);
++  const vitestRequire = createRequire(require2.resolve("vitest/package.json"));
++  return import(vitestRequire.resolve("tinybench"));
++}
++function analysisResult(name) {
++  const statistics = {
++    aad: 0,
++    critical: 0,
++    df: 0,
++    mad: 0,
++    max: 0,
++    mean: 0,
++    min: 0,
++    moe: 0,
++    p50: 0,
++    p75: 0,
++    p99: 0,
++    p995: 0,
++    p999: 0,
++    rme: 0,
++    samples: void 0,
++    samplesCount: 0,
++    sd: 0,
++    sem: 0,
++    variance: 0
++  };
++  return {
++    name,
++    state: "completed",
++    latency: { ...statistics },
++    throughput: { ...statistics },
++    period: 0,
++    totalTime: 0,
++    runtime: "node",
++    runtimeVersion: process.versions.node,
++    timestampProviderName: "codspeed"
++  };
++}
++var provider = {
++  async run({ test, registrations, options }) {
++    const groupUri = buildGroupUri(test);
++    const getUri = (name) => `${groupUri}::${name}`;
++    if (isWalltime) {
++      return runWalltime(registrations, options, getUri, test);
++    }
++    return runAnalysis(registrations, getUri);
++  }
++};
++async function runAnalysis(registrations, getUri) {
++  const label = InstrumentHooks2.isInstrumented() ? "Measured" : "Checked";
++  const results = [];
++  for (const { name, fn, fnOpts } of registrations) {
++    const uri = getUri(name);
++    await runAnalysisTask({ fn, fnOpts }, uri);
++    console.log(`[CodSpeed] ${label} ${uri}`);
++    results.push(analysisResult(name));
++  }
++  return results;
++}
++async function runWalltime(registrations, options, getUri, test) {
++  const { Bench } = await importHostTinybench();
++  const bench = new Bench({
++    signal: test.context.signal,
++    ...options,
++    // walltime needs per-iteration samples to compute quantiles
++    retainSamples: true
++  });
++  for (const { name, fn, fnOpts } of registrations) {
++    bench.add(name, rootFrameRegisterFn(fn), fnOpts);
++  }
++  installInstrumentHooks(bench, getUri);
++  const tasks = await bench.run();
++  throwOnErroredTasks(tasks);
++  collectWalltimeResults(bench, getUri);
++  return tasks.map(tinybenchTaskToBenchResult);
++}
++function throwOnErroredTasks(tasks) {
++  const errors = tasks.filter((task) => task.result?.state === "errored").map((task) => task.result?.error);
++  if (errors.length === 1) {
++    throw errors[0];
++  }
++  if (errors.length > 1) {
++    throw new AggregateError(errors, "Some benchmarks failed");
++  }
++}
++function collectWalltimeResults(bench, getUri) {
++  const options = {
++    time: bench.time,
++    iterations: bench.iterations,
++    // A bench with warmup turned off keeps its warmup timings, so they'd
++    // otherwise be reported as if a warmup had run.
++    warmupTime: bench.warmup ? bench.warmupTime : 0,
++    warmupIterations: bench.warmup ? bench.warmupIterations : 0
++  };
++  const benchmarks = [];
++  for (const task of bench.tasks) {
++    if (task.result?.state !== "completed") continue;
++    const benchmark = tinybenchTaskToBenchmark(
++      task,
++      getUri(task.name),
++      options
++    );
++    if (benchmark) {
++      benchmarks.push(benchmark);
++    }
++  }
++  writeAndLogWalltimeResults(benchmarks);
++}
++function tinybenchTaskToBenchResult(task) {
++  const result = task.result;
++  if (result?.state !== "completed") {
++    throw new Error(
++      `[CodSpeed] benchmark "${task.name}" did not complete: received "${result?.state ?? "no result"}"`
++    );
++  }
++  return {
++    ...result,
++    name: task.name
++  };
++}
++var provider_default = provider;
++export {
++  provider_default as default
++};

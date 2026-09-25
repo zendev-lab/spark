@@ -16,6 +16,7 @@ ENV CI=1 \
 WORKDIR /src
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches ./patches
 
 RUN pnpm_version="$(node -p "require('./package.json').packageManager.split('@').at(-1)")" \
     && npm install --global "pnpm@${pnpm_version}"

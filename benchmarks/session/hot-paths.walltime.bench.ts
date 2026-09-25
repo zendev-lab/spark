@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 
 import {
   TAIL_MESSAGE_LIMIT,
@@ -9,45 +9,28 @@ import {
   runRefreshSparkSessionSnapshotIndex,
 } from "./hot-paths-cases.ts";
 
-describe("Spark session snapshot production paths", () => {
-  let refreshFixture: Awaited<ReturnType<typeof createIndexedTranscript>> | undefined;
-  let loadFixture: Awaited<ReturnType<typeof createIndexedTranscript>> | undefined;
-
-  bench(
-    `refreshSparkSessionSnapshotIndex: ${TRANSCRIPT_ENTRY_COUNT} entries`,
-    async () => {
+test("Spark session snapshot production paths", async ({ bench }) => {
+  const refreshFixture = await createIndexedTranscript("sess_session_refresh_bench");
+  try {
+    await bench(`refreshSparkSessionSnapshotIndex: ${TRANSCRIPT_ENTRY_COUNT} entries`, async () => {
       await runRefreshSparkSessionSnapshotIndex({
-        sessionPath: refreshFixture!.transcriptPath,
-        sessionId: refreshFixture!.session.sessionId,
+        sessionPath: refreshFixture.transcriptPath,
+        sessionId: refreshFixture.session.sessionId,
       });
-    },
-    {
-      setup: async () => {
-        refreshFixture = await createIndexedTranscript("sess_session_refresh_bench");
-      },
-      teardown: async () => {
-        if (refreshFixture) await rm(refreshFixture.root, { recursive: true, force: true });
-        refreshFixture = undefined;
-      },
-    },
-  );
+    }).run();
+  } finally {
+    await rm(refreshFixture.root, { recursive: true, force: true });
+  }
 
-  bench(
-    `loadSparkSessionSnapshotTail: ${TRANSCRIPT_ENTRY_COUNT}→${TAIL_MESSAGE_LIMIT} index-hit`,
-    async () => {
+  const loadFixture = await createIndexedTranscript("sess_session_load_bench");
+  try {
+    await bench(`loadSparkSessionSnapshotTail: ${TRANSCRIPT_ENTRY_COUNT}→${TAIL_MESSAGE_LIMIT} index-hit`, async () => {
       await runLoadSparkSessionSnapshotTail({
-        sessionsRoot: loadFixture!.root,
-        session: loadFixture!.session,
+        sessionsRoot: loadFixture.root,
+        session: loadFixture.session,
       });
-    },
-    {
-      setup: async () => {
-        loadFixture = await createIndexedTranscript("sess_session_load_bench");
-      },
-      teardown: async () => {
-        if (loadFixture) await rm(loadFixture.root, { recursive: true, force: true });
-        loadFixture = undefined;
-      },
-    },
-  );
+    }).run();
+  } finally {
+    await rm(loadFixture.root, { recursive: true, force: true });
+  }
 });

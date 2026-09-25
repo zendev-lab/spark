@@ -401,7 +401,7 @@ describe("Session page owner state", () => {
     firstRead.resolve(Uint8Array.of(1).buffer);
     await expect.element(screen.getByText(/a-5\.txt/u)).toBeVisible();
     secondRead.resolve(Uint8Array.of(1).buffer);
-    await expect.element(screen.getByRole("alert")).toHaveTextContent("at most 8 attachments");
+    await expect.element(screen.getByRole("alert")).toMatchTextContent("at most 8 attachments");
     expect(screen.container.textContent).not.toContain("b-1.txt");
     await screen.unmount();
   });

@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 
 import {
   A2UI_COMPONENT_COUNT,
@@ -11,20 +11,20 @@ import {
   runValidateCompletedSparkAgentTrace,
 } from "./hot-paths-cases.ts";
 
-describe("Spark protocol production paths", () => {
-  bench(`parseSparkSessionView: ${SESSION_VIEW_MESSAGE_COUNT} messages`, () => {
+test("Spark protocol production paths", async ({ bench }) => {
+  await bench(`parseSparkSessionView: ${SESSION_VIEW_MESSAGE_COUNT} messages`, () => {
     runParseSparkSessionView();
-  });
+  }).run();
 
-  bench(`projectSparkConversationMessage: ${CONVERSATION_PART_COUNT} parts`, () => {
+  await bench(`projectSparkConversationMessage: ${CONVERSATION_PART_COUNT} parts`, () => {
     runProjectSparkConversationMessage();
-  });
+  }).run();
 
-  bench(`normalizeSparkA2uiDocument: ${A2UI_COMPONENT_COUNT} components`, () => {
+  await bench(`normalizeSparkA2uiDocument: ${A2UI_COMPONENT_COUNT} components`, () => {
     runNormalizeSparkA2uiDocument();
-  });
+  }).run();
 
-  bench(`validateCompletedSparkAgentTrace: ${AGENT_TRACE_TOOL_COUNT} tool spans`, () => {
+  await bench(`validateCompletedSparkAgentTrace: ${AGENT_TRACE_TOOL_COUNT} tool spans`, () => {
     runValidateCompletedSparkAgentTrace();
-  });
+  }).run();
 });

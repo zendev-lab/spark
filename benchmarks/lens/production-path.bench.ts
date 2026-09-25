@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 
 import {
   runDiagnosticAggregationCase,
@@ -6,16 +6,16 @@ import {
   runStableJsonCase,
 } from "./production-path-cases.ts";
 
-describe("Spark Lens production paths", () => {
-  bench("stableJson: 1,024 nested records", () => {
+test("Spark Lens production paths", async ({ bench }) => {
+  await bench("stableJson: 1,024 nested records", () => {
     runStableJsonCase();
-  });
+  }).run();
 
-  bench("aggregateDiagnosticFindings: 1,000 findings / 500 groups", () => {
+  await bench("aggregateDiagnosticFindings: 1,000 findings / 500 groups", () => {
     runDiagnosticAggregationCase();
-  });
+  }).run();
 
-  bench("createPatchProposal: 500 edits / 50 preconditions", () => {
+  await bench("createPatchProposal: 500 edits / 50 preconditions", () => {
     runPatchProposalCase();
-  });
+  }).run();
 });

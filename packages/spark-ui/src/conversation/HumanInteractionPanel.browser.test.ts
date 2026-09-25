@@ -164,7 +164,7 @@ describe("HumanInteractionPanel browser contract", () => {
     await expect.element(screen.getByRole("checkbox", { name: "Browser" })).toBeChecked();
     await screen.getByRole("combobox", { name: "Lane" }).selectOptions("");
     await screen
-      .getByRole("group", { name: "Lane" })
+      .getByRole("group", { name: "Lane *" })
       .getByRole("checkbox", { name: "Custom answer" })
       .click();
     await screen.getByRole("textbox", { name: "Lane: Custom answer" }).fill("maybe");

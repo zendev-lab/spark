@@ -53,6 +53,7 @@ export function requiresFullBenchmarkRun(changedFiles: string[]): boolean {
     const normalized = normalizeRepositoryPath(file);
     return (
       fullRunPaths.has(normalized) ||
+      normalized.startsWith("patches/") ||
       normalized.endsWith("/package.json") ||
       /(?:^|\/)tsconfig(?:\.[^/]+)?\.json$/u.test(normalized)
     );
@@ -85,7 +86,8 @@ async function discoverBenchmarks({
   all: boolean;
   baseSha: string | undefined;
 }): Promise<string[]> {
-  const vitest = await createVitest("benchmark", {
+  const vitest = await createVitest("test", {
+    benchmark: { enabled: true },
     changed: all ? false : baseSha,
     config: benchmarkConfig,
     root: repositoryRoot,
