@@ -92,9 +92,7 @@ describe("Spark UI component catalog", () => {
       "catalog-tool-call-light-desktop",
     );
     await expect(
-      page
-        .getByTestId("catalog-code-block-success")
-        .getByRole("figure", { name: "owner.ts", exact: false }),
+      page.getByTestId("catalog-code-block-success").getByRole("figure", { name: "owner.ts" }),
     ).toMatchScreenshot("catalog-code-block-light-desktop");
     await expect(page.getByTestId("catalog-diff-view-success")).toMatchScreenshot(
       "catalog-diff-view-light-desktop",

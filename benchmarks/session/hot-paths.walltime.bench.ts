@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { test } from "vitest";
+import { bench, describe } from "vitest";
 
 import {
   TAIL_MESSAGE_LIMIT,
@@ -9,28 +9,45 @@ import {
   runRefreshSparkSessionSnapshotIndex,
 } from "./hot-paths-cases.ts";
 
-test("Spark session snapshot production paths", async ({ bench }) => {
-  const refreshFixture = await createIndexedTranscript("sess_session_refresh_bench");
-  try {
-    await bench(`refreshSparkSessionSnapshotIndex: ${TRANSCRIPT_ENTRY_COUNT} entries`, async () => {
-      await runRefreshSparkSessionSnapshotIndex({
-        sessionPath: refreshFixture.transcriptPath,
-        sessionId: refreshFixture.session.sessionId,
-      });
-    }).run();
-  } finally {
-    await rm(refreshFixture.root, { recursive: true, force: true });
-  }
+describe("Spark session snapshot production paths", () => {
+  let refreshFixture: Awaited<ReturnType<typeof createIndexedTranscript>> | undefined;
+  let loadFixture: Awaited<ReturnType<typeof createIndexedTranscript>> | undefined;
 
-  const loadFixture = await createIndexedTranscript("sess_session_load_bench");
-  try {
-    await bench(`loadSparkSessionSnapshotTail: ${TRANSCRIPT_ENTRY_COUNT}→${TAIL_MESSAGE_LIMIT} index-hit`, async () => {
-      await runLoadSparkSessionSnapshotTail({
-        sessionsRoot: loadFixture.root,
-        session: loadFixture.session,
+  bench(
+    `refreshSparkSessionSnapshotIndex: ${TRANSCRIPT_ENTRY_COUNT} entries`,
+    async () => {
+      await runRefreshSparkSessionSnapshotIndex({
+        sessionPath: refreshFixture!.transcriptPath,
+        sessionId: refreshFixture!.session.sessionId,
       });
-    }).run();
-  } finally {
-    await rm(loadFixture.root, { recursive: true, force: true });
-  }
+    },
+    {
+      setup: async () => {
+        refreshFixture = await createIndexedTranscript("sess_session_refresh_bench");
+      },
+      teardown: async () => {
+        if (refreshFixture) await rm(refreshFixture.root, { recursive: true, force: true });
+        refreshFixture = undefined;
+      },
+    },
+  );
+
+  bench(
+    `loadSparkSessionSnapshotTail: ${TRANSCRIPT_ENTRY_COUNT}→${TAIL_MESSAGE_LIMIT} index-hit`,
+    async () => {
+      await runLoadSparkSessionSnapshotTail({
+        sessionsRoot: loadFixture!.root,
+        session: loadFixture!.session,
+      });
+    },
+    {
+      setup: async () => {
+        loadFixture = await createIndexedTranscript("sess_session_load_bench");
+      },
+      teardown: async () => {
+        if (loadFixture) await rm(loadFixture.root, { recursive: true, force: true });
+        loadFixture = undefined;
+      },
+    },
+  );
 });

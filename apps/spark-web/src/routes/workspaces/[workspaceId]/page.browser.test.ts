@@ -112,15 +112,15 @@ describe("Workspace page owner state", () => {
     const screen = await render(WorkspacePage, { data: workspaceData("a") });
 
     await screen.getByText("Create project Role").click();
-    await screen.getByLabelText("Role id", { exact: false }).fill("role-a");
-    await screen.getByLabelText("Description", { exact: false }).fill("Role A");
-    await screen.getByLabelText("System prompt", { exact: false }).fill("Act as role A.");
+    await screen.getByLabelText("Role id").fill("role-a");
+    await screen.getByLabelText("Description").fill("Role A");
+    await screen.getByLabelText("System prompt").fill("Act as role A.");
     await screen.getByRole("button", { name: "Create Role" }).click();
 
     await screen.rerender({ data: workspaceData("b") });
-    await screen.getByLabelText("Role id", { exact: false }).fill("role-b");
-    await screen.getByLabelText("Description", { exact: false }).fill("Role B");
-    await screen.getByLabelText("System prompt", { exact: false }).fill("Act as role B.");
+    await screen.getByLabelText("Role id").fill("role-b");
+    await screen.getByLabelText("Description").fill("Role B");
+    await screen.getByLabelText("System prompt").fill("Act as role B.");
     await screen.getByRole("button", { name: "Create Role" }).click();
     await expect.element(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
 
@@ -130,7 +130,7 @@ describe("Workspace page owner state", () => {
     expect(screen.container.textContent).not.toContain("private workspace A role failure");
 
     currentResponse.resolve({ created: true, role: { ref: "role:project/role-b" } });
-    await expect.element(screen.getByRole("status")).toMatchTextContent("role:project/role-b");
+    await expect.element(screen.getByRole("status")).toHaveTextContent("role:project/role-b");
     await expect.element(screen.getByRole("button", { name: "Create Role" })).toBeEnabled();
     await screen.unmount();
   });
