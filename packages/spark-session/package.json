@@ -24,7 +24,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-agent": "catalog:dsh",
     "@deepseek-ai/dsh-attachment-local": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
