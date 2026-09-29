@@ -5,7 +5,7 @@ import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files"
 import {
   CURRENT_SPARK_SESSION_VERSION,
   SparkSessionStore,
-  type SparkSessionEntry,
+  writeJsonLinesAtomically,
   type SparkSessionRecord,
   workspaceSessionHash,
 } from "@zendev-lab/spark-session/transcript";
@@ -144,7 +144,7 @@ async function unifySessionTranscript(
     sourcePaths[0] !== resolve(targetPath) ||
     resolve(session.sessionPath ?? "") !== resolve(targetPath) ||
     sources.some((record) => record.header.version !== CURRENT_SPARK_SESSION_VERSION);
-  const merged = mergeTranscriptRecords(sources, targetPath, session.cwd!);
+  const merged = await store.prepareUnifiedRecord(sources, targetPath, session.cwd!);
   const result: UnifiedDaemonSessionTranscript = {
     sessionId: session.sessionId,
     sourcePaths,
@@ -175,7 +175,10 @@ async function unifySessionTranscript(
   };
   await writeJsonFileAtomic(activeJournalPath, journal);
 
-  await store.save(merged);
+  await writeJsonLinesAtomically(targetPath, [
+    merged.nativeDocument!.header,
+    ...merged.nativeDocument!.events,
+  ]);
   const verified = await store.load(targetPath);
   if (
     verified.header.id !== session.sessionId ||
@@ -483,48 +486,4 @@ function compareTranscriptRecords(left: SparkSessionRecord, right: SparkSessionR
     left.header.timestamp.localeCompare(right.header.timestamp) ||
     left.path.localeCompare(right.path)
   );
-}
-
-function mergeTranscriptRecords(
-  records: SparkSessionRecord[],
-  targetPath: string,
-  targetCwd: string,
-): SparkSessionRecord {
-  const [first, ...rest] = records;
-  if (!first) throw new Error("at least one transcript record is required");
-  const entries = first.entries.map(cloneEntry);
-  const entryIds = new Set(entries.map((entry) => entry.id));
-  assertSingleRoot(first);
-
-  for (const record of rest) {
-    assertSingleRoot(record);
-    const fragment = record.entries.map(cloneEntry);
-    for (const entry of fragment) {
-      if (entryIds.has(entry.id)) {
-        throw new Error(`duplicate transcript entry id ${entry.id} in ${record.path}`);
-      }
-      entryIds.add(entry.id);
-    }
-    const root = fragment.find((entry) => entry.parentId === null);
-    const previousLeaf = entries.at(-1);
-    if (root && previousLeaf) root.parentId = previousLeaf.id;
-    entries.push(...fragment);
-  }
-
-  return {
-    path: targetPath,
-    header: { ...first.header, cwd: resolve(targetCwd) },
-    entries,
-  };
-}
-
-function assertSingleRoot(record: SparkSessionRecord): void {
-  const roots = record.entries.filter((entry) => entry.parentId === null);
-  if (record.entries.length > 0 && roots.length !== 1) {
-    throw new Error(`transcript ${record.path} has ${roots.length} roots`);
-  }
-}
-
-function cloneEntry(entry: SparkSessionEntry): SparkSessionEntry {
-  return structuredClone(entry);
 }

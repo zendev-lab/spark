@@ -120,7 +120,7 @@ test("write-open repairs a UTF-8 torn tail before appending and keeps complete r
 });
 
 test.each([false, true])(
-  "fork identity survives persistence and refuses projection rewrites (nonempty: %s)",
+  "fork identity survives persistence and projection saves (nonempty: %s)",
   async (nonempty) => {
     const root = await mkdtemp(join(tmpdir(), "spark-fork-identity-"));
     const ctx = await openBackend(root);
@@ -147,8 +147,17 @@ test.each([false, true])(
       const record = dshDocumentToSparkRecord(path, document);
       expect(record.header.seedLength).toBe(inheritedEventCount);
       const store = new SparkSessionStore({ cwd: root, sparkHome: root });
-      await expect(store.save(record)).rejects.toThrow(/fork-inherited event prefix/);
+      await store.save(record);
       expect(await readFile(path, "utf8")).toBe(content);
+      store.appendMessage(record, { role: "user", content: "continue child" });
+      await store.save(record);
+      const reopened = await ctx.sessionPersistence.open(child.id, "read");
+      expect(reopened.inheritedEventCount).toBe(inheritedEventCount);
+      expect(reopened.header.isSeeded).toBe(true);
+      expect(
+        (await reopened.read()).events.filter((event) => event.type === "user/message"),
+      ).toHaveLength(1);
+      await reopened.close();
     } finally {
       await ctx.fiber.dispose();
       await rm(root, { recursive: true, force: true });

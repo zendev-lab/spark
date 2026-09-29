@@ -1,9 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
-import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { cueSkillsRoot } from "@zendev-lab/cue";
@@ -268,87 +267,6 @@ describe("spark daemon Cordis root", () => {
     }
   });
 
-  it("persists native DSH schedule create, list, and delete changes", async () => {
-    const storageRoot = await sessionsRoot();
-    const root = await createSparkDaemonCordisRoot(fakeStores(), {
-      sessionsRoot: storageRoot,
-    });
-    const sessionId = SessionId("sess_schedule");
-    const handle = await root.ctx.agents.create({
-      sessionId,
-      agentOptions: { provider: "schedule-test", model: "schedule-test" },
-      meta: { cwd: join(storageRoot, "workspace") },
-      setup(_agentCtx, agent) {
-        agent.session.append("spark/meta", {
-          timestamp: "2026-08-21T00:00:00.000Z",
-          sparkVersion: CURRENT_SPARK_SESSION_VERSION,
-        });
-      },
-    });
-    const signal = new AbortController().signal;
-    try {
-      const created = await root.ctx.tools.execute({
-        callId: ToolCallId("schedule-create"),
-        name: "schedule_create",
-        arguments: { prompt: "Review native schedule", after_seconds: 3_600 },
-        agent: handle.agent,
-        signal,
-      });
-      expect(created).toMatchObject({
-        isError: false,
-        value: {
-          id: "schedule-1",
-          kind: "after",
-          prompt: "Review native schedule",
-          afterSeconds: 3_600,
-          state: "scheduled",
-          deliveryMode: "session-local",
-        },
-      });
-
-      const listed = await root.ctx.tools.execute({
-        callId: ToolCallId("schedule-list"),
-        name: "schedule_list",
-        arguments: {},
-        agent: handle.agent,
-        signal,
-      });
-      expect(listed).toMatchObject({
-        isError: false,
-        value: [expect.objectContaining({ id: "schedule-1", kind: "after" })],
-      });
-
-      const deleted = await root.ctx.tools.execute({
-        callId: ToolCallId("schedule-delete"),
-        name: "schedule_delete",
-        arguments: { id: "schedule-1" },
-        agent: handle.agent,
-        signal,
-      });
-      expect(deleted).toMatchObject({
-        isError: false,
-        value: { id: "schedule-1", deleted: true },
-      });
-
-      await root.ctx.sessions.flush(handle.agent.session);
-      const reader = await root.ctx.sessionPersistence.open(sessionId, "read");
-      const inspection = await reader.read();
-      await reader.close();
-      expect(
-        inspection.events
-          .filter((event) => event.type === "schedule/change")
-          .map((event) =>
-            event.data && typeof event.data === "object" && "operation" in event.data
-              ? event.data.operation
-              : undefined,
-          ),
-      ).toEqual(["create", "delete"]);
-    } finally {
-      await handle.dispose();
-      await root.dispose();
-    }
-  });
-
   it("resumes invocation-owned Agents on the shared root and projects native events", async () => {
     const home = await sessionsRoot();
     const cwd = join(home, "workspace");
@@ -394,8 +312,6 @@ describe("spark daemon Cordis root", () => {
       maxTokens: 1_000,
     };
     const observed: Array<{ invocationId: string; sessionId: string; epoch: number }> = [];
-    let scheduleCreatePolicy: unknown;
-    let scheduleCreateAdmission: unknown;
     const runInvocation = async (
       invocationId: string,
       prompt: string,
@@ -410,10 +326,6 @@ describe("spark daemon Cordis root", () => {
           daemonGeneration,
           correlationId: `attempt:${invocationId}:${daemonGeneration}`,
         },
-      });
-      vi.spyOn(host, "isDshToolDispatchAllowed").mockImplementation((name, policy) => {
-        if (name === "schedule_create") scheduleCreateAdmission = policy;
-        return true;
       });
       const loop = new SparkAgentLoop({
         host,
@@ -436,10 +348,6 @@ describe("spark daemon Cordis root", () => {
           },
         ],
       });
-      loop.onEvent((event) => {
-        if (event.type !== "prompt_manifest") return;
-        scheduleCreatePolicy = event.manifest.tools.find((tool) => tool.name === "schedule_create");
-      });
       loop.setViewSessionId(seed.header.id);
       loop.setDshSessionMetadata({
         timestamp: seed.header.timestamp,
@@ -454,21 +362,8 @@ describe("spark daemon Cordis root", () => {
       expect(observed).toEqual([
         { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
       ]);
-      expect(nativeToolNames).toEqual(
-        expect.arrayContaining(["schedule_create", "schedule_list", "schedule_delete"]),
-      );
-      expect(scheduleCreatePolicy).toMatchObject({
-        name: "schedule_create",
-        effect: "control",
-        executionMode: "sequential",
-        approval: "required",
-      });
-      expect(scheduleCreateAdmission).toMatchObject({
-        effect: "control",
-        executionMode: "sequential",
-        approval: "required",
-        reconcile: "tool_owner",
-      });
+      expect(nativeToolNames.filter((name) => name.startsWith("schedule_"))).toEqual([]);
+      expect(root.ctx.get("schedule")).toBeUndefined();
       const first = await store.load(seed.path);
       const firstMessages = first.entries.filter((entry) => entry.type === "message");
       // The first native turn persists DSH Skill and sandbox-policy context beside user/model messages.

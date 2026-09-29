@@ -14,6 +14,7 @@ import {
   LlmError,
   createUserMessage,
   isAgentLoopRequest,
+  type ContentBlock,
   type GenerateOptions,
   type StreamChunk,
   type ToolResultMessage as DshToolResultMessage,
@@ -34,6 +35,7 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
+  UserMessage,
 } from "@zendev-lab/spark-llm-providers";
 import {
   llmChunksToPiAiStream,
@@ -45,6 +47,12 @@ import type { SparkPromptItem } from "./prompt-items.ts";
 import { createSparkInvocationPlugin } from "@zendev-lab/spark-invocation/plugin";
 import { isPlainRecord } from "./tool-dispatch.ts";
 import type { SparkTurnLlm } from "./turn-llm.ts";
+
+declare module "@deepseek-ai/dsh-llm" {
+  interface MessageSourceMap {
+    "plugin:spark-continuation": { kind: "plugin:spark-continuation" };
+  }
+}
 
 export interface SparkTurnDriverCheckpoint {
   toolCalls: ToolCall[];
@@ -89,6 +97,8 @@ interface SparkPreparedTurn {
 }
 
 export interface SparkTurnDriverHooks {
+  onNativeCommit?(eventCount: number): void;
+  takeQueuedUserMessages?(): UserMessage["content"][];
   assemble(): Promise<SparkAssembledTurn>;
   /** Resolve the Spark provider behind the Agent's private driver route. */
   resolveAuxiliaryModel?(): Model<string>;
@@ -127,7 +137,7 @@ export interface RunSparkDshTurnInput {
   /** Cordis plugins composed into this invocation's unpublished Agent scope. */
   agentPlugins?: readonly Plugin[];
   cwd?: string;
-  followupText: string;
+  followup: { kind: "user" | "continuation"; content: UserMessage["content"] };
   tools: readonly SparkTurnDriverTool[];
   streamIdleTimeoutMs: number;
   signal: AbortSignal;
@@ -224,6 +234,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
           parallelSafeNames,
           concurrency,
           captured,
+          agent,
         ),
       );
       for (const tool of input.tools) {
@@ -264,14 +275,17 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       await handle.agent.ctx.sessions.flush(handle.agent.session);
       input.signal.throwIfAborted();
     }
-    handle.agent.followup(
-      createUserMessage({
-        content: [{ type: "text", text: input.followupText }],
-        source: { kind: "user" },
-      }),
-    );
+    const followups = await Promise.all([
+      ...(input.hooks.takeQueuedUserMessages?.() ?? []).map((content) =>
+        nativeUserMessage(ctx, content, "user"),
+      ),
+      nativeUserMessage(ctx, input.followup.content, input.followup.kind),
+    ]);
+    for (const message of followups.slice(0, -1)) handle.agent.inject(message);
+    handle.agent.followup(followups.at(-1)!);
     await handle.agent.whenIdle();
     await handle.agent.ctx.sessions.flush(handle.agent.session);
+    if (persistence) input.hooks.onNativeCommit?.(handle.agent.session.snapshotEvents().length);
     if (input.signal.aborted) {
       throw input.signal.reason instanceof Error
         ? input.signal.reason
@@ -294,6 +308,40 @@ function appendSparkSessionMetadata(
     "spark/meta",
     metadata,
   );
+}
+
+async function nativeUserMessage(
+  ctx: Context,
+  content: UserMessage["content"],
+  kind: "user" | "continuation",
+) {
+  const parts = typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
+  const blocks: ContentBlock[] = [];
+  for (const part of parts) {
+    if (part.type === "text") blocks.push({ type: "text", text: part.text });
+    else {
+      const mediaType = part.mimeType;
+      if (
+        mediaType !== "image/png" &&
+        mediaType !== "image/jpeg" &&
+        mediaType !== "image/webp" &&
+        mediaType !== "image/gif"
+      ) {
+        throw new Error(`Unsupported user image type: ${mediaType}`);
+      }
+      blocks.push({
+        type: "image",
+        attachment: await ctx.attachments.saveImage({
+          data: new Uint8Array(Buffer.from(part.data, "base64")),
+          mediaType,
+        }),
+      });
+    }
+  }
+  return createUserMessage({
+    content: blocks,
+    source: kind === "user" ? { kind: "user" } : { kind: "plugin:spark-continuation" },
+  });
 }
 
 export function installSparkConsentPlugin(
@@ -355,6 +403,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
   private readonly parallelSafeNames: Set<string>;
   private readonly concurrency: SparkTurnConcurrencyGate;
   private readonly captured: SparkTurnDriverCapture;
+  private readonly agent: Agent;
 
   constructor(
     driverProvider: string,
@@ -366,6 +415,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     parallelSafeNames: Set<string>,
     concurrency: SparkTurnConcurrencyGate,
     captured: SparkTurnDriverCapture,
+    agent: Agent,
   ) {
     super();
     this.driverProvider = driverProvider;
@@ -377,6 +427,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     this.parallelSafeNames = parallelSafeNames;
     this.concurrency = concurrency;
     this.captured = captured;
+    this.agent = agent;
   }
 
   override providerInfo(provider: string) {
@@ -413,6 +464,13 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     }
     await this.hooks.onRoundtrip?.();
     const assembled = await this.hooks.assemble();
+    for (const content of this.hooks.takeQueuedUserMessages?.() ?? []) {
+      this.agent.session.append(
+        "user/message",
+        await nativeUserMessage(this.ctx, content, "user"),
+        { surfaceOp: "append" },
+      );
+    }
     const composition = mergeNativeDshComposition(
       assembled.context,
       options,
@@ -574,38 +632,7 @@ function sparkDshToolPolicy(
 ): SparkDshToolPolicyMetadata | undefined {
   const definition = ctx.tools.get(name, scope as Parameters<typeof ctx.tools.get>[1]);
   if (!definition) return undefined;
-  return (
-    (definition as { sparkPolicy?: SparkDshToolPolicyMetadata }).sparkPolicy ??
-    sparkNativeDshToolPolicy(name)
-  );
-}
-
-/**
- * Spark-owned admission metadata for canonical DSH tools whose upstream
- * definition intentionally carries no product-specific policy. Exact names
- * keep third-party tools fail-closed while letting the DSH implementation own
- * execution, durability, and reconciliation.
- */
-function sparkNativeDshToolPolicy(name: string): SparkDshToolPolicyMetadata | undefined {
-  if (name === "schedule_list") {
-    return {
-      effect: "read",
-      executionMode: "sequential",
-      domains: ["session", "schedule"],
-      approval: "none",
-      reconcile: "tool_owner",
-    };
-  }
-  if (name === "schedule_create" || name === "schedule_delete") {
-    return {
-      effect: "control",
-      executionMode: "sequential",
-      domains: ["session", "schedule"],
-      approval: "required",
-      reconcile: "tool_owner",
-    };
-  }
-  return undefined;
+  return (definition as { sparkPolicy?: SparkDshToolPolicyMetadata }).sparkPolicy;
 }
 
 function installNativeDshToolResultProjection(
