@@ -4,6 +4,7 @@
  * SparkAgentLoop remains the host-facing facade (prompt items, outbox, views).
  * This module is the low-level driver: Cordis plugins + AgentLoop.followup/whenIdle.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 
 import type { Context, Plugin } from "@deepseek-ai/cordis";
@@ -222,20 +223,21 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       executionCtx.on("agent/error", (payload) => {
         captured.driverError ??= payload.error;
       });
-      executionCtx.llm.registerAdapter(
-        [driverProvider],
-        new SparkTurnLlmAdapter(
-          driverProvider,
-          input.llm,
-          input.hooks,
-          input.signal,
-          executionCtx,
-          registeredNames,
-          parallelSafeNames,
-          concurrency,
-          captured,
-          agent,
-        ),
+      const adapter = new SparkTurnLlmAdapter(
+        driverProvider,
+        input.llm,
+        input.hooks,
+        input.signal,
+        executionCtx,
+        registeredNames,
+        parallelSafeNames,
+        concurrency,
+        captured,
+        agent,
+      );
+      executionCtx.llm.registerAdapter([driverProvider], adapter);
+      executionCtx.on("llm/stream", (options, next) =>
+        options.provider === driverProvider ? adapter.withRequest(options, next) : next(),
       );
       for (const tool of input.tools) {
         executionCtx.tools.register(sparkHostToolDefinition(tool, input.hooks, concurrency));
@@ -394,6 +396,7 @@ function installSparkHangTimeoutPlugin(ctx: Context, idleTimeoutMs: number): voi
 }
 
 class SparkTurnLlmAdapter extends LlmAdapter {
+  private readonly requests = new AsyncLocalStorage<GenerateOptions>();
   private readonly driverProvider: string;
   private readonly llm: SparkTurnLlm;
   private readonly hooks: SparkTurnDriverHooks;
@@ -418,6 +421,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     agent: Agent,
   ) {
     super();
+    ctx.effect(() => () => this.requests.disable());
     this.driverProvider = driverProvider;
     this.llm = llm;
     this.hooks = hooks;
@@ -442,8 +446,30 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     return { provider, id: model, name: model };
   }
 
+  async *withRequest(
+    request: GenerateOptions,
+    next: () => AsyncIterable<StreamChunk>,
+  ): AsyncIterable<StreamChunk> {
+    // DSH's adapter projections copy requests; loop identity is only stable at the waterfall.
+    const iterator = this.requests.run(request, () => next()[Symbol.asyncIterator]());
+    let completed = false;
+    try {
+      while (true) {
+        const result = await this.requests.run(request, () => iterator.next());
+        if (result.done) {
+          completed = true;
+          return;
+        }
+        yield result.value;
+      }
+    } finally {
+      if (!completed) await this.requests.run(request, () => iterator.return?.());
+    }
+  }
+
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    if (!isAgentLoopRequest(options)) {
+    const request = this.requests.getStore() ?? options;
+    if (!isAgentLoopRequest(request)) {
       const activeModel = this.hooks.resolveAuxiliaryModel?.();
       if (!activeModel) {
         throw new LlmError("Spark auxiliary model route is unavailable", "NO_ADAPTER");
@@ -473,7 +499,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     }
     const composition = mergeNativeDshComposition(
       assembled.context,
-      options,
+      request,
       this.ctx,
       this.registeredNames,
       this.hooks,
@@ -486,7 +512,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
         };
     const cacheKey = readPromptCacheKey(prepared.context);
     const generate = sparkContextToGenerateOptions(assembled.model, prepared.context, {
-      signal: options.signal ?? this.signal,
+      signal: request.signal ?? this.signal,
       maxTokens: prepared.requestedOutputTokens,
       ...(assembled.reasoning !== undefined ? { reasoning: assembled.reasoning } : {}),
       ...(cacheKey ? { promptCacheKey: cacheKey, prompt_cache_key: cacheKey } : {}),
