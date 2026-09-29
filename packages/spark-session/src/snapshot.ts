@@ -988,9 +988,17 @@ function parseNativeSessionRecord(
       }
       eventsBySeq.set(line.value.seq, line);
     }
+    const nativeMessageIds = new Set(
+      lines.flatMap(({ value }) =>
+        isRecord(value) && value.type === "user/message" && isRecord(value.data)
+          ? [value.data.id]
+          : [],
+      ),
+    );
     for (const line of lines.slice(1)) {
       const stored = storedSparkDshEntry(line.value, path);
       if (stored) {
+        if (stored.entry.type === "compaction" && !nativeMessageIds.has(stored.entry.id)) continue;
         positioned.push({
           position: stored.position,
           entry: stored.entry,
@@ -1022,6 +1030,16 @@ function parseNativeSessionRecord(
       positioned.push({ position, entry, location: entryLocation(entry.id, line) });
     }
   }
+  const latest = new Map<number, (typeof positioned)[number]>();
+  for (const value of positioned) {
+    const previous = latest.get(value.position);
+    if (previous && previous.entry.id !== value.entry.id)
+      throw new Error(
+        `Native transcript ${path} changes entry identity at position ${value.position}.`,
+      );
+    latest.set(value.position, value);
+  }
+  positioned.splice(0, positioned.length, ...latest.values());
   positioned.sort((left, right) => left.position - right.position);
   const positions = new Set<number>();
   for (const value of positioned) {

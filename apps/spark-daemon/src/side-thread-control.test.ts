@@ -114,11 +114,23 @@ describe("daemon Side Thread control", () => {
         result: { snapshot: { sessionId: ensured.sessionId } },
       });
 
-      childRecord.entries = childRecord.entries.filter(
-        (entry) =>
-          entry.type !== "custom" || entry.customType !== "spark.side-thread.seed-boundary",
+      const tampered = readFileSync(childRecord.path, "utf8")
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .map((line) => {
+          if (
+            line.type === "spark/record" &&
+            line.data.entry.customType === "spark.side-thread.seed-boundary"
+          ) {
+            line.data.entry.customType = "tampered-seed-boundary";
+          }
+          return line;
+        });
+      writeFileSync(
+        childRecord.path,
+        `${tampered.map((line) => JSON.stringify(line)).join("\n")}\n`,
       );
-      await fixture.store.save(childRecord);
       await expect(
         executeSparkDaemonSideThreadControl(fixture.options, {
           kind: "side-thread.snapshot.request",

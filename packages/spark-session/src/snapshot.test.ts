@@ -303,6 +303,34 @@ describe("loadSparkSessionSnapshot", () => {
     expect(snapshot.messages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
     expect(snapshot.messages[0]?.text).toBe("dsh user");
     expect(snapshot.messages[1]?.text).toBe("dsh assistant");
+    await appendFile(
+      transcriptPath,
+      `${JSON.stringify({
+        type: "spark/record",
+        seq: 9,
+        time: createdAt + 9,
+        ignorable: true,
+        data: {
+          position: 1,
+          entry: {
+            type: "message",
+            id: "assistant-1",
+            parentId: "user-1",
+            timestamp: "2026-08-20T00:00:02.000Z",
+            message: { role: "assistant", content: "revised assistant" },
+          },
+        },
+      })}\n`,
+    );
+    const revised = await loadSparkSessionSnapshot({
+      sessionsRoot: root,
+      session,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(revised.messages.map((message) => message.text)).toEqual([
+      "dsh user",
+      "revised assistant",
+    ]);
     await refreshSparkSessionSnapshotIndex({ sessionPath: transcriptPath, sessionId });
     const indexed = await loadSparkSessionSnapshotTail({
       sessionsRoot: root,
@@ -314,6 +342,7 @@ describe("loadSparkSessionSnapshot", () => {
       "user-1",
       "assistant-1",
     ]);
+    expect(indexed.snapshot.messages[1]?.text).toBe("revised assistant");
     expect(indexed.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
   });
 
