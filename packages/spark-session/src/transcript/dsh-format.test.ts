@@ -1,10 +1,13 @@
 /** Native DSH transcript codec behavior owned by spark-session. */
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   Session,
   SessionId,
+  SessionLogOffset,
+  SessionSeq,
+  type SessionHeader,
   TOOL_OUTCOME_UNKNOWN,
   type SessionEvent,
 } from "@deepseek-ai/dsh-session";
@@ -15,6 +18,7 @@ import {
   dshDocumentToSparkRecord,
   type SparkDshSessionEvent,
 } from "./dsh-format.ts";
+import { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";
 import { SparkSessionStore } from "./store.ts";
 import type { SparkSessionMessage, SparkSessionMessageEntry, SparkSessionRecord } from "./types.ts";
 
@@ -58,7 +62,9 @@ describe("native DSH transcript v4", () => {
     const session = Session.fromRestore(
       SessionId(record.header.id),
       structuredClone(document.events) as SessionEvent[],
-      structuredClone(document.header),
+      structuredClone(document.header) as SessionHeader,
+      SessionLogOffset(0),
+      "detached",
     );
     expect(session.deriveMessages().map((value) => value.content)).toEqual([
       [{ type: "text", text: "question" }],
@@ -157,7 +163,9 @@ describe("native DSH transcript v4", () => {
       Session.fromRestore(
         SessionId(record.header.id),
         structuredClone(document.events) as SessionEvent[],
-        structuredClone(document.header),
+        structuredClone(document.header) as SessionHeader,
+        SessionLogOffset(0),
+        "detached",
       ),
     ).not.toThrow();
   });
@@ -192,7 +200,9 @@ describe("native DSH transcript v4", () => {
     const session = Session.fromRestore(
       SessionId(record.header.id),
       structuredClone(document.events) as SessionEvent[],
-      structuredClone(document.header),
+      structuredClone(document.header) as SessionHeader,
+      SessionLogOffset(0),
+      "detached",
     );
     const texts = session
       .deriveMessages()
@@ -346,6 +356,10 @@ describe("native DSH transcript v4", () => {
       },
     ]);
 
+    await writeFile(
+      record.path,
+      `${[document.header, ...events].map((event) => JSON.stringify(event)).join("\n")}\n`,
+    );
     await store.save(projected);
     const rewritten = decodeSparkDshSessionJsonl(await readFile(record.path, "utf8"));
     expect(rewritten?.events.filter((event) => event.type === "subagent/descriptor")).toHaveLength(
@@ -409,3 +423,167 @@ function message(
     message: value,
   };
 }
+
+it("migrates a historical fork without applying a compaction beyond its inherited cut", async () => {
+  const { store, record } = await fixture("fork-refusal");
+  const source = await readFile(new URL("./fixtures/spark-v4.jsonl", import.meta.url), "utf8");
+  // The old fork API admits this closed turn, before the pending compaction surface replacement.
+  const lines = source.trim().split("\n").slice(0, 18);
+  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), seedLength: 17, parentSession: "parent" });
+  lines.push(JSON.stringify({ type: "session/end-seed", seq: 17, time: 1790085626306, data: {} }));
+  const original = `${lines.join("\n")}\n`;
+  await mkdir(dirname(record.path), { recursive: true });
+  await writeFile(record.path, original);
+  expect(await migrateSparkSessionJsonlToDsh(record.path)).toBe("migrated");
+  const migrated = await store.load(record.path);
+  expect(migrated.header.seedLength).toBe(20);
+  expect(migrated.entries.map((entry) => entry.id)).toEqual(["u1", "a1", "t1", "a2"]);
+  const prefix = structuredClone(migrated.nativeDocument!.events);
+  expect(prefix.find((event) => event.type === "spark/record")).toBeDefined();
+  store.appendMessage(migrated, { role: "user", content: "child follow-up" });
+  await store.save(migrated);
+  const restarted = await store.load(record.path);
+  expect(restarted.nativeDocument!.events.slice(0, prefix.length)).toEqual(prefix);
+  expect(restarted.header.seedLength).toBe(20);
+  expect(restarted.entries.map((entry) => entry.type)).toEqual(Array(5).fill("message"));
+  expect(await migrateSparkSessionJsonlToDsh(record.path)).toBe("already-dsh");
+  const committed = await readFile(record.path, "utf8");
+  await store.save(restarted);
+  expect(await readFile(record.path, "utf8")).toBe(committed);
+});
+
+it.each([
+  { isSeeded: true, inheritedEventCount: undefined },
+  { isSeeded: true, inheritedEventCount: 0 },
+  { isSeeded: false, inheritedEventCount: 0 },
+])("rejects inconsistent inherited prefix metadata: %j", (metadata) => {
+  const id = SessionId("seeded-metadata");
+  const session = Session.create(
+    id,
+    [
+      {
+        type: "spark/meta",
+        seq: SessionSeq(0),
+        time: 1,
+        data: { sparkVersion: 5, timestamp: new Date(1).toISOString() },
+        ignorable: true,
+      },
+    ],
+    { id, version: 4, isSeeded: true, createdAt: 1 },
+    SessionLogOffset(1),
+  );
+  expect(() =>
+    dshDocumentToSparkRecord("seeded-metadata.jsonl", {
+      header: { ...session.header, ...metadata },
+      events: [...session.snapshotEvents()],
+    }),
+  ).toThrow(/inherited event count/);
+});
+
+it("migrates a header-only legacy session and is idempotent", async () => {
+  const { record } = await fixture("empty-legacy");
+  await mkdir(dirname(record.path), { recursive: true });
+  await writeFile(
+    record.path,
+    `${JSON.stringify({ id: record.header.id, version: 0, createdAt: 1, cwd: record.header.cwd })}\n`,
+  );
+  expect(await migrateSparkSessionJsonlToDsh(record.path)).toBe("migrated");
+  const migrated = await readFile(record.path, "utf8");
+  expect(await migrateSparkSessionJsonlToDsh(record.path)).toBe("already-dsh");
+  expect(await readFile(record.path, "utf8")).toBe(migrated);
+});
+
+it("migrates streamed chunks, historical reminders, and child catalog facts without losing opaque events", async () => {
+  const { store, record } = await fixture("legacy-events");
+  const source = decodeSparkDshSessionJsonl(
+    await readFile(new URL("./fixtures/spark-v4.jsonl", import.meta.url), "utf8"),
+  )!;
+  source.header = { ...source.header, agentPreset: "code" };
+  const emit = (type: string, data: unknown, extra: Partial<SparkDshSessionEvent> = {}) => {
+    const seq = source.events.length;
+    source.events.push({ type, seq, time: 1790085626400 + seq, data, ...extra });
+    return seq;
+  };
+  emit("turn/start", { turn: 4 });
+  emit("step/start", { turn: 4, step: 1 });
+  const chunks = ["streamed ", "answer"].map((text) =>
+    emit("assistant/chunk", { turn: 4, step: 1, chunk: { type: "text-delta", index: 0, text } }),
+  );
+  emit(
+    "assistant/message",
+    {
+      turn: 4,
+      step: 1,
+      message: {
+        id: "streamed-answer",
+        role: "assistant",
+        content: [{ type: "text", text: "streamed answer" }],
+        source: { kind: "model", provider: "test", model: "test" },
+      },
+    },
+    { surfaceOp: "append", sourceEventSeqs: chunks },
+  );
+  emit("step/end", { turn: 4, step: 1 });
+  emit("turn/end", { turn: 4, reason: { kind: "completed" } });
+  const schedule = {
+    version: 1,
+    operation: "create",
+    schedule: {
+      id: "legacy-reminder",
+      kind: "after",
+      prompt: "historical reminder",
+      afterSeconds: 60,
+      scheduledAt: "2026-09-29T00:01:00.000Z",
+    },
+  };
+  emit("schedule/change", schedule);
+  emit("future/opaque", null, { ignorable: true });
+  await mkdir(store.sessionDir, { recursive: true });
+  await writeFile(
+    record.path,
+    `${[source.header, ...source.events].map((value) => JSON.stringify(value)).join("\n")}\n`,
+  );
+  const child = {
+    header: {
+      ...source.header,
+      id: "historical-child",
+      parentSession: source.header.id,
+      origin: "subagent",
+      delegationDepth: 1,
+    },
+    events: [
+      source.events[0]!,
+      {
+        type: "subagent/descriptor",
+        seq: 1,
+        time: 1790085626400,
+        data: { version: 3, mode: "continuable", provider: "spawn", label: "Historical child" },
+      },
+    ],
+  };
+  await writeFile(
+    join(store.sessionDir, "child.jsonl"),
+    `${[child.header, ...child.events].map((value) => JSON.stringify(value)).join("\n")}\n`,
+  );
+  const loaded = await store.load(record.path);
+  await store.save(loaded);
+  expect(loaded.nativeDocument!.header.agentPreset).toBe("ptc");
+  const events = loaded.nativeDocument!.events;
+  expect(events.find((event) => event.type === "schedule/change")?.data).toEqual(schedule);
+  expect(events.find((event) => event.type === "plugin:future/opaque")?.data).toBeNull();
+  expect(events.filter((event) => event.type === "assistant/attempt")).toHaveLength(0);
+  expect(events.findLast((event) => event.type === "assistant/message")?.data).toMatchObject({
+    stream: [
+      { type: "chunk", chunk: { type: "text-delta", text: "streamed " } },
+      { type: "chunk", chunk: { type: "text-delta", text: "answer" } },
+    ],
+  });
+  expect(events.find((event) => event.type === "subagent/catalog")?.data).toMatchObject({
+    childId: "historical-child",
+    mode: "continuable",
+    label: "Historical child",
+  });
+  const before = await readFile(record.path, "utf8");
+  await store.save(await store.load(record.path));
+  expect(await readFile(record.path, "utf8")).toBe(before);
+});

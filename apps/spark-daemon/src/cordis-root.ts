@@ -18,7 +18,8 @@ import AgentLoop from "@deepseek-ai/dsh-agent-loop";
 import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
 import SandboxPolicy from "@deepseek-ai/dsh-sandbox-policy";
-import * as ScheduleRuntime from "@deepseek-ai/dsh-schedule";
+import LocalSandbox from "@deepseek-ai/dsh-sandbox-local";
+import UserApproval from "@deepseek-ai/dsh-user-approval";
 import { SessionStore } from "@deepseek-ai/dsh-session";
 import SessionProjectionRegistry from "@deepseek-ai/dsh-session-projection";
 import * as ShellEnv from "@deepseek-ai/dsh-shell-env";
@@ -224,6 +225,8 @@ async function mountSparkDshRuntime(
     mode: "danger-full-access",
     workspaceRoot: process.cwd(),
   });
+  await ctx.plugin(LocalSandbox, {});
+  await ctx.plugin(UserApproval, { policy: "never" });
   await ctx.plugin(ShellEnv, { dshHome: options.dshHome });
   await ctx.plugin(SkillRegistry);
   await ctx.plugin(SkillFileSystem, {
@@ -239,8 +242,6 @@ async function mountSparkDshRuntime(
     agents: [],
     maxParallelToolCalls: DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS,
   });
-  // Native schedules require daemon-owned Session persistence.
-  if (options.sessionsRoot) await ctx.plugin(ScheduleRuntime);
 }
 
 export function resolveCueSkillRoot(explicitRoot?: string): string {

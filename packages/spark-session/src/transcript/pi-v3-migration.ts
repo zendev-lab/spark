@@ -1,32 +1,40 @@
 /**
- * Spark Session's explicit transcript v3 reader and v3 -> v4 hard-cut migrator.
+ * Spark Session's explicit transcript v3 reader and v3/v4 -> v5 migrator.
  *
  * This is the only production reader for the retired `spark/entry` envelope.
- * Runtime writers emit native DSH v4 events only.
+ * Runtime writers emit Spark v5 transcripts on DSH log format 4.
  */
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { Session, SessionId, type SessionEvent } from "@deepseek-ai/dsh-session";
+import { readFile, readdir } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { historicalChildCatalogSource } from "@deepseek-ai/dsh-session-format-v3-to-v4";
+import type {
+  SessionFormatArtifact,
+  SessionFormatJsonValue,
+} from "@deepseek-ai/dsh-session-format";
+import { restoreLegacyDshSession } from "./legacy-dsh-session.js";
 
 import {
   decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
   encodeSparkRecordAsDsh,
   isDshSessionHeader,
   isPiSessionHeader,
   isRecord,
-  isSparkDshV4Document,
+  isNativeSparkDshDocument,
   serializeDshSessionDocument,
   sparkHeaderFromDshLine,
   type SparkDshSessionDocument,
   type SparkDshSessionMetaData,
 } from "./dsh-format.ts";
 import { writeJsonLinesAtomically } from "./jsonl-io.ts";
-import type {
-  SparkSessionAtomicWriteOptions,
-  SparkSessionEntry,
-  SparkSessionFileEntry,
-  SparkSessionHeader,
-  SparkSessionRecord,
+import {
+  CURRENT_SPARK_SESSION_VERSION,
+  type SparkSessionAtomicWriteOptions,
+  type SparkSessionEntry,
+  type SparkSessionFileEntry,
+  type SparkSessionHeader,
+  type SparkSessionRecord,
 } from "./types.ts";
 
 const LEGACY_SPARK_ENTRY_EVENT_TYPE = "spark/entry";
@@ -35,6 +43,7 @@ export type SparkSessionMigrationResult = "migrated" | "already-dsh" | "absent";
 
 export interface SparkSessionMigrationOptions extends SparkSessionAtomicWriteOptions {
   attachmentRoot?: string;
+  sessionsRoot?: string;
 }
 
 export async function migrateSparkSessionJsonlToDsh(
@@ -50,15 +59,73 @@ export async function migrateSparkSessionJsonlToDsh(
   }
 
   const document = decodeSparkDshSessionJsonl(content);
-  if (document && isSparkDshV4Document(document)) return "already-dsh";
   const record = document
-    ? legacySparkDshDocumentToRecord(path, document)
+    ? isNativeSparkDshDocument(document)
+      ? dshDocumentToSparkRecord(path, document)
+      : legacySparkDshDocumentToRecord(path, document)
     : legacySessionJsonlToSparkRecord(path, content);
+  if (record.header.version === CURRENT_SPARK_SESSION_VERSION) return "already-dsh";
   const migrated = await encodeSparkRecordAsDsh(record, {
     attachmentRoot: options.attachmentRoot ?? defaultMigrationAttachmentRoot(path),
+    ...(record.nativeDocument?.header.version === 0
+      ? {
+          historicalChildren: await collectSparkDshChildSources(
+            options.sessionsRoot ??
+              (/^[a-f0-9]{16}$/.test(basename(dirname(path)))
+                ? dirname(dirname(path))
+                : dirname(path)),
+            record.header.id,
+          ),
+        }
+      : {}),
   });
   await writeJsonLinesAtomically(path, serializeDshSessionDocument(migrated), options);
   return "migrated";
+}
+
+export async function collectSparkDshChildSources(
+  sessionsRoot: string,
+  parentId: string,
+): Promise<SessionFormatJsonValue[]> {
+  let directories;
+  try {
+    directories = await readdir(sessionsRoot, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const children = new Map<string, SessionFormatJsonValue>();
+  const paths: string[] = [];
+  for (const entry of directories) {
+    if (entry.isFile() && entry.name.endsWith(".jsonl")) paths.push(join(sessionsRoot, entry.name));
+    if (!entry.isDirectory() || !/^[a-f0-9]{16}$/.test(entry.name)) continue;
+    for (const name of await readdir(join(sessionsRoot, entry.name))) {
+      if (name.endsWith(".jsonl")) paths.push(join(sessionsRoot, entry.name, name));
+    }
+  }
+  for (const path of paths.sort()) {
+    const content = await readFile(path, "utf8");
+    const header = firstJsonValue(content);
+    if (
+      !isDshSessionHeader(header) ||
+      header.origin !== "subagent" ||
+      header.parentSession !== parentId
+    )
+      continue;
+    const document = decodeSparkDshSessionJsonl(content);
+    if (!document) throw new Error(`Invalid historical child transcript: ${path}`);
+    dshDocumentToSparkRecord(path, document);
+    const child = historicalChildCatalogSource({
+      header: document.header,
+      events: document.events,
+      inheritedEventCount: document.header.seedLength ?? document.header.inheritedEventCount ?? 0,
+    } as unknown as SessionFormatArtifact);
+    const previous = children.get(document.header.id);
+    if (previous && !isDeepStrictEqual(previous, child))
+      throw new Error(`Conflicting historical child transcripts: ${document.header.id}`);
+    children.set(document.header.id, child);
+  }
+  return [...children.values()];
 }
 
 export function legacySessionJsonlToSparkRecord(path: string, content: string): SparkSessionRecord {
@@ -113,11 +180,7 @@ export function legacySparkDshDocumentToRecord(
       throw new Error(`Spark transcript ${path} contains unknown required event ${event.type}`);
     }
   }
-  Session.fromRestore(
-    SessionId(String(document.header.id)),
-    structuredClone(document.events) as SessionEvent[],
-    structuredClone(document.header),
-  );
+  restoreLegacyDshSession(document);
   const meta = legacyMeta(document);
   const entries: SparkSessionEntry[] = [];
   for (const event of document.events) {

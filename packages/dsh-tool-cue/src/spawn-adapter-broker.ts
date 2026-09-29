@@ -92,7 +92,7 @@ export async function startSpawnAdapterBroker(options: {
           return { type: "rejected", message: "spawn segment was prepared more than once" };
         }
         try {
-          const confined = options.sandbox.confine(request.argv, options.policy);
+          const confined = await options.sandbox.confine(request.argv, options.policy);
           if (confined.argv.length === 0 || !confined.argv[0]) {
             return { type: "rejected", message: "sandbox returned an empty argv" };
           }

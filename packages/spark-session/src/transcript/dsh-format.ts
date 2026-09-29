@@ -1,12 +1,17 @@
 /**
- * Spark Session transcript v4 on the native DSH session surface.
+ * Spark Session transcript v5 on the native DSH session surface.
  *
  * Model-visible records are DSH user/assistant/tool events. Spark-only state is
  * carried by ignorable metadata events; the legacy envelope is read only by
  * the v3 migrator.
  */
 
+import { restoreLegacyDshSession } from "./legacy-dsh-session.js";
 import { Buffer } from "node:buffer";
+import { isDeepStrictEqual } from "node:util";
+import { migrateSparkDshV0 } from "./dsh-v0-migration.ts";
+import { restoreReleasedV4Artifact } from "@deepseek-ai/dsh-session-format-v3-to-v4";
+import type { SessionFormatArtifact } from "@deepseek-ai/dsh-session-format";
 import {
   DEFAULT_MAX_IMAGE_BYTES,
   DEFAULT_MAX_IMAGE_DIMENSION,
@@ -34,6 +39,8 @@ import {
   SESSION_FORMAT_VERSION,
   Session,
   SessionId,
+  SessionSeq,
+  SessionLogOffset,
   TOOL_NOT_STARTED,
   interruptedTurnClosers,
   type SessionEvent,
@@ -58,30 +65,22 @@ import {
   type SparkSubagentModelSelectionEntry,
 } from "./types.ts";
 
+import type {
+  SparkDshSessionHeader,
+  SparkDshSessionEvent,
+  SparkDshSessionDocument,
+} from "./dsh-types.ts";
+
 export const SPARK_DSH_SESSION_FORMAT_VERSION = SESSION_FORMAT_VERSION;
 export const SPARK_DSH_META_EVENT_TYPE = "spark/meta";
 export const SPARK_DSH_RECORD_EVENT_TYPE = "spark/record";
 export { SPARK_DSH_MESSAGE_META_EVENT_TYPE };
 
-export interface SparkDshSessionHeader extends SessionHeader {
-  version: number;
-  id: ReturnType<typeof SessionId>;
-}
-
-export interface SparkDshSessionEvent {
-  type: string;
-  seq: number;
-  time: number;
-  data: unknown;
-  ignorable?: true;
-  sourceEventSeqs?: number[];
-  surfaceOp?: "append" | { op: "replace"; start: number; end: number };
-}
-
-export interface SparkDshSessionDocument {
-  header: SparkDshSessionHeader;
-  events: SparkDshSessionEvent[];
-}
+export type {
+  SparkDshSessionHeader,
+  SparkDshSessionEvent,
+  SparkDshSessionDocument,
+} from "./dsh-types.ts";
 
 export interface SparkDshSessionMetaData {
   timestamp: string;
@@ -98,6 +97,13 @@ interface SparkDshStoredRecordData {
 
 type SparkDshMessageMetaData = SparkDshProjectionMessageMetaData;
 
+declare module "@deepseek-ai/dsh-llm" {
+  interface MessageSourceMap {
+    "spark-transcript": { kind: "spark-transcript"; form: "recall" };
+    "spark-compaction": { kind: "spark-compaction"; form: "recall" };
+  }
+}
+
 declare module "@deepseek-ai/dsh-session" {
   interface SessionEventMap {
     "spark/meta": SparkDshSessionMetaData;
@@ -112,6 +118,7 @@ declare module "@deepseek-ai/dsh-session" {
 export interface EncodeSparkRecordAsDshOptions {
   /** Absolute `DSH_HOME/attachments/v1` root shared with the daemon root. */
   attachmentRoot: string;
+  historicalChildren?: readonly import("@deepseek-ai/dsh-session-format").SessionFormatJsonValue[];
 }
 
 const IMAGE_LIMITS = {
@@ -153,34 +160,78 @@ export function isDshSessionHeader(value: unknown): value is SparkDshSessionHead
   );
 }
 
-export function isSparkDshV4Document(document: SparkDshSessionDocument): boolean {
-  return readSparkMeta(document.events)?.sparkVersion === CURRENT_SPARK_SESSION_VERSION;
+export function isNativeSparkDshDocument(document: SparkDshSessionDocument): boolean {
+  return [4, CURRENT_SPARK_SESSION_VERSION].includes(
+    readSparkMeta(document.events)?.sparkVersion ?? 0,
+  );
 }
 
 export async function encodeSparkRecordAsDsh(
   record: SparkSessionRecord,
   options: EncodeSparkRecordAsDshOptions,
 ): Promise<SparkDshSessionDocument> {
+  if (record.header.seedLength !== undefined && !record.nativeDocument) {
+    throw new Error(
+      `Spark session ${record.header.id} has a fork-inherited event prefix; automatic transcript migration requires an explicit mapped inherited cut`,
+    );
+  }
+  const baseline =
+    record.nativeDocument?.header.version === 0
+      ? migrateSparkDshV0(record.nativeDocument, options.historicalChildren ?? [])
+      : record.nativeDocument;
+  const previous = baseline
+    ? projectSparkDshDocument(record.path, baseline).entries
+    : new Map<number, SparkSessionEntry>();
+  const previousEntries = [...previous.values()];
+  const positions = baseline
+    ? sparkEntryPositions(baseline, record.path)
+    : new Map<string, number>();
+  if ([...previous].some(([position, entry]) => record.entries[position]?.id !== entry.id)) {
+    throw new Error("Committed transcript entries cannot be removed or reordered");
+  }
+  if (baseline && isDeepStrictEqual(previousEntries, record.entries)) {
+    return { ...structuredClone(baseline), header: { ...baseline.header, cwd: record.header.cwd } };
+  }
   const header = dshHeaderFromSpark(record.header);
-  const writer = new SparkDshTranscriptWriter(header, options.attachmentRoot);
-  writer.appendMetadata({
-    timestamp: record.header.timestamp,
-    sparkVersion: CURRENT_SPARK_SESSION_VERSION,
-    ...(record.header.visibility ? { visibility: record.header.visibility } : {}),
-    ...(record.header.purpose ? { purpose: record.header.purpose } : {}),
-    ...(record.header.parentSession && record.header.parentSession !== header.parentSession
-      ? { parentSessionPath: record.header.parentSession }
-      : {}),
-  });
+  const writer = new SparkDshTranscriptWriter(
+    header,
+    options.attachmentRoot,
+    baseline ? { ...baseline, header: { ...baseline.header, cwd: record.header.cwd } } : undefined,
+  );
+  if (baseline) {
+    for (const [position, entry] of previous) {
+      if (!positions.has(entry.id)) writer.appendStoredRecord(position, entry);
+    }
+  }
+  if (!baseline)
+    writer.appendMetadata({
+      timestamp: record.header.timestamp,
+      sparkVersion: CURRENT_SPARK_SESSION_VERSION,
+      ...(record.header.visibility ? { visibility: record.header.visibility } : {}),
+      ...(record.header.purpose ? { purpose: record.header.purpose } : {}),
+      ...(record.header.parentSession && record.header.parentSession !== header.parentSession
+        ? { parentSessionPath: record.header.parentSession }
+        : {}),
+    });
 
   const activeEntries = activeBranch(record.entries);
   const activeIds = new Set(activeEntries.map((entry) => entry.id));
   for (const [position, entry] of record.entries.entries()) {
+    if (isDeepStrictEqual(entry, previous.get(position))) continue;
     if (!activeIds.has(entry.id)) writer.appendStoredRecord(position, entry);
   }
 
   for (const entry of activeEntries) {
     const position = record.entries.indexOf(entry);
+    if (isDeepStrictEqual(entry, previous.get(position))) continue;
+    if (previous.get(position)?.id === entry.id && entry.type === "message") {
+      await writer.replaceMessageEntry(
+        position,
+        entry,
+        previous.get(position) as SparkSessionMessageEntry,
+      );
+      continue;
+    }
     if (entry.type === "subagent_descriptor") {
       writer.appendSubagentDescriptor(position, entry);
       continue;
@@ -211,7 +262,30 @@ export async function encodeSparkRecordAsDsh(
   return writer.document();
 }
 
+export function sparkEntryPositions(
+  document: SparkDshSessionDocument,
+  path: string,
+): Map<string, number> {
+  const positions = new Map<string, number>();
+  for (const event of document.events) {
+    const stored =
+      event.type === SPARK_DSH_RECORD_EVENT_TYPE
+        ? parseStoredRecord(event.data, path)
+        : event.type === SPARK_DSH_MESSAGE_META_EVENT_TYPE
+          ? parseMessageMeta(event.data, path)
+          : undefined;
+    if (stored) positions.set(stored.entry.id, stored.position);
+  }
+  return positions;
+}
+
 export function decodeSparkDshSessionJsonl(content: string): SparkDshSessionDocument | undefined {
+  try {
+    if (!isDshSessionHeader(JSON.parse(content.trimStart().split("\n", 1)[0] ?? "")))
+      return undefined;
+  } catch {
+    return undefined;
+  }
   const parsed = parseJsonlObjects(content);
   if (parsed.objects.length === 0 || parsed.tornOffset !== undefined) return undefined;
   const headerValue = parsed.objects[0];
@@ -229,36 +303,71 @@ export function dshDocumentToSparkRecord(
   path: string,
   document: SparkDshSessionDocument,
 ): SparkSessionRecord {
+  const projected = projectSparkDshDocument(path, document);
+  return {
+    path,
+    header: projected.header,
+    entries: [...projected.entries.values()],
+    nativeDocument: structuredClone(document),
+  };
+}
+
+function projectSparkDshDocument(
+  path: string,
+  document: SparkDshSessionDocument,
+): { header: SparkSessionHeader; entries: Map<number, SparkSessionEntry> } {
   const session = validateDshDocument(document);
   const meta = readSparkMeta(document.events);
-  if (meta?.sparkVersion !== CURRENT_SPARK_SESSION_VERSION) {
+  if (!meta || ![4, CURRENT_SPARK_SESSION_VERSION].includes(meta.sparkVersion)) {
     throw new Error(`Spark session ${path} is not transcript v${CURRENT_SPARK_SESSION_VERSION}`);
   }
 
   const nativeBySeq = new Map(document.events.map((event) => [event.seq, event]));
-  const positioned: Array<{ position: number; entry: SparkSessionEntry }> = [];
-  const storedPositions = new Set<number>();
+  const byPosition = new Map<number, SparkSessionEntry>();
+  const setPosition = (position: number, entry: SparkSessionEntry): void => {
+    const previous = byPosition.get(position);
+    if (previous && previous.id !== entry.id)
+      throw new Error(`Spark session ${path} changes entry identity at position ${position}`);
+    byPosition.set(position, entry);
+  };
   const projectedNativeSeqs = new Set<number>();
+  const nativeMessageIds = new Set(
+    document.events.flatMap((event) =>
+      event.type === "user/message" && isRecord(event.data) ? [event.data.id] : [],
+    ),
+  );
   let lastBridgeSeq = -1;
+  let committedNativeThroughSeq = -1;
   for (const event of document.events) {
     if (event.type === SPARK_DSH_RECORD_EVENT_TYPE) {
       const stored = parseStoredRecord(event.data, path);
-      positioned.push(stored);
-      storedPositions.add(stored.position);
+      if (stored.entry.type === "compaction" && !nativeMessageIds.has(stored.entry.id)) continue;
+      setPosition(stored.position, stored.entry);
       lastBridgeSeq = event.seq;
     } else if (event.type === SPARK_DSH_MESSAGE_META_EVENT_TYPE) {
       const messageMeta = parseMessageMeta(event.data, path);
       projectedNativeSeqs.add(messageMeta.eventSeq);
       lastBridgeSeq = event.seq;
-      if (storedPositions.has(messageMeta.position)) continue;
       const native = nativeBySeq.get(messageMeta.eventSeq);
       if (!native) throw new Error(`Spark session ${path} is missing native message event`);
-      positioned.push({
-        position: messageMeta.position,
-        entry: messageEntryFromNative(native, messageMeta, path),
-      });
+      setPosition(messageMeta.position, messageEntryFromNative(native, messageMeta, path));
+    } else if (event.type === "spark/commit") {
+      if (
+        !isRecord(event.data) ||
+        !Number.isSafeInteger(event.data.throughSeq) ||
+        (event.data.throughSeq as number) < 0 ||
+        (event.data.throughSeq as number) >= event.seq
+      ) {
+        throw new Error(`Spark session ${path} has an invalid native commit receipt`);
+      }
+      lastBridgeSeq = Math.max(lastBridgeSeq, event.data.throughSeq as number);
+      committedNativeThroughSeq = Math.max(
+        committedNativeThroughSeq,
+        event.data.throughSeq as number,
+      );
     }
   }
+  const positioned = [...byPosition].map(([position, entry]) => ({ position, entry }));
   let nextPosition = positioned.reduce((max, value) => Math.max(max, value.position + 1), 0);
   let parentId = positioned
     .slice()
@@ -270,6 +379,7 @@ export function dshDocumentToSparkRecord(
       .filter((type) => type === "subagent_descriptor" || type === "subagent_model_selection"),
   );
   for (const event of document.events) {
+    if (event.seq <= committedNativeThroughSeq) continue;
     const entry = nativeSubagentEventToSparkEntry(event, parentId, path);
     if (!entry || projectedSubagentTypes.has(entry.type)) continue;
     positioned.push({ position: nextPosition, entry });
@@ -290,9 +400,8 @@ export function dshDocumentToSparkRecord(
   positioned.sort((left, right) => left.position - right.position);
   assertUniquePositionsAndIds(positioned, path);
   return {
-    path,
     header: sparkHeaderFromDshLine(document.header, meta),
-    entries: positioned.map(({ entry }) => entry),
+    entries: new Map(positioned.map(({ position, entry }) => [position, entry])),
   };
 }
 
@@ -301,9 +410,11 @@ export function sparkHeaderFromDshLine(
   meta?: SparkDshSessionMetaData,
 ): SparkSessionHeader {
   const parentSessionPath = meta ? meta.parentSessionPath : header.parentSession;
+  const seedLength =
+    header.seedLength ?? (header.isSeeded ? header.inheritedEventCount : undefined);
   return {
     type: "session",
-    version: meta?.sparkVersion ?? CURRENT_SPARK_SESSION_VERSION,
+    version: meta?.sparkVersion ?? (header.version === 0 ? 3 : CURRENT_SPARK_SESSION_VERSION),
     id: String(header.id),
     timestamp: meta?.timestamp ?? new Date(header.createdAt).toISOString(),
     cwd: header.cwd ?? "",
@@ -311,7 +422,7 @@ export function sparkHeaderFromDshLine(
     ...(meta?.visibility ? { visibility: meta.visibility } : {}),
     ...(meta?.purpose ? { purpose: meta.purpose } : {}),
     ...(header.parentSession ? { parentSessionId: String(header.parentSession) } : {}),
-    ...(header.seedLength !== undefined ? { seedLength: header.seedLength } : {}),
+    ...(seedLength !== undefined ? { seedLength } : {}),
     ...(header.origin ? { origin: header.origin } : {}),
     ...(header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {}),
     ...(header.agentPreset ? { agentPreset: header.agentPreset } : {}),
@@ -326,18 +437,20 @@ export function parseJsonlObjects(content: string): {
   let offset = 0;
   while (offset < content.length) {
     const newline = content.indexOf("\n", offset);
-    const end = newline >= 0 ? newline : content.length;
-    const line = content.slice(offset, end).trim();
+    if (newline < 0) return { objects, tornOffset: Buffer.byteLength(content.slice(0, offset)) };
+    const line = content.slice(offset, newline).trim();
     if (line.length === 0) {
-      offset = newline >= 0 ? newline + 1 : content.length;
+      offset = newline + 1;
       continue;
     }
     try {
       objects.push(JSON.parse(line) as unknown);
-    } catch {
-      return { objects, tornOffset: offset };
+    } catch (error) {
+      throw new Error(
+        `Invalid complete JSONL record at byte ${Buffer.byteLength(content.slice(0, offset))}`,
+        { cause: error },
+      );
     }
-    if (newline < 0) return { objects, tornOffset: offset };
     offset = newline + 1;
   }
   return { objects };
@@ -349,17 +462,42 @@ export function serializeDshSessionDocument(document: SparkDshSessionDocument): 
 
 class SparkDshTranscriptWriter {
   private readonly session: Session;
-  private readonly surfaceSeqs: number[] = [];
+  private readonly surfaceSeqs: SessionSeq[] = [];
   private readonly attachmentRoot: string;
   private turn = 0;
   private openTurn: number | undefined;
   private openStep: number | undefined;
   private nextStep = 1;
-  private readonly pendingCalls = new Map<string, number>();
+  private readonly pendingCalls = new Map<string, SessionSeq>();
   private finalized = false;
+  private recovery: readonly SessionEvent[] | undefined;
 
-  constructor(header: SparkDshSessionHeader, attachmentRoot: string) {
-    this.session = Session.create(SessionId(String(header.id)), undefined, header);
+  constructor(header: SessionHeader, attachmentRoot: string, baseline?: SparkDshSessionDocument) {
+    if (baseline) {
+      const { inheritedEventCount = 0, ...restoredHeader } = baseline.header;
+      this.session = Session.fromRestore(
+        SessionId(String(restoredHeader.id)),
+        structuredClone(baseline.events) as SessionEvent[],
+        structuredClone(restoredHeader) as SessionHeader,
+        SessionLogOffset(inheritedEventCount),
+        "detached",
+      );
+      this.surfaceSeqs.push(
+        ...this.session.surface.nodes.filter(
+          (seq) => baseline.events[seq]?.type !== "system/message",
+        ),
+      );
+      this.turn = baseline.events.reduce(
+        (turn, event) =>
+          isRecord(event.data) && typeof event.data.turn === "number"
+            ? Math.max(turn, event.data.turn)
+            : turn,
+        0,
+      );
+      this.recovery = baseline.events as SessionEvent[];
+    } else {
+      this.session = Session.create(SessionId(String(header.id)), undefined, header);
+    }
     this.attachmentRoot = attachmentRoot;
   }
 
@@ -400,12 +538,64 @@ class SparkDshTranscriptWriter {
     );
   }
 
+  async replaceMessageEntry(
+    position: number,
+    entry: SparkSessionMessageEntry,
+    prior: SparkSessionMessageEntry,
+  ): Promise<void> {
+    if (isDeepStrictEqual(entry.message.content, prior.message.content)) {
+      this.appendStoredRecord(position, entry);
+      return;
+    }
+    const previous = this.session
+      .snapshotEvents()
+      .findLast((event) => event.type === "spark/message-meta" && event.data.position === position);
+    const source =
+      previous?.type === "spark/message-meta" ? SessionSeq(previous.data.eventSeq) : undefined;
+    if (source === undefined || !this.session.surface.nodes.includes(source)) {
+      this.appendStoredRecord(position, entry);
+      return;
+    }
+    const converted = await convertSparkMessage(entry, this.attachmentRoot);
+    if (converted.kind !== "tool")
+      throw new Error("Only tool-result content can replace a committed native message");
+    this.recoverInterruptedTail();
+    if (this.openTurn === undefined) this.startTurn();
+    const priorNative = this.session.snapshotEvents()[source];
+    if (priorNative?.type !== "tool/result")
+      throw new Error("Tool-result replacement has no native tool result");
+    const native = this.session.append(
+      "tool/result",
+      {
+        ...priorNative.data,
+        message: freezeMessage({ ...priorNative.data.message, content: converted.message.content }),
+      },
+      {
+        surfaceOp: { op: "replace", startSeq: source, endSeq: source },
+        sourceEventSeqs: [source],
+      },
+    );
+    this.surfaceSeqs.splice(this.surfaceSeqs.indexOf(source), 1, native.seq);
+    this.session.append(
+      "spark/message-meta",
+      jsonData({
+        position,
+        eventSeq: native.seq,
+        entry: { id: entry.id, parentId: entry.parentId, timestamp: entry.timestamp },
+        role: entry.message.role,
+        contentShape: converted.contentShape,
+        messageMeta: converted.messageMeta,
+        blockMeta: converted.blockMeta,
+      }),
+    );
+  }
+
   appendRuntimeMessage(text: string, id: string): void {
     const message = freezeMessage<UserMessage>({
       id: MessageId(id),
       role: "user",
       content: [{ type: "text", text }],
-      source: { kind: "plugin", plugin: "spark-transcript-v4", form: "recall" },
+      source: { kind: "spark-transcript", form: "recall" },
     });
     this.appendUserMessage(message, "append");
   }
@@ -420,20 +610,20 @@ class SparkDshTranscriptWriter {
       id: MessageId(compaction.id),
       role: "user",
       content: [{ type: "text", text: compactionSummaryText(compaction.summary) }],
-      source: { kind: "plugin", plugin: "spark-compaction-v4", form: "recall" },
+      source: { kind: "spark-compaction", form: "recall" },
     });
     const intent: SurfaceIntent = this.surfaceSeqs.length
       ? {
           surfaceOp: {
             op: "replace",
-            start: this.surfaceSeqs[0]!,
-            end: this.surfaceSeqs.at(-1)!,
+            startSeq: this.surfaceSeqs[0]!,
+            endSeq: this.surfaceSeqs.at(-1)!,
           },
           sourceEventSeqs: [...this.surfaceSeqs],
         }
       : { surfaceOp: "append" };
     const event = this.appendUserMessage(summary, intent);
-    this.surfaceSeqs.splice(0, this.surfaceSeqs.length, event.seq);
+    this.surfaceSeqs.splice(0, this.surfaceSeqs.length, SessionSeq(event.seq));
 
     const compactionIndex = activeEntries.indexOf(compaction);
     const firstKeptIndex = activeEntries.findIndex(
@@ -463,7 +653,16 @@ class SparkDshTranscriptWriter {
         },
         this.attachmentRoot,
       );
-      this.appendConvertedMessage(clone, "append");
+      const native = this.appendConvertedMessage(clone, "append");
+      this.session.append(
+        "spark/message-meta",
+        await nativeMessageMetadata(
+          originalPosition,
+          protectedEntry,
+          native.seq,
+          this.attachmentRoot,
+        ),
+      );
     }
   }
 
@@ -472,11 +671,17 @@ class SparkDshTranscriptWriter {
       this.finishCurrentTurn();
       this.finalized = true;
     }
-    const events = this.session.events.map((event) => ({
+    const events = this.session.snapshotEvents().map((event) => ({
       ...event,
       ...(event.type.startsWith("spark/") ? { ignorable: true as const } : {}),
     })) as SparkDshSessionEvent[];
-    const document = { header: this.session.header as SparkDshSessionHeader, events };
+    const document = {
+      header: {
+        ...this.session.header,
+        inheritedEventCount: this.session.inheritedEventCount,
+      } as SparkDshSessionHeader,
+      events,
+    };
     validateDshDocument(document);
     return document;
   }
@@ -485,6 +690,7 @@ class SparkDshTranscriptWriter {
     converted: ConvertedSparkMessage,
     intent: SurfaceIntent | "append",
   ): SparkDshSessionEvent {
+    this.recoverInterruptedTail();
     if (converted.kind === "user") return this.appendUserMessage(converted.message, intent);
     if (converted.kind === "assistant") {
       return this.appendAssistantMessage(
@@ -501,6 +707,7 @@ class SparkDshTranscriptWriter {
     message: UserMessage,
     intent: SurfaceIntent | "append",
   ): SparkDshSessionEvent {
+    this.recoverInterruptedTail();
     this.finishCurrentTurn();
     const turn = this.startTurn();
     const event = this.session.append(
@@ -525,7 +732,7 @@ class SparkDshTranscriptWriter {
     this.session.append("step/start", { turn, step });
     const event = this.session.append(
       "assistant/message",
-      { turn, step, message, ...(usage ? { usage } : {}) },
+      { turn, step, message, stream: [], ...(usage ? { usage } : {}) },
       intent === "append" ? { surfaceOp: "append" } : intent,
     );
     for (const call of toolCalls) {
@@ -577,13 +784,12 @@ class SparkDshTranscriptWriter {
     message: ToolResultMessage,
     intent: SurfaceIntent | "append",
   ): SparkDshSessionEvent {
-    const result = message.content[0];
-    const content = result?.type === "tool-result" ? result.content : message.content;
+    const content = message.content;
     const fallback = freezeMessage<UserMessage>({
       id: message.id,
       role: "user",
       content,
-      source: { kind: "plugin", plugin: "spark-transcript-v4", form: "recall" },
+      source: { kind: "spark-transcript", form: "recall" },
     });
     return this.appendUserMessage(fallback, intent);
   }
@@ -595,6 +801,29 @@ class SparkDshTranscriptWriter {
     this.openStep = undefined;
     this.nextStep = 1;
     return turn;
+  }
+
+  private recoverInterruptedTail(): void {
+    if (!this.recovery) return;
+    const closers = interruptedTurnClosers(this.recovery);
+    this.recovery = undefined;
+    for (const closer of closers) {
+      if (closer.type === "tool/result") {
+        const event = this.session.append(
+          "tool/result",
+          closer.data as SessionEvent<"tool/result">["data"],
+          {
+            surfaceOp: "append",
+            ...(closer.sourceEventSeqs ? { sourceEventSeqs: closer.sourceEventSeqs } : {}),
+          },
+        );
+        this.surfaceSeqs.push(event.seq);
+      } else if (closer.type === "step/end") {
+        this.session.append("step/end", closer.data as SessionEvent<"step/end">["data"]);
+      } else {
+        this.session.append("turn/end", closer.data as SessionEvent<"turn/end">["data"]);
+      }
+    }
   }
 
   private finishCurrentTurn(): void {
@@ -612,7 +841,7 @@ class SparkDshTranscriptWriter {
   }
 
   private interruptCurrentTurn(): void {
-    const closers = interruptedTurnClosers(this.session.events);
+    const closers = interruptedTurnClosers(this.session.snapshotEvents());
     if (closers.length === 0) {
       throw new Error("Spark transcript writer lost its open DSH turn");
     }
@@ -714,18 +943,14 @@ async function convertSparkMessage(
       : `legacy:${entry.id}`,
   );
   const isError = entry.message.isError === true;
-  const toolBlock = {
-    type: "tool-result" as const,
-    toolCallId: callId,
-    content: converted.blocks,
-    ...(isError ? { isError: true } : {}),
-  };
   return {
     kind: "tool",
     message: freezeMessage<ToolResultMessage>({
       id: MessageId(entry.id),
-      role: "user",
-      content: [toolBlock],
+      role: "tool",
+      toolCallId: callId,
+      isError,
+      content: converted.blocks,
       source: { kind: "tool", callId },
     }),
     contentShape: converted.shape,
@@ -794,7 +1019,7 @@ function messageEntryFromNative(
   return projectSparkDshMessageEntry(event, meta, path) as SparkSessionMessageEntry;
 }
 
-function dshHeaderFromSpark(header: SparkSessionHeader): SparkDshSessionHeader {
+function dshHeaderFromSpark(header: SparkSessionHeader): SessionHeader {
   const parentSessionId =
     header.parentSessionId ??
     (header.parentSession &&
@@ -808,9 +1033,9 @@ function dshHeaderFromSpark(header: SparkSessionHeader): SparkDshSessionHeader {
     createdAt: eventTime(header.timestamp, 0),
     ...(isAbsolutePath(header.cwd) ? { cwd: header.cwd } : {}),
     ...(parentSessionId ? { parentSession: SessionId(parentSessionId) } : {}),
-    ...(header.seedLength !== undefined ? { seedLength: header.seedLength } : {}),
+    isSeeded: false,
     ...(header.origin ? { origin: header.origin } : {}),
-    ...(header.delegationDepth !== undefined ? { delegationDepth: header.delegationDepth } : {}),
+    delegationDepth: header.delegationDepth ?? 0,
     ...(header.agentPreset ? { agentPreset: header.agentPreset } : {}),
   };
 }
@@ -850,7 +1075,12 @@ function asDshSessionEvent(value: unknown): SparkDshSessionEvent | undefined {
   return value as unknown as SparkDshSessionEvent;
 }
 
-function validateDshDocument(document: SparkDshSessionDocument): Session {
+function validateDshDocument(document: SparkDshSessionDocument): {
+  surface: { nodes: readonly number[] };
+} {
+  if (document.header.version === 0) {
+    return restoreLegacyDshSession(document);
+  }
   for (const event of document.events) {
     if (
       !KNOWN_SESSION_EVENT_TYPES.has(event.type) &&
@@ -860,11 +1090,51 @@ function validateDshDocument(document: SparkDshSessionDocument): Session {
       throw new Error(`unknown required event ${event.type}`);
     }
   }
+  const { inheritedEventCount, ...header } = document.header;
+  const inheritedMarker = document.events.findLast(
+    (event) =>
+      event.type === "session/end-seed" && isRecord(event.data) && event.data.inherited === true,
+  );
+  if (
+    header.isSeeded
+      ? inheritedEventCount === undefined || inheritedMarker?.seq !== inheritedEventCount
+      : (inheritedEventCount ?? 0) !== 0 || inheritedMarker !== undefined
+  ) {
+    throw new Error("Session inherited event count does not match its seeded header and marker");
+  }
+  restoreReleasedV4Artifact(
+    {
+      header: { ...header, delegationDepth: header.delegationDepth ?? 0 },
+      events: document.events,
+      inheritedEventCount: inheritedEventCount ?? 0,
+    } as unknown as SessionFormatArtifact,
+    KNOWN_SESSION_EVENT_TYPES,
+  );
   return Session.fromRestore(
     SessionId(String(document.header.id)),
     structuredClone(document.events) as SessionEvent[],
-    structuredClone(document.header),
+    structuredClone(header) as SessionHeader,
+    SessionLogOffset(inheritedEventCount ?? 0),
+    "detached",
   );
+}
+
+export async function nativeMessageMetadata(
+  position: number,
+  entry: SparkSessionMessageEntry,
+  eventSeq: number,
+  attachmentRoot: string,
+): Promise<SparkDshMessageMetaData> {
+  const converted = await convertSparkMessage(entry, attachmentRoot);
+  return jsonData({
+    position,
+    eventSeq,
+    entry: { id: entry.id, parentId: entry.parentId, timestamp: entry.timestamp },
+    role: entry.message.role,
+    contentShape: converted.contentShape,
+    messageMeta: converted.messageMeta,
+    blockMeta: converted.blockMeta,
+  });
 }
 
 function nativeEventToSparkEntry(
@@ -884,7 +1154,10 @@ function nativeEventToSparkEntry(
   const message = nativeMessage(event, path);
   if (
     String(message.id).includes(":compaction:") ||
-    (message.source.kind === "plugin" && message.source.plugin.startsWith("spark-"))
+    (message.source.kind === "plugin" && message.source.plugin.startsWith("spark-")) ||
+    message.source.kind.startsWith("plugin:spark-") ||
+    message.source.kind === "spark-transcript" ||
+    message.source.kind === "spark-compaction"
   ) {
     return undefined;
   }
@@ -908,10 +1181,15 @@ function nativeEventToSparkEntry(
       const usage = sparkUsage(event.data.usage);
       if (usage) messageMeta.usage = usage;
     }
-  } else if (message.source.kind === "tool" && first?.type === "tool-result") {
+  } else if (message.source.kind === "tool") {
     messageMeta.toolCallId = String(message.source.callId);
     messageMeta.toolName = toolNameForCall(events, String(message.source.callId));
-    if (first.isError === true) messageMeta.isError = true;
+    if (
+      (message.role === "tool"
+        ? message.isError
+        : first?.type === "tool-result" && first.isError) === true
+    )
+      messageMeta.isError = true;
   }
   return messageEntryFromNative(
     event,
@@ -932,7 +1210,7 @@ function nativeEventToSparkEntry(
   );
 }
 
-function nativeSubagentEventToSparkEntry(
+export function nativeSubagentEventToSparkEntry(
   event: SparkDshSessionEvent,
   parentId: string | undefined,
   path: string,
@@ -986,10 +1264,23 @@ function parseSubagentModelSelection(
   return routes;
 }
 
+interface LegacyMessage {
+  id: string;
+  role: "user" | "assistant";
+  source:
+    | UserMessage["source"]
+    | AssistantMessage["source"]
+    | ToolResultMessage["source"]
+    | { kind: "plugin"; plugin: string };
+  content: Array<
+    ContentBlock | { type: "tool-result"; content: ContentBlock[]; isError?: boolean }
+  >;
+}
+
 function nativeMessage(
   event: SparkDshSessionEvent,
   path: string,
-): UserMessage | AssistantMessage | ToolResultMessage {
+): UserMessage | AssistantMessage | ToolResultMessage | LegacyMessage {
   if (event.type === "user/message" && isRecord(event.data)) {
     return event.data as unknown as UserMessage;
   }

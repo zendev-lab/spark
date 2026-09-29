@@ -14,7 +14,7 @@ append, compact, and close independently. Fork creation checks the parent
 transcript before and after reading, retries once on change, writes the child
 transcript atomically, and registers the child only after the seed is durable.
 The `@zendev-lab/spark-session/transcript` subpath owns the DSH JSONL codec,
-v3-to-v4 migration, filesystem layout, and atomic replacement.
+v3/v4-to-v5 migration, filesystem layout, and atomic replacement.
 
 Native snapshot paging uses a rebuildable active-branch location index while
 the JSONL transcript remains authoritative. Index hits validate the transcript
@@ -40,3 +40,29 @@ For `kind=request`, omitting `onActive` is an idle-only attempt: an idle target 
 Channel hosts expose only same-workspace coordination actions. Sends require a local target. Child creation and lifecycle actions are rejected from channel callers.
 
 See [`../../.agents/notes/contracts/sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).
+
+DSH 0.2.0-rc.1 uses log format 4; Spark transcript metadata now identifies
+version 5. The daemon backs up registered transcripts under
+`backups/session-transcript-v5` before replacing them. The frozen DSH 0.1.2
+reader is used only for historical files, with its declarations isolated from
+the active Cordis graph. The checked-in `fixtures/spark-v4.jsonl` was emitted by
+the Spark v4 writer at commit `5a4e92d7` and covers tools, compaction, and Chinese text.
+
+Historical DSH v0 logs migrate their native events and event references directly,
+including empty and nonempty fork boundaries. Stream chunks remain auditable and
+feed the completed assistant message's stream. Child descriptors supply parent
+catalog facts from the same sessions root. The upgraded artifact passes the
+released DSH v4 validator before the atomic replacement; repeated migration is
+idempotent.
+
+Runtime saves preserve the native log. A driver flush receipt binds Spark's
+projection to the durable native tail; stale receipts and stale ordinary saves
+fail without replacing the file. Tool-result compaction appends a surface
+replacement that retains the original tool identity and lifecycle coordinates.
+Projection revisions retain stable entry positions and ids. Removing or
+reordering committed entries requires an explicit offline migration.
+
+Offline unification backs up and combines compatible root-session fragments,
+remapping local references while retaining their raw events. It refuses inherited
+or conflicting lineages rather than inventing a shared fork boundary. Single
+fork transcripts retain their own inherited cut during migration and continuation.
