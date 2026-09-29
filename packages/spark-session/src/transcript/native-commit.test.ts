@@ -21,7 +21,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture() {
+async function fixture(runtimeContext = false) {
   const root = await mkdtemp(join(tmpdir(), "spark-native-commit-"));
   roots.push(root);
   const store = new SparkSessionStore({ cwd: root, sparkHome: join(root, "home") });
@@ -33,6 +33,9 @@ async function fixture() {
     document.events.push({ type, seq, time: Date.now(), data, ...extra });
     return seq;
   };
+  emit("subagent/model-selection-policy", {
+    allowedModels: [{ provider: "test", model: "test" }],
+  });
   emit("turn/start", { turn: 1 });
   emit(
     "user/message",
@@ -87,6 +90,9 @@ async function fixture() {
   emit("turn/end", { turn: 1, reason: { kind: "completed" } });
   emit("plugin:fixture/opaque", null, { ignorable: true });
   await writeFile(record.path, jsonl(document));
+  if (runtimeContext) {
+    store.appendCustomMessage(record, "runtime-context", "current execution policy", false);
+  }
   store.appendMessage(record, { role: "user", content: "inspect" });
   store.appendMessage(record, {
     role: "assistant",
@@ -108,6 +114,7 @@ it("commits a native tool turn and micro-compaction atomically without duplicati
   tool.message.content = "compact tool result";
   const before = await readFile(record.path, "utf8");
   const baseline = structuredClone(record.nativeDocument);
+  const originalEntries = structuredClone(record.entries);
   await expect(
     store.commitNativeTurn(record, document.events.length, {
       beforeCommit: () => {
@@ -117,6 +124,7 @@ it("commits a native tool turn and micro-compaction atomically without duplicati
   ).rejects.toThrow("simulated commit interruption");
   expect(await readFile(record.path, "utf8")).toBe(before);
   expect(record.nativeDocument).toEqual(baseline);
+  expect(record.entries).toEqual(originalEntries);
 
   await store.commitNativeTurn(record, document.events.length);
   const committed = record.nativeDocument!;
@@ -126,6 +134,10 @@ it("commits a native tool turn and micro-compaction atomically without duplicati
     { type: "text", text: "compact tool result" },
   ]);
   expect((await store.load(record.path)).entries).toEqual(record.entries);
+  expect(record.entries.at(-1)).toMatchObject({
+    type: "subagent_model_selection",
+    allowedModels: [{ provider: "test", model: "test" }],
+  });
   const saved = await readFile(record.path, "utf8");
   await store.save(record);
   expect(await readFile(record.path, "utf8")).toBe(saved);
@@ -146,7 +158,8 @@ it("refuses stale native receipts and ordinary saves without overwriting a newer
 });
 
 it("updates the native context when a committed turn receives a full compaction", async () => {
-  const { store, record, document } = await fixture();
+  const { store, record, document } = await fixture(true);
+  const runtimeId = record.entries[0]!.id;
   record.entries.push({
     type: "compaction",
     id: "compact-1",
@@ -162,7 +175,18 @@ it("updates the native context when a committed turn receives a full compaction"
   const messages = restore(saved).deriveMessages();
   expect(messages).toHaveLength(1);
   expect(JSON.stringify(messages[0]?.content)).toContain("retained facts");
+  expect(
+    saved.events.filter(
+      (event) => event.type === "user/message" && (event.data as { id?: string }).id === runtimeId,
+    ),
+  ).toHaveLength(1);
+  expect(
+    saved.events.filter((event) => event.type === "subagent/model-selection-policy"),
+  ).toHaveLength(1);
   expect((await store.load(record.path)).entries).toEqual(record.entries);
+  const serialized = await readFile(record.path, "utf8");
+  await store.save(record);
+  expect(await readFile(record.path, "utf8")).toBe(serialized);
 });
 
 it("keeps retained tool results bound to their native copies after full compaction", async () => {
@@ -186,6 +210,60 @@ it("keeps retained tool results bound to their native copies after full compacti
   expect(messages.at(-1)?.role).toBe("tool");
   expect(messages.at(-1)?.content).toEqual([{ type: "text", text: "retained result shortened" }]);
   expect((await store.load(record.path)).entries).toEqual(record.entries);
+});
+
+it("bridges an uncommitted native history using the latest replacement before retrying a save", async () => {
+  const { store, record, document } = await fixture();
+  const native = restore(document);
+  const tool = native.snapshotEvents().find((event) => event.type === "tool/result")!;
+  if (tool.type !== "tool/result") throw new Error("missing tool event");
+  native.append("turn/start", { turn: 2 });
+  native.append(
+    "tool/result",
+    {
+      ...tool.data,
+      message: {
+        ...tool.data.message,
+        content: [{ type: "text", text: "earlier compact result" }],
+      },
+    },
+    {
+      surfaceOp: { op: "replace", startSeq: tool.seq, endSeq: tool.seq },
+      sourceEventSeqs: [tool.seq],
+    },
+  );
+  native.append("turn/end", { turn: 2, reason: { kind: "completed" } });
+  document.events = [...structuredClone(native.snapshotEvents())];
+  await writeFile(record.path, jsonl(document));
+  const resumed = await store.load(record.path);
+  const receipt: SparkDshSessionEvent = {
+    type: "plugin:fixture/opaque",
+    seq: document.events.length,
+    time: Date.now(),
+    data: null,
+    ignorable: true,
+  };
+  document.events.push(receipt);
+  await writeFile(record.path, jsonl(document));
+  const message = resumed.entries.find(
+    (entry) => entry.type === "message" && entry.message.role === "toolResult",
+  );
+  if (message?.type !== "message") throw new Error("missing projected tool result");
+  message.message.content = "latest compact result";
+  await store.commitNativeTurn(resumed, document.events.length);
+  expect(restore(resumed.nativeDocument!).deriveMessages().at(-1)?.content).toEqual([
+    { type: "text", text: "latest compact result" },
+  ]);
+  expect(resumed.nativeDocument!.events.slice(0, document.events.length)).toEqual(document.events);
+  expect(
+    resumed.nativeDocument!.events.filter(
+      (event) => event.type === "subagent/model-selection-policy",
+    ),
+  ).toHaveLength(1);
+  expect((await store.load(record.path)).entries).toEqual(resumed.entries);
+  const before = await readFile(record.path, "utf8");
+  await store.save(resumed);
+  expect(await readFile(record.path, "utf8")).toBe(before);
 });
 
 function jsonl(document: SparkDshSessionDocument): string {

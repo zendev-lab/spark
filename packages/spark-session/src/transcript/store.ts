@@ -13,6 +13,8 @@ import {
   isNativeSparkDshDocument,
   isRecord,
   nativeMessageMetadata,
+  nativeSubagentEventToSparkEntry,
+  sparkEntryPositions,
   serializeDshSessionDocument,
   sparkHeaderFromDshLine,
 } from "./dsh-format.ts";
@@ -184,6 +186,32 @@ export class SparkSessionStore {
       throw new Error(`Native turn does not match its durable transcript receipt: ${record.path}`);
     }
     const previous = dshDocumentToSparkRecord(record.path, baseline).entries;
+    const positions = sparkEntryPositions(baseline, record.path);
+    for (const [position, entry] of previous.entries()) {
+      if (positions.has(entry.id)) continue;
+      const native =
+        entry.type === "message"
+          ? baseline.events.findLast(
+              (event) =>
+                isRecord(event.data) &&
+                (event.type === "user/message"
+                  ? event.data.id === entry.id
+                  : (event.type === "assistant/message" || event.type === "tool/result") &&
+                    isRecord(event.data.message) &&
+                    event.data.message.id === entry.id),
+            )
+          : undefined;
+      current.events.push({
+        type: native ? "spark/message-meta" : "spark/record",
+        seq: current.events.length,
+        time: Date.now(),
+        data:
+          native && entry.type === "message"
+            ? await nativeMessageMetadata(position, entry, native.seq, this.attachmentRoot)
+            : { position, entry },
+        ignorable: true,
+      });
+    }
     const nativeUsers = current.events
       .slice(baseline.events.length)
       .filter(
@@ -241,7 +269,21 @@ export class SparkSessionStore {
       { ...record, nativeDocument: current },
       { attachmentRoot: this.attachmentRoot },
     );
+    const entries = [...record.entries];
+    for (const event of current.events.slice(baseline.events.length, eventCount)) {
+      const entry = nativeSubagentEventToSparkEntry(event, entries.at(-1)?.id, record.path);
+      if (!entry || entries.some((candidate) => candidate.id === entry.id)) continue;
+      committed.events.push({
+        type: "spark/record",
+        seq: committed.events.length,
+        time: Date.now(),
+        data: { position: entries.length, entry },
+        ignorable: true,
+      });
+      entries.push(entry);
+    }
     await writeJsonLinesAtomically(record.path, serializeDshSessionDocument(committed), options);
+    record.entries = entries;
     record.nativeDocument = committed;
   }
 
@@ -431,7 +473,13 @@ export class SparkSessionStore {
     display: boolean,
     details?: T,
   ): string {
-    return appendEntry(record, { type: "custom_message", customType, content, display, details });
+    return appendEntry(record, {
+      type: "custom_message",
+      customType,
+      content,
+      display,
+      ...(details === undefined ? {} : { details }),
+    });
   }
 }
 

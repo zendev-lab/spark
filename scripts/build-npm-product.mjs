@@ -29,6 +29,7 @@ const buildNativeProducts = process.env.SPARK_SKIP_NATIVE_PRODUCTS !== "1";
 
 const externalPackages = [
   "@deepseek-ai/node-addon-system",
+  "koffi",
   "@zendev-lab/cue",
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",

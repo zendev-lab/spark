@@ -179,11 +179,17 @@ export async function encodeSparkRecordAsDsh(
     record.nativeDocument?.header.version === 0
       ? migrateSparkDshV0(record.nativeDocument, options.historicalChildren ?? [])
       : record.nativeDocument;
-  const previous = baseline ? dshDocumentToSparkRecord(record.path, baseline).entries : [];
-  if (previous.some((entry, position) => record.entries[position]?.id !== entry.id)) {
+  const previous = baseline
+    ? projectSparkDshDocument(record.path, baseline).entries
+    : new Map<number, SparkSessionEntry>();
+  const previousEntries = [...previous.values()];
+  const positions = baseline
+    ? sparkEntryPositions(baseline, record.path)
+    : new Map<string, number>();
+  if ([...previous].some(([position, entry]) => record.entries[position]?.id !== entry.id)) {
     throw new Error("Committed transcript entries cannot be removed or reordered");
   }
-  if (baseline && isDeepStrictEqual(previous, record.entries)) {
+  if (baseline && isDeepStrictEqual(previousEntries, record.entries)) {
     return { ...structuredClone(baseline), header: { ...baseline.header, cwd: record.header.cwd } };
   }
   const header = dshHeaderFromSpark(record.header);
@@ -193,21 +199,8 @@ export async function encodeSparkRecordAsDsh(
     baseline ? { ...baseline, header: { ...baseline.header, cwd: record.header.cwd } } : undefined,
   );
   if (baseline) {
-    const bridged = new Set(
-      baseline.events.flatMap((event) => {
-        if (event.type === "spark/record" && isRecord(event.data) && isRecord(event.data.entry))
-          return [event.data.entry.id];
-        if (
-          event.type === "spark/message-meta" &&
-          isRecord(event.data) &&
-          isRecord(event.data.entry)
-        )
-          return [event.data.entry.id];
-        return [];
-      }),
-    );
-    for (const [position, entry] of previous.entries()) {
-      if (!bridged.has(entry.id)) writer.appendStoredRecord(position, entry);
+    for (const [position, entry] of previous) {
+      if (!positions.has(entry.id)) writer.appendStoredRecord(position, entry);
     }
   }
   if (!baseline)
@@ -224,18 +217,18 @@ export async function encodeSparkRecordAsDsh(
   const activeEntries = activeBranch(record.entries);
   const activeIds = new Set(activeEntries.map((entry) => entry.id));
   for (const [position, entry] of record.entries.entries()) {
-    if (isDeepStrictEqual(entry, previous[position])) continue;
+    if (isDeepStrictEqual(entry, previous.get(position))) continue;
     if (!activeIds.has(entry.id)) writer.appendStoredRecord(position, entry);
   }
 
   for (const entry of activeEntries) {
     const position = record.entries.indexOf(entry);
-    if (isDeepStrictEqual(entry, previous[position])) continue;
-    if (previous[position]?.id === entry.id && entry.type === "message") {
+    if (isDeepStrictEqual(entry, previous.get(position))) continue;
+    if (previous.get(position)?.id === entry.id && entry.type === "message") {
       await writer.replaceMessageEntry(
         position,
         entry,
-        previous[position] as SparkSessionMessageEntry,
+        previous.get(position) as SparkSessionMessageEntry,
       );
       continue;
     }
@@ -269,6 +262,23 @@ export async function encodeSparkRecordAsDsh(
   return writer.document();
 }
 
+export function sparkEntryPositions(
+  document: SparkDshSessionDocument,
+  path: string,
+): Map<string, number> {
+  const positions = new Map<string, number>();
+  for (const event of document.events) {
+    const stored =
+      event.type === SPARK_DSH_RECORD_EVENT_TYPE
+        ? parseStoredRecord(event.data, path)
+        : event.type === SPARK_DSH_MESSAGE_META_EVENT_TYPE
+          ? parseMessageMeta(event.data, path)
+          : undefined;
+    if (stored) positions.set(stored.entry.id, stored.position);
+  }
+  return positions;
+}
+
 export function decodeSparkDshSessionJsonl(content: string): SparkDshSessionDocument | undefined {
   try {
     if (!isDshSessionHeader(JSON.parse(content.trimStart().split("\n", 1)[0] ?? "")))
@@ -293,6 +303,19 @@ export function dshDocumentToSparkRecord(
   path: string,
   document: SparkDshSessionDocument,
 ): SparkSessionRecord {
+  const projected = projectSparkDshDocument(path, document);
+  return {
+    path,
+    header: projected.header,
+    entries: [...projected.entries.values()],
+    nativeDocument: structuredClone(document),
+  };
+}
+
+function projectSparkDshDocument(
+  path: string,
+  document: SparkDshSessionDocument,
+): { header: SparkSessionHeader; entries: Map<number, SparkSessionEntry> } {
   const session = validateDshDocument(document);
   const meta = readSparkMeta(document.events);
   if (!meta || ![4, CURRENT_SPARK_SESSION_VERSION].includes(meta.sparkVersion)) {
@@ -314,6 +337,7 @@ export function dshDocumentToSparkRecord(
     ),
   );
   let lastBridgeSeq = -1;
+  let committedNativeThroughSeq = -1;
   for (const event of document.events) {
     if (event.type === SPARK_DSH_RECORD_EVENT_TYPE) {
       const stored = parseStoredRecord(event.data, path);
@@ -337,6 +361,10 @@ export function dshDocumentToSparkRecord(
         throw new Error(`Spark session ${path} has an invalid native commit receipt`);
       }
       lastBridgeSeq = Math.max(lastBridgeSeq, event.data.throughSeq as number);
+      committedNativeThroughSeq = Math.max(
+        committedNativeThroughSeq,
+        event.data.throughSeq as number,
+      );
     }
   }
   const positioned = [...byPosition].map(([position, entry]) => ({ position, entry }));
@@ -351,6 +379,7 @@ export function dshDocumentToSparkRecord(
       .filter((type) => type === "subagent_descriptor" || type === "subagent_model_selection"),
   );
   for (const event of document.events) {
+    if (event.seq <= committedNativeThroughSeq) continue;
     const entry = nativeSubagentEventToSparkEntry(event, parentId, path);
     if (!entry || projectedSubagentTypes.has(entry.type)) continue;
     positioned.push({ position: nextPosition, entry });
@@ -371,10 +400,8 @@ export function dshDocumentToSparkRecord(
   positioned.sort((left, right) => left.position - right.position);
   assertUniquePositionsAndIds(positioned, path);
   return {
-    path,
     header: sparkHeaderFromDshLine(document.header, meta),
-    entries: positioned.map(({ entry }) => entry),
-    nativeDocument: structuredClone(document),
+    entries: new Map(positioned.map(({ position, entry }) => [position, entry])),
   };
 }
 
@@ -1183,7 +1210,7 @@ function nativeEventToSparkEntry(
   );
 }
 
-function nativeSubagentEventToSparkEntry(
+export function nativeSubagentEventToSparkEntry(
   event: SparkDshSessionEvent,
   parentId: string | undefined,
   path: string,

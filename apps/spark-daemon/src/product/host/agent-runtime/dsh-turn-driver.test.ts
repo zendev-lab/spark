@@ -420,7 +420,7 @@ test("runSparkDshTurn starts no model work when cancellation arrives during Sess
   }
 });
 
-test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
+test("runSparkDshTurn composes native tools added between model requests", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
   const requests: GenerateOptions[] = [];
@@ -463,6 +463,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
           },
           async execute(args) {
             executions += 1;
+            if (executions === 1) agentCtx.tools.register({ ...tool, name: "late_probe" });
             return { ok: true, args };
           },
         }),
@@ -481,14 +482,15 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
       requests.push(options);
       const requestIndex = requests.length;
       return (async function* () {
-        if (requestIndex === 1) {
-          const id = ToolCallId("native-probe-call");
+        if (requestIndex <= 2) {
+          const name = requestIndex === 1 ? "native_probe" : "late_probe";
+          const id = ToolCallId(`${name}-call`);
           yield { type: "block-start", index: 0, blockType: "tool-call" };
           yield {
             type: "tool-call-delta",
             index: 0,
             id,
-            name: "native_probe",
+            name,
             argumentsDelta: '{"value":"ok"}',
           };
           yield {
@@ -497,7 +499,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
             block: {
               type: "tool-call",
               id,
-              name: "native_probe",
+              name,
               arguments: '{"value":"ok"}',
             },
           };
@@ -561,16 +563,25 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
 
   assert.equal(
     executions,
-    1,
+    2,
     JSON.stringify({ requests: requests.length, registrations, projectedResults }),
   );
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
   assert.equal(
     requests[0]?.tools?.some((tool) => tool.name === "native_probe"),
     true,
   );
   assert.match(requests[0]?.system ?? "", /Native probe guidance/);
-  assert.deepEqual(registrations, [{ owner: "dsh", callId: "native-probe-call", policy }]);
+  assert.deepEqual(registrations, [
+    { owner: "dsh", callId: "native_probe-call", policy },
+    { owner: "dsh", callId: "late_probe-call", policy },
+  ]);
+  assert.equal(
+    requests[1]?.tools?.some((tool) => tool.name === "late_probe"),
+    true,
+  );
+  assert.equal(messages.at(-1)?.role, "assistant");
+  assert.deepEqual(messages.at(-1)?.content, [{ type: "text", text: "native complete" }]);
   assert.equal(projectedResults[0]?.toolName, "native_probe");
   assert.equal(projectedResults[0]?.isError, false);
   assert.match(

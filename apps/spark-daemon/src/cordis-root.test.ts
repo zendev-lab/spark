@@ -362,6 +362,9 @@ describe("spark daemon Cordis root", () => {
       expect(observed).toEqual([
         { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
       ]);
+      expect(nativeToolNames).toEqual(
+        expect.arrayContaining(["cue_exec", "cue_jobs", "cue_scope"]),
+      );
       expect(nativeToolNames.filter((name) => name.startsWith("schedule_"))).toEqual([]);
       expect(root.ctx.get("schedule")).toBeUndefined();
       const first = await store.load(seed.path);
