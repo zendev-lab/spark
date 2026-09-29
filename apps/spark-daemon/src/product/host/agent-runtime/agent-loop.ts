@@ -65,7 +65,7 @@ export type {
 } from "@zendev-lab/spark-llm-providers";
 
 import { createHash } from "node:crypto";
-import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
+import type { Context as CordisContext } from "@deepseek-ai/cordis";
 
 import {
   createSparkInvocationService,
@@ -199,6 +199,7 @@ import { type SparkTurnLlm } from "./turn-llm.ts";
 import {
   encodeSparkAuxiliaryModelRoute,
   runSparkDshTurn,
+  type SparkAgentPlugin,
   type SparkAssembledTurn,
   type SparkDshSessionMetadata,
   type SparkDshToolDescriptor,
@@ -608,7 +609,7 @@ export interface SparkAgentLoopOptions {
   /** Shared daemon DSH root. Omitted only by isolated test/scripted providers. */
   dshContext?: CordisContext;
   /** Product-composed plugins mounted into each invocation Agent scope. */
-  agentPlugins?: readonly CordisPlugin[];
+  agentPlugins?: readonly SparkAgentPlugin[];
   /** Resolves the current model. May be replaced at runtime via setModel. */
   getModel: () => Model<string>;
   systemPrompt?: string;
@@ -689,7 +690,7 @@ export class SparkAgentLoop {
   readonly host: SparkTurnHost;
   private readonly llm: SparkTurnLlm;
   private readonly dshContext: CordisContext | undefined;
-  private readonly agentPlugins: readonly CordisPlugin[];
+  private readonly agentPlugins: readonly SparkAgentPlugin[];
   private readonly getModel: () => Model<string>;
   private readonly streamTimeoutMs: number;
   private readonly streamIdleTimeoutMs: number;

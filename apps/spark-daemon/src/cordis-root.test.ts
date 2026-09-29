@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
-import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
+import { SESSION_FORMAT_VERSION, SessionId, type Session } from "@deepseek-ai/dsh-session";
+import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channel-transports";
 import { cueSkillsRoot } from "@zendev-lab/cue";
 import { SparkHostRuntime } from "./product/host/runtime.ts";
@@ -277,6 +278,12 @@ describe("spark daemon Cordis root", () => {
     });
     const root = await createSparkDaemonCordisRoot(fakeStores(), {
       sessionsRoot: store.sessionsRoot,
+      subagentHost: {
+        agentOptions: true,
+        async start() {
+          throw new Error("the composition probe must not start a subagent");
+        },
+      },
     });
     let calls = 0;
     let nativeToolNames: string[] = [];
@@ -312,6 +319,7 @@ describe("spark daemon Cordis root", () => {
       maxTokens: 1_000,
     };
     const observed: Array<{ invocationId: string; sessionId: string; epoch: number }> = [];
+    const composed: Array<{ selectable: boolean; modelList: boolean; policies: number }> = [];
     const runInvocation = async (
       invocationId: string,
       prompt: string,
@@ -334,11 +342,23 @@ describe("spark daemon Cordis root", () => {
         getModel: () => model,
         streamIdleTimeoutMs: 0,
         agentPlugins: [
-          ...loadSparkProductAgentPlugins(),
+          ...loadSparkProductAgentPlugins({
+            subagentModels: [{ provider: model.provider, model: model.id }],
+          }),
           {
             name: "capture-spark-invocation",
             inject: ["sparkInvocation"],
-            apply(ctx: Context) {
+            apply(ctx: Context, { session }: { session: Session }) {
+              composed.push({
+                selectable: Object.hasOwn(
+                  ctx.tools.get("subagent", scopeOf(ctx))?.parameters?.properties ?? {},
+                  "model",
+                ),
+                modelList: !!ctx.tools.get("list_subagent_models", scopeOf(ctx)),
+                policies: session
+                  .snapshotEvents()
+                  .filter((event) => event.type === "subagent/model-selection-policy").length,
+              });
               observed.push({
                 invocationId: ctx.sparkInvocation.invocationId,
                 sessionId: ctx.sparkInvocation.sessionId,
@@ -358,6 +378,7 @@ describe("spark daemon Cordis root", () => {
 
     try {
       await runInvocation("inv_shared_1", "first prompt");
+      expect(composed).toEqual([{ selectable: true, modelList: true, policies: 1 }]);
       expect(root.ctx.agents.list()).toEqual([]);
       expect(observed).toEqual([
         { invocationId: "inv_shared_1", sessionId: seed.header.id, epoch: 1 },
