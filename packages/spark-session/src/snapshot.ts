@@ -981,20 +981,16 @@ function parseNativeSessionRecord(
   const dshHeader = isRecord(lines[0]?.value) && lines[0]?.value.type !== "session";
   if (dshHeader) {
     const eventsBySeq = new Map<number, (typeof lines)[number]>();
+    const nativeMessageIds = new Set<unknown>();
     for (const line of lines.slice(1)) {
       if (!isRecord(line.value) || typeof line.value.seq !== "number") continue;
       if (eventsBySeq.has(line.value.seq)) {
         throw new Error(`Native transcript ${path} repeats DSH event seq ${line.value.seq}.`);
       }
       eventsBySeq.set(line.value.seq, line);
+      if (line.value.type === "user/message" && isRecord(line.value.data))
+        nativeMessageIds.add(line.value.data.id);
     }
-    const nativeMessageIds = new Set(
-      lines.flatMap(({ value }) =>
-        isRecord(value) && value.type === "user/message" && isRecord(value.data)
-          ? [value.data.id]
-          : [],
-      ),
-    );
     for (const line of lines.slice(1)) {
       const stored = storedSparkDshEntry(line.value, path);
       if (stored) {
@@ -1024,32 +1020,27 @@ function parseNativeSessionRecord(
         },
       });
     }
+    const latest = new Map<number, (typeof positioned)[number]>();
+    for (const value of positioned) {
+      const previous = latest.get(value.position);
+      if (previous && previous.entry.id !== value.entry.id)
+        throw new Error(
+          `Native transcript ${path} changes entry identity at position ${value.position}.`,
+        );
+      latest.set(value.position, value);
+    }
+    positioned.splice(0, positioned.length, ...latest.values());
+    positioned.sort((left, right) => left.position - right.position);
   } else {
     for (const [position, line] of lines.slice(1).entries()) {
       const entry = parseEntry(line.value, path);
       positioned.push({ position, entry, location: entryLocation(entry.id, line) });
     }
   }
-  const latest = new Map<number, (typeof positioned)[number]>();
   for (const value of positioned) {
-    const previous = latest.get(value.position);
-    if (previous && previous.entry.id !== value.entry.id)
-      throw new Error(
-        `Native transcript ${path} changes entry identity at position ${value.position}.`,
-      );
-    latest.set(value.position, value);
-  }
-  positioned.splice(0, positioned.length, ...latest.values());
-  positioned.sort((left, right) => left.position - right.position);
-  const positions = new Set<number>();
-  for (const value of positioned) {
-    if (positions.has(value.position)) {
-      throw new Error(`Native transcript ${path} repeats Spark entry position ${value.position}.`);
-    }
     if (entryLocations.has(value.entry.id)) {
       throw new Error(`Native transcript ${path} repeats Spark entry id ${value.entry.id}.`);
     }
-    positions.add(value.position);
     entryLocations.set(value.entry.id, value.location);
   }
   const entries = positioned.map(({ entry }) => entry);

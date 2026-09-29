@@ -22,7 +22,7 @@ import {
   type ToolSchema,
 } from "@deepseek-ai/dsh-llm";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
-import { SessionId } from "@deepseek-ai/dsh-session";
+import { SessionId, type Session } from "@deepseek-ai/dsh-session";
 import { idleWatchdog } from "@deepseek-ai/dsh-timeout";
 import { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
 import type {
@@ -127,6 +127,12 @@ export interface SparkTurnDriverHooks {
   roundtrips(): number;
 }
 
+export interface SparkAgentPluginConfig {
+  readonly session: Session;
+}
+
+export type SparkAgentPlugin = Plugin<SparkAgentPluginConfig>;
+
 export interface RunSparkDshTurnInput {
   /** Shared daemon Cordis root. The Agent handle owns the invocation-local scope. */
   ctx: Context;
@@ -136,7 +142,7 @@ export interface RunSparkDshTurnInput {
   /** Present only for daemon-admitted durable Invocations. */
   invocation?: SparkInvocationService;
   /** Cordis plugins composed into this invocation's unpublished Agent scope. */
-  agentPlugins?: readonly Plugin[];
+  agentPlugins?: readonly SparkAgentPlugin[];
   cwd?: string;
   followup: { kind: "user" | "continuation"; content: UserMessage["content"] };
   tools: readonly SparkTurnDriverTool[];
@@ -243,7 +249,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
         executionCtx.tools.register(sparkHostToolDefinition(tool, input.hooks, concurrency));
       }
       for (const plugin of input.agentPlugins ?? []) {
-        await executionCtx.plugin(plugin);
+        await executionCtx.plugin(plugin, { session: agent.session });
       }
       installNativeDshToolResultProjection(executionCtx, input.hooks, registeredNames);
     };
