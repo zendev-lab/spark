@@ -219,7 +219,7 @@ async function mountSparkDshRuntime(
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
   await ctx.plugin(WebRuntime);
-  await ctx.plugin(DshWebProvider, {});
+  await ctx.plugin(DshWebProvider, { allowPrivateHosts: true });
   await ctx.plugin(DshCueService);
   await ctx.plugin(SandboxPolicy, {
     mode: "danger-full-access",

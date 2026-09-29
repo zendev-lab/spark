@@ -347,3 +347,5 @@ dependency.
 Native daemon execution composes the official DSH local sandbox and user-approval
 services alongside Cue. The default full-access host uses approval policy `never`
 (escalation requests are denied); it does not install a parallel approval queue.
+Reusable Web providers retain their private-host rejection default; the trusted
+local Spark daemon explicitly permits private-host retrieval.
