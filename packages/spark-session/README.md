@@ -41,16 +41,28 @@ Channel hosts expose only same-workspace coordination actions. Sends require a l
 
 See [`../../.agents/notes/contracts/sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).
 
-DSH 0.1.7-rc.1 uses log format 4; Spark transcript metadata now identifies
+DSH 0.2.0-rc.1 uses log format 4; Spark transcript metadata now identifies
 version 5. The daemon backs up registered transcripts under
 `backups/session-transcript-v5` before replacing them. The frozen DSH 0.1.2
 reader is used only for historical files, with its declarations isolated from
 the active Cordis graph. The checked-in `fixtures/spark-v4.jsonl` was emitted by
 the Spark v4 writer at commit `5a4e92d7` and covers tools, compaction, and Chinese text.
 
-This adaptation is incomplete for seeded DSH forks, including empty forks:
-rewriting one refuses with an explicit error and keeps the source file. Current
-seeded Spark-framed DSH logs must carry an explicit inherited count matching their final
-inherited marker. The inherited cut and seeded identity must be preserved in the
-new event coordinate space before these transcripts can migrate or be rewritten.
-Do not deploy this upgrade over such histories.
+Historical DSH v0 logs migrate their native events and event references directly,
+including empty and nonempty fork boundaries. Stream chunks remain auditable and
+feed the completed assistant message's stream. Child descriptors supply parent
+catalog facts from the same sessions root. The upgraded artifact passes the
+released DSH v4 validator before the atomic replacement; repeated migration is
+idempotent.
+
+Runtime saves preserve the native log. A driver flush receipt binds Spark's
+projection to the durable native tail; stale receipts and stale ordinary saves
+fail without replacing the file. Tool-result compaction appends a surface
+replacement that retains the original tool identity and lifecycle coordinates.
+Projection revisions retain stable entry positions and ids. Removing or
+reordering committed entries requires an explicit offline migration.
+
+Offline unification backs up and combines compatible root-session fragments,
+remapping local references while retaining their raw events. It refuses inherited
+or conflicting lineages rather than inventing a shared fork boundary. Single
+fork transcripts retain their own inherited cut during migration and continuation.

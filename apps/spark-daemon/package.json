@@ -41,7 +41,6 @@
     "@deepseek-ai/dsh-llm": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox-local": "catalog:dsh",
     "@deepseek-ai/dsh-sandbox-policy": "catalog:dsh",
-    "@deepseek-ai/dsh-schedule": "catalog:dsh",
     "@deepseek-ai/dsh-scope": "catalog:dsh",
     "@deepseek-ai/dsh-session": "catalog:dsh",
     "@deepseek-ai/dsh-session-persistence": "catalog:dsh",
@@ -89,7 +88,7 @@
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
-    "koffi": "3.2.1",
+    "koffi": "3.1.1",
     "sharp": "^0.35.3",
     "typebox": "catalog:",
     "ws": "catalog:"

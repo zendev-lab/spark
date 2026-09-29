@@ -88,6 +88,19 @@ describe("daemon session transcript ownership", () => {
     });
     harness.store.appendMessage(second, { role: "assistant", content: "second" });
     await harness.store.save(second);
+    const secondDocument = second.nativeDocument!;
+    const opaque = {
+      type: "plugin:fixture/native-tail",
+      seq: secondDocument.events.length,
+      time: Date.now(),
+      data: { capturedSeq: 0 },
+      ignorable: true,
+    };
+    await writeFile(
+      second.path,
+      `${await readFile(second.path, "utf8")}${JSON.stringify(opaque)}\n`,
+    );
+
     await harness.registry.bindTranscriptPath({
       sessionId: session.sessionId,
       sessionPath: second.path,
@@ -112,6 +125,17 @@ describe("daemon session transcript ownership", () => {
       }),
     ]);
     const unified = await harness.store.load(targetPath);
+    expect(unified.nativeDocument!.events.slice(0, first.nativeDocument!.events.length)).toEqual(
+      first.nativeDocument!.events,
+    );
+    expect(
+      unified.nativeDocument!.events.find((event) => event.type === opaque.type)?.data,
+    ).toEqual(opaque.data);
+    expect(
+      unified
+        .nativeDocument!.events.filter((event) => event.type === "turn/start")
+        .map((event) => event.data),
+    ).toEqual([{ turn: 1 }, { turn: 2 }]);
     expect(unified.entries).toHaveLength(2);
     expect(unified.entries[1]?.parentId).toBe(unified.entries[0]?.id);
     await expect(harness.registry.get(session.sessionId)).resolves.toMatchObject({

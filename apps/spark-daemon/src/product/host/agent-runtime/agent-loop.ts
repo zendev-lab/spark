@@ -788,6 +788,17 @@ export class SparkAgentLoop {
     this.dshSessionMetadata = structuredClone(metadata);
   }
 
+  private readonly queuedNativeUsers: UserMessage["content"][] = [];
+  private nativeCommitEventCount: number | undefined;
+
+  getNativeCommitEventCount(): number | undefined {
+    return this.nativeCommitEventCount;
+  }
+
+  acknowledgeNativeCommit(eventCount: number): void {
+    if (this.nativeCommitEventCount === eventCount) this.nativeCommitEventCount = undefined;
+  }
+
   /** Reserve idle prompt state while a native host prepares a real user submit. */
   protected beginUserSubmitPreparation(): void {
     if (this.state !== "idle" || this.triggerTurnRunning || this.userSubmitPreparationActive) {
@@ -856,6 +867,7 @@ export class SparkAgentLoop {
       this.promptItems.length,
       ...items.map((item) => cloneSparkPromptItem(item)),
     );
+    this.queuedNativeUsers.length = 0;
     this.lastOutcome = undefined;
     this.lastPromptManifest = undefined;
   }
@@ -915,7 +927,7 @@ export class SparkAgentLoop {
     this.publish({ type: "user_message", message: userMessage });
     this.currentAbortReason = undefined;
 
-    return this.runTurns({ hooks });
+    return this.runTurns({ hooks, userSubmit: true });
   }
 
   /**
@@ -1004,6 +1016,7 @@ export class SparkAgentLoop {
 
   private async runTurns(
     options: {
+      userSubmit?: true;
       skipInitialLifecycle?: boolean;
       lifecycleSource?: SparkAgentLifecycleSource;
       initialToolCalls?: readonly ToolCall[];
@@ -1103,6 +1116,7 @@ export class SparkAgentLoop {
               roundtrips += 1;
             },
             () => roundtrips > roundtripsBefore,
+            options.userSubmit === true && roundtripsBefore === 0,
           );
         } catch (error) {
           if (isSparkTurnRestartYieldError(error)) throw error;
@@ -1201,6 +1215,7 @@ export class SparkAgentLoop {
     lifecycleSource: SparkAgentLifecycleSource,
     bumpRoundtrip: () => void,
     isSubsequentRoundtrip: () => boolean,
+    userSubmit: boolean,
   ): Promise<AssistantMessage> {
     let lastAssistant: AssistantMessage | undefined;
     let sawTerminalFailure = false;
@@ -1292,11 +1307,21 @@ export class SparkAgentLoop {
       ...(invocation ? { invocation } : {}),
       agentPlugins: this.agentPlugins,
       ...(!invocation ? { cwd } : {}),
-      followupText: this.followupTextForDriver(),
+      followup: userSubmit
+        ? { kind: "user", content: this.followupContentForDriver() }
+        : {
+            kind: "continuation",
+            content:
+              "Continue the current task from the recorded context and completed tool results.",
+          },
       tools,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,
       signal: abortController.signal,
       hooks: {
+        takeQueuedUserMessages: () => this.queuedNativeUsers.splice(0),
+        onNativeCommit: (eventCount) => {
+          this.nativeCommitEventCount = eventCount;
+        },
         assemble: async () => {
           flushToolResults();
           // Tool-enqueued follow-ups belong in this model request, not a second AgentLoop.
@@ -1399,13 +1424,12 @@ export class SparkAgentLoop {
     return lastAssistant;
   }
 
-  private followupTextForDriver(): string {
+  private followupContentForDriver(): UserMessage["content"] {
     for (let index = this.promptItems.length - 1; index >= 0; index -= 1) {
       const item = this.promptItems[index];
       if (item?.content.kind !== "provider_message") continue;
       if (item.content.message.role !== "user") continue;
-      const text = sparkPromptItemText(item).trim();
-      if (text) return text;
+      return (item.content.message as UserMessage).content;
     }
     const tail = this.promptItems.at(-1);
     return tail ? sparkPromptItemText(tail).trim() || "continue" : "continue";
@@ -2194,6 +2218,7 @@ export class SparkAgentLoop {
           timestamp: envelope.enqueuedAt,
         };
         this.promptItems.push(asProviderMessageItem(message));
+        this.queuedNativeUsers.push(message.content);
         this.publish({ type: "user_message", message });
         appended += 1;
       } else {

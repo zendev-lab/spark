@@ -218,6 +218,7 @@ export class SparkAgentSession {
 
   async run(options: SparkAgentSessionRunOptions): Promise<SparkAgentSessionRunResult> {
     const record = await this.loadOrCreateRecord(options, Boolean(options.restartCheckpoint));
+    if (!record.nativeDocument) await this.services.sessionStore.save(record);
     this.services.runtime.setSessionId(record.header.id);
     this.services.agentLoop.setViewSessionId(record.header.id);
     this.services.agentLoop.setDshSessionMetadata({
@@ -309,6 +310,10 @@ export class SparkAgentSession {
           turnContinuationPersisted,
         );
         if (!recovery) break;
+        if (recovery === "stop-after-checkpoint") {
+          beforeCount = this.loadPromptItems(record);
+          break;
+        }
         compactAttempt += 1;
         if (recovery === "continue") turnContinuationPersisted = true;
         // Reload from the persisted compacted record. A transient checkpoint
@@ -455,7 +460,7 @@ export class SparkAgentSession {
       this.services.sessionStore.appendMessage(record, persisted);
       persistedCount += 1;
     }
-    await this.services.sessionStore.save(record);
+    await this.saveRunRecord(record);
 
     return {
       sessionId: record.header.id,
@@ -466,6 +471,19 @@ export class SparkAgentSession {
       outcome,
       sessionLifetime: "persistent",
     };
+  }
+
+  private async saveRunRecord(
+    record: SparkSessionRecord,
+    options: Parameters<SparkCliHostServices["sessionStore"]["save"]>[1] = {},
+  ): Promise<void> {
+    const eventCount = this.services.agentLoop.getNativeCommitEventCount();
+    if (eventCount !== undefined) {
+      await this.services.sessionStore.commitNativeTurn(record, eventCount, options);
+      this.services.agentLoop.acknowledgeNativeCommit(eventCount);
+    } else {
+      await this.services.sessionStore.save(record, options);
+    }
   }
 
   private async loadOrCreateRecord(
@@ -636,7 +654,7 @@ export class SparkAgentSession {
       },
     );
     try {
-      await this.services.sessionStore.save(record);
+      await this.saveRunRecord(record);
       return true;
     } catch {
       restoreMicroToolResults(applied);
@@ -693,8 +711,9 @@ export class SparkAgentSession {
       ...transientItems,
       providerRuntimeFailurePromptItem(failure, attempt),
     ]);
-    await this.services.sessionStore.save(checkpoint);
+    await this.saveRunRecord(checkpoint);
     record.entries = checkpoint.entries;
+    record.nativeDocument = checkpoint.nativeDocument;
     return "continue";
   }
 
@@ -702,7 +721,7 @@ export class SparkAgentSession {
     record: SparkSessionRecord,
     beforeCount: number,
     turnContinuationPersisted: boolean,
-  ): Promise<"continue" | "resubmit" | false> {
+  ): Promise<"continue" | "resubmit" | "stop-after-checkpoint" | false> {
     const transientItems = this.services.agentLoop
       .getPromptItems()
       .slice(beforeCount)
@@ -754,10 +773,15 @@ export class SparkAgentSession {
       (!microSucceeded || microRequiresFull) &&
       !(await this.tryCompact(checkpoint, "context_overflow", true, true))
     ) {
-      return false;
+      if (!microSucceeded) return false;
+      const committed = await this.services.sessionStore.load(checkpoint.path);
+      record.entries = committed.entries;
+      record.nativeDocument = committed.nativeDocument;
+      return "stop-after-checkpoint";
     }
 
     record.entries = checkpoint.entries;
+    record.nativeDocument = checkpoint.nativeDocument;
     return "continue";
   }
 
@@ -866,7 +890,7 @@ export class SparkAgentSession {
         compactionEntry.metadata.measuredReductionRatio = reductionRatio;
       }
       throwIfCompactionAborted(options.signal);
-      await this.services.sessionStore.save(record, {
+      await this.saveRunRecord(record, {
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.beforeTranscriptCommit ? { beforeCommit: options.beforeTranscriptCommit } : {}),
         ...(options.commitTranscriptReplacement

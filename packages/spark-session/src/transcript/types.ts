@@ -1,11 +1,12 @@
 /**
  * Pi JSONL session record types shared by Spark hosts, persisted as DSH session
- * JSONL (`SESSION_FORMAT_VERSION` 0) with Spark entries stored as ignorable
+ * JSONL (`SESSION_FORMAT_VERSION` 4) with Spark entries stored as ignorable
  * events. The transcript subpath is deliberately separate from the package
  * root registry/mailbox surface while remaining under the same Session owner.
  */
 
 import type { SubagentDescriptorData } from "@deepseek-ai/dsh-subagent";
+import type { SparkDshSessionDocument } from "./dsh-types.ts";
 
 export const CURRENT_SPARK_SESSION_VERSION = 5;
 
@@ -147,6 +148,8 @@ export interface SparkSessionRecord {
   path: string;
   header: SparkSessionHeader;
   entries: SparkSessionEntry[];
+  /** Authoritative log retained across projection edits and atomic saves. */
+  nativeDocument?: SparkDshSessionDocument;
 }
 
 export interface SparkSessionInfo {
