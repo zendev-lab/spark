@@ -22,6 +22,7 @@ import sparkMemoryCapability, {
 import sparkRolesCapability from "@zendev-lab/spark-roles/extension";
 import sparkSessionCapability from "@zendev-lab/spark-session/extension";
 import { encodeSparkAuxiliaryModelRoute } from "./agent-runtime/agent-loop.ts";
+import type { SparkAgentPlugin, SparkAgentPluginConfig } from "./agent-runtime/dsh-turn-driver.ts";
 
 import registerSparkProductPolicy from "../policy/index.ts";
 import { createAskBackedMemoryApprovalVerifier } from "../policy/memory-approval-verifier.ts";
@@ -236,37 +237,41 @@ export function loadSparkProductCapabilities(): SparkProductCapability[] {
 
 export function loadSparkProductAgentPlugins(options?: {
   subagentModels: Array<{ provider: string; model: string }>;
-}): Plugin[] {
+}): SparkAgentPlugin[] {
   const base = [SPARK_CUE_TOOL_PLUGIN, SPARK_FUSION_PLUGIN, SPARK_WEB_PLUGIN];
   if (!options) return base;
   const routes = options.subagentModels.map((route) => ({ ...route }));
   const modelSelection = routes.length > 0;
-  const policy: Plugin = {
+  const policy: SparkAgentPlugin = {
     name: "spark-subagent-model-selection-policy",
-    apply(ctx) {
+    apply(_ctx: Context, { session }: SparkAgentPluginConfig) {
       if (!modelSelection) return;
-      ctx.on("agent/created", ({ agent }) => {
-        if (
-          agent.session
-            .snapshotEvents()
-            .some((event) => event.type === "subagent/model-selection-policy")
-        )
-          return;
-        agent.session.append("subagent/model-selection-policy", { allowedModels: routes });
-      });
+      if (
+        session.snapshotEvents().some((event) => event.type === "subagent/model-selection-policy")
+      )
+        return;
+      session.append("subagent/model-selection-policy", { allowedModels: routes });
     },
   };
-  const subagent = (provider: "spawn" | "fork", toolName: string, selectable: boolean): Plugin => ({
+  const subagent = (
+    provider: "spawn" | "fork",
+    toolName: string,
+    selectable: boolean,
+  ): SparkAgentPlugin => ({
     name: `spark-tool-subagent-${provider}`,
     inject: dshToolSubagent.inject,
-    apply(ctx) {
-      dshToolSubagent.apply(ctx, {
-        provider,
-        toolName,
-        backgroundMode: "one-shot",
-        maxDepth: 3,
-        ...(modelSelection && selectable ? { modelSelectionSettings: true } : {}),
-      });
+    apply(ctx: Context, { session }: SparkAgentPluginConfig) {
+      dshToolSubagent.apply(
+        ctx,
+        {
+          provider,
+          toolName,
+          backgroundMode: "one-shot",
+          maxDepth: 3,
+          ...(modelSelection && selectable ? { modelSelectionSettings: true } : {}),
+        },
+        session,
+      );
     },
   });
   return [
