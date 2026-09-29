@@ -9,6 +9,7 @@ export * from "./status_cancelled.js";
 export * from "./status_completed.js";
 export * from "./status_done.js";
 export * from "./status_failed.js";
+export * from "./status_idle.js";
 export * from "./status_pending.js";
 export * from "./status_queued.js";
 export * from "./status_ready.js";

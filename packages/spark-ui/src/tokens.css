@@ -179,6 +179,8 @@
   --control-height-touch: 44px;
   --motion-fast: 120ms;
   --motion-default: 180ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* ----- Breakpoints (informational; @media uses literals) --------------- */
   /*

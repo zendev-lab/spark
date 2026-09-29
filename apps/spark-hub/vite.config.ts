@@ -20,7 +20,10 @@ export default defineConfig({
     // leaf dependencies are optimized explicitly for browser-compatible
     // default export interop.
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
-    include: ["@zendev-lab/spark-ui > bits-ui > svelte-toolbelt > style-to-object"],
+    include: [
+      "@zendev-lab/spark-ui > bits-ui > svelte-toolbelt > style-to-object",
+      "@zendev-lab/spark-ui > svelte-streamdown > mermaid",
+    ],
   },
   resolve: {
     dedupe: ["svelte"],

@@ -13,7 +13,10 @@ const config = {
   plugins,
   optimizeDeps: {
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
-    include: ["@zendev-lab/spark-ui > bits-ui > svelte-toolbelt > style-to-object"],
+    include: [
+      "@zendev-lab/spark-ui > bits-ui > svelte-toolbelt > style-to-object",
+      "@zendev-lab/spark-ui > svelte-streamdown > mermaid",
+    ],
   },
   resolve: {
     conditions: ["browser"],

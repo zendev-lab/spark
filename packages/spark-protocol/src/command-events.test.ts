@@ -41,6 +41,7 @@ describe("SparkCommand vocabulary", () => {
       "daemon.access.list",
       "daemon.access.revoke",
       "daemon.access.verify",
+      "daemon.access.session",
       "turn.status",
       "turn.result",
       "turn.submit",

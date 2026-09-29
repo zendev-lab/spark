@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { SparkLocalRpcOutput } from "@zendev-lab/spark-protocol";
 import {
   requestSparkDaemon,
   resolveSparkWebRequestTrustFailure,
@@ -23,15 +25,17 @@ export const SPARK_WEB_BIND_PORT_ENV = "SPARK_WEB_BIND_PORT";
 
 /**
  * Spark Web is an authentication adapter, not a token owner. The daemon owns
- * the `daemon-user` token family (hashed storage, expiry, revocation); this
- * surface only presents a token and asks the daemon to verify it. Every normal
- * request requires a valid daemon-user token regardless of its TCP peer.
+ * bootstrap and browser-session credentials (hashed storage, expiry, revocation).
+ * This surface presents credentials to the daemon and persists its issued
+ * access/refresh pair in cookies; it never maintains a credential database.
  */
 export type SparkWebTokenVerifier = (token: string) => Promise<SparkWebTokenVerification>;
 
 async function verifySparkWebTokenWithDaemon(token: string): Promise<SparkWebTokenVerification> {
   try {
-    const result = await requestSparkDaemon("daemon.access.verify", { token });
+    const result = token.startsWith("spark_web_access_")
+      ? await requestSparkDaemon("daemon.access.session", { action: "verify", token })
+      : await requestSparkDaemon("daemon.access.verify", { token });
     return result.valid ? "valid" : "invalid";
   } catch {
     return "unavailable";
@@ -136,5 +140,76 @@ function requestTrustError(
       return "Spark web requires same-origin metadata for cookie-authenticated mutations";
     default:
       return null;
+  }
+}
+
+export const SPARK_WEB_REFRESH_COOKIE = "spark_web_refresh";
+export type SparkWebBrowserSession = NonNullable<
+  SparkLocalRpcOutput<"daemon.access.session">["session"]
+>;
+type BrowserSessionClient = (
+  action: "exchange" | "refresh",
+  token: string,
+) => Promise<SparkLocalRpcOutput<"daemon.access.session">>;
+const defaultBrowserSessionClient: BrowserSessionClient = (action, token) =>
+  requestSparkDaemon("daemon.access.session", { action, token });
+let browserSessionClient = defaultBrowserSessionClient;
+type BrowserSessionResolution = {
+  verification: SparkWebTokenVerification;
+  session?: SparkWebBrowserSession;
+};
+// Reloads can cancel a response after the daemon consumes its refresh token.
+// Briefly share that response with retries, while rechecking daemon revocation.
+const refreshResponses = new Map<
+  string,
+  { expiresAt: number; result: Promise<BrowserSessionResolution> }
+>();
+const refreshRetryWindowMs = 30_000;
+
+export function setSparkWebBrowserSessionClient(client?: BrowserSessionClient): void {
+  browserSessionClient = client ?? defaultBrowserSessionClient;
+  refreshResponses.clear();
+}
+
+export async function resolveSparkWebBrowserSession(
+  action: "exchange" | "refresh",
+  token: string,
+): Promise<BrowserSessionResolution> {
+  if (action === "exchange") return requestBrowserSession(action, token);
+  const now = Date.now();
+  for (const [key, entry] of refreshResponses) {
+    if (entry.expiresAt <= now) refreshResponses.delete(key);
+  }
+  const key = createHash("sha256").update(token).digest("hex");
+  const cached = refreshResponses.get(key);
+  if (cached) {
+    const result = await cached.result;
+    if (!result.session) return result;
+    const verification = await verifySparkWebAccessToken(result.session.sessionToken);
+    return verification === "valid" ? result : { verification };
+  }
+  const result = requestBrowserSession(action, token);
+  if (refreshResponses.size >= 256) refreshResponses.delete(refreshResponses.keys().next().value!);
+  const entry = { expiresAt: now + refreshRetryWindowMs, result };
+  refreshResponses.set(key, entry);
+  setTimeout(() => {
+    if (refreshResponses.get(key) === entry) refreshResponses.delete(key);
+  }, refreshRetryWindowMs).unref();
+  const resolved = await result;
+  if (!resolved.session && refreshResponses.get(key) === entry) refreshResponses.delete(key);
+  return resolved;
+}
+
+async function requestBrowserSession(
+  action: "exchange" | "refresh",
+  token: string,
+): Promise<BrowserSessionResolution> {
+  try {
+    const result = await browserSessionClient(action, token);
+    return result.valid && result.session
+      ? { verification: "valid", session: result.session }
+      : { verification: "invalid" };
+  } catch {
+    return { verification: "unavailable" };
   }
 }

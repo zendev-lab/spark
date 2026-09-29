@@ -12,6 +12,14 @@ export function oauthHref(providerName: string): string {
   return `/settings/oauth/${encodeURIComponent(providerName)}`;
 }
 
+export function providerSettingsHref(provider: SparkModelCatalogProvider): string | undefined {
+  if (provider.auth.kind === "oauth") return oauthHref(provider.providerName);
+  if (provider.auth.kind === "api_key") {
+    return `/settings#api-key-${encodeURIComponent(provider.providerName)}`;
+  }
+  return undefined;
+}
+
 export function providerAuthKindLabel(kind: SparkModelCatalogProvider["auth"]["kind"]): string {
   if (kind === "api_key") return "API key";
   if (kind === "oauth") return "OAuth";

@@ -16,7 +16,9 @@
     "src/workbench/VENDOR.md",
     "svelte.config.js",
     "!src/**/*.test.ts",
-    "README.md"
+    "README.md",
+    "src/assets/*.png",
+    "src/assets/README.md"
   ],
   "type": "module",
   "svelte": "./src/index.ts",
@@ -57,7 +59,8 @@
       "default": "./src/workbench/index.ts"
     },
     "./tokens.css": "./src/tokens.css",
-    "./status-pill.css": "./src/ui/status-pill.css"
+    "./status-pill.css": "./src/ui/status-pill.css",
+    "./channel-session": "./src/channel-session.ts"
   },
   "scripts": {
     "catalog:build": "vp build catalog",
