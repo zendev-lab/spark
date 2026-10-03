@@ -11,7 +11,7 @@
     SessionQueueLabels,
     SlashActionAvailability,
   } from "$lib/components/conversation";
-  import { sessionHasChannelBinding } from "$lib/channel-session-title";
+  import { sessionHasChannelBinding } from "@zendev-lab/spark-ui/channel-session";
   import { formatRelativeTime, statusLabel as getStatusLabel, type AppMessages } from "$lib/i18n";
   import type { PendingWorkbenchAsk } from "$lib/pending-ask";
   import {

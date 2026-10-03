@@ -156,7 +156,8 @@
       "owner": "daemon",
       "stability": "supported",
       "stateWriter": "daemon",
-      "distribution": "public-npm"
+      "distribution": "public-npm",
+      "namingRationale": "The daemon is the native product composition owner, including DSH Cue, local sandbox enforcement, approval policy, and provider control."
     },
     "@zendev-lab/spark-daemon-client": {
       "path": "packages/spark-daemon-client",

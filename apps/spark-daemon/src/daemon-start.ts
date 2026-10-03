@@ -503,7 +503,7 @@ async function createPreparedDaemonRuntime(
       sparkInvocationRegistry: invocationRegistry,
     },
     {
-      sessionsRoot: defaultSparkSessionsRoot(options.sparkHome),
+      sessionsRoot: defaultSparkSessionsRoot(options.paths.sessionRuntimeDir),
       ctx: cordisContext,
       ...(subagentHost ? { subagentHost } : {}),
     },

@@ -160,6 +160,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "daemon.access.list",
       "daemon.access.revoke",
       "daemon.access.verify",
+      "daemon.access.session",
     ]);
   });
 

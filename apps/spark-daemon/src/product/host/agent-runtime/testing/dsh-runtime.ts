@@ -1,4 +1,8 @@
 /** Isolated DSH root for structural Spark turn tests and scripted-provider fixtures. */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import LocalAttachmentStore from "@deepseek-ai/dsh-attachment-local";
 import { Context } from "@deepseek-ai/cordis";
 import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentLoop from "@deepseek-ai/dsh-agent-loop";
@@ -10,7 +14,12 @@ import ToolRuntime from "@deepseek-ai/dsh-tools";
 
 export async function createSparkDshTurnTestRuntime(maxParallelToolCalls: number) {
   const ctx = new Context();
+  const root = mkdtempSync(join(tmpdir(), "spark-dsh-runtime-"));
+  ctx.effect(() => () => {
+    rmSync(root, { recursive: true, force: true });
+  });
   try {
+    await ctx.plugin(LocalAttachmentStore, { dshHome: root });
     await ctx.plugin(SessionStore);
     await ctx.plugin(SessionProjectionRegistry);
     await ctx.plugin(LlmRuntime);

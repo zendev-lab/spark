@@ -35,6 +35,11 @@ export interface ProviderConfig {
   api: Api;
   streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => unknown;
   models: ProviderModelDefinition[];
+  /** Optional authenticated discovery; bundled definitions remain the offline fallback. */
+  discoverModels?: (options: { apiKey: string; baseUrl: string }) => Promise<{
+    models: ProviderModelDefinition[];
+    diagnostic?: string;
+  }>;
 }
 
 export interface ProviderRegistrationAPI {
@@ -61,6 +66,27 @@ export class SparkProviderRegistry implements ProviderRegistrationAPI {
       throw new Error(`Provider plugin "${name}" must declare at least one model`);
     }
     this.#providers.set(name, { ...config, name, label: config.label ?? config.name });
+  }
+
+  async discoverModels(
+    resolveApiKey: (provider: ProviderConfig) => string | undefined | Promise<string | undefined>,
+  ): Promise<string[]> {
+    const diagnostics: string[] = [];
+    for (const provider of this.#providers.values()) {
+      if (!provider.discoverModels) continue;
+      try {
+        const apiKey = await resolveApiKey(provider);
+        if (!apiKey) continue;
+        const result = await provider.discoverModels({ apiKey, baseUrl: provider.baseUrl });
+        const models = new Map(provider.models.map((model) => [model.id, model]));
+        for (const model of result.models) if (!models.has(model.id)) models.set(model.id, model);
+        provider.models = [...models.values()];
+        if (result.diagnostic) diagnostics.push(`${provider.name}: ${result.diagnostic}`);
+      } catch {
+        diagnostics.push(`${provider.name}: model discovery unavailable; using bundled models`);
+      }
+    }
+    return diagnostics;
   }
 
   hasProvider(name: string): boolean {

@@ -20,21 +20,15 @@ for measurement and `BAIDU_ONEAPI_API_KEY` is available.
 | Field | Meaning | How to set |
 | --- | --- | --- |
 | `id` / `name` | Spark-facing model id and label | Stable local slug; do not copy gateway display names unless they already match |
-| `transportApi` | `anthropic-messages` or `openai-responses` | Same family as the closest sibling on this gateway |
+| `transportApi` | `anthropic-messages` or `openai-responses` | Verify the target model and gateway support; a sibling is only a starting point |
 | `transportModelId` | Wire/gateway model id | `GATEWAY_MODEL_BY_ID` then `gatewayModelId(id)` |
 | `baseUrl` | Responses models use `/v1` | GPT/Grok: `BAIDU_ONEAPI_OPENAI_BASE_URL`; Claude/DeepSeek: provider root |
-| `reasoning` | Model always reasons | `true` for current Baidu catalog |
-| `thinkingLevelMap` | Spark → transport effort | GPT/Grok: `GPT_THINKING_LEVEL_MAP` (`minimal→low`, `xhigh→xhigh`). Claude/DeepSeek have explicit maps |
-| `input` | Modalities | Grok/GPT/Claude: `["text", "image"]`; DeepSeek V4 Flash: `["text"]` |
+| `reasoning` | Model always reasons | Verify the target model; preserve unrelated catalog rows |
+| `thinkingLevelMap` | Spark → transport effort | Inspect the current map and verify supported efforts for the target model |
+| `input` | Modalities | Verify supported modalities for this model and transport |
 | `cost` | USD / 1M tokens | Headline vendor rates. Spark does not store long-context 2× tiers |
-| `contextWindow` | Compact/preflight ceiling | Measured gateway reject point, else vendor context corroborated by a sibling on this gateway |
-| `maxTokens` | Spark output budget | Family default (Grok/GPT 32768, Claude 32000) unless a measured cap exists |
-
-Known Grok 4.6 vendor facts (xAI, Aug 2026): id `grok-4.6`; context 500k; no
-text output limit; modalities text+image → text; reasoning `low` / `medium` /
-`high` (default) / `xhigh`; headline `<200k` cost input $2, cached input $0.50,
-output $6; `≥200k` doubles those rates for the whole request. Spark registers
-headline cost only. `cacheWrite` is not an xAI line item; keep `2` like grok-4.5.
+| `contextWindow` | Compact/preflight ceiling | Measured gateway ceiling, otherwise documented target-model limit; label unmeasured assumptions |
+| `maxTokens` | Spark output budget | Preserve the current family budget unless target-model evidence requires a change |
 
 ## Baidu file checklist
 

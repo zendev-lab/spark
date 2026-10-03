@@ -400,7 +400,7 @@ export async function start(
     const transcriptMigration = await unifyDaemonSessionTranscripts({
       registry: sessionRegistry,
       transcriptSparkHome: paths.sessionRuntimeDir ?? join(paths.dataDir, "pi-agent"),
-      backupRoot: join(paths.dataDir, "backups", "session-transcript-v4"),
+      backupRoot: join(paths.dataDir, "backups", "session-transcript-v5"),
       apply: true,
     });
     const migratedSessions = transcriptMigration.sessions.filter((session) => session.changed);

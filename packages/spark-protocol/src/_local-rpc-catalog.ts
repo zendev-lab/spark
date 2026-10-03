@@ -1065,6 +1065,12 @@ export const sparkLocalRpcChannelStatusSchema = z.object({
       id: z.string().min(1),
       type: z.string().min(1),
       adapterAccountIdentity: z.string().min(1).optional(),
+      botProfile: z
+        .object({
+          displayName: z.string().optional(),
+          avatarUrl: z.url().startsWith("https://").optional(),
+        })
+        .optional(),
       running: z.boolean(),
       state: z.enum(["stopped", "connecting", "connected", "reconnecting", "degraded"]),
       error: z.string().optional(),
@@ -1524,6 +1530,24 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcDaemonAccessRevokeRequestSchema,
     output: sparkLocalRpcDaemonAccessRevokeResultSchema,
   },
+  "daemon.access.session": {
+    input: z.object({
+      action: z.enum(["exchange", "verify", "refresh"]),
+      token: z.string().min(1),
+    }),
+    output: z.object({
+      valid: z.boolean(),
+      session: z
+        .object({
+          id: prefixedIdSchema("dut"),
+          sessionToken: z.string().min(1),
+          refreshToken: z.string().min(1),
+          expiresAt: isoDateTimeSchema,
+          refreshExpiresAt: isoDateTimeSchema,
+        })
+        .optional(),
+    }),
+  },
   "daemon.access.verify": {
     input: sparkLocalRpcDaemonAccessVerifyRequestSchema,
     output: sparkLocalRpcDaemonAccessVerifyResultSchema,
@@ -1952,6 +1976,7 @@ export const sparkLocalRpcOrpcOnlyMethods = [
   "daemon.access.list",
   "daemon.access.revoke",
   "daemon.access.verify",
+  "daemon.access.session",
 ] as const satisfies readonly SparkLocalRpcMethod[];
 
 export type SparkLocalRpcInput<M extends SparkLocalRpcMethod> = z.input<
@@ -2014,6 +2039,12 @@ export const sparkLocalRpcOrpcContract = {
         "POST",
         "/daemon/access/revoke",
         p["daemon.access.revoke"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
+      session: procedure(
+        "POST",
+        "/daemon/access/session",
+        p["daemon.access.session"],
         sparkLocalRpcNoOrpcErrors,
       ),
       verify: procedure(

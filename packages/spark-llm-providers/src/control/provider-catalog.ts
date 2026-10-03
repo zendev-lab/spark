@@ -18,15 +18,14 @@ export const DEFAULT_SPARK_PROVIDER_SPECS = [
 const LEGACY_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm";
 const CURRENT_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm-providers";
 
-import { DEFAULT_SPARK_MODEL_ID } from "../default-model.ts";
 export { DEFAULT_SPARK_MODEL_ID, resolveSparkDefaultModelSelection } from "../default-model.ts";
 
 /** Initial enabled-model policy for daemon-selectable models. */
 export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
-  DEFAULT_SPARK_MODEL_ID,
+  "openai-codex/gpt-*",
   "baidu-oneapi/claude-opus-5",
   "baidu-oneapi/deepseek-v4-flash",
-  "baidu-oneapi/gpt-5.6-*",
+  "baidu-oneapi/gpt-*",
   "baidu-oneapi/grok-4.6",
   "kimi-coding/*",
 ] as const;

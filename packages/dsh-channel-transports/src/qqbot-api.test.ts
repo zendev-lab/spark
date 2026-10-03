@@ -27,6 +27,7 @@ describe("createQqbotApiClient", () => {
       (api: ReturnType<typeof createQqbotApiClient>) => api.getAccessToken("app", "secret"),
     ],
     ["gateway", (api: ReturnType<typeof createQqbotApiClient>) => api.getGatewayUrl("token")],
+    ["profile", (api: ReturnType<typeof createQqbotApiClient>) => api.getBotProfile("token")],
   ])("aborts a timed-out %s request without retrying", async (_label, request) => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn(
@@ -379,4 +380,40 @@ describe("createQqbotApiClient", () => {
       undefined,
     );
   });
+});
+
+it("reads only bot display metadata from the authenticated self endpoint", async () => {
+  const fetchImpl = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          id: "bot-id",
+          username: "Spark Bot",
+          avatar: "http://qlogo.cn/bot.png",
+          extra: "not projected",
+        }),
+      ),
+  );
+  const api = createQqbotApiClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
+  expect(await api.getBotProfile("token")).toEqual({
+    displayName: "Spark Bot",
+    avatarUrl: "https://qlogo.cn/bot.png",
+  });
+  expect(fetchImpl).toHaveBeenCalledWith(
+    expect.stringMatching(/\/users\/@me$/u),
+    expect.objectContaining({
+      method: "GET",
+      headers: expect.objectContaining({ Authorization: "QQBot token" }),
+    }),
+  );
+});
+
+it("keeps the bot name when the avatar URL is unsafe", async () => {
+  const api = createQqbotApiClient({
+    fetchImpl: (async () =>
+      new Response(
+        JSON.stringify({ username: "Spark", avatar: "javascript:alert(1)" }),
+      )) as typeof fetch,
+  });
+  expect(await api.getBotProfile("token")).toEqual({ displayName: "Spark" });
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -1465,6 +1465,16 @@ test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async (
 
 test("SparkAgentLoop continues through more than sixteen tool rounds by default", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-long-tool-run-test" });
+  let toolCalls = 0;
+  host.registerTool({
+    name: "continue_work",
+    description: "Complete the next work item",
+    parameters: { type: "object" },
+    async execute() {
+      toolCalls += 1;
+      return { content: [{ type: "text", text: "work item complete" }] };
+    },
+  });
   const toolRounds = Array.from({ length: 16 }, (_, index) => [
     {
       type: "done" as const,
@@ -1474,7 +1484,7 @@ test("SparkAgentLoop continues through more than sixteen tool rounds by default"
           {
             type: "toolCall",
             id: `tc-unbounded-${index}`,
-            name: "missing",
+            name: "continue_work",
             arguments: {},
           },
         ],
@@ -1501,6 +1511,7 @@ test("SparkAgentLoop continues through more than sixteen tool rounds by default"
 
   assert.equal(outcome.status, "completed");
   assert.equal(outcome.roundtrips, 17);
+  assert.equal(toolCalls, 16);
   assert.deepEqual(loop.getLastPromptManifest()?.roundtrip, { index: 17 });
   assert.deepEqual(errors, []);
 });
@@ -4997,4 +5008,78 @@ test("SparkAgentLoop runs a structural llm through an explicit isolated test run
   assert.equal(outcome.status, "completed");
   if (outcome.status !== "completed") assert.fail("expected completed outcome");
   assert.match(JSON.stringify(outcome.assistant.content), /hello from llm/u);
+});
+
+test("native history retains images and tool-enqueued users without resubmitting them on continuation", async () => {
+  const runtime = await createSparkDshTurnTestRuntime(1);
+  const users: Array<{
+    source: { kind: string };
+    content: readonly { type: string; text?: string }[];
+  }> = [];
+  runtime.ctx.on("session/event", (_session, event) => {
+    if (event.type === "user/message") users.push(event.data);
+  });
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-native-user-receipts" });
+  host.registerTool({
+    name: "enqueue_followup",
+    description: "Queue a follow-up",
+    parameters: { type: "object" },
+    async execute() {
+      host.sendUserMessage("tool follow-up", { deliverAs: "steer" });
+      return { content: [{ type: "text", text: "completed once" }] };
+    },
+  });
+  const done = buildAssistant([{ type: "text", text: "done" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    dshContext: runtime.ctx,
+    getModel: () => TEST_MODEL,
+    llm: asSparkTurnLlm(
+      makeFakeStream({
+        rounds: [
+          [
+            {
+              type: "done",
+              reason: "toolUse",
+              message: buildAssistant(
+                [{ type: "toolCall", id: "receipt-call", name: "enqueue_followup", arguments: {} }],
+                "toolUse",
+              ),
+            },
+          ],
+          [{ type: "done", reason: "stop", message: done }],
+          [{ type: "done", reason: "stop", message: done }],
+        ],
+      }),
+    ),
+  });
+  try {
+    const data = (
+      await readFile(
+        new URL(
+          "../../../../../../packages/spark-ui/catalog/__screenshots__/Catalog.browser.test.ts/catalog-attachments-light-desktop-chromium.png",
+          import.meta.url,
+        ),
+      )
+    ).toString("base64");
+    const content = [
+      { type: "text", text: "inspect picture" },
+      { type: "image", mimeType: "image/png", data },
+    ];
+    const outcome = await loop.submitWithOutcome(content);
+    assert.equal(outcome.status, "completed");
+    const submitted = users.filter((message) => message.source.kind === "user");
+    assert.equal(submitted.length, 2);
+    assert.deepEqual(
+      submitted[0]?.content.map((block) => block.type),
+      ["text", "image"],
+    );
+    assert.deepEqual(submitted[1]?.content, [{ type: "text", text: "tool follow-up" }]);
+    loop.replacePromptItems(loop.getPromptItems().slice(0, -1));
+    assert.equal((await loop.continueWithOutcome()).status, "completed");
+    assert.equal(users.filter((message) => message.source.kind === "user").length, 2);
+    assert.equal(users.at(-1)?.source.kind, "plugin:spark-continuation");
+  } finally {
+    await runtime.dispose();
+  }
 });

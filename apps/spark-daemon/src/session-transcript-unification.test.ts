@@ -1,7 +1,10 @@
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
+import {
+  SparkSessionStore,
+  CURRENT_SPARK_SESSION_VERSION,
+} from "@zendev-lab/spark-session/transcript";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { ensureDaemonSessionTranscript } from "./session-transcript-control.ts";
@@ -85,6 +88,19 @@ describe("daemon session transcript ownership", () => {
     });
     harness.store.appendMessage(second, { role: "assistant", content: "second" });
     await harness.store.save(second);
+    const secondDocument = second.nativeDocument!;
+    const opaque = {
+      type: "plugin:fixture/native-tail",
+      seq: secondDocument.events.length,
+      time: Date.now(),
+      data: { capturedSeq: 0 },
+      ignorable: true,
+    };
+    await writeFile(
+      second.path,
+      `${await readFile(second.path, "utf8")}${JSON.stringify(opaque)}\n`,
+    );
+
     await harness.registry.bindTranscriptPath({
       sessionId: session.sessionId,
       sessionPath: second.path,
@@ -109,6 +125,17 @@ describe("daemon session transcript ownership", () => {
       }),
     ]);
     const unified = await harness.store.load(targetPath);
+    expect(unified.nativeDocument!.events.slice(0, first.nativeDocument!.events.length)).toEqual(
+      first.nativeDocument!.events,
+    );
+    expect(
+      unified.nativeDocument!.events.find((event) => event.type === opaque.type)?.data,
+    ).toEqual(opaque.data);
+    expect(
+      unified
+        .nativeDocument!.events.filter((event) => event.type === "turn/start")
+        .map((event) => event.data),
+    ).toEqual([{ turn: 1 }, { turn: 2 }]);
     expect(unified.entries).toHaveLength(2);
     expect(unified.entries[1]?.parentId).toBe(unified.entries[0]?.id);
     await expect(harness.registry.get(session.sessionId)).resolves.toMatchObject({
@@ -182,7 +209,7 @@ describe("daemon session transcript ownership", () => {
       expect.objectContaining({ sessionId: session.sessionId, changed: true, entryCount: 1 }),
     ]);
     await expect(harness.store.load(legacy.path)).resolves.toMatchObject({
-      header: { version: 4 },
+      header: { version: CURRENT_SPARK_SESSION_VERSION },
       entries: [expect.objectContaining({ id: "legacy-user" })],
     });
     const migrated = await readFile(legacy.path, "utf8");
@@ -219,7 +246,11 @@ describe("daemon session transcript ownership", () => {
       }),
     ]);
     await expect(targetStore.load(targetPath)).resolves.toMatchObject({
-      header: { id: relocated.session.sessionId, cwd: relocated.session.cwd, version: 4 },
+      header: {
+        id: relocated.session.sessionId,
+        cwd: relocated.session.cwd,
+        version: CURRENT_SPARK_SESSION_VERSION,
+      },
       entries: [expect.objectContaining({ id: relocated.source.entries[0]?.id })],
     });
     await expect(harness.registry.get(relocated.session.sessionId)).resolves.toMatchObject({
@@ -317,7 +348,7 @@ describe("daemon session transcript ownership", () => {
     await expect(access(join(backupRoot, "active.json"))).rejects.toMatchObject({ code: "ENOENT" });
     const target = harness.store.canonicalSessionPath(session.sessionId);
     await expect(harness.store.load(target)).resolves.toMatchObject({
-      header: { version: 4 },
+      header: { version: CURRENT_SPARK_SESSION_VERSION },
       entries: [
         expect.objectContaining({ id: first.entries[0]?.id }),
         expect.objectContaining({ id: second.entries[0]?.id }),
@@ -370,7 +401,7 @@ describe("daemon session transcript ownership", () => {
     });
     const targetPath = targetStore.canonicalSessionPath(relocated.session.sessionId);
     await expect(targetStore.load(targetPath)).resolves.toMatchObject({
-      header: { cwd: relocated.session.cwd, version: 4 },
+      header: { cwd: relocated.session.cwd, version: CURRENT_SPARK_SESSION_VERSION },
       entries: [expect.objectContaining({ id: relocated.source.entries[0]?.id })],
     });
     await expect(harness.registry.get(relocated.session.sessionId)).resolves.toMatchObject({

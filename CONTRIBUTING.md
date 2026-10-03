@@ -260,7 +260,7 @@ Keep pull requests focused and explain:
 - what changed;
 - why the change belongs in the selected owner;
 - user or developer impact;
-- compatibility, migration, or security implications;
+- compatibility, migration, or security implications (see [SECURITY.md](./SECURITY.md) for private vulnerability reporting);
 - stack dependencies when the PR does not target `main`.
 
 Repository CI owns automated validation reporting; the PR body does not need to

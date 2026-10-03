@@ -59,7 +59,7 @@ test("SparkSessionStore save/load round-trips current DSH JSONL header and Spark
       .split("\n")
       .map((line) => JSON.parse(line) as { type?: string; version?: number; id?: string });
     assert.equal(lines[0]?.type, undefined);
-    assert.equal(lines[0]?.version, 0);
+    assert.equal(lines[0]?.version, 4);
     assert.equal(lines[0]?.id, "session-roundtrip");
 
     const loaded = await store.load(record.path);

@@ -50,6 +50,10 @@ export function mainClaimSessionId(task: Task): string | undefined {
   return task.claim.sessionId ?? task.claim.claimedBy;
 }
 
+export function taskClaimSessionId(task: Task): string | undefined {
+  return task.claim?.sessionId ?? task.claim?.claimedBy;
+}
+
 /** Connected interactive client session ids for a workspace (fenced rows only). */
 export function interactiveConnectedSessionIds(
   db: DatabaseSync,

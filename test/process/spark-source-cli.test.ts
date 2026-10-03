@@ -29,14 +29,15 @@ test("source daemon build boots with its external native dependencies", async ()
   );
 });
 
-test("source-distributed spark bin starts, reports, and stops the daemon", async () => {
+test("pnpm spark starts, reports, and stops the source daemon", async () => {
   const temporary = await mkdtemp(
     join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-source-process-"),
   );
   await chmod(temporary, 0o700);
   try {
     await exerciseSparkDaemonLifecycle({
-      command: resolve(root, "apps/spark-cli/bin/spark"),
+      command: "pnpm",
+      argvPrefix: ["--silent", "spark"],
       cwd: root,
       env: {
         ...process.env,

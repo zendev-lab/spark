@@ -28,6 +28,7 @@
   let starting = $state(false);
   let startError = $state("");
   let createdSessionId = $state<string | null>(null);
+  let startAttempt: { workspaceId: string; message: string; idempotencyKey: string } | null = null;
   let localPath = $state("");
   let displayName = $state("");
   let registering = $state(false);
@@ -57,8 +58,20 @@
   });
 
   $effect(() => {
+    const requested = data.requestedWorkspaceId;
+    if (requested) {
+      selectedWorkspaceId = requested;
+      requestAnimationFrame(() => document.getElementById("spark-web-first-message")?.focus({ preventScroll: true }));
+      return;
+    }
     if (selectedWorkspaceId && workspaceById.has(selectedWorkspaceId)) return;
     selectedWorkspaceId = data.cwdWorkspaceId ?? data.workspaces[0]?.id ?? "";
+  });
+
+  $effect(() => {
+    if (data.setupWorkspace) {
+      requestAnimationFrame(() => document.getElementById("workspace-local-path")?.focus());
+    }
   });
 
   function workspaceLabel(session: SparkWebSession): string {
@@ -95,19 +108,26 @@
 
     starting = true;
     startError = "";
-    createdSessionId = null;
+    if (startAttempt?.workspaceId !== workspaceId || startAttempt.message !== message) {
+      createdSessionId = null;
+      startAttempt = { workspaceId, message, idempotencyKey: crypto.randomUUID() };
+    }
     try {
-      const created = await webRpc("session.create", {
-        scope: { kind: "workspace", workspaceId },
-        supervisorSessionId,
-        placement: "child",
-        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-        name: conversationName(message),
-      });
-      createdSessionId = created.sessionId;
+      if (!createdSessionId) {
+        const created = await webRpc("session.create", {
+          scope: { kind: "workspace", workspaceId },
+          supervisorSessionId,
+          placement: "child",
+          roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+          name: conversationName(message),
+        });
+        createdSessionId = created.sessionId;
+      }
+      const sessionId = createdSessionId;
       try {
         await webRpc("turn.submit", {
-          sessionId: created.sessionId,
+          sessionId,
+          idempotencyKey: startAttempt.idempotencyKey,
           prompt: message,
           messageMetadata: sparkWebTurnMessageMetadata(),
         });
@@ -117,7 +137,7 @@
         return;
       }
       try {
-        await goto(`/sessions/${encodeURIComponent(created.sessionId)}`);
+        await goto(`/sessions/${encodeURIComponent(sessionId)}`);
       } catch (caught) {
         const detail = caught instanceof Error ? caught.message : String(caught);
         startError = `${copy.navigationFailed}: ${detail}`;
@@ -132,6 +152,7 @@
 
   async function registerWorkspace(event: SubmitEvent) {
     event.preventDefault();
+    if (registering) return;
     const path = localPath.trim();
     if (!path) {
       registerError = copy.localPathRequired;
@@ -277,7 +298,7 @@
     />
   {/if}
 
-  <details class="workspace-setup" open={data.workspaces.length === 0}>
+  <details id="workspace-setup" class="workspace-setup" open={data.setupWorkspace || data.workspaces.length === 0}>
     <summary>
       <span><Icon name="folder" size={17} />{copy.workspaceSetupTitle}</span>
       <small>{copy.workspaceSetupBody}</small>

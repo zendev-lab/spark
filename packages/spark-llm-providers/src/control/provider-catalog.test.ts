@@ -92,19 +92,20 @@ test("previous grok-4.6 default set migrates onto Kimi Coding", () => {
   );
 });
 
-test("the previous complete defaults migrate to Astra while explicit model scopes stay pinned", () => {
-  assert.deepEqual(
-    normalizeSparkEnabledModelPatterns([
-      "openai-codex/gpt-5.6-*",
-      "baidu-oneapi/claude-opus-5",
-      "baidu-oneapi/deepseek-v4-flash",
-      "baidu-oneapi/gpt-5.6-*",
-      "baidu-oneapi/grok-4.6",
-      "kimi-coding/*",
-    ]),
-    [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS],
-  );
-  assert.deepEqual(normalizeSparkEnabledModelPatterns(["openai-codex/gpt-5.6-luna"]), [
-    "openai-codex/gpt-5.6-luna",
-  ]);
+test("GPT-5.6 bundled defaults migrate to GPT wildcards while custom selections survive", () => {
+  const previous = [
+    "openai-codex/gpt-5.6-*",
+    "baidu-oneapi/claude-opus-5",
+    "baidu-oneapi/deepseek-v4-flash",
+    "baidu-oneapi/gpt-5.6-*",
+    "baidu-oneapi/grok-4.6",
+    "kimi-coding/*",
+  ];
+  const migrated = normalizeSparkEnabledModelPatterns(previous);
+  assert.equal(migrated.includes("openai-codex/gpt-*"), true);
+  assert.equal(migrated.includes("openai-codex/gpt-5.6-*"), false);
+  assert.deepEqual(migrated, [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS]);
+  assert.deepEqual(normalizeSparkEnabledModelPatterns(migrated), migrated);
+  const custom = ["openai-codex/gpt-5.6-sol"];
+  assert.deepEqual(normalizeSparkEnabledModelPatterns(custom), custom);
 });

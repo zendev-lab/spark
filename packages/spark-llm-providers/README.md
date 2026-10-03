@@ -62,7 +62,7 @@ surface instead of `SparkHostAPI`.
 `@zendev-lab/spark-llm-providers/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
 adaptive-friendly model ids (`claude-opus-5`,
-`deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`,
+`deepseek-v4-flash`, `gpt-6-astra-尝鲜`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`,
 `grok-4.5`, `grok-4.6`) with provider-specific prices in USD per million tokens,
 while rewriting outbound payloads back to the gateway-required model ids
 (`Opus 5`, `deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`,
@@ -76,7 +76,7 @@ Claude rows are `Opus 5`, `Opus 4.8`, `Claude Sonnet 5/4.6`, `Claude Haiku 4.5`.
 Spark-native hosts load this same native provider. The model catalog, payload
 rewrites, normalization, and bounded retry behavior live in `baidu-oneapi.ts`.
 
-Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6, Grok 4.5, and
+Claude and DeepSeek V4 Flash use Anthropic Messages. GPT models, Grok 4.5, and
 Grok 4.6 use OpenAI Responses. DeepSeek must stay on Anthropic Messages: the
 gateway's Responses translation for `deepseek-v4-flash-0731-internal` accepts
 requests but never emits reasoning items — even with
@@ -130,9 +130,9 @@ model selection and its own OAuth credential store. Configure it from Hub or
 files at runtime.
 
 New default selection is `openai-codex/gpt-6-astra` across provider control and the
-native host. An explicitly selected model remains authoritative. The default Codex
-enabled scope is Astra; migration recognizes previous complete bundled scopes and
-preserves custom scopes.
+native host. An explicitly selected model remains authoritative. The default Codex enabled scope remains `openai-codex/gpt-*`;
+Astra is the initial selection within that scope. Migration recognizes previous
+complete bundled scopes and preserves custom scopes.
 
 Until pinned pi-ai supplies Astra, this adapter supplements its catalog using the
 [official model metadata](https://developers.openai.com/api/docs/models/gpt-6-astra):
@@ -149,3 +149,9 @@ pi-ai's maintained Kimi For Coding catalog. It uses the Anthropic-compatible
 `https://api.kimi.com/coding` endpoint. Authentication is an API key stored
 through Spark's credential store or `KIMI_API_KEY`. Default `enabledModels`
 includes `kimi-coding/*`.
+
+Authenticated GPT discovery and conservative metadata defaults are described in
+[model discovery and selection rules](../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md#model-discovery-and-selection-rules).
+Discovery is shared by provider control and the execution registry, so a model
+shown in Settings can be materialized for a turn. Curated metadata wins on
+identity collisions, and cached discovery does not store or expose credentials.

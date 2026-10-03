@@ -59,6 +59,21 @@ export function requiresFullBenchmarkRun(changedFiles: string[]): boolean {
   });
 }
 
+export function subprocessBenchmarkFiles(changedFiles: string[]): string[] {
+  // Vitest's import graph stops at the capacity probe's spawned Node process.
+  // Its daemon entrypoint can use any shared workspace package at runtime.
+  return changedFiles.some((file) => {
+    const normalized = normalizeRepositoryPath(file);
+    return (
+      normalized.startsWith("apps/spark-daemon/src/") ||
+      normalized.startsWith("packages/") ||
+      normalized.startsWith("test/support/daemon-orpc-capacity-")
+    );
+  })
+    ? ["benchmarks/daemon/orpc-capacity.walltime.bench.ts"]
+    : [];
+}
+
 async function changedFilesSince(baseSha: string): Promise<string[]> {
   const { stdout } = await execFile(
     "git",
@@ -115,7 +130,11 @@ async function main(): Promise<void> {
     all = requiresFullBenchmarkRun(changedFiles);
   }
 
-  const files = selectBenchmarkLane(await discoverBenchmarks({ all, baseSha }), lane);
+  const discovered = await discoverBenchmarks({ all, baseSha });
+  const files = selectBenchmarkLane(
+    [...new Set([...discovered, ...subprocessBenchmarkFiles(changedFiles)])],
+    lane,
+  );
   const result = {
     all,
     baseSha: all ? null : baseSha,

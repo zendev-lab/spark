@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,6 +36,10 @@ import {
   installSparkConsentPlugin,
   runSparkDshTurn,
 } from "./dsh-turn-driver.ts";
+import {
+  SparkSessionStore,
+  CURRENT_SPARK_SESSION_VERSION,
+} from "@zendev-lab/spark-session/transcript";
 import { createSparkDaemonSessionPersistencePlugin } from "../../../session-persistence.ts";
 
 class ScriptedAdapter extends LlmAdapter {
@@ -221,7 +225,7 @@ test("runSparkDshTurn rejects pre-start cancellation without creating an Agent",
         },
         sessionId: "pre-start-cancel",
         invocation,
-        followupText: "do not start",
+        followup: { kind: "user", content: "do not start" },
         tools: [],
         streamIdleTimeoutMs: 0,
         signal: controller.signal,
@@ -252,7 +256,7 @@ test("runSparkDshTurn starts no model work when the Invocation Session cannot ma
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
-  vi.spyOn(ctx.sessionPersistence, "ensureMaterialized").mockImplementation(async () => {
+  vi.spyOn(ctx.sessions, "flush").mockImplementation(async () => {
     throw new Error("session materialization failed");
   });
   const controller = new AbortController();
@@ -279,7 +283,7 @@ test("runSparkDshTurn starts no model work when the Invocation Session cannot ma
           },
           signal: controller.signal,
         }),
-        followupText: "do not start",
+        followup: { kind: "user", content: "do not start" },
         tools: [],
         streamIdleTimeoutMs: 0,
         signal: controller.signal,
@@ -332,7 +336,7 @@ test("runSparkDshTurn starts no model work without a Session persistence owner",
           },
           signal: controller.signal,
         }),
-        followupText: "do not start",
+        followup: { kind: "user", content: "do not start" },
         tools: [],
         streamIdleTimeoutMs: 0,
         signal: controller.signal,
@@ -363,8 +367,9 @@ test("runSparkDshTurn starts no model work when cancellation arrives during Sess
   const events: string[] = [];
   let llmCalls = 0;
   ctx.on("session/event", (_session, event) => events.push(event.type));
-  vi.spyOn(ctx.sessionPersistence, "ensureMaterialized").mockImplementation(async () => {
+  vi.spyOn(ctx.sessions, "flush").mockImplementation(async () => {
     controller.abort(new Error("abort during Session materialization"));
+    return true;
   });
 
   try {
@@ -389,7 +394,7 @@ test("runSparkDshTurn starts no model work when cancellation arrives during Sess
           },
           signal: controller.signal,
         }),
-        followupText: "do not start",
+        followup: { kind: "user", content: "do not start" },
         tools: [],
         streamIdleTimeoutMs: 0,
         signal: controller.signal,
@@ -415,7 +420,7 @@ test("runSparkDshTurn starts no model work when cancellation arrives during Sess
   }
 });
 
-test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
+test("runSparkDshTurn composes native tools added between model requests", async () => {
   const ctx = new Context();
   await mountLoop(ctx);
   const requests: GenerateOptions[] = [];
@@ -458,6 +463,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
           },
           async execute(args) {
             executions += 1;
+            if (executions === 1) agentCtx.tools.register({ ...tool, name: "late_probe" });
             return { ok: true, args };
           },
         }),
@@ -476,14 +482,15 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
       requests.push(options);
       const requestIndex = requests.length;
       return (async function* () {
-        if (requestIndex === 1) {
-          const id = ToolCallId("native-probe-call");
+        if (requestIndex <= 2) {
+          const name = requestIndex === 1 ? "native_probe" : "late_probe";
+          const id = ToolCallId(`${name}-call`);
           yield { type: "block-start", index: 0, blockType: "tool-call" };
           yield {
             type: "tool-call-delta",
             index: 0,
             id,
-            name: "native_probe",
+            name,
             argumentsDelta: '{"value":"ok"}',
           };
           yield {
@@ -492,7 +499,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
             block: {
               type: "tool-call",
               id,
-              name: "native_probe",
+              name,
               arguments: '{"value":"ok"}',
             },
           };
@@ -517,7 +524,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
       llm,
       sessionId: "spark-turn-native-probe",
       agentPlugins: [nativePlugin],
-      followupText: "run native probe",
+      followup: { kind: "user", content: "run native probe" },
       tools: [],
       streamIdleTimeoutMs: 0,
       signal: new AbortController().signal,
@@ -556,16 +563,25 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
 
   assert.equal(
     executions,
-    1,
+    2,
     JSON.stringify({ requests: requests.length, registrations, projectedResults }),
   );
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
   assert.equal(
     requests[0]?.tools?.some((tool) => tool.name === "native_probe"),
     true,
   );
   assert.match(requests[0]?.system ?? "", /Native probe guidance/);
-  assert.deepEqual(registrations, [{ owner: "dsh", callId: "native-probe-call", policy }]);
+  assert.deepEqual(registrations, [
+    { owner: "dsh", callId: "native_probe-call", policy },
+    { owner: "dsh", callId: "late_probe-call", policy },
+  ]);
+  assert.equal(
+    requests[1]?.tools?.some((tool) => tool.name === "late_probe"),
+    true,
+  );
+  assert.equal(messages.at(-1)?.role, "assistant");
+  assert.deepEqual(messages.at(-1)?.content, [{ type: "text", text: "native complete" }]);
   assert.equal(projectedResults[0]?.toolName, "native_probe");
   assert.equal(projectedResults[0]?.isError, false);
   assert.match(
@@ -573,9 +589,7 @@ test("runSparkDshTurn composes and projects a Cordis-native tool", async () => {
     /"ok":true/,
   );
   assert.equal(
-    requests[1]?.messages.some((message) =>
-      message.content.some((part) => part.type === "tool-result"),
-    ),
+    requests[1]?.messages.some((message) => message.role === "tool"),
     true,
   );
 });
@@ -679,7 +693,7 @@ test("Cordis-native tools can make bounded DSH LLM calls through the private dri
       llm,
       sessionId: "auxiliary-model-call",
       agentPlugins: [plugin],
-      followupText: "run auxiliary probe",
+      followup: { kind: "user", content: "run auxiliary probe" },
       tools: [],
       streamIdleTimeoutMs: 0,
       signal: new AbortController().signal,
@@ -777,7 +791,7 @@ test("runSparkDshTurn isolates sparkInvocation across concurrent Agents", async 
         signal: controller.signal,
       }),
       agentPlugins: [plugin],
-      followupText: `run ${sessionId}`,
+      followup: { kind: "user", content: `run ${sessionId}` },
       tools: [],
       streamIdleTimeoutMs: 0,
       signal: controller.signal,
@@ -806,4 +820,82 @@ test("runSparkDshTurn isolates sparkInvocation across concurrent Agents", async 
   }
 
   assert.deepEqual([...seen].sort(), ["concurrent-agent-a", "concurrent-agent-b"]);
+});
+
+test("migrates a Spark v4 transcript, resumes DSH, and restores the continued log after restart", async () => {
+  const home = await mkdtemp(join(tmpdir(), "spark-dsh-upgrade-"));
+  const store = new SparkSessionStore({ cwd: home, sparkHome: join(home, "spark-home") });
+  const source = await readFile(
+    new URL(
+      "../../../../../../packages/spark-session/src/transcript/fixtures/spark-v4.jsonl",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const lines = source.trim().split("\n");
+  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), cwd: home });
+  const path = store.canonicalSessionPath("legacy-spark-v4");
+  await mkdir(store.sessionDir, { recursive: true });
+  await writeFile(path, `${lines.join("\n")}\n`);
+  const legacy = await store.load(path);
+  assert.equal(legacy.header.version, 4);
+  assert.equal(legacy.entries.length, 6);
+  await store.save(legacy);
+  assert.equal((await store.load(path)).header.version, CURRENT_SPARK_SESSION_VERSION);
+
+  const ctx = new Context();
+  const restarted = new Context();
+  try {
+    await mountLoop(ctx);
+    await ctx.plugin(createSparkDaemonSessionPersistencePlugin(store.sessionsRoot));
+    const adapter = new ScriptedAdapter();
+    adapter.calls = 1;
+    ctx.llm.registerAdapter(["scripted"], adapter);
+    const handle = await ctx.agents.resume({
+      resumeSessionId: SessionId("legacy-spark-v4"),
+      agentOptions: { provider: "scripted", model: "scripted-model" },
+    });
+    assert.ok(
+      handle.agent.session
+        .deriveMessages()
+        .some((message) =>
+          message.content.some(
+            (block) => block.type === "text" && block.text.includes("旧会话摘要"),
+          ),
+        ),
+    );
+    handle.agent.followup(
+      createUserMessage({
+        content: [{ type: "text", text: "resume after upgrade" }],
+        source: { kind: "user" },
+      }),
+    );
+    await handle.agent.whenIdle();
+    await handle.dispose();
+    await ctx.fiber.dispose();
+
+    await mountLoop(restarted);
+    await restarted.plugin(createSparkDaemonSessionPersistencePlugin(store.sessionsRoot));
+    const reader = await restarted.sessionPersistence.open(SessionId("legacy-spark-v4"), "read");
+    const stored = await reader.read();
+    assert.ok(
+      stored.events.some(
+        (event) =>
+          event.type === "assistant/message" &&
+          event.data.message.content.some(
+            (block) => block.type === "text" && block.text === "pong from dsh-agent-loop",
+          ),
+      ),
+    );
+    assert.ok(
+      stored.events.some(
+        (event) => event.type === "tool/result" && event.data.message.role === "tool",
+      ),
+    );
+    await reader.close();
+  } finally {
+    await ctx.fiber.dispose();
+    await restarted.fiber.dispose();
+    await rm(home, { recursive: true, force: true });
+  }
 });
