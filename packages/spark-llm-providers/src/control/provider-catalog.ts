@@ -18,6 +18,8 @@ export const DEFAULT_SPARK_PROVIDER_SPECS = [
 const LEGACY_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm";
 const CURRENT_SPARK_PROVIDER_PACKAGE = "@zendev-lab/spark-llm-providers";
 
+export { DEFAULT_SPARK_MODEL_ID, resolveSparkDefaultModelSelection } from "../default-model.ts";
+
 /** Initial enabled-model policy for daemon-selectable models. */
 export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
   "openai-codex/gpt-*",

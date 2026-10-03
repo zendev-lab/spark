@@ -32,6 +32,8 @@ import type {
   SparkProviderRegistry,
 } from "./provider-registry.ts";
 
+import { resolveSparkDefaultModelSelection } from "./default-model.ts";
+
 export type SparkProviderStreamFunction = (
   model: Model<string>,
   context: Context,
@@ -281,10 +283,9 @@ export function resolveWorkflowModelSelection(
   if (!model) {
     const active = registry.getActive();
     if (active) return active;
-    const provider = registry.listProviders()[0];
-    const firstModel = provider?.models[0];
-    if (!provider || !firstModel) throw new Error("No Spark provider/model is registered yet.");
-    return { providerName: provider.name, modelId: firstModel.id };
+    const selection = resolveSparkDefaultModelSelection(registry);
+    if (!selection) throw new Error("No Spark provider/model is registered yet.");
+    return selection;
   }
   const slash = model.indexOf("/");
   if (slash > 0) return { providerName: model.slice(0, slash), modelId: model.slice(slash + 1) };

@@ -1,0 +1,1469 @@
+{
+  "pr-checks": [
+    {
+      "id": "open-pass",
+      "visibility": "public",
+      "input": {
+        "required": [
+          {
+            "name": "pass",
+            "state": "PASS",
+            "bucket": "pass"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "pass",
+        "checks": 1
+      }
+    },
+    {
+      "id": "merged-skipped",
+      "visibility": "public",
+      "input": {
+        "state": "MERGED",
+        "recorded": [
+          {
+            "name": "pass",
+            "state": "PASS",
+            "bucket": "pass"
+          },
+          {
+            "name": "skipping",
+            "state": "SKIPPING",
+            "bucket": "skipping"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "pass",
+        "checks": 2
+      }
+    },
+    {
+      "id": "open-skipped",
+      "visibility": "hidden",
+      "input": {
+        "required": [
+          {
+            "name": "skipping",
+            "state": "SKIPPING",
+            "bucket": "skipping"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "inconclusive",
+        "checks": 1
+      }
+    },
+    {
+      "id": "merged-pending",
+      "visibility": "hidden",
+      "input": {
+        "state": "MERGED",
+        "recorded": [
+          {
+            "name": "pending",
+            "state": "PENDING",
+            "bucket": "pending"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "inconclusive",
+        "checks": 1
+      }
+    },
+    {
+      "id": "merged-failure",
+      "visibility": "hidden",
+      "input": {
+        "state": "MERGED",
+        "recorded": [
+          {
+            "name": "fail",
+            "state": "FAIL",
+            "bucket": "fail"
+          },
+          {
+            "name": "skipping",
+            "state": "SKIPPING",
+            "bucket": "skipping"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "fail",
+        "checks": 2
+      }
+    },
+    {
+      "id": "merged-cancel",
+      "visibility": "hidden",
+      "input": {
+        "state": "MERGED",
+        "recorded": [
+          {
+            "name": "cancel",
+            "state": "CANCEL",
+            "bucket": "cancel"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "fail",
+        "checks": 1
+      }
+    },
+    {
+      "id": "merged-empty",
+      "visibility": "hidden",
+      "input": {
+        "state": "MERGED"
+      },
+      "expected": {
+        "verdict": "inconclusive",
+        "checks": 0
+      }
+    },
+    {
+      "id": "open-empty",
+      "visibility": "hidden",
+      "input": {
+        "recorded": [
+          {
+            "name": "pass",
+            "state": "PASS",
+            "bucket": "pass"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "inconclusive",
+        "checks": 0
+      }
+    },
+    {
+      "id": "dirty",
+      "visibility": "hidden",
+      "input": {
+        "dirty": true,
+        "required": [
+          {
+            "name": "pass",
+            "state": "PASS",
+            "bucket": "pass"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "stale",
+        "checks": 0
+      }
+    },
+    {
+      "id": "head-mismatch",
+      "visibility": "hidden",
+      "input": {
+        "remoteHead": "head-2",
+        "required": [
+          {
+            "name": "pass",
+            "state": "PASS",
+            "bucket": "pass"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "stale",
+        "checks": 0
+      }
+    },
+    {
+      "id": "merged-required-skipped",
+      "visibility": "hidden",
+      "input": {
+        "state": "MERGED",
+        "required": [
+          {
+            "name": "skipping",
+            "state": "SKIPPING",
+            "bucket": "skipping"
+          }
+        ],
+        "recorded": [
+          {
+            "name": "pass",
+            "state": "PASS",
+            "bucket": "pass"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "inconclusive",
+        "checks": 1
+      }
+    },
+    {
+      "id": "merged-all-skipped",
+      "visibility": "hidden",
+      "input": {
+        "state": "MERGED",
+        "recorded": [
+          {
+            "name": "skipping",
+            "state": "SKIPPING",
+            "bucket": "skipping"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "pass",
+        "checks": 1
+      }
+    }
+  ],
+  "ask-partial": [
+    {
+      "id": "partial-submission",
+      "visibility": "public",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "answered",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "no_selection",
+        "nextAction": "block",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          }
+        }
+      }
+    },
+    {
+      "id": "complete-submission",
+      "visibility": "public",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "answered",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            },
+            "timing": {
+              "values": [],
+              "customText": "later"
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "answered",
+        "nextAction": "resume",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          },
+          "timing": {
+            "values": [],
+            "customText": "later"
+          }
+        }
+      }
+    },
+    {
+      "id": "empty-submission",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "answered",
+          "answers": {}
+        }
+      },
+      "expected": {
+        "status": "no_selection",
+        "nextAction": "block",
+        "answers": {}
+      }
+    },
+    {
+      "id": "whitespace-answer",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "answered",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            },
+            "timing": {
+              "values": [],
+              "customText": "  "
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "no_selection",
+        "nextAction": "block",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          },
+          "timing": {
+            "values": [],
+            "customText": "  "
+          }
+        }
+      }
+    },
+    {
+      "id": "cancelled",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "cancelled",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "cancelled",
+        "nextAction": "block",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          }
+        }
+      }
+    },
+    {
+      "id": "pending",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "pending",
+          "answers": {}
+        }
+      },
+      "expected": {
+        "status": "pending",
+        "nextAction": "resume",
+        "answers": {}
+      }
+    },
+    {
+      "id": "optional-unanswered",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": false
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "answered",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "answered",
+        "nextAction": "resume",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          }
+        }
+      }
+    },
+    {
+      "id": "complete-no-selection",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "no_selection",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            },
+            "timing": {
+              "values": ["now"]
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "answered",
+        "nextAction": "resume",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          },
+          "timing": {
+            "values": ["now"]
+          }
+        }
+      }
+    },
+    {
+      "id": "partial-no-selection",
+      "visibility": "hidden",
+      "input": {
+        "request": {
+          "mode": "decision",
+          "questions": [
+            {
+              "id": "strategy",
+              "prompt": "strategy",
+              "type": "freeform",
+              "required": true
+            },
+            {
+              "id": "timing",
+              "prompt": "timing",
+              "type": "freeform",
+              "required": true
+            }
+          ]
+        },
+        "result": {
+          "mode": "decision",
+          "status": "no_selection",
+          "answers": {
+            "strategy": {
+              "values": [],
+              "customText": "reuse"
+            }
+          }
+        }
+      },
+      "expected": {
+        "status": "no_selection",
+        "nextAction": "block",
+        "answers": {
+          "strategy": {
+            "values": [],
+            "customText": "reuse"
+          }
+        }
+      }
+    }
+  ],
+  "cleanup-cwd": [
+    {
+      "id": "unrelated-daemon",
+      "visibility": "public",
+      "input": {},
+      "expected": {
+        "status": "cleaned",
+        "removeCount": 1,
+        "removalFromRepository": true,
+        "worktreeExists": false
+      }
+    },
+    {
+      "id": "dirty",
+      "visibility": "public",
+      "input": {
+        "dirty": true
+      },
+      "expected": {
+        "status": "cleanup_blocked",
+        "removeCount": 0,
+        "removalFromRepository": true,
+        "worktreeExists": true
+      }
+    },
+    {
+      "id": "related-daemon",
+      "visibility": "hidden",
+      "input": {
+        "related": true
+      },
+      "expected": {
+        "status": "cleaned",
+        "removeCount": 1,
+        "removalFromRepository": true,
+        "worktreeExists": false
+      }
+    },
+    {
+      "id": "uncovered",
+      "visibility": "hidden",
+      "input": {
+        "uncovered": true
+      },
+      "expected": {
+        "status": "cleanup_blocked",
+        "removeCount": 0,
+        "removalFromRepository": true,
+        "worktreeExists": true
+      }
+    },
+    {
+      "id": "nonterminal",
+      "visibility": "hidden",
+      "input": {
+        "nonterminal": true
+      },
+      "expected": {
+        "status": "cleanup_blocked",
+        "removeCount": 0,
+        "removalFromRepository": true,
+        "worktreeExists": true
+      }
+    },
+    {
+      "id": "external",
+      "visibility": "hidden",
+      "input": {
+        "external": true
+      },
+      "expected": {
+        "status": "cleanup_blocked",
+        "removeCount": 0,
+        "removalFromRepository": true,
+        "worktreeExists": true
+      }
+    },
+    {
+      "id": "unmanaged",
+      "visibility": "hidden",
+      "input": {
+        "unmanaged": true
+      },
+      "expected": {
+        "status": "cleanup_blocked",
+        "removeCount": 0,
+        "removalFromRepository": true,
+        "worktreeExists": true
+      }
+    }
+  ],
+  "cross-realm": [
+    {
+      "id": "local-native",
+      "visibility": "public",
+      "input": {
+        "kind": "local-type",
+        "message": "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+      },
+      "expected": true
+    },
+    {
+      "id": "remote-native",
+      "visibility": "public",
+      "input": {
+        "kind": "remote-type",
+        "message": "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+      },
+      "expected": true
+    },
+    {
+      "id": "forged-object",
+      "visibility": "hidden",
+      "input": {
+        "kind": "object",
+        "message": "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+      },
+      "expected": false
+    },
+    {
+      "id": "wrong-native-type",
+      "visibility": "hidden",
+      "input": {
+        "kind": "remote-error",
+        "message": "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+      },
+      "expected": false
+    },
+    {
+      "id": "similar-message",
+      "visibility": "hidden",
+      "input": {
+        "kind": "remote-type",
+        "message": "Cannot read properties of undefined (reading 'defaultSparkConfigPath') "
+      },
+      "expected": false
+    },
+    {
+      "id": "unrelated-message",
+      "visibility": "hidden",
+      "input": {
+        "kind": "local-type",
+        "message": "connection failed"
+      },
+      "expected": false
+    },
+    {
+      "id": "throwing-getter",
+      "visibility": "hidden",
+      "input": {
+        "kind": "throwing-name",
+        "message": "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+      },
+      "expected": false
+    },
+    {
+      "id": "null",
+      "visibility": "hidden",
+      "input": {
+        "kind": "null"
+      },
+      "expected": false
+    }
+  ],
+  "terminal-width": [
+    {
+      "id": "ascii",
+      "visibility": "public",
+      "input": {
+        "text": "abcdefgh",
+        "width": 5
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "abcd…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "chinese",
+      "visibility": "public",
+      "input": {
+        "text": "中文标题",
+        "width": 5
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "中文…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "ansi-chinese",
+      "visibility": "hidden",
+      "input": {
+        "text": "\u001b[1m中文标题\u001b[22m",
+        "width": 5
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "中文…",
+        "ansi": true
+      }
+    },
+    {
+      "id": "fits",
+      "visibility": "hidden",
+      "input": {
+        "text": "hello",
+        "width": 5
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "hello",
+        "ansi": false
+      }
+    },
+    {
+      "id": "narrow",
+      "visibility": "hidden",
+      "input": {
+        "text": "中文",
+        "width": 1
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "zero-clamped",
+      "visibility": "hidden",
+      "input": {
+        "text": "hello",
+        "width": 0
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "mixed",
+      "visibility": "hidden",
+      "input": {
+        "text": "ab中文cd",
+        "width": 6
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "ab中…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "emoji",
+      "visibility": "hidden",
+      "input": {
+        "text": "😀😀😀",
+        "width": 5
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "😀😀…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "combining",
+      "visibility": "hidden",
+      "input": {
+        "text": "école",
+        "width": 4
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "éco…",
+        "ansi": false
+      }
+    },
+    {
+      "id": "empty",
+      "visibility": "hidden",
+      "input": {
+        "text": "",
+        "width": 4
+      },
+      "expected": {
+        "assertion": "render",
+        "plain": "",
+        "ansi": false
+      }
+    }
+  ],
+  "sqlite-scope": [
+    {
+      "id": "shared-memory",
+      "visibility": "public",
+      "input": {},
+      "expected": {
+        "foreignKeys": 1,
+        "busyTimeout": 5000,
+        "cacheSize": -2000,
+        "hardHeapLimit": 0,
+        "softHeapLimit": 0,
+        "tempStore": 0
+      }
+    },
+    {
+      "id": "explicit-daemon",
+      "visibility": "public",
+      "input": {
+        "daemon": true
+      },
+      "expected": {
+        "foreignKeys": 1,
+        "busyTimeout": 5000,
+        "cacheSize": -262144,
+        "hardHeapLimit": 402653184,
+        "softHeapLimit": 268435456,
+        "tempStore": 1
+      }
+    },
+    {
+      "id": "shared-file",
+      "visibility": "hidden",
+      "input": {
+        "file": true
+      },
+      "expected": {
+        "foreignKeys": 1,
+        "busyTimeout": 5000,
+        "cacheSize": -2000,
+        "hardHeapLimit": 0,
+        "softHeapLimit": 0,
+        "tempStore": 0,
+        "autoVacuum": 0
+      }
+    },
+    {
+      "id": "incremental-shared",
+      "visibility": "hidden",
+      "input": {
+        "file": true,
+        "incremental": true
+      },
+      "expected": {
+        "foreignKeys": 1,
+        "busyTimeout": 5000,
+        "cacheSize": -2000,
+        "hardHeapLimit": 0,
+        "softHeapLimit": 0,
+        "tempStore": 0,
+        "autoVacuum": 2
+      }
+    },
+    {
+      "id": "incremental-daemon",
+      "visibility": "hidden",
+      "input": {
+        "file": true,
+        "incremental": true,
+        "daemon": true
+      },
+      "expected": {
+        "foreignKeys": 1,
+        "busyTimeout": 5000,
+        "cacheSize": -262144,
+        "hardHeapLimit": 402653184,
+        "softHeapLimit": 268435456,
+        "tempStore": 1,
+        "autoVacuum": 2
+      }
+    }
+  ],
+  "python-request": [
+    {
+      "id": "default-script",
+      "visibility": "public",
+      "input": {
+        "scriptMode": true
+      },
+      "expected": {
+        "argv": ["uv", "run", "--script"]
+      }
+    },
+    {
+      "id": "interpreter-script",
+      "visibility": "public",
+      "input": {
+        "scriptMode": true,
+        "venv": "/opt/python3.13"
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/opt/python3.13", "--script"],
+        "pythonRequest": "/opt/python3.13"
+      }
+    },
+    {
+      "id": "directory-true",
+      "visibility": "hidden",
+      "input": {
+        "venv": "/remote/.venv",
+        "scriptMode": true
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/remote/.venv", "--script"],
+        "pythonRequest": "/remote/.venv"
+      }
+    },
+    {
+      "id": "directory-false",
+      "visibility": "hidden",
+      "input": {
+        "venv": "/remote/.venv",
+        "scriptMode": false
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/remote/.venv", "python"],
+        "pythonRequest": "/remote/.venv"
+      }
+    },
+    {
+      "id": "relative-true",
+      "visibility": "hidden",
+      "input": {
+        "venv": "./.venv",
+        "scriptMode": true
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "./.venv", "--script"],
+        "pythonRequest": "./.venv"
+      }
+    },
+    {
+      "id": "relative-false",
+      "visibility": "hidden",
+      "input": {
+        "venv": "./.venv",
+        "scriptMode": false
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "./.venv", "python"],
+        "pythonRequest": "./.venv"
+      }
+    },
+    {
+      "id": "version-true",
+      "visibility": "hidden",
+      "input": {
+        "venv": "3.13",
+        "scriptMode": true
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "3.13", "--script"],
+        "pythonRequest": "3.13"
+      }
+    },
+    {
+      "id": "version-false",
+      "visibility": "hidden",
+      "input": {
+        "venv": "3.13",
+        "scriptMode": false
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "3.13", "python"],
+        "pythonRequest": "3.13"
+      }
+    },
+    {
+      "id": "spaces-true",
+      "visibility": "hidden",
+      "input": {
+        "venv": "/python env/bin/python",
+        "scriptMode": true
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/python env/bin/python", "--script"],
+        "pythonRequest": "/python env/bin/python"
+      }
+    },
+    {
+      "id": "spaces-false",
+      "visibility": "hidden",
+      "input": {
+        "venv": "/python env/bin/python",
+        "scriptMode": false
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/python env/bin/python", "python"],
+        "pythonRequest": "/python env/bin/python"
+      }
+    },
+    {
+      "id": "trailing-slash-true",
+      "visibility": "hidden",
+      "input": {
+        "venv": "/remote/.venv/",
+        "scriptMode": true
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/remote/.venv/", "--script"],
+        "pythonRequest": "/remote/.venv/"
+      }
+    },
+    {
+      "id": "trailing-slash-false",
+      "visibility": "hidden",
+      "input": {
+        "venv": "/remote/.venv/",
+        "scriptMode": false
+      },
+      "expected": {
+        "argv": ["uv", "run", "--python", "/remote/.venv/", "python"],
+        "pythonRequest": "/remote/.venv/"
+      }
+    },
+    {
+      "id": "default-expression",
+      "visibility": "hidden",
+      "input": {},
+      "expected": {
+        "argv": ["uv", "run", "python"]
+      }
+    }
+  ],
+  "optional-arguments": [
+    {
+      "id": "optional-empty",
+      "visibility": "public",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts",
+          "optional": "  "
+        }
+      },
+      "expected": {
+        "keys": ["path"],
+        "value": {
+          "path": "file.ts"
+        }
+      }
+    },
+    {
+      "id": "ordinary",
+      "visibility": "public",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts",
+          "optional": "value"
+        }
+      },
+      "expected": {
+        "keys": ["optional", "path"],
+        "value": {
+          "path": "file.ts",
+          "optional": "value"
+        }
+      }
+    },
+    {
+      "id": "null",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts",
+          "optional": null
+        }
+      },
+      "expected": {
+        "keys": ["path"],
+        "value": {
+          "path": "file.ts"
+        }
+      }
+    },
+    {
+      "id": "required-null",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": null
+        }
+      },
+      "expected": {
+        "keys": ["path"],
+        "value": {
+          "path": null
+        }
+      }
+    },
+    {
+      "id": "required-blank",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "  "
+        }
+      },
+      "expected": {
+        "keys": ["path"],
+        "value": {
+          "path": "  "
+        }
+      }
+    },
+    {
+      "id": "unknown-fields",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts",
+          "unknown": null
+        }
+      },
+      "expected": {
+        "keys": ["path", "unknown"],
+        "value": {
+          "path": "file.ts",
+          "unknown": null
+        }
+      }
+    },
+    {
+      "id": "false-zero-containers",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts",
+          "number": 0,
+          "flag": false,
+          "list": [],
+          "record": {}
+        }
+      },
+      "expected": {
+        "keys": ["flag", "list", "number", "path", "record"],
+        "value": {
+          "path": "file.ts",
+          "number": 0,
+          "flag": false,
+          "list": [],
+          "record": {}
+        }
+      }
+    },
+    {
+      "id": "meaningful-whitespace",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts",
+          "optional": " value "
+        }
+      },
+      "expected": {
+        "keys": ["optional", "path"],
+        "value": {
+          "path": "file.ts",
+          "optional": " value "
+        }
+      }
+    },
+    {
+      "id": "optional-undefined",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {
+          "path": "file.ts"
+        },
+        "undefinedKeys": ["optional"]
+      },
+      "expected": {
+        "keys": ["path"],
+        "value": {
+          "path": "file.ts"
+        }
+      }
+    },
+    {
+      "id": "required-undefined",
+      "visibility": "hidden",
+      "input": {
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "optional": {},
+            "number": {},
+            "flag": {},
+            "list": {},
+            "record": {}
+          },
+          "required": ["path"]
+        },
+        "args": {},
+        "undefinedKeys": ["path"]
+      },
+      "expected": {
+        "keys": ["path"],
+        "value": {}
+      }
+    },
+    {
+      "id": "unknown-schema",
+      "visibility": "hidden",
+      "input": {
+        "parameters": null,
+        "args": {
+          "optional": null
+        }
+      },
+      "expected": {
+        "keys": ["optional"],
+        "value": {
+          "optional": null
+        }
+      }
+    }
+  ]
+}

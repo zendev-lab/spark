@@ -52,6 +52,8 @@ export type {
   SparkProviderCredentialSource,
 } from "./provider-control.ts";
 export {
+  DEFAULT_SPARK_MODEL_ID,
+  resolveSparkDefaultModelSelection,
   DEFAULT_SPARK_PROVIDER_SPECS,
   createSparkProviderImporter,
   DEFAULT_SPARK_ENABLED_MODEL_PATTERNS,
