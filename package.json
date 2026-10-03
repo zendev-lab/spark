@@ -101,6 +101,7 @@
     "@deepseek-ai/dsh-web": "catalog:dsh",
     "@j178/prek": "0.5.2",
     "@types/node": "^24.13.3",
+    "@zendev-lab/dsh-cue": "workspace:^",
     "@zendev-lab/spark-daemon": "workspace:*",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-hub-storage-sqlite": "workspace:*",

@@ -1,4 +1,6 @@
-import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
+
+import { withScriptedProviderLedgerLock } from "./scripted-provider-ledger-lock.ts";
 
 import {
   SPARK_SCRIPTED_PROVIDER_MODEL,
@@ -233,49 +235,12 @@ export function updateScriptedProviderLedger<T>(
   path: string,
   update: (ledger: ScriptedProviderLedger) => T,
 ): T {
-  const release = acquireLedgerLock(path);
-  try {
+  return withScriptedProviderLedgerLock(path, () => {
     const ledger = readLedger(path);
     const result = update(ledger);
     writeLedger(path, ledger);
     return result;
-  } finally {
-    release();
-  }
-}
-
-const ledgerLockWaitBuffer = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-
-function acquireLedgerLock(path: string): () => void {
-  const lockPath = `${path}.lock`;
-  const startedAt = Date.now();
-  while (true) {
-    try {
-      const descriptor = openSync(lockPath, "wx", 0o600);
-      try {
-        writeFileSync(
-          descriptor,
-          `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
-        );
-      } catch (error) {
-        closeSync(descriptor);
-        unlinkSync(lockPath);
-        throw error;
-      }
-      return () => {
-        closeSync(descriptor);
-        unlinkSync(lockPath);
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() - startedAt >= 10_000) {
-        throw new Error(
-          `timed out waiting for scripted provider ledger lock: ${lockPath}; remove the test fixture to recover`,
-        );
-      }
-      Atomics.wait(ledgerLockWaitBuffer, 0, 0, 10);
-    }
-  }
+  });
 }
 
 function writeLedger(path: string, ledger: ScriptedProviderLedger): void {
