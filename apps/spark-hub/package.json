@@ -54,11 +54,11 @@
     "@types/web-push": "^3.6.4",
     "@types/ws": "catalog:",
     "@vitest/browser-playwright": "4.1.11",
-    "playwright": "1.62.1",
+    "playwright": "1.63.0",
     "svelte-check": "^4.3.1",
     "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "vitest-browser-svelte": "3.0.0"
+    "vitest-browser-svelte": "3.1.0"
   }
 }
