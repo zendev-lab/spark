@@ -88,7 +88,7 @@
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
-    "koffi": "3.1.1",
+    "koffi": "3.3.2",
     "sharp": "^0.35.3",
     "typebox": "catalog:",
     "ws": "catalog:"
