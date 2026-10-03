@@ -47,33 +47,6 @@ describe("Hub public URL configuration", () => {
     expect(env.XFF_DEPTH).toBe("2");
   });
 
-  it("accepts retired Cockpit variables during the compatibility window", () => {
-    const env: Record<string, string | undefined> = {
-      SPARK_COCKPIT_PUBLIC_URL: "https://legacy.example.test",
-      SPARK_COCKPIT_TRUST_PROXY: "loopback",
-      SPARK_COCKPIT_PROXY_HOPS: "2",
-    };
-
-    expect(configureHubPublicUrl(env, { host: "127.0.0.1", port: 5173 })).toEqual({
-      mode: "fixed",
-      publicUrl: "https://legacy.example.test",
-      trustedProxy: true,
-    });
-    expect(env.XFF_DEPTH).toBe("2");
-  });
-
-  it("rejects conflicting Hub and retired Cockpit variables", () => {
-    expect(() =>
-      configureHubPublicUrl(
-        {
-          SPARK_HUB_PUBLIC_URL: "https://hub.example.test",
-          SPARK_COCKPIT_PUBLIC_URL: "https://legacy.example.test",
-        },
-        { host: "127.0.0.1", port: 5173 },
-      ),
-    ).toThrow(/SPARK_HUB_PUBLIC_URL conflicts with retired SPARK_COCKPIT_PUBLIC_URL/u);
-  });
-
   it("requires an explicit trusted loopback proxy for remote domains", () => {
     expect(() =>
       configureHubPublicUrl(

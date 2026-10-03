@@ -18,7 +18,7 @@ import { createBrokeredLspProvider } from "./lsp-provider.ts";
 import type { DaemonLensProcessBroker } from "./provider-process-broker.ts";
 import { resolvePackageBinary } from "./typescript-providers.ts";
 
-export interface TypeScriptLspProviderHealth {
+interface TypeScriptLspProviderHealth {
   providerId: ProviderId;
   available: boolean;
   version?: ProviderVersion;

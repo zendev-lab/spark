@@ -1,7 +1,7 @@
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
-import ChannelSessionIcon from "./ChannelSessionIcon.svelte";
+import { ChannelSessionIcon } from "@zendev-lab/spark-ui";
 
 const cases = [
   { adapter: "qqbot", scope: "c2c", scopeClass: "scope-private" },
@@ -20,7 +20,13 @@ describe("ChannelSessionIcon component contract", () => {
     expect(body).toContain(`title="${label}"`);
     expect(body).toContain(entry.adapter);
     expect(body).toContain(entry.scopeClass);
-    expect(body.match(/<svg/g)).toHaveLength(2);
+    expect(body.match(/<svg/g)).toHaveLength(entry.adapter === "qqbot" ? 1 : 2);
     expect(body).toContain('aria-hidden="true"');
+    if (entry.adapter === "qqbot") {
+      expect(body).toContain("<img");
+      expect(body).toContain('alt=""');
+    } else {
+      expect(body).not.toContain('fill="currentColor"');
+    }
   });
 });

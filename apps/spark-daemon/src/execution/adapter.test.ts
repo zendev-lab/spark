@@ -45,6 +45,52 @@ describe("production execution attempt orchestration", () => {
     harness.db.close();
   });
 
+  it("starts no executor work when durable attempt acceptance fails", async () => {
+    const harness = createHarness("inv_accept_persistence_failure");
+    let executions = 0;
+    vi.spyOn(harness.attempts, "accept").mockImplementation(() => {
+      throw new Error("attempt acceptance persistence failed");
+    });
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(_request, parent) {
+        parent.accepted();
+        parent.running();
+        executions += 1;
+        return { unreachable: true };
+      },
+    };
+
+    await expect(harness.session(adapter).execute()).rejects.toThrow(
+      "attempt acceptance persistence failed",
+    );
+    expect(executions).toBe(0);
+    expect(harness.attempts.current(harness.invocationId)).toMatchObject({ status: "queued" });
+    harness.db.close();
+  });
+
+  it("does not execute the same durable attempt twice", async () => {
+    const harness = createHarness("inv_same_attempt_twice");
+    let executions = 0;
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(_request, parent) {
+        parent.accepted();
+        parent.running();
+        executions += 1;
+        return { ok: true };
+      },
+    };
+    const session = harness.session(adapter);
+
+    await expect(session.execute()).resolves.toEqual({ ok: true });
+    await expect(session.execute()).rejects.toMatchObject({
+      code: "execution_attempt_transition_invalid",
+    });
+    expect(executions).toBe(1);
+    harness.db.close();
+  });
+
   it("reports cyclic worker output with the stable bounded-payload error", async () => {
     const harness = createHarness("inv_cyclic_output");
     const cyclic: Record<string, unknown> = { type: "execution.fixture" };

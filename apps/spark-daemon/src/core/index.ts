@@ -22,13 +22,17 @@ export type {
 } from "./lifecycle.ts";
 export { SparkDaemonInvocationRegistry } from "./invocations.ts";
 export type { SparkDaemonInvocationHandle, SparkDaemonInvocationRecord } from "./invocations.ts";
-export { SparkDaemonHumanInteractionBroker } from "./human-interactions.ts";
+export {
+  SparkDaemonHumanInteractionBroker,
+  renderSparkDaemonSessionAskDeliveryBody,
+} from "./human-interactions.ts";
 export type {
   SparkDaemonHumanInteractionBrokerOptions,
   SparkDaemonHumanInteractionContext,
   SparkDaemonHumanInteractionOpened,
   SparkDaemonHumanInteractionResponder,
   SparkDaemonHumanInteractionResponseInput,
+  SparkDaemonSessionAskDelivery,
 } from "./human-interactions.ts";
 export { acquireSparkDaemonLock, readSparkDaemonLock } from "./lock.ts";
 export type {

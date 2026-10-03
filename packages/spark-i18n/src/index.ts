@@ -29,6 +29,7 @@ export interface SparkDictionary {
 }
 
 const statusMessageKeys = {
+  idle: "status_idle",
   ready: "status_ready",
   pending: "status_pending",
   queued: "status_queued",

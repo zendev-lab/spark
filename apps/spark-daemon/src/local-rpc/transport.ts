@@ -3,7 +3,7 @@ import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { readSparkDaemonConfig } from "../config.ts";
 import { createDaemonChannelDeliveryOutbox } from "../channels/delivery-outbox.ts";
 import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
@@ -14,7 +14,6 @@ import type {
 import type { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import type { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
-import type { SparkReproFormalEvidenceVerifier } from "../repro-formal-evidence-verifier.ts";
 import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
 import type { SessionSupervisor } from "../session-supervisor.ts";
@@ -55,7 +54,6 @@ export async function startLocalRpcServer(options: {
   sessionSupervisor?: SessionSupervisor;
   modelControl?: SparkDaemonModelControl;
   humanWaits?: SparkDaemonHumanWaitRegistry;
-  reproFormalEvidenceVerifier?: SparkReproFormalEvidenceVerifier;
   respondHumanInteraction?: SparkDaemonHumanInteractionResponder;
   leaseTransfers?: SparkDaemonLeaseTransferBroker;
   onHumanRequestOutboxReady?: () => void;
@@ -108,9 +106,6 @@ export async function startLocalRpcServer(options: {
     ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),
     ...(options.modelControl ? { modelControl: options.modelControl } : {}),
     ...(options.humanWaits ? { humanWaits: options.humanWaits } : {}),
-    ...(options.reproFormalEvidenceVerifier
-      ? { reproFormalEvidenceVerifier: options.reproFormalEvidenceVerifier }
-      : {}),
     ...(options.respondHumanInteraction
       ? { respondHumanInteraction: options.respondHumanInteraction }
       : {}),

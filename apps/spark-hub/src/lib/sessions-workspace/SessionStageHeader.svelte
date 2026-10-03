@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Icon } from "@zendev-lab/spark-ui";
-  import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
+  import { ChannelSessionIcon } from "@zendev-lab/spark-ui";
   import { Button } from "@zendev-lab/spark-ui";
   import { enhance } from "$app/forms";
   import { visibleSessionStatus } from "$lib/conversation-status";
@@ -39,7 +39,10 @@
   let objective = $derived(sessionWorkObjective(host.liveSessionView));
   let primaryLoop = $derived(primarySessionLoop(host.liveSessionView));
   let semanticStatus = $derived(sessionWorkStatus(host.liveSessionView));
-  let currentStep = $derived(host.liveSessionView?.work?.repro?.plan.currentStep?.goal);
+  let currentStep = $derived(
+    host.liveSessionView?.work?.repro?.checkpoint?.summary ??
+      host.liveSessionView?.work?.repro?.checkpoint?.kind,
+  );
   let modeLabel = $derived(
     host.liveSessionView?.work?.repro
       ? host.copy.reproMode

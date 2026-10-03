@@ -931,6 +931,7 @@ export class SparkLoopStore {
       const invocation = this.#invocations.submit({
         workspaceBindingId: record.route.workspaceBindingId,
         sessionId: task.sessionId,
+        serializationKey: record.ownerSessionId,
         idempotencyKey: `loop.tick:${record.loopId}:${checkpoint.cycleId}:${record.attempt}`,
         prompt: task.prompt,
         task,
@@ -972,6 +973,7 @@ export class SparkLoopStore {
       const invocation = this.#invocations.submit({
         workspaceBindingId: record.route.workspaceBindingId,
         sessionId: record.ownerSessionId,
+        serializationKey: record.ownerSessionId,
         idempotencyKey: `loop.evaluate:${record.loopId}:${checkpoint.cycleId}:${checkpoint.afterAttempt}`,
         prompt: "Evaluate the persisted Loop after_tick checkpoint.",
         task,
@@ -1496,7 +1498,7 @@ export function loopUpdateEvent(
       sessionId: loop.ownerSessionId,
       loop,
     },
-    metadata: { stateOwnerSessionId: loop.ownerSessionId },
+    metadata: {},
   };
 }
 

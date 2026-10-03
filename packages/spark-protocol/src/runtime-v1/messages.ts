@@ -40,7 +40,7 @@ export const runtimeConnectionProjectionSchema = z.object({
 
 export const workspaceClientKindSchema = z.enum(["interactive", "headless", "executor"]);
 export const workspaceClientStatusSchema = z.enum(["connected", "disconnected"]);
-export const workspaceSessionSurfaceSchema = z.enum(["tui", "hub", "cockpit", "unknown"]);
+export const workspaceSessionSurfaceSchema = z.enum(["tui", "hub", "web", "unknown"]);
 
 export const workspaceClientProjectionSchema = z.object({
   clientId: z.string().min(1),
@@ -355,6 +355,7 @@ export const humanQuestionSchema = z.object({
   type: z.enum(["single", "multi", "freeform", "preview"]),
   prompt: z.string().min(1),
   required: z.boolean().default(false),
+  defaultValues: z.array(z.string()).optional(),
   options: z.array(humanQuestionOptionSchema).optional(),
 });
 
@@ -367,6 +368,7 @@ export const humanRequestCreatedPayloadSchema = z.object({
   evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   sessionId: z.string().min(1).optional(),
   toolCallId: z.string().min(1).optional(),
+  mode: z.enum(["clarification", "decision", "approval", "unblock"]).optional(),
   title: z.string().min(1),
   prompt: z.string().min(1),
   questions: z.array(humanQuestionSchema).default([]),
@@ -447,6 +449,27 @@ export const invocationStatusSchema = z.enum([
   "timed_out",
   "lost",
 ]);
+export type RuntimeInvocationStatus = z.infer<typeof invocationStatusSchema>;
+export const runtimeInvocationTerminalStatuses = [
+  "succeeded",
+  "failed",
+  "cancelled",
+  "timed_out",
+  "lost",
+] as const;
+export type RuntimeInvocationTerminalStatus = (typeof runtimeInvocationTerminalStatuses)[number];
+
+export function isRuntimeInvocationTerminalStatus(
+  status: string,
+): status is RuntimeInvocationTerminalStatus {
+  return (
+    status === "succeeded" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "timed_out" ||
+    status === "lost"
+  );
+}
 
 export const invocationUpdatePayloadSchema = z.object({
   runtimeInvocationId: prefixedIdSchema("inv"),

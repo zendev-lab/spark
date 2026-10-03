@@ -21,7 +21,6 @@ export function buildDaemonWorkspaceRegistrationCommand(
   return [
     "spark daemon workspace register",
     shellQuote(input.path ?? "."),
-    `--server-url ${shellQuote(input.serverOrigin)}`,
     `--token ${shellQuote(input.registrationToken)}`,
     `--name ${shellQuote(input.displayName)}`,
     ...(input.workspaceName ? [`--workspace-name ${shellQuote(input.workspaceName)}`] : []),

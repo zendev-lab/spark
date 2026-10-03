@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  daemonMessagePlatformConnections,
   freshMessagePlatformFormValues,
-  workspaceMessagePlatformConnections,
 } from "./message-platform";
 
 describe("freshMessagePlatformFormValues", () => {
@@ -31,10 +31,10 @@ describe("freshMessagePlatformFormValues", () => {
   });
 });
 
-describe("workspaceMessagePlatformConnections", () => {
+describe("daemonMessagePlatformConnections", () => {
   it("lists one account connection per configured adapter, independent of sessions", () => {
     expect(
-      workspaceMessagePlatformConnections(
+      daemonMessagePlatformConnections(
         {
           feishuEnabled: false,
           feishuAppId: "",
@@ -44,15 +44,28 @@ describe("workspaceMessagePlatformConnections", () => {
           qqbotAppId: "qq-app",
         },
         [
-          { type: "infoflow", state: "connected" },
-          { type: "qqbot", state: "reconnecting", error: "gateway unavailable" },
+          { id: "info-primary", type: "infoflow", state: "connected" },
+          {
+            id: "qq-primary",
+            type: "qqbot",
+            state: "reconnecting",
+            error: "gateway unavailable",
+          },
         ],
       ),
     ).toEqual([
-      { adapter: "infoflow", accountId: "43163", runtimeState: "connected" },
+      {
+        adapter: "infoflow",
+        adapterId: "info-primary",
+        accountId: "info-primary",
+        editable: true,
+        runtimeState: "connected",
+      },
       {
         adapter: "qqbot",
-        accountId: "qq-app",
+        adapterId: "qq-primary",
+        accountId: "qq-primary",
+        editable: true,
         runtimeState: "reconnecting",
         runtimeError: "gateway unavailable",
       },
@@ -61,7 +74,7 @@ describe("workspaceMessagePlatformConnections", () => {
 
   it("does not expose a credential as the Infoflow account label", () => {
     expect(
-      workspaceMessagePlatformConnections({
+      daemonMessagePlatformConnections({
         feishuEnabled: false,
         feishuAppId: "",
         infoflowEnabled: true,
@@ -69,6 +82,40 @@ describe("workspaceMessagePlatformConnections", () => {
         qqbotEnabled: false,
         qqbotAppId: "",
       }),
-    ).toEqual([{ adapter: "infoflow", accountId: "" }]);
+    ).toEqual([{ adapter: "infoflow", adapterId: "infoflow", accountId: "", editable: true }]);
+  });
+
+  it("keeps same-type runtime accounts separate and disables ambiguous legacy editing", () => {
+    expect(
+      daemonMessagePlatformConnections(
+        {
+          feishuEnabled: false,
+          feishuAppId: "",
+          infoflowEnabled: true,
+          infoflowAppAgentId: "legacy-first-account",
+          qqbotEnabled: false,
+          qqbotAppId: "",
+        },
+        [
+          { id: "info-east", type: "infoflow", state: "connected" },
+          { id: "info-west", type: "infoflow", state: "stopped" },
+        ],
+      ),
+    ).toEqual([
+      {
+        adapter: "infoflow",
+        adapterId: "info-east",
+        accountId: "info-east",
+        editable: false,
+        runtimeState: "connected",
+      },
+      {
+        adapter: "infoflow",
+        adapterId: "info-west",
+        accountId: "info-west",
+        editable: false,
+        runtimeState: "stopped",
+      },
+    ]);
   });
 });

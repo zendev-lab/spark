@@ -8,14 +8,14 @@ import { workspaceIdForWorkbenchSession } from "$lib/workbench-session-scope";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ locals, params, url }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
   // Prefer the local projection for workspace admission — same path as the
   // session page — so scroll-driven history still works when live `session.get`
   // is briefly unavailable.
   const projected = getProjectedManagedSessionForHub(params.sessionId);
   const session = projected ?? (await getManagedSessionForHub(params.sessionId));
   const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-  if (!session || !workspaceId || (locals?.workspaceId && locals.workspaceId !== workspaceId)) {
+  if (!session || !workspaceId) {
     return json({ error: "session_not_found" }, { status: 404 });
   }
   const beforeMessageId = url.searchParams.get("before")?.trim() || undefined;

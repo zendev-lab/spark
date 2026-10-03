@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-artifacts",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Atomic issue/git_change/document Artifacts, Git lifecycle, and internal evidence storage for Spark hosts.",
   "license": "MIT",
@@ -15,7 +15,9 @@
     ".": "./src/index.ts",
     "./evidence-migration": "./src/evidence-migration.ts",
     "./extension": "./src/extension.ts",
+    "./daemon-extension": "./src/daemon-extension.ts",
     "./preview-renderer": "./src/artifact/preview-renderer.ts",
+    "./artifact-types": "./src/artifact/types.ts",
     "./artifact": "./src/artifact/index.ts"
   },
   "scripts": {
@@ -24,11 +26,12 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
+    "@zendev-lab/spark-invocation": "workspace:^",
     "@zendev-lab/spark-lens": "workspace:^",
+    "@zendev-lab/spark-platform-node": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
-    "@zendev-lab/spark-text": "workspace:^",
+    "@zendev-lab/spark-text-rendering": "workspace:^",
     "marked": "^18.0.7",
     "sanitize-html": "^2.17.6",
     "typebox": "catalog:"
@@ -36,7 +39,7 @@
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "@types/node": "^26.1.1",
+    "@types/node": "^24.13.3",
     "@types/sanitize-html": "^2.16.1",
     "typescript": "catalog:",
     "vitest": "catalog:"

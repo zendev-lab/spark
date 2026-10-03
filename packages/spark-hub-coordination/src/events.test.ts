@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { appendEvent } from "./projection-services";
 import {
   cursorFromEvent,
@@ -125,16 +125,17 @@ describe("event streaming helpers", () => {
       createdAt: now,
     });
 
-    expect(loadEventBatch(db, watermark, 10, "ws_a").map((event) => event.kind)).toEqual([
+    expect(loadEventBatch(db, watermark, 10, ["ws_a"]).map((event) => event.kind)).toEqual([
       "workspace-a.event",
     ]);
+    expect(loadEventBatch(db, watermark, 10, [])).toEqual([]);
 
     const plan = db
       .prepare(
         `EXPLAIN QUERY PLAN
          SELECT id
            FROM events
-          WHERE workspace_id = ? AND ingest_sequence > ?
+          WHERE workspace_id IN (?) AND ingest_sequence > ?
           ORDER BY ingest_sequence ASC
           LIMIT ?`,
       )

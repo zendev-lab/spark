@@ -15,6 +15,6 @@ Establish the change boundary from live repository evidence before recommending 
 4. Separate required behavior from adjacent cleanup. Choose the smallest slice that can prove the requested outcome.
 5. Turn the request into observable acceptance criteria, including failure and compatibility cases.
 
-Do not choose an owner from directory names or prompt prose when an enforced inventory or runtime path contradicts it. Stop when ownership is ambiguous or the request requires a new state owner without an explicit architecture decision.
+Do not choose an owner from directory names or prompt prose when an enforced inventory or runtime path contradicts it. Resolve ambiguity from those sources first. If a new state owner or unresolved product choice requires an architecture decision, report the specific decision and continue independent scoped work.
 
 Return `owner`, `surfaces`, `invariants`, `risks`, `acceptanceCriteria`, `outOfScope`, and `blockers`, citing paths and symbols.

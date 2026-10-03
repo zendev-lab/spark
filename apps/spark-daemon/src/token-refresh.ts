@@ -1,5 +1,5 @@
 import { runtimeTokenRefreshResponseSchema } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { readSparkDaemonConfig, writeSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 import { fetchRegistrationEndpoint } from "./registration-http.js";
 import {
@@ -118,9 +118,6 @@ export async function refreshSparkDaemonCredentials(options: {
       ...(identity.invocationConcurrency !== undefined
         ? { invocationConcurrency: identity.invocationConcurrency }
         : {}),
-      ...(identity.reproFormalEvidencePublicKeysJson
-        ? { reproFormalEvidencePublicKeysJson: identity.reproFormalEvidencePublicKeysJson }
-        : {}),
     });
   }
 
@@ -151,7 +148,7 @@ function resolveServerUrl(config: SparkDaemonConfig): string {
 function requireConfig(value: string | undefined, name: string): string {
   if (!value) {
     throw new Error(
-      `Spark daemon config is missing ${name}. Run spark daemon workspace register first.`,
+      `Spark daemon config is missing ${name}. Run spark daemon login --server-url <url>.`,
     );
   }
 

@@ -5,8 +5,8 @@ import { z } from "zod";
  * `task_<32 hex>`, `inv_<32 hex>`).
  *
  * This vocabulary is owned by spark-protocol for transport and persistence
- * envelopes. It is intentionally separate from spark-core's agent/domain refs
- * (`kind:id`, e.g. `task:…` — see `RefKind` / `newRef` in `@zendev-lab/spark-core`).
+ * envelopes. It is intentionally separate from spark-invocation's agent/domain refs
+ * (`kind:id`, e.g. `task:…` — see `RefKind` / `newRef` in `@zendev-lab/spark-invocation`).
  * Do not invent a third id scheme; translate at the boundary when a surface
  * must speak both.
  */
@@ -17,6 +17,7 @@ export const idPrefixSchema = z.enum([
   "ws",
   "watok",
   "catok",
+  "dut",
   "proj",
   "res",
   "agent",
@@ -24,6 +25,8 @@ export const idPrefixSchema = z.enum([
   "rtetok",
   "rtda",
   "rttok",
+  "rtdc",
+  "udg",
   "rtsn",
   "rtwb",
   "wob",

@@ -2,7 +2,7 @@ import {
   createSparkDaemonToolOperationId,
   requestSparkDaemonToolWithAutoStart,
 } from "@zendev-lab/spark-daemon-client";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 import {
   createEditToolConfig,
   createLsToolConfig,

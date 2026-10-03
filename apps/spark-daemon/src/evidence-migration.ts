@@ -4,14 +4,14 @@ import { resolve } from "node:path";
 import type { EvidenceMigrationWorkspace } from "@zendev-lab/spark-artifacts/evidence-migration";
 import { listWorkspaces } from "./store/workspaces.js";
 
-export interface RegisteredEvidenceMigrationWorkspaceSkipped {
+interface RegisteredEvidenceMigrationWorkspaceSkipped {
   workspaceId: string;
   localPath: string;
   reason: "duplicate-path" | "missing" | "not-directory" | "unreachable";
   duplicateOf?: string;
 }
 
-export interface RegisteredEvidenceMigrationWorkspaceDiscovery {
+interface RegisteredEvidenceMigrationWorkspaceDiscovery {
   workspaces: EvidenceMigrationWorkspace[];
   skipped: RegisteredEvidenceMigrationWorkspaceSkipped[];
 }

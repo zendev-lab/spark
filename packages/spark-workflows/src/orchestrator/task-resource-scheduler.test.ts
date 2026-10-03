@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ProjectRef,
-  RunRef,
-  Task,
-  TaskRef,
-  TaskRun,
-  TaskRunStatus,
-} from "@zendev-lab/spark-core";
+import type { ProjectRef, RunRef, TaskRef } from "@zendev-lab/spark-invocation";
+import { type Task, type TaskRun, type TaskRunStatus } from "@zendev-lab/spark-tasks";
 import { packTaskResourceFrontier, taskAttemptLimitDeferrals } from "./task-resource-scheduler.ts";
 
 function task(ref: string, maxAttempts = 2): Task {

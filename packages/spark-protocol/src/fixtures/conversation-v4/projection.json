@@ -1,0 +1,63 @@
+{
+  "message": {
+    "version": 4,
+    "id": "assistant-parts",
+    "role": "assistant",
+    "text": "Legacy text must not duplicate.",
+    "status": "streaming",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "parts": [
+      {
+        "id": "part-thinking",
+        "type": "thinking",
+        "text": "Checking the repository",
+        "status": "streaming",
+        "metadata": {}
+      },
+      {
+        "id": "part-text",
+        "type": "text",
+        "text": "Ready.",
+        "phase": "commentary",
+        "status": "complete",
+        "metadata": {}
+      },
+      {
+        "id": "part-tool-call",
+        "type": "tool-call",
+        "toolCallId": "read-structured",
+        "toolName": "read",
+        "summary": "Reading README",
+        "status": "running",
+        "metadata": {}
+      },
+      {
+        "id": "part-tool-result",
+        "type": "tool-result",
+        "toolCallId": "read-structured",
+        "toolName": "read",
+        "summary": "README loaded",
+        "status": "complete",
+        "metadata": {}
+      },
+      {
+        "id": "part-text-final",
+        "type": "text",
+        "text": "Done.",
+        "phase": "final_answer",
+        "status": "complete",
+        "metadata": {}
+      }
+    ],
+    "metadata": {}
+  },
+  "tool": {
+    "version": 4,
+    "id": "read-structured",
+    "name": "read",
+    "status": "succeeded",
+    "input": { "path": "README.md", "token": "hidden" },
+    "output": "raw README output",
+    "metadata": {}
+  }
+}

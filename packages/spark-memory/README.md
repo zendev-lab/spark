@@ -7,6 +7,9 @@ This package is intentionally conservative:
 - `memory({ action, kind? })` is the only public memory tool. `kind` is `entry` (default), `learning`, or `candidate`.
 - Default prompt behavior is policy-only. Hosts should inject guidance about how to use memory tools, not entry bodies, unless a user opts into a cache-aware snapshot.
 - Writes run a secret scanner before persistence.
+- `@zendev-lab/spark-memory/direct-intent` owns the process-local signed
+  authority that binds explicit remember/feedback intent to one exact turn;
+  hosts may project its verifier but never its private key or signer.
 - Compact/checkpoint handoff is explicit via `SparkMemoryStore.checkpoint()` and the extension wires policy-only `session_start` plus hidden `session_before_compact` checkpoint messages when the host supports extension events. The checkpoint is queued with `deliverAs: "nextTurn"` so it rides the next real user prompt instead of triggering an extra post-compaction request.
 - A successful full compact with Smart structured details schedules background `stable_fact` and `open_item` recall candidates. Open items remain candidates; stable facts enter durable Memory only when directly associated `artifact:`/`evidence:` refs resolve locally. Review, evidence, and write failures never alter the completed compact.
 - LearningStore, recall candidates, and reflection pipelines all live in this package (former `spark-learnings` / `spark-recall` packages are removed).
@@ -33,12 +36,12 @@ This package is intentionally conservative:
 
 ## Reflection
 
-Session reflection scan/synthesis writes under `.spark/memory/reflections/` (candidates, scan cursor, latest report). Import from `@zendev-lab/spark-memory` or the `./reflection-*` subpaths.
+Session reflection scan/synthesis writes under `.spark/memory/reflections/` (candidates, scan cursor, latest report). Import from `@zendev-lab/spark-memory`.
 
 ## pi-memory compatibility tools
 
-Pi-memory aliases are **opt-in** via `enablePiCompatAliases: true` (the Pi product
-entrypoint `extension-entry.ts` enables them; Spark native hosts leave them off).
+Pi-memory aliases are **opt-in** via `enablePiCompatAliases: true`. Spark
+native hosts leave them off.
 When enabled and the names are not already owned by `pi-memory`:
 
 - `memory_write` — write `MEMORY.md` or append a daily log.

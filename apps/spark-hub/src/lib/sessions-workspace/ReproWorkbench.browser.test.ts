@@ -7,8 +7,6 @@ const binding = {
   artifactRef: "artifact:workbench-current",
   revision: 7,
   lifecycle: "live" as const,
-  loopId: "loop:repro",
-  generation: 3,
 };
 
 const labels = {
@@ -42,7 +40,6 @@ describe("Repro Workbench projection fence", () => {
     const screen = await render(ReproWorkbench, {
       sessionId: "session:repro",
       binding,
-      canControl: false,
       labels,
     });
 

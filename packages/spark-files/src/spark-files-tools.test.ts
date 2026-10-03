@@ -109,14 +109,12 @@ test("read repair refines the ordinary read policy into a sequential write", () 
     effect: "read",
     executionMode: "parallel",
     domains: ["files"],
-    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
   assert.deepEqual(read.resolvePolicy?.({ path: "index.ts", repair: "format" }), {
     effect: "local_write",
     executionMode: "sequential",
     domains: ["files"],
-    modes: ["execute"],
     approval: "none",
   });
 });
@@ -240,6 +238,61 @@ test("isolated_results writes only below the daemon-resolved job root", async ()
         ctx,
       ),
       /cannot write a git_change Artifact/u,
+    );
+  });
+});
+
+test("workspace scope writes across nested repositories but rejects escape and Artifact selection", async () => {
+  await withTempDir(async (dir) => {
+    const workspace = join(dir, "workspace");
+    const repository = join(workspace, "repos", "target");
+    const outside = join(dir, "outside");
+    await Promise.all([
+      mkdir(repository, { recursive: true }),
+      mkdir(outside, { recursive: true }),
+    ]);
+    const write = collectTools(piFilesExtension).get("write")!;
+    const ctx = {
+      cwd: workspace,
+      taskExecutionScope: {
+        isolation: "workspace",
+        writableArtifactRefs: [],
+        writableRoots: [workspace],
+      },
+    };
+
+    await write.execute(
+      "workspace",
+      { path: "repos/target/change.txt", content: "ok", expectedVersion: "missing" },
+      undefined,
+      noop,
+      ctx,
+    );
+    assert.equal(await readFile(join(repository, "change.txt"), "utf8"), "ok");
+    await assert.rejects(
+      write.execute(
+        "workspace-artifact",
+        {
+          path: "change.txt",
+          artifactRef: "artifact:unexpected",
+          content: "x",
+          expectedVersion: "missing",
+        },
+        undefined,
+        noop,
+        ctx,
+      ),
+      /does not preselect/u,
+    );
+    await assert.rejects(
+      write.execute(
+        "workspace-escape",
+        { path: "../outside/escape.txt", content: "x", expectedVersion: "missing" },
+        undefined,
+        noop,
+        ctx,
+      ),
+      /escapes its scope/u,
     );
   });
 });

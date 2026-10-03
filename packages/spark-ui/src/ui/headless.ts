@@ -4,7 +4,7 @@
  * Export the small primitive surface Spark currently accepts instead of
  * leaking the third-party namespaces into routes and product components.
  */
-import { Command, Dialog } from "bits-ui";
+import { Command, Dialog, Popover } from "bits-ui";
 
 export const DialogTrigger = Dialog.Trigger;
 export const DialogTitle = Dialog.Title;
@@ -19,3 +19,8 @@ export const CommandGroup = Command.Group;
 export const CommandGroupHeading = Command.GroupHeading;
 export const CommandGroupItems = Command.GroupItems;
 export const CommandItem = Command.Item;
+
+export const PopoverRoot = Popover.Root;
+export const PopoverTrigger = Popover.Trigger;
+export const PopoverContent = Popover.Content;
+export const PopoverPortal = Popover.Portal;

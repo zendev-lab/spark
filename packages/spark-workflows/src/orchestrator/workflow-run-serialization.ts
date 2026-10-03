@@ -3,8 +3,8 @@ import {
   DEFAULT_READY_TASK_TIMEOUT_MS,
   newRef,
   nowIso,
-  readJsonFileOptional,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { readJsonFileOptional } from "@zendev-lab/spark-platform-node/json-files";
 
 import { normalizeTaskRunCompletionSummaries } from "./workflow-run-completion.ts";
 import { reconcileWorkflowRunCounters } from "./workflow-run-counters.ts";

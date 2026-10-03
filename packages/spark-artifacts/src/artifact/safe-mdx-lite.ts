@@ -1,10 +1,10 @@
-export type SafeMdxLiteTone = "info" | "success" | "warning" | "error";
+type SafeMdxLiteTone = "info" | "success" | "warning" | "error";
 
 export type SafeMdxLiteBlock =
   | { type: "markdown"; text: string }
   | { type: "callout"; tone: SafeMdxLiteTone; title?: string; body: string };
 
-export interface SafeMdxLiteDiagnostic {
+interface SafeMdxLiteDiagnostic {
   severity: "warning" | "error";
   message: string;
   line?: number;

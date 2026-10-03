@@ -51,13 +51,13 @@ describe("session live events", () => {
         id: "evt_driver",
         kind: "daemon.view_event",
         payload: {
-          version: 2,
+          version: 4,
           type: "daemon.view_event",
           source: "daemon",
           emittedAt: "2026-07-13T08:00:01.000Z",
           sessionId: "sess_current",
           view: {
-            version: 2,
+            version: 4,
             type: "loop.update",
             sessionId: "sess_current",
             loop: {
@@ -1775,8 +1775,8 @@ describe("session live events", () => {
   });
 
   it("keeps event cursors isolated by selected session", () => {
-    expect(sessionEventCursorStorageKey(" sess_a ")).toBe("spark-hub:session:sess_a:events-cursor");
-    expect(sessionEventCursorStorageKey("sess_b")).toBe("spark-hub:session:sess_b:events-cursor");
+    expect(sessionEventCursorStorageKey(" sess_a ")).toBe("spark:hub:session:sess_a:events-cursor");
+    expect(sessionEventCursorStorageKey("sess_b")).toBe("spark:hub:session:sess_b:events-cursor");
     expect(sessionEventCursorStorageKey("   ")).toBeNull();
   });
 

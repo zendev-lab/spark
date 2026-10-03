@@ -101,11 +101,16 @@ export async function resolveProductRuntimeDependencies(
   root,
   productDirectory,
   exactWorkspacePackages = [],
+  declaredRuntimePackages = [],
 ) {
   const owners = await runtimeDependencyOwners(root);
   const dependencies = {};
   const exactWorkspacePackageSet = new Set(exactWorkspacePackages);
-  for (const name of await discoverProductRuntimePackages(productDirectory)) {
+  const runtimePackages = new Set([
+    ...(await discoverProductRuntimePackages(productDirectory)),
+    ...declaredRuntimePackages,
+  ]);
+  for (const name of [...runtimePackages].sort((left, right) => left.localeCompare(right))) {
     if (exactWorkspacePackageSet.has(name)) continue;
     const directories = owners.get(name);
     if (!directories?.length) {

@@ -1,4 +1,4 @@
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef } from "@zendev-lab/spark-invocation";
 
 export interface WorkflowStage {
   title: string;

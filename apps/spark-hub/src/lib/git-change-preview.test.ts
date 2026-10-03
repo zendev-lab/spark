@@ -21,7 +21,22 @@ describe("gitChangePreviewFromContentRef", () => {
               isCurrent: true,
               isMerged: false,
               isQueued: false,
-              needsRebase: false,
+              needsRebase: true,
+              pullRequest: {
+                forge: "github",
+                repo: "zendev-lab/spark",
+                number: 7,
+                url: "https://github.com/zendev-lab/spark/pull/7",
+                state: "OPEN",
+                title: "UI layer",
+                headRef: "feat/ui",
+                baseRef: "feat/report",
+                checks: [{ name: "build", state: "SUCCESS" }],
+                checksSummary: "build=SUCCESS",
+                checksVerdict: "pass",
+                mergeable: false,
+                mergeStateStatus: "DIRTY",
+              },
             },
           ],
         },
@@ -31,7 +46,21 @@ describe("gitChangePreviewFromContentRef", () => {
 
     expect(preview).toMatchObject({
       repository: { repo: "zendev-lab/spark" },
-      stack: { number: 7, entries: [{ branch: "feat/ui", base: "feat/report" }] },
+      stack: {
+        number: 7,
+        entries: [
+          {
+            branch: "feat/ui",
+            base: "feat/report",
+            needsRebase: true,
+            pullRequest: {
+              checksVerdict: "pass",
+              mergeable: false,
+              mergeStateStatus: "DIRTY",
+            },
+          },
+        ],
+      },
     });
   });
 

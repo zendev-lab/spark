@@ -23,8 +23,6 @@ export {
 
 export {
   getCurrentUserIdBySessionToken,
-  loadProjectPage,
-  loadProjectsPage,
   loadWorkbenchHome,
   loadWorkbenchLayout,
   loadWorkspaceDashboard,

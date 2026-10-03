@@ -1,8 +1,8 @@
 import { defaultRecallStore, type RecallCandidate, type RecallStore } from "./recall-store.ts";
 
-export type SparkCompactionCandidateKind = "stable_fact" | "open_item";
+type SparkCompactionCandidateKind = "stable_fact" | "open_item";
 
-export interface SparkCompactionStructuredSummary {
+interface SparkCompactionStructuredSummary {
   preservedFacts?: string[];
   decisions?: string[];
   unresolved?: string[];

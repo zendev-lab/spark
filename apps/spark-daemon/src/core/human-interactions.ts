@@ -6,6 +6,7 @@ import {
   createId,
   parseSparkInteractionRequest,
   sparkJsonObjectSchema,
+  type SparkDirectAnswerProvenance,
   type SparkEvidenceAnswerEvent,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
@@ -27,8 +28,8 @@ export interface SparkDaemonHumanInteractionContext {
   toolCallId?: string;
   signal?: AbortSignal;
   channel?: {
-    workspaceId: string;
     adapterId: string;
+    adapterAccountIdentity?: string;
     recipient: string;
     actorId?: string;
     messageId?: string;
@@ -59,7 +60,7 @@ export interface SparkDaemonHumanInteractionResponseInput {
   /** Stable across client retries so an accepted response can be replayed safely. */
   humanResponseId?: string;
   status: "answered" | "cancelled" | "archived";
-  provenance: "direct_user" | "system";
+  provenance: SparkDirectAnswerProvenance;
   answers: Record<string, unknown>;
   responseArtifactRefs: string[];
 }
@@ -68,6 +69,16 @@ export type SparkDaemonHumanInteractionResponder = (
   wait: SparkDaemonHumanWaitRecord,
   input: SparkDaemonHumanInteractionResponseInput,
 ) => Promise<SparkDaemonHumanWaitDeliveryResult>;
+
+export interface SparkDaemonSessionAskDelivery {
+  fromSessionId: string;
+  toSessionId: string;
+  humanRequestId: string;
+  interactionRequestId: string;
+  title: string;
+  prompt: string;
+  parentInvocationId?: string;
+}
 
 export interface SparkDaemonHumanInteractionBrokerOptions {
   db: DatabaseSync;
@@ -82,6 +93,24 @@ export interface SparkDaemonHumanInteractionBrokerOptions {
   onOutboxReady?: () => void | Promise<void>;
   /** Optional channel projection (QQ keyboard); failure must not lose the Hub request. */
   onRequestOpened?: (input: SparkDaemonHumanInteractionOpened) => void | Promise<void>;
+  /** Deliver a session-addressed ask through session.send without Hub Inbox. */
+  deliverSessionAsk?: (input: SparkDaemonSessionAskDelivery) => Promise<void>;
+}
+
+export function renderSparkDaemonSessionAskDeliveryBody(
+  input: SparkDaemonSessionAskDelivery,
+): string {
+  const title = input.title.trim() || "Session ask";
+  const prompt = input.prompt.trim().slice(0, 1024);
+  return [
+    title,
+    `humanRequestId: ${input.humanRequestId}`,
+    `interactionRequestId: ${input.interactionRequestId}`,
+    prompt ? `Question: ${prompt}` : undefined,
+    'Answer with ask({ action: "answer", humanRequestId, answers }).',
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
 export class SparkDaemonHumanInteractionBroker {
@@ -185,10 +214,38 @@ export class SparkDaemonHumanInteractionBroker {
     const route = resolveHumanInteractionRoute(this.options.db, context);
     const runtimeId = route ? this.options.getRuntimeId(route)?.trim() : undefined;
     const localTui = context.sessionSource === "tui";
-    const hubProjected = Boolean(runtimeId && route);
+    const toSessionId = durable.ask.toSessionId?.trim();
+    const sessionAddressed = Boolean(toSessionId);
+    if (sessionAddressed && request.kind === "toolApproval") {
+      return createBlockedInteractionResponse(
+        request,
+        "Tool approval cannot be addressed to a Session.",
+      );
+    }
+    if (sessionAddressed && toSessionId === context.sessionId.trim()) {
+      return createBlockedInteractionResponse(
+        request,
+        "A session ask must target a different Session.",
+      );
+    }
+    if (sessionAddressed && durable.ask.evidenceRequest) {
+      return createBlockedInteractionResponse(
+        request,
+        "A session-addressed ask cannot bind an EvidenceRequest.",
+      );
+    }
+    if (sessionAddressed && !this.options.deliverSessionAsk) {
+      return createBlockedInteractionResponse(
+        request,
+        "Daemon could not deliver a session-addressed ask.",
+      );
+    }
+    const hubProjected = !sessionAddressed && Boolean(runtimeId && route);
     const operatorAnswerable =
-      context.sessionSource === "daemon" || context.sessionSource === "session";
-    if (!hubProjected && !localTui && !operatorAnswerable) {
+      Boolean(context.channel) ||
+      context.sessionSource === "daemon" ||
+      context.sessionSource === "session";
+    if (!sessionAddressed && !hubProjected && !localTui && !operatorAnswerable) {
       return createBlockedInteractionResponse(
         request,
         "Daemon could not resolve a Hub runtime/workspace route for this ask.",
@@ -203,6 +260,7 @@ export class SparkDaemonHumanInteractionBroker {
     if (
       !hubProjected &&
       operatorAnswerable &&
+      !context.channel &&
       (durable.ask.delivery ?? "blocking") === "blocking" &&
       durable.ask.timeoutMs === undefined
     ) {
@@ -266,6 +324,7 @@ export class SparkDaemonHumanInteractionBroker {
     const payload = {
       kind: "ask_user" as const,
       delivery,
+      mode: durable.ask.mode,
       interactionRequestId: request.requestId,
       ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
       sessionId: context.sessionId,
@@ -277,6 +336,7 @@ export class SparkDaemonHumanInteractionBroker {
         type: question.type,
         prompt: question.prompt,
         required: question.required,
+        ...(question.defaultValues.length > 0 ? { defaultValues: question.defaultValues } : {}),
         ...(question.options.length > 0
           ? {
               options: question.options.map((option) => ({
@@ -317,11 +377,14 @@ export class SparkDaemonHumanInteractionBroker {
             interactionRequestId: request.requestId,
             sessionId: context.sessionId,
             invocationId,
-            workspaceBindingId: route?.workspaceBindingId ?? context.workspaceBindingId,
-            workspaceId: route?.workspaceId ?? context.workspaceId,
-            projectId: context.projectId,
+            workspaceBindingId: context.channel
+              ? undefined
+              : (route?.workspaceBindingId ?? context.workspaceBindingId),
+            workspaceId: context.channel ? undefined : (route?.workspaceId ?? context.workspaceId),
+            projectId: context.channel ? undefined : context.projectId,
             toolCallId,
             delivery,
+            mode: durable.ask.mode,
             ...(durable.ask.evidenceRequest
               ? { evidenceRequest: durable.ask.evidenceRequest }
               : {}),
@@ -331,12 +394,45 @@ export class SparkDaemonHumanInteractionBroker {
             questions: payload.questions,
             context: contextPayload,
             contextArtifactRefs: [],
+            respondent: sessionAddressed
+              ? { kind: "session", sessionId: toSessionId! }
+              : { kind: "user" },
           },
           envelope ? { messageId, kind: "human.request.created", envelope } : undefined,
         );
 
+    if (sessionAddressed && this.options.deliverSessionAsk) {
+      try {
+        await this.options.deliverSessionAsk({
+          fromSessionId: context.sessionId,
+          toSessionId: toSessionId!,
+          humanRequestId: registration.wait.humanRequestId,
+          interactionRequestId: request.requestId,
+          title: durable.ask.title ?? "",
+          prompt,
+          parentInvocationId: context.invocationId,
+        });
+      } catch (error) {
+        console.error("[spark-daemon] session ask delivery failed", error);
+        if (registration.wait.status === "pending") {
+          await this.respond(registration.wait, {
+            status: "cancelled",
+            provenance: "system",
+            answers: {},
+            responseArtifactRefs: [],
+          }).catch((cancelError: unknown) => {
+            console.error("[spark-daemon] failed to cancel undelivered session ask", cancelError);
+          });
+        }
+        return createBlockedInteractionResponse(
+          request,
+          "Daemon could not deliver the session ask.",
+        );
+      }
+    }
+
     if (registration.created && envelope) await Promise.resolve(this.options.onOutboxReady?.());
-    if (registration.created && this.options.onRequestOpened) {
+    if (registration.created && !sessionAddressed && this.options.onRequestOpened) {
       try {
         await this.options.onRequestOpened({
           wait: registration.wait,
@@ -521,11 +617,8 @@ function resolveHumanInteractionRoute(
   db: DatabaseSync,
   context: SparkDaemonHumanInteractionContext,
 ): SparkDaemonHumanInteractionRoute | null {
-  // Channel ingress already carries the authoritative server workspace id.
-  // Do not let a daemon-local task workspace reference shadow that route.
-  if (context.channel?.workspaceId) {
-    return findUniqueServerRoute(db, { serverWorkspaceId: context.channel.workspaceId });
-  }
+  // Daemon-global Channel interactions deliberately have no Workspace route.
+  if (context.channel) return null;
 
   const localReference = context.workspaceBindingId ?? context.workspaceId;
   const localRoute = localReference ? findLocalWorkspaceRoute(db, localReference) : null;

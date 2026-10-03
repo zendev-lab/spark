@@ -1,37 +1,25 @@
 import {
   listHubWorkspaceDelegations,
-  listHubWorkspaceDelegationsForWorkspaceMember,
   listHubWorkspaceDelegationMessages,
   listHubWorkspaces,
 } from "@zendev-lab/spark-hub-coordination";
 import { getDatabase } from "$lib/server/db";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ locals }) => {
+// The global delegations ledger is a control-plane surface: remote member
+// sessions are rejected by the request hook before this load runs.
+export const load: PageServerLoad = () => {
   const db = getDatabase();
-  const authorizedWorkspaceId = locals.workspaceId ?? null;
-  const delegations = authorizedWorkspaceId
-    ? listHubWorkspaceDelegationsForWorkspaceMember(db, authorizedWorkspaceId)
-    : listHubWorkspaceDelegations(db);
-  const visibleWorkspaceIds = new Set(
-    delegations.flatMap((delegation) => [
-      delegation.request.sourceWorkspaceId,
-      delegation.request.targetWorkspaceId,
-    ]),
-  );
+  const delegations = listHubWorkspaceDelegations(db);
   return {
-    authorizedWorkspaceId,
-    workspaces: listHubWorkspaces(db).filter(
-      (workspace) => !authorizedWorkspaceId || visibleWorkspaceIds.has(workspace.id),
-    ),
+    authorizedWorkspaceId: null,
+    workspaces: listHubWorkspaces(db),
     delegations,
-    audits: authorizedWorkspaceId
-      ? {}
-      : Object.fromEntries(
-          delegations.map((delegation) => [
-            delegation.request.delegationId,
-            listHubWorkspaceDelegationMessages(db, delegation.request.delegationId),
-          ]),
-        ),
+    audits: Object.fromEntries(
+      delegations.map((delegation) => [
+        delegation.request.delegationId,
+        listHubWorkspaceDelegationMessages(db, delegation.request.delegationId),
+      ]),
+    ),
   };
 };

@@ -9,7 +9,6 @@
   } from "$lib/console-nav";
   import HubShell from "$lib/shell/HubShell.svelte";
   import type { HubSearchSession } from "$lib/shell/hub-search";
-  import { workspaceSwitcherHrefForPage } from "$lib/workbench-nav";
   import { workspacePath } from "$lib/workspace-routes";
 
   let { data, children } = $props();
@@ -42,6 +41,9 @@
       includeControlPlaneNav: data.hasControlPlaneAccess,
       includeWorkspaceNav: hasActiveWorkspace,
       includeDaemonNav: data.hasControlPlaneAccess && hasActiveWorkspace,
+      // Workspace and daemon are unified: daemon settings appear inside the
+      // active workspace group instead of a separate Daemon group.
+      mergeDaemonIntoWorkspace: true,
       nav: navLabels,
       groups: {
         hub: consoleMessages.navGroups.hub,
@@ -57,9 +59,6 @@
     return isConsoleNavItemActive({ pathname: page.url.pathname, href });
   }
 
-  let workspaceSwitcherHref = $derived(
-    workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
-  );
 </script>
 
 {#snippet navigation(closeNavigation: () => void)}
@@ -103,11 +102,13 @@
 
 <HubShell
   activeWorkspace={isControlPlane ? null : data.activeWorkspace}
+  canManageDaemonAccess={data.hasControlPlaneAccess}
   {children}
-  closeNavigationLabel={t.aria.closeWorkspaceNavigation}
+  closeNavigationLabel={t.aria.closeNavigation}
   common={data.messages.common}
   contentMode="padded"
   {contextBar}
+  daemons={data.daemons ?? []}
   layout={t}
   {navigation}
   navigationAriaLabel={consoleMessages.ariaNavigation}
@@ -116,8 +117,7 @@
   pathname={page.url.pathname}
   sessions={searchSessions}
   sessionMessages={data.messages.sessions}
-  showWorkspaceMenu={!isControlPlane}
-  workspaceHref={workspaceSwitcherHref}
+  showDaemonMenu={true}
   workspaces={workspaceOptions}
 />
 

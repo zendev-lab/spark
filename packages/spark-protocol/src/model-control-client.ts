@@ -2,9 +2,11 @@ import {
   parseSparkAuthFlow,
   parseSparkAuthImportReport,
   parseSparkModelControlSnapshot,
+  requireSparkEnabledModelsWriteIntent,
   sparkThinkingLevelOptions,
   type SparkAuthFlow,
   type SparkAuthImportReport,
+  type SparkEnabledModelsWriteIntent,
   type SparkModelControlSnapshot,
   type SparkModelRef,
   type SparkThinkingLevel,
@@ -23,7 +25,10 @@ export interface SparkModelControlClient {
   setSessionModel(model: SparkModelRef): Promise<SparkSessionProjection>;
   setSessionThinkingLevel(thinkingLevel: SparkThinkingLevel): Promise<SparkSessionProjection>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
-  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot>;
   setApiKey(
     providerName: string,
     apiKey: string,
@@ -86,8 +91,13 @@ export function createSparkModelControlClient(
     },
     setDefaultModel: async (model) =>
       parseSparkModelControlSnapshot(await transport("model.default.set", { model })),
-    setEnabledModels: async (models) =>
-      parseSparkModelControlSnapshot(await transport("model.enabled.set", { models })),
+    setEnabledModels: async (models, intent) =>
+      parseSparkModelControlSnapshot(
+        await transport("model.enabled.set", {
+          models,
+          intent: requireSparkEnabledModelsWriteIntent(intent),
+        }),
+      ),
     setApiKey: async (providerName, apiKey, extra) =>
       parseSparkModelControlSnapshot(
         await transport("provider.auth.api-key.set", { providerName, apiKey, ...extra }),

@@ -4,10 +4,10 @@ import type { SparkActionView } from "@zendev-lab/spark-protocol";
 import { slashActionAvailability, type SlashAvailabilityContext } from "./slash-availability";
 
 const fleetAction: SparkActionView = {
-  id: "enter-fleet",
-  label: "Enter Fleet",
-  intent: "mode.select",
-  payload: { mode: "fleet" },
+  id: "run-fleet",
+  label: "Run /fleet",
+  intent: "directive.run",
+  payload: { directive: "fleet" },
 };
 
 function context(

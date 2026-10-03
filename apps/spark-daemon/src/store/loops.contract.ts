@@ -100,7 +100,7 @@ export function runSparkLoopStoreContract(
           ownerSessionId: "owner",
           binding: { reproId: "repro-1" },
           cwd: "/workspace",
-          prompt: "repro tick",
+          prompt: "driver tick",
         });
         expect(harness.loops.require("goal-loop").status).toBe("stopped");
         expect(harness.loops.require("repro-loop").status).toBe("scheduled");

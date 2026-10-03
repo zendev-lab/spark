@@ -3,16 +3,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { getRuntimeSessionProjection } from "@zendev-lab/spark-hub-coordination/runtime-session-control";
 import {
   normalizeSparkA2uiDocument,
-  sparkWorkbenchActionRequestSchema,
-  type SparkLoopMutationResult,
   type SparkSessionReproWorkView,
-  type SparkWorkbenchActionRequest,
 } from "@zendev-lab/spark-protocol";
-
-import {
-  createHubRuntimeSessionClient,
-  type HubRuntimeSessionClient,
-} from "./hub-runtime-session-client.ts";
 
 export type HubReproWorkbenchBinding = NonNullable<SparkSessionReproWorkView["workbench"]>;
 
@@ -78,53 +70,6 @@ export function loadProjectedReproWorkbench(
   return { status: "ready", binding, artifactId: row.id, content };
 }
 
-export async function controlReproWorkbenchForHub(
-  input: { db: DatabaseSync; sessionId: string; action: unknown },
-  client: Pick<
-    HubRuntimeSessionClient,
-    "controlWorkbench" | "snapshot"
-  > = createHubRuntimeSessionClient(input.db),
-): Promise<SparkLoopMutationResult> {
-  const action = sparkWorkbenchActionRequestSchema.parse(input.action);
-  const projected = loadProjectedReproWorkbench(input.db, input.sessionId);
-  if (projected.status !== "ready" || projected.binding.lifecycle !== "live") {
-    throw new ReproWorkbenchControlError(
-      projected.status === "absent" ? "workbench_not_found" : "workbench_stale",
-      "The trusted live Repro Workbench is unavailable or has changed.",
-    );
-  }
-  const context = action.action.context;
-  const binding = projected.binding;
-  if (
-    context.artifactRef !== binding.artifactRef ||
-    context.revision !== binding.revision ||
-    context.loopId !== binding.loopId ||
-    context.generation !== binding.generation
-  ) {
-    throw new ReproWorkbenchControlError(
-      "workbench_stale",
-      "The Workbench action revision or Loop generation is stale.",
-    );
-  }
-  const result = await client.controlWorkbench(input.sessionId, action);
-  try {
-    await client.snapshot(input.sessionId, { timeoutMs: 5_000 });
-  } catch {
-    // The mutation receipt is authoritative. Projection refresh can recover via SSE/reload.
-  }
-  return result;
-}
-
-export class ReproWorkbenchControlError extends Error {
-  constructor(
-    readonly code: "workbench_not_found" | "workbench_stale",
-    message: string,
-  ) {
-    super(message);
-    this.name = "ReproWorkbenchControlError";
-  }
-}
-
 function workbenchDocumentMatches(
   content: string,
   reproId: string,
@@ -137,13 +82,11 @@ function workbenchDocumentMatches(
   if (!surface || !isRecord(surface.dataModel)) return false;
   const model = surface.dataModel;
   return (
-    model.schema === "spark.repro.workbench/v1" &&
+    model.schema === "spark.repro.workbench/v2" &&
     model.reproId === reproId &&
     model.artifactRef === binding.artifactRef &&
     model.revision === binding.revision &&
-    model.lifecycle === binding.lifecycle &&
-    model.loopId === binding.loopId &&
-    model.generation === binding.generation
+    model.lifecycle === binding.lifecycle
   );
 }
 
@@ -163,5 +106,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/gu, "-");
 }
-
-export type { SparkWorkbenchActionRequest };

@@ -1,0 +1,57 @@
+name: Policy - PR
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+  merge_group:
+    types:
+      - checks_requested
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: policy-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-message:
+    name: PR message
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+
+      - name: Check PR title
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        uses: zendev-lab/zendev/actions/validate-title@8f336868ce2cd685cfa8c62882acefc3acbb4ead
+        with:
+          text: ${{ github.event.pull_request.title }}
+          profile: zendev
+
+      - name: Check PR body
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        uses: zendev-lab/zendev/actions/validate-body@6add4d100898f7a1a3c7643a5ca15051a0088e43 # v0.3.0
+        with:
+          body: ${{ github.event.pull_request.body }}
+
+      - name: Skip PR message checks for Renovate
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login == 'renovate[bot]'
+        run: echo "Renovate PRs are exempt from the repository title and description conventions."
+
+      - name: Confirm queued PR messages were already checked
+        if: github.event_name == 'merge_group'
+        run: echo "PR message checks passed before entering the merge queue."

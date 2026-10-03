@@ -7,7 +7,7 @@ import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
   type ExtensionRoleRunResult,
   type ExtensionRoleRunner,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   createRoleNativeExecutorResolver,
   isRoleNativeExecutorCompatibilityFailure,

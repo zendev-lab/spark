@@ -1,16 +1,16 @@
-import { defineConfig } from "vitest/config";
+import { resolve } from "node:path";
 
-const includeReproRecovery = process.env.SPARK_INCLUDE_REPRO_RECOVERY === "1";
+import { defineConfig } from "vitest/config";
 
 /** Real-process source-distribution contracts. Keep separate from unit/integration tests. */
 export default defineConfig({
   test: {
     environment: "node",
     include: ["test/process/**/*.test.ts"],
-    exclude: includeReproRecovery ? [] : ["test/process/repro-golden-journey-recovery.test.ts"],
     pool: "forks",
     fileParallelism: false,
     maxWorkers: 1,
+    setupFiles: [resolve(import.meta.dirname, "test/support/hermetic-env.ts")],
     testTimeout: 180_000,
     hookTimeout: 180_000,
   },

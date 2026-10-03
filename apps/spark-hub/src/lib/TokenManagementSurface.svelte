@@ -22,6 +22,8 @@
     emptyTitle,
     emptyBody,
     hasTokens,
+    submitDisabled = false,
+    fields,
     created,
     tokens,
   }: {
@@ -41,6 +43,8 @@
     emptyTitle: string;
     emptyBody: string;
     hasTokens: boolean;
+    submitDisabled?: boolean;
+    fields?: Snippet;
     created?: Snippet;
     tokens: Snippet;
     children?: Snippet;
@@ -72,10 +76,15 @@
       };
     }}
   >
-    <Field id={fieldId} label={fieldLabel} reserveMeta={false}>
-      <Input id={fieldId} name="label" placeholder={fieldPlaceholder} />
-    </Field>
-    <Button type="submit" loading={submitting}>
+    <div class="token-fields">
+      <Field id={fieldId} label={fieldLabel} reserveMeta={false}>
+        <Input id={fieldId} name="label" placeholder={fieldPlaceholder} />
+      </Field>
+      {#if fields}
+        {@render fields()}
+      {/if}
+    </div>
+    <Button type="submit" loading={submitting} disabled={submitDisabled}>
       <Icon name="plus" size={16} stroke={2.4} />
       <span>{submitLabel}</span>
     </Button>
@@ -158,6 +167,12 @@
     display: grid;
     gap: 12px;
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .token-fields {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
   }
 
   .token-table {

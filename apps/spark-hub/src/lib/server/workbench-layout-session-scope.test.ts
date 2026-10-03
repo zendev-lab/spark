@@ -48,6 +48,23 @@ const cachedSession = {
   updatedAt: "2026-07-16T00:00:00.000Z",
 };
 
+const channelSession = {
+  ...cachedSession,
+  sessionId: "sess_qq_channel",
+  title: "QQ private conversation",
+  bindings: [{ adapter: "qqbot", externalKey: "qqbot:c2c:test" }],
+  createdAt: "2026-08-15T14:58:29.821Z",
+  updatedAt: "2026-08-15T14:58:29.821Z",
+};
+
+function testUrl(value: string) {
+  try {
+    return new URL(value);
+  } catch (error) {
+    throw new Error(`Invalid test URL: ${value}`, { cause: error });
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getProjected.mockReturnValue(cachedSession);
@@ -65,13 +82,15 @@ beforeEach(() => {
     controlAvailable: false,
     sessions: [cachedSession],
   });
-  mocks.conversationSummaries.mockImplementation((_db, sessions) => sessions);
+  mocks.conversationSummaries.mockImplementation(
+    (_db: unknown, sessions: (typeof cachedSession)[]) => sessions,
+  );
   mocks.pendingAsk.mockReturnValue(null);
 });
 
 describe("workbench session layout scope", () => {
   it("resolves legacy detail through the generic session scope without a route-id branch", async () => {
-    const url = new URL("http://localhost:5173/sessions/sess_cached");
+    const url = testUrl("http://localhost:5173/sessions/sess_cached");
     const result = await load({
       cookies: {},
       url,
@@ -102,7 +121,7 @@ describe("workbench session layout scope", () => {
   });
 
   it("loads the session rail from workspaceId without depending on the session path", async () => {
-    const url = new URL("http://localhost:5173/cached/sessions/sess_cached?archived=1");
+    const url = testUrl("http://localhost:5173/cached/sessions/sess_cached?archived=1");
     const result = await load({
       cookies: {},
       url,
@@ -127,10 +146,63 @@ describe("workbench session layout scope", () => {
     });
   });
 
-  it("falls back to live session.list only when the projection is empty", async () => {
+  it("reconciles a connected non-empty rail so channel-created sessions become visible", async () => {
     mocks.projectedList.mockReturnValue({
       available: true,
-      controlAvailable: false,
+      controlAvailable: true,
+      sessions: [cachedSession],
+    });
+    mocks.list.mockResolvedValue({
+      available: true,
+      controlAvailable: true,
+      sessions: [cachedSession, channelSession],
+    });
+    const url = testUrl("http://localhost:5173/cached");
+
+    const result = await load({
+      cookies: {},
+      locals: { workspaceId: workspace.id },
+      url,
+      params: { workspaceId: "cached" },
+      route: { id: "/(workbench)/[workspaceId]" },
+    } as never);
+
+    expect(mocks.list).toHaveBeenCalledWith({
+      scope: { kind: "workspace", workspaceId: workspace.id },
+      includeArchived: true,
+      related: true,
+      timeoutMs: 800,
+    });
+    expect(result).toMatchObject({
+      sessions: [cachedSession, channelSession],
+      sessionControlAvailable: true,
+    });
+
+    mocks.projectedList.mockReturnValue({
+      available: true,
+      controlAvailable: true,
+      sessions: [cachedSession, channelSession],
+    });
+    mocks.list.mockClear();
+    const cachedResult = await load({
+      cookies: {},
+      locals: { workspaceId: workspace.id },
+      url: testUrl("http://localhost:5173/cached/sessions/sess_qq_channel"),
+      params: { workspaceId: "cached", sessionId: channelSession.sessionId },
+      route: { id: "/(workbench)/[workspaceId]/sessions/[sessionId]" },
+    } as never);
+
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(cachedResult).toMatchObject({
+      sessions: [cachedSession, channelSession],
+      sessionControlAvailable: true,
+    });
+  });
+
+  it("falls back to live session.list when the connected projection is empty", async () => {
+    mocks.projectedList.mockReturnValue({
+      available: true,
+      controlAvailable: true,
       sessions: [],
     });
     mocks.list.mockResolvedValue({
@@ -138,7 +210,7 @@ describe("workbench session layout scope", () => {
       controlAvailable: true,
       sessions: [cachedSession],
     });
-    const url = new URL("http://localhost:5173/sessions/sess_cached");
+    const url = testUrl("http://localhost:5173/sessions/sess_cached");
 
     const result = await load({
       cookies: {},

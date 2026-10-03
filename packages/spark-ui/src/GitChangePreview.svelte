@@ -91,11 +91,19 @@
               {/if}
             </div>
 
-            {#if pullRequest.labels?.length || pullRequest.checksSummary}
+            {#if pullRequest.labels?.length || pullRequest.checksSummary || pullRequest.checksVerdict || pullRequest.mergeable !== undefined}
               <div class="pr-facts">
                 {#each pullRequest.labels ?? [] as label}<span class="label">{label}</span>{/each}
+                {#if pullRequest.checksVerdict}
+                  <span class="checks"><small>{labels.checks}</small><b class="status {statusTone(pullRequest.checksVerdict)}">{pullRequest.checksVerdict}</b></span>
+                {/if}
                 {#if pullRequest.checksSummary}
                   <span class="checks"><small>{labels.checks}</small><b class="status {statusTone(pullRequest.checksSummary)}">{pullRequest.checksSummary}</b></span>
+                {/if}
+                {#if pullRequest.mergeable === false}
+                  <span class="badge danger">{labels.conflict}</span>
+                {:else if pullRequest.mergeable === true}
+                  <span class="badge success">{labels.mergeable}</span>
                 {/if}
               </div>
             {/if}

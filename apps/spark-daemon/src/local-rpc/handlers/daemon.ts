@@ -1,5 +1,7 @@
+import { SparkDaemonBrowserSessionStore } from "../../store/daemon-browser-sessions.ts";
 import { SparkInvocationStore } from "../../store/invocations.ts";
 import { SparkChannelDeliveryStore } from "../../store/channel-deliveries.ts";
+import { SparkDaemonUserTokenStore } from "../../store/daemon-user-tokens.ts";
 import { sparkDaemonServerStatusSummaries } from "../../store/workspaces.js";
 import { SparkDaemonControlError } from "../../control-error.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
@@ -7,7 +9,17 @@ import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts"
 
 type DaemonRequest = Extract<
   LocalRpcServiceRequest,
-  { method: "daemon.status" | "daemon.stop" | "daemon.restart" }
+  {
+    method:
+      | "daemon.status"
+      | "daemon.stop"
+      | "daemon.restart"
+      | "daemon.access.create"
+      | "daemon.access.list"
+      | "daemon.access.revoke"
+      | "daemon.access.verify"
+      | "daemon.access.session";
+  }
 >;
 
 export async function handleDaemonRequest(
@@ -16,6 +28,39 @@ export async function handleDaemonRequest(
 ): Promise<LocalRpcServiceOutput<DaemonRequest>> {
   const { db, onStop, options } = ctx;
   switch (request.method) {
+    case "daemon.access.create": {
+      const store = new SparkDaemonUserTokenStore(db);
+      const created = store.create({
+        ...(request.params.label !== undefined ? { label: request.params.label } : {}),
+        ...(request.params.expiresAt !== undefined ? { expiresAt: request.params.expiresAt } : {}),
+      });
+      return created;
+    }
+    case "daemon.access.list": {
+      return {
+        tokens: [
+          ...new SparkDaemonUserTokenStore(db).list(),
+          ...new SparkDaemonBrowserSessionStore(db).list(),
+        ],
+      };
+    }
+    case "daemon.access.revoke": {
+      const revoked =
+        new SparkDaemonUserTokenStore(db).revoke(request.params.id) ||
+        new SparkDaemonBrowserSessionStore(db).revoke(request.params.id);
+      return { id: request.params.id, revoked };
+    }
+    case "daemon.access.session": {
+      const store = new SparkDaemonBrowserSessionStore(db);
+      const { action, token } = request.params;
+      if (action === "verify") return { valid: store.verify(token) };
+      const session = action === "exchange" ? store.exchange(token) : store.refresh(token);
+      return session ? { valid: true, session } : { valid: false };
+    }
+    case "daemon.access.verify": {
+      const record = new SparkDaemonUserTokenStore(db).verify(request.params.token);
+      return { valid: record !== undefined };
+    }
     case "daemon.status": {
       const store = new SparkInvocationStore(db);
       const oldestActive = store.oldestActive();

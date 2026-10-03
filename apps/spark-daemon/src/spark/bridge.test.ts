@@ -7,7 +7,7 @@ import {
   runtimeProtocolVersion,
   serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { SparkInvocationStore } from "../store/invocations.js";
 import { openSparkDaemonDatabase } from "../store/schema.js";
 import { addWorkspace } from "../store/workspaces.js";

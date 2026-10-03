@@ -328,7 +328,7 @@ export const sparkAgentToolCallStartedTraceEventSchema = childEventSchema
     modelOrigin: sparkAgentToolModelOriginSchema.optional(),
     effect: sparkAgentToolEffectSchema,
     executionMode: z.enum(["parallel", "sequential", "unknown"]),
-    approval: z.enum(["none", "required", "unknown"]),
+    approval: z.enum(["none", "manual_only", "required", "unknown"]),
     argumentFingerprint: sparkAgentArgumentFingerprintSchema.optional(),
     argumentBytes: z.number().int().nonnegative().optional(),
     parallelBatchId: idSchema.optional(),

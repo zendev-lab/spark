@@ -19,7 +19,7 @@ import {
   type ProviderVersion,
 } from "@zendev-lab/spark-lens";
 
-export interface DiscoveredLensExecutable {
+interface DiscoveredLensExecutable {
   providerId: ProviderId;
   command: string;
   source: "project_local" | "system";
@@ -28,7 +28,7 @@ export interface DiscoveredLensExecutable {
   role: string;
 }
 
-export interface MissingLensExecutable {
+interface MissingLensExecutable {
   providerId: ProviderId;
   role: string;
   available: false;
@@ -91,7 +91,7 @@ async function discoverExecutable(
 ): Promise<{ command: string; source: "project_local" | "system" } | undefined> {
   for (const name of names) {
     for (const candidate of [
-      join(resolve(workspaceRoot), ".venv", process.platform === "win32" ? "Scripts" : "bin", name),
+      join(resolve(workspaceRoot), ".venv", "bin", name),
       join(resolve(workspaceRoot), "node_modules", ".bin", name),
     ]) {
       if (await isExecutable(candidate)) return { command: candidate, source: "project_local" };

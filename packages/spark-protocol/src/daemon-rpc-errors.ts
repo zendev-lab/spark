@@ -31,10 +31,6 @@ export const sparkLoopRpcErrorCodeOptions = [
   "loop_not_found",
   "loop_schedule_invalid",
   "loop_generation_conflict",
-  "workbench_binding_not_found",
-  "workbench_action_stale",
-  "workbench_action_untrusted",
-  "workbench_action_conflict",
 ] as const;
 
 export const sparkInvocationRpcErrorCodeOptions = [
@@ -51,6 +47,7 @@ export const sparkModelRpcErrorCodeOptions = [
   "role_model_type_unconfigured",
   "model_not_found",
   "model_not_enabled",
+  "enabled_models_intent_required",
   "model_unavailable",
   "provider_not_found",
   "provider_auth_method_unsupported",
@@ -59,6 +56,8 @@ export const sparkModelRpcErrorCodeOptions = [
   "provider_oauth_prompt_conflict",
   "provider_oauth_response_invalid",
 ] as const;
+
+export const sparkRoleRpcErrorCodeOptions = ["role_not_found"] as const;
 
 export const sparkUplinkRpcErrorCodeOptions = [
   "uplink_url_invalid",
@@ -110,6 +109,7 @@ export const sparkTaskClaimRpcErrorCodeOptions = [
 export const sparkHumanRpcErrorCodeOptions = [
   "human_interaction_not_found",
   "human_interaction_ambiguous",
+  "human_interaction_forbidden",
   "human_wait_registry_unavailable",
   "human_interaction_responder_unavailable",
 ] as const;
@@ -128,6 +128,7 @@ export const sparkDaemonRpcDomainErrorCodeOptions = [
   ...sparkLoopRpcErrorCodeOptions,
   ...sparkInvocationRpcErrorCodeOptions,
   ...sparkModelRpcErrorCodeOptions,
+  ...sparkRoleRpcErrorCodeOptions,
   ...sparkUplinkRpcErrorCodeOptions,
   ...sparkWorkspaceRpcErrorCodeOptions,
   ...sparkTaskClaimRpcErrorCodeOptions,
@@ -143,6 +144,7 @@ export type SparkChannelRpcErrorCode = (typeof sparkChannelRpcErrorCodeOptions)[
 export type SparkLoopRpcErrorCode = (typeof sparkLoopRpcErrorCodeOptions)[number];
 export type SparkInvocationRpcErrorCode = (typeof sparkInvocationRpcErrorCodeOptions)[number];
 export type SparkModelRpcErrorCode = (typeof sparkModelRpcErrorCodeOptions)[number];
+export type SparkRoleRpcErrorCode = (typeof sparkRoleRpcErrorCodeOptions)[number];
 export type SparkUplinkRpcErrorCode = (typeof sparkUplinkRpcErrorCodeOptions)[number];
 export type SparkWorkspaceRpcErrorCode = (typeof sparkWorkspaceRpcErrorCodeOptions)[number];
 export type SparkTaskClaimRpcErrorCode = (typeof sparkTaskClaimRpcErrorCodeOptions)[number];

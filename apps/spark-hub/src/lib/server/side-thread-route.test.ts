@@ -67,7 +67,6 @@ describe("side thread route", () => {
     });
 
     const response = await GET({
-      locals: { workspaceId: "ws_current" },
       params: { sessionId: parent.sessionId },
       url: new URL("http://localhost/api/v1/sessions/sess_workspace/side-thread?limit=8"),
     } as never);
@@ -92,19 +91,19 @@ describe("side thread route", () => {
     await expect(response.json()).resolves.toEqual({ error: "side_thread_not_found" });
   });
 
-  it("does not expose a parent from another workspace", async () => {
+  it("returns 404 when the parent session has no workspace scope", async () => {
     mocks.get.mockResolvedValue({
       ...parent,
-      scope: { kind: "workspace", workspaceId: "ws_foreign" },
+      scope: { kind: "global" },
     });
 
     const response = await GET({
-      locals: { workspaceId: "ws_current" },
       params: { sessionId: parent.sessionId },
       url: new URL("http://localhost/api/v1/sessions/sess_workspace/side-thread"),
     } as never);
 
     expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "session_not_found" });
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 

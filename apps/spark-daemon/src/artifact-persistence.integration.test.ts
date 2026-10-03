@@ -9,7 +9,7 @@ import {
   runtimeProtocolVersion,
   sparkArtifactProjectionSchema,
 } from "@zendev-lab/spark-protocol";
-import { migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { readArtifactPreviewContent } from "@zendev-lab/spark-hub-coordination/artifact-cache";
 import {
   createProject,

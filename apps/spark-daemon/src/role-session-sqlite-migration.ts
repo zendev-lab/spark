@@ -3,9 +3,12 @@ import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { DatabaseSync, StatementResultingChanges } from "node:sqlite";
 
-import { contentHash, nowIso, writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import { contentHash, nowIso } from "@zendev-lab/spark-invocation";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 
 import { rewriteStructuredRoleRefs } from "./role-session-data-migration.ts";
+
+import { errorMessage } from "./text.ts";
 
 interface SqliteMigrationMutation {
   table: string;
@@ -268,8 +271,4 @@ function sqlString(value: string): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

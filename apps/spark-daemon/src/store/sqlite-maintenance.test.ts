@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openSqliteDatabase, resolveSparkPaths } from "@zendev-lab/spark-system";
+import { openSqliteDatabase, resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { describe, expect, it } from "vitest";
 import { openSparkDaemonDatabase } from "./schema.ts";
 import {

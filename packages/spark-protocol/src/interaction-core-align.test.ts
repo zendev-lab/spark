@@ -3,9 +3,9 @@ import type {
   ExtensionInteractionCapabilities,
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
-  TaskStatus,
-} from "@zendev-lab/spark-core";
-import { TASK_STATUSES } from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
+import { type TaskStatus } from "@zendev-lab/spark-tasks";
+import { TASK_STATUSES } from "@zendev-lab/spark-tasks";
 import {
   sparkInteractionRequestSchema,
   sparkAskAcknowledgementSchema,
@@ -21,7 +21,7 @@ import {
 
 /**
  * Compile-time assignability: protocol wire types must remain assignable to the
- * spark-core ExtensionUi interaction contract (and task status enum stays shared).
+ * spark-invocation ExtensionUi interaction contract (and task status enum stays shared).
  */
 type AssertAssignable<Source, Target> = Source extends Target ? true : false;
 

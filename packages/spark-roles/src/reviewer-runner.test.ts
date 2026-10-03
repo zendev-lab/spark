@@ -497,14 +497,14 @@ test("reviewer verdict parser reports missing verdict objects clearly", () => {
   );
 });
 
-test("reviewer thinking cap defaults to medium without raising lower host settings", () => {
-  assert.equal(capReviewerThinkingLevel(undefined), "medium");
+test("reviewer thinking cap defaults to high without raising lower host settings", () => {
+  assert.equal(capReviewerThinkingLevel(undefined), "high");
   assert.equal(capReviewerThinkingLevel("off"), "off");
   assert.equal(capReviewerThinkingLevel("minimal"), "minimal");
   assert.equal(capReviewerThinkingLevel("low"), "low");
   assert.equal(capReviewerThinkingLevel("medium"), "medium");
-  assert.equal(capReviewerThinkingLevel("high"), "medium");
-  assert.equal(capReviewerThinkingLevel("xhigh"), "medium");
+  assert.equal(capReviewerThinkingLevel("high"), "high");
+  assert.equal(capReviewerThinkingLevel("xhigh"), "high");
 });
 
 function approvedReviewerNativeExecutor(
@@ -795,13 +795,13 @@ test("SparkRolesReviewerRunner resolves reviewer model from role model settings"
     assert.equal(captured?.role.modelType, "verification");
     assert.equal(captured?.role.source, "builtin");
     assert.match(captured?.role.revision ?? "", /^sha256:[a-f0-9]{64}$/u);
-    assert.equal(result.record.thinking, "medium");
+    assert.equal(result.record.thinking, "high");
     const tools = captured?.role.allowedTools ?? [];
     assert.ok(tools.includes("read"));
     assert.ok(tools.includes("grep"));
     assert.ok(tools.includes("find"));
     assert.equal(tools.includes("web_search"), false);
-    assert.equal(tools.includes("fetch_content"), false);
+    assert.equal(tools.includes("web_fetch"), false);
     assert.equal(tools.includes("get_search_content"), false);
     assert.equal(tools.includes("cue_exec"), false);
     assert.equal(tools.includes("script_eval"), false);
@@ -1056,7 +1056,7 @@ test("SparkRolesReviewerRunner runs reviewer gates in fresh mode even with paren
     assert.ok(tools.includes("grep"));
     assert.ok(tools.includes("find"));
     assert.equal(tools.includes("web_search"), false);
-    assert.equal(tools.includes("fetch_content"), false);
+    assert.equal(tools.includes("web_fetch"), false);
     assert.equal(tools.includes("get_search_content"), false);
     assert.equal(tools.includes("cue_exec"), false);
     assert.equal(tools.includes("script_eval"), false);

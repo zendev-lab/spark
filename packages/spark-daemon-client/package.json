@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-daemon-client",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Protocol-aware local client transport for the Spark daemon.",
   "files": [
@@ -11,9 +11,7 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./local-rpc": "./src/daemon-local-rpc.ts",
-    "./orpc": "./src/daemon-local-rpc-orpc.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -21,14 +19,11 @@
   },
   "dependencies": {
     "@orpc/client": "catalog:",
-    "@zendev-lab/spark-protocol": "workspace:^",
-    "@zendev-lab/spark-system": "workspace:^"
+    "@zendev-lab/spark-platform-node": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^"
   },
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=26.0.0 <27"
   }
 }

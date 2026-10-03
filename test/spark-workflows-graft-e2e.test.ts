@@ -12,7 +12,7 @@ import {
   SPARK_WORKFLOW_GRAFT_ISOLATION_TOOLS,
   type SparkWorkflowGraftAgentResult,
   type SparkWorkflowRoleRunRequest,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 import {
   registerSparkGraftExtension,
   type SparkGraftHostApi,

@@ -4,7 +4,7 @@ import {
   runtimeProtocolVersion,
   type SparkDaemonDelegationRespondedEvent,
 } from "@zendev-lab/spark-protocol";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createWorkspaceWithLease } from "./projection-services.ts";
 import {
   cancelHubWorkspaceDelegation,
@@ -146,7 +146,7 @@ function deliverySucceeded(
 function responseEvent(
   input: Omit<SparkDaemonDelegationRespondedEvent, "version" | "source" | "metadata">,
 ): SparkDaemonDelegationRespondedEvent {
-  return { version: 2, source: "daemon", metadata: {}, ...input };
+  return { version: 4, source: "daemon", metadata: {}, ...input };
 }
 
 describe("Hub workspace delegations", () => {

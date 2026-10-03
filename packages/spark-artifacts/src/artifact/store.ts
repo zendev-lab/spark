@@ -3,7 +3,14 @@ import { hostname } from "node:os";
 import { access, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
+import {
+  writeJsonFileAtomic,
+  writeTextFileAtomic,
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import {
   asJsonValue,
   isArtifactBody,
@@ -440,8 +447,8 @@ export function newArtifactRef(id: string = randomUUID()): ArtifactRef {
   return `artifact:${id}` as ArtifactRef;
 }
 
-export function defaultArtifactStore(cwd: string): ArtifactStore {
-  return new ArtifactStore({ rootDir: join(cwd, ".spark", "artifacts") });
+export function defaultArtifactStore(cwd: string, ctx?: SparkStateRootContext): ArtifactStore {
+  return new ArtifactStore({ rootDir: sparkWorkspaceStatePath(cwd, ["artifacts"], ctx) });
 }
 
 export function normalizeLegacyArtifactBody(body: LegacyArtifactBody): ArtifactBody {

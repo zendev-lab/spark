@@ -1,4 +1,3 @@
-import { resolveRenamedEnvironmentVariable } from "@zendev-lab/spark-system";
 import type { DatabaseSync } from "node:sqlite";
 import webPush, { type PushSubscription, type RequestOptions } from "web-push";
 import {
@@ -19,9 +18,6 @@ export const webPushSubscriptionSettingKey = "spark_hub:web_push_subscription";
 export const webPushVapidPublicKeyEnv = "SPARK_HUB_VAPID_PUBLIC_KEY";
 export const webPushVapidPrivateKeyEnv = "SPARK_HUB_VAPID_PRIVATE_KEY";
 export const webPushVapidSubjectEnv = "SPARK_HUB_VAPID_SUBJECT";
-const legacyWebPushVapidPublicKeyEnv = "SPARK_COCKPIT_VAPID_PUBLIC_KEY";
-const legacyWebPushVapidPrivateKeyEnv = "SPARK_COCKPIT_VAPID_PRIVATE_KEY";
-const legacyWebPushVapidSubjectEnv = "SPARK_COCKPIT_VAPID_SUBJECT";
 
 export interface WebPushConfig {
   publicKey: string;
@@ -43,23 +39,13 @@ export type WebPushSender = (
 export function loadWebPushConfig(
   env: Record<string, string | undefined> = process.env,
 ): WebPushConfig | null {
-  const publicKey = resolveRenamedEnvironmentVariable(env, {
-    canonical: webPushVapidPublicKeyEnv,
-    legacy: legacyWebPushVapidPublicKeyEnv,
-  });
-  const privateKey = resolveRenamedEnvironmentVariable(env, {
-    canonical: webPushVapidPrivateKeyEnv,
-    legacy: legacyWebPushVapidPrivateKeyEnv,
-  });
+  const publicKey = env[webPushVapidPublicKeyEnv]?.trim();
+  const privateKey = env[webPushVapidPrivateKeyEnv]?.trim();
   if (!publicKey || !privateKey) return null;
   return {
     publicKey,
     privateKey,
-    subject:
-      resolveRenamedEnvironmentVariable(env, {
-        canonical: webPushVapidSubjectEnv,
-        legacy: legacyWebPushVapidSubjectEnv,
-      }) || "mailto:spark-hub@example.invalid",
+    subject: env[webPushVapidSubjectEnv]?.trim() || "mailto:spark-hub@example.invalid",
   };
 }
 

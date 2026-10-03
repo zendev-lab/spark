@@ -22,7 +22,7 @@ export const sparkActionIntentOptions = [
   "queue.inspect",
   "turn.stop",
   "turn.retry",
-  "mode.select",
+  "directive.run",
   "goal.status",
   "goal.start",
   "goal.restart",
@@ -33,7 +33,6 @@ export const sparkActionIntentOptions = [
   "loop.stop",
   "repro.status",
   "repro.start",
-  "repro.restart",
   "repro.stop",
   "workflow.open",
   "workflow.inspect",
@@ -235,19 +234,24 @@ const enabledModelsActionBar = actionBar({
   ],
 });
 
-function modeActionBar(mode: "plan" | "execute" | "fleet", title: string): SparkActionBarView {
+function directiveActionBar(
+  directive: "plan" | "execute" | "fleet",
+  title: string,
+): SparkActionBarView {
   return actionBar({
-    id: `mode-${mode}`,
+    id: `directive-${directive}`,
     title,
-    description: `Enter Spark ${mode} mode for this Session.`,
-    defaultActionId: `enter-${mode}`,
-    actions: [action(`enter-${mode}`, `Enter ${title}`, "mode.select", "primary", { mode })],
+    description: `Run the one-shot /${directive} command for this Session's next turn.`,
+    defaultActionId: `run-${directive}`,
+    actions: [
+      action(`run-${directive}`, `Run /${directive}`, "directive.run", "primary", { directive }),
+    ],
   });
 }
 
-const planModeActionBar = modeActionBar("plan", "Plan");
-const executeModeActionBar = modeActionBar("execute", "Execute");
-const fleetModeActionBar = modeActionBar("fleet", "Fleet");
+const planDirectiveActionBar = directiveActionBar("plan", "Plan");
+const executeDirectiveActionBar = directiveActionBar("execute", "Execute");
+const fleetDirectiveActionBar = directiveActionBar("fleet", "Fleet");
 
 const goalActionBar = lifecycleActionBar("goal", "Goal controls", {
   status: "Inspect goal",
@@ -263,11 +267,15 @@ const loopActionBar = lifecycleActionBar("loop", "Loop controls", {
   stop: "Stop loop",
 });
 
-const reproActionBar = lifecycleActionBar("repro", "Reproduction controls", {
-  status: "Inspect repro",
-  start: "Start repro",
-  restart: "Restart repro",
-  stop: "Stop repro",
+const reproActionBar = actionBar({
+  id: "repro",
+  title: "Reproduction controls",
+  defaultActionId: "repro-status",
+  actions: [
+    action("repro-status", "Inspect repro", "repro.status", "primary"),
+    action("repro-start", "Start repro", "repro.start"),
+    action("repro-stop", "Stop repro", "repro.stop", "danger"),
+  ],
 });
 
 const workflowActionBar = actionBar({
@@ -314,9 +322,9 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("status", statusActionBar),
   slashCommand("queue", queueActionBar),
   slashCommand("enabled-models", enabledModelsActionBar, ["enabled"], ["enabled"]),
-  slashCommand("plan", planModeActionBar),
-  slashCommand("execute", executeModeActionBar),
-  slashCommand("fleet", fleetModeActionBar),
+  slashCommand("plan", planDirectiveActionBar),
+  slashCommand("execute", executeDirectiveActionBar),
+  slashCommand("fleet", fleetDirectiveActionBar),
   slashCommand("goal", goalActionBar),
   slashCommand("loop", loopActionBar),
   slashCommand("repro", reproActionBar),
@@ -409,7 +417,7 @@ function actionBar(input: z.input<typeof sparkActionBarViewSchema>): SparkAction
 }
 
 function lifecycleActionBar(
-  resource: "goal" | "loop" | "repro",
+  resource: "goal" | "loop",
   title: string,
   labels: { status: string; start: string; restart: string; stop: string },
 ): SparkActionBarView {

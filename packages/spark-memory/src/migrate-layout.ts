@@ -13,7 +13,10 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import { resolveSparkUserPaths, type ResolveSparkHomeOptions } from "@zendev-lab/spark-system";
+import {
+  resolveSparkUserPaths,
+  type ResolveSparkHomeOptions,
+} from "@zendev-lab/spark-platform-node";
 
 export type MemoryMigrationStatus = "moved" | "copied" | "merged" | "skipped" | "absent";
 

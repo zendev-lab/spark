@@ -17,6 +17,7 @@ export type TimelineHistoryLoadInput = {
   initialSnapshot: SparkSessionView;
   minimumAnchors: number;
   getCurrentWindow: () => SessionSnapshotWindow | null;
+  snapshotUrl?: (sessionId: string) => string;
 };
 
 export type TimelineHistoryLoadResult = {
@@ -41,6 +42,7 @@ export type LatestSessionTimelineOptions = {
    * they are at least this recent; callers without a fence always revalidate.
    */
   minimumUpdatedAt?: string | null;
+  snapshotUrl?: (sessionId: string) => string;
 };
 
 /** Refresh the canonical transcript tail after the projected first paint. */
@@ -59,10 +61,10 @@ export async function loadLatestSessionTimeline(
 
   const request = (async () => {
     const query = new URLSearchParams({ limit: String(SESSION_SNAPSHOT_PAGE_SIZE) });
-    const response = await fetch(
-      `/api/v1/sessions/${encodeURIComponent(sessionId)}/snapshot?${query}`,
-      { cache: "no-store" },
-    );
+    const snapshotPath =
+      options.snapshotUrl?.(sessionId) ??
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/snapshot`;
+    const response = await fetch(`${snapshotPath}?${query}`, { cache: "no-store" });
     if (!response.ok) return null;
     const window = parseSessionSnapshotWindow(await response.json());
     if (window.snapshot.sessionId !== sessionId || window.history.laterMessages !== 0) return null;
@@ -116,10 +118,10 @@ export async function loadEarlierSessionTimeline(
           limit: String(SESSION_SNAPSHOT_PAGE_SIZE),
           before: cursor,
         });
-        const response = await fetch(
-          `/api/v1/sessions/${encodeURIComponent(sessionId)}/snapshot?${query}`,
-          { cache: "no-store" },
-        );
+        const snapshotPath =
+          input.snapshotUrl?.(sessionId) ??
+          `/api/v1/sessions/${encodeURIComponent(sessionId)}/snapshot`;
+        const response = await fetch(`${snapshotPath}?${query}`, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`session history request failed: ${response.status}`);
         }

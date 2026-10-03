@@ -8,7 +8,7 @@ import {
   createId,
   parseSparkDaemonEvent,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { describe, expect, it } from "vitest";
 
 import { runtimeEnvelopeForInvocationEvent } from "./daemon.ts";

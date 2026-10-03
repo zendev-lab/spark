@@ -1,0 +1,913 @@
+import { describe, expect, it } from "vitest";
+import { openMemoryDatabase } from "./client.js";
+import { ensureHubInstanceId, readHubInstanceId } from "./hub-snapshot.js";
+import { loadMigrations, migrate } from "./migrate.js";
+
+function tableExists(db: ReturnType<typeof openMemoryDatabase>, table: string) {
+  return db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as { name: string } | undefined;
+}
+
+function relationType(db: ReturnType<typeof openMemoryDatabase>, relation: string) {
+  return db.prepare("SELECT type FROM sqlite_master WHERE name = ?").get(relation) as
+    | { type: "table" | "view" }
+    | undefined;
+}
+
+function indexExists(db: ReturnType<typeof openMemoryDatabase>, index: string) {
+  return db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+    .get(index) as { name: string } | undefined;
+}
+
+describe("migrations", () => {
+  it("applies the MVP projection schema to an empty database", () => {
+    const db = openMemoryDatabase();
+
+    migrate(db);
+
+    for (const table of [
+      "workspaces",
+      "projects",
+      "resources",
+      "agent_specs",
+      "commands",
+      "command_deliveries",
+      "human_requests",
+      "human_responses",
+      "inbox_items",
+      "asks",
+      "reviews",
+      "task_graph_snapshots",
+      "task_graph_clusters",
+      "task_graph_tasks",
+      "task_graph_dependencies",
+      "mirrored_invocations",
+      "invocation_events",
+      "invocation_log_chunks",
+      "artifacts",
+      "artifact_links",
+      "artifact_cache_blobs",
+      "workspace_profile_sources",
+      "workspace_profile_git_access",
+      "runtime_enrollment_tokens",
+      "runtime_device_authorizations",
+      "runtime_message_receipts",
+      "runtime_control_commands",
+      "runtime_session_projections",
+      "runtime_invocation_projections",
+      "runtime_invocation_event_projections",
+      "runtime_model_control_projections",
+      "runtime_channel_control_projections",
+      "runtime_ephemeral_secret_audit",
+      "event_ingest_sequence",
+      "user_daemon_grants",
+      "workspace_leases",
+      "workspace_delegations",
+      "workspace_delegation_messages",
+    ]) {
+      expect(tableExists(db, table)?.name).toBe(table);
+    }
+
+    expect(tableExists(db, "workspace_access_tokens")).toBeUndefined();
+    expect(relationType(db, "hub_access_tokens")).toEqual({ type: "view" });
+
+    for (const index of [
+      "projects_workspace_status_idx",
+      "commands_workspace_status_idx",
+      "human_requests_workspace_status_idx",
+      "inbox_items_workspace_status_idx",
+      "task_graph_snapshots_project_version_idx",
+      "mirrored_invocations_workspace_status_idx",
+      "artifacts_workspace_kind_idx",
+      "artifact_cache_blobs_eviction_idx",
+      "workspace_profile_sources_profile_idx",
+      "runtime_enrollment_tokens_state_idx",
+      "runtime_enrollment_tokens_workspace_idx",
+      "runtime_device_authorizations_state_idx",
+      "runtime_device_authorizations_installation_pending_idx",
+      "runtime_message_receipts_runtime_seen_idx",
+      "events_created_id_idx",
+      "workspace_leases_one_active",
+      "workspace_leases_one_active_per_runtime_binding",
+      "runtime_session_projections_scope_lifecycle_idx",
+      "runtime_invocation_projections_session_status_idx",
+      "runtime_invocation_event_projections_cursor_idx",
+      "runtime_ephemeral_secret_audit_runtime_created_idx",
+      "events_ingest_sequence_unique",
+      "events_workspace_session_created_idx",
+      "events_workspace_ingest_sequence_idx",
+      "command_deliveries_command_updated_idx",
+      "mirrored_invocations_command_updated_idx",
+      "commands_assignment_session_updated_idx",
+      "sessions_refresh_token_unique",
+      "user_daemon_grants_active_unique",
+      "user_daemon_grants_runtime_idx",
+      "hub_access_tokens_state_idx",
+    ]) {
+      expect(indexExists(db, index)?.name).toBe(index);
+    }
+
+    const runtimeSessionSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("runtime_session_projections") as { sql: string };
+    for (const lineageOriginKind of [
+      "root",
+      "session",
+      "side_thread",
+      "task_run",
+      "task_revision",
+      "workflow_run",
+      "driver",
+      "driver_tick",
+      "invocation",
+    ]) {
+      expect(runtimeSessionSchema.sql).toContain(`'${lineageOriginKind}'`);
+    }
+    expect(runtimeSessionSchema.sql).toContain("lineage_origin_kind");
+    expect(runtimeSessionSchema.sql).not.toContain("owner_kind");
+    expect(runtimeSessionSchema.sql).not.toContain("'driver_generation'");
+
+    const runtimeChannelSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("runtime_channel_control_projections") as { sql: string };
+    expect(runtimeChannelSchema.sql).toContain("runtime_id TEXT PRIMARY KEY");
+    expect(runtimeChannelSchema.sql).not.toContain("workspace_id");
+
+    const ephemeralSecretAuditSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("runtime_ephemeral_secret_audit") as { sql: string };
+    expect(ephemeralSecretAuditSchema.sql).not.toContain("workspace_id");
+
+    const versions = db
+      .prepare("SELECT version FROM schema_migrations ORDER BY version")
+      .all() as Array<{ version: string }>;
+
+    expect(versions.map((migration) => migration.version)).toEqual([
+      "0001",
+      "0002",
+      "0003",
+      "0004",
+      "0005",
+      "0006",
+      "0007",
+      "0008",
+      "0009",
+      "0010",
+      "0011",
+      "0012",
+      "0013",
+      "0014",
+      "0015",
+      "0016",
+      "0017",
+      "0018",
+      "0019",
+      "0020",
+      "0021",
+      "0022",
+      "0023",
+      "0024",
+      "0025",
+      "0026",
+      "0027",
+      "0028",
+      "0029",
+    ]);
+
+    const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+      name: string;
+    }>;
+    expect(sessionColumns.map((column) => column.name)).not.toContain("workspace_id");
+
+    const hubAccessColumns = db.prepare("PRAGMA table_info(hub_access_tokens)").all() as Array<{
+      name: string;
+    }>;
+    expect(hubAccessColumns.map((column) => column.name)).toContain("daemon_ids_json");
+    expect(hubAccessColumns.map((column) => column.name)).toContain("member_name");
+
+    const bindingColumns = db
+      .prepare("PRAGMA table_info(runtime_workspace_bindings)")
+      .all() as Array<{
+      name: string;
+    }>;
+    expect(bindingColumns.map((column) => column.name)).toContain("local_path");
+    expect(bindingColumns.map((column) => column.name)).toContain("administrator_session_id");
+    expect(bindingColumns.map((column) => column.name)).not.toContain("main_session_id");
+    db.close();
+  });
+
+  it("is idempotent after all migrations have been recorded", () => {
+    const db = openMemoryDatabase();
+
+    migrate(db);
+    migrate(db);
+
+    const migrationCount = db.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get() as {
+      count: number;
+    };
+
+    expect(migrationCount.count).toBe(29);
+    db.close();
+  });
+
+  it("graduates Cockpit auth state while preserving writable rollback compatibility", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0021"),
+    );
+    const now = "2026-07-21T00:00:00.000Z";
+    const instanceId = "cockpit_11111111111111111111111111111111";
+    db.prepare("INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)").run(
+      "spark_cockpit:instance_id",
+      JSON.stringify(instanceId),
+      now,
+    );
+    db.prepare(
+      `INSERT INTO cockpit_access_tokens
+        (id, token_hash, label, created_at, expires_at)
+       VALUES ('catok_legacy', 'legacy-hash', 'Legacy browser', ?, ?)`,
+    ).run(now, "2026-08-21T00:00:00.000Z");
+
+    migrate(db, migrations);
+    migrate(db, migrations);
+
+    expect(tableExists(db, "cockpit_access_tokens")?.name).toBe("cockpit_access_tokens");
+    expect(relationType(db, "hub_access_tokens")).toEqual({ type: "view" });
+    expect(tableExists(db, "hub_access_tokens")).toBeUndefined();
+    expect(db.prepare("SELECT token_hash AS tokenHash FROM hub_access_tokens").get()).toEqual({
+      tokenHash: "legacy-hash",
+    });
+
+    const legacyInsert = db
+      .prepare(
+        `INSERT INTO cockpit_access_tokens
+          (id, token_hash, label, created_at, expires_at)
+         VALUES ('catok_rollback', 'rollback-hash', 'Rollback browser', ?, ?)`,
+      )
+      .run(now, "2026-08-22T00:00:00.000Z");
+    expect(legacyInsert.changes).toBe(1);
+    expect(
+      db.prepare("SELECT label FROM hub_access_tokens WHERE id = 'catok_rollback'").get(),
+    ).toEqual({ label: "Rollback browser" });
+    const legacyRevoke = db
+      .prepare("UPDATE cockpit_access_tokens SET revoked_at = ? WHERE id = ?")
+      .run("2026-07-22T00:00:00.000Z", "catok_rollback");
+    expect(legacyRevoke.changes).toBe(1);
+    expect(
+      db
+        .prepare(
+          "SELECT revoked_at AS revokedAt FROM hub_access_tokens WHERE id = 'catok_rollback'",
+        )
+        .get(),
+    ).toEqual({ revokedAt: "2026-07-22T00:00:00.000Z" });
+    db.prepare("DELETE FROM cockpit_access_tokens WHERE id = ?").run("catok_rollback");
+    expect(
+      db.prepare("SELECT id FROM hub_access_tokens WHERE id = 'catok_rollback'").get(),
+    ).toBeUndefined();
+    expect(
+      db
+        .prepare("SELECT value_json AS valueJson FROM app_settings WHERE key = ?")
+        .get("spark_hub:instance_id"),
+    ).toEqual({ valueJson: JSON.stringify(instanceId) });
+    db.close();
+  });
+
+  it("mints a new Hub instance id when a retired Cockpit identity remains after 0022", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0021"),
+    );
+    const now = "2026-07-21T00:00:00.000Z";
+    const retiredId = "cockpit_11111111111111111111111111111111";
+    db.prepare("INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)").run(
+      "spark_cockpit:instance_id",
+      JSON.stringify(retiredId),
+      now,
+    );
+    migrate(db, migrations);
+
+    expect(readHubInstanceId(db)).toBeNull();
+    const minted = ensureHubInstanceId(db, { now });
+    expect(minted).toMatch(/^hub_[a-f0-9]{32}$/u);
+    expect(minted).not.toBe(retiredId);
+    expect(readHubInstanceId(db)).toBe(minted);
+    db.close();
+  });
+
+  it("fails closed when legacy and Hub identity settings diverge", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0021"),
+    );
+    db.prepare("INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)").run(
+      "spark_cockpit:instance_id",
+      JSON.stringify("cockpit_11111111111111111111111111111111"),
+      "2026-07-21T00:00:00.000Z",
+    );
+    db.prepare("INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)").run(
+      "spark_hub:instance_id",
+      JSON.stringify("hub_22222222222222222222222222222222"),
+      "2026-07-21T00:00:00.000Z",
+    );
+
+    expect(() => migrate(db, migrations)).toThrow(/identity migration conflict/u);
+    expect(tableExists(db, "cockpit_access_tokens")?.name).toBe("cockpit_access_tokens");
+    expect(tableExists(db, "hub_access_tokens")).toBeUndefined();
+    expect(
+      db.prepare("SELECT 1 FROM schema_migrations WHERE version = '0022'").get(),
+    ).toBeUndefined();
+    db.close();
+  });
+
+  it("keeps existing runtime workspace bindings when adding local paths", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0008"),
+    );
+    const now = "2026-07-14T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES ('rt_legacy', 'install-legacy', 'Legacy daemon', 'offline', '{}', '{}', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO runtime_workspace_bindings
+        (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
+       VALUES ('rtwb_legacy', 'rt_legacy', 'legacy', 'Legacy workspace', 'available', '{}', '{}', ?, ?)`,
+    ).run(now, now);
+
+    migrate(db, migrations);
+
+    const binding = db
+      .prepare("SELECT local_path AS localPath FROM runtime_workspace_bindings WHERE id = ?")
+      .get("rtwb_legacy") as { localPath: string | null };
+    expect(binding.localPath).toBeNull();
+    db.close();
+  });
+
+  it("normalizes legacy duplicate lease rows before enforcing one active lease", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0014"),
+    );
+    const runtimeId = "rt_11111111111141111111111111111111";
+    const bindingId = "rtwb_11111111111141111111111111111111";
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES (?, 'install-owner-migration', 'Legacy daemon', 'offline', '{}', '{}', ?, ?)`,
+    ).run(runtimeId, "2026-07-18T00:00:00.000Z", "2026-07-18T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO runtime_workspace_bindings
+        (id, runtime_id, local_workspace_key, display_name, status, capabilities_json,
+         diagnostics_json, created_at, updated_at)
+       VALUES (?, ?, 'legacy', 'Legacy workspace', 'available', '{}', '{}', ?, ?)`,
+    ).run(bindingId, runtimeId, "2026-07-18T00:00:00.000Z", "2026-07-18T00:00:00.000Z");
+    const insertWorkspace = db.prepare(
+      `INSERT INTO workspaces
+        (id, slug, name, status, settings_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'active', '{}', ?, ?)`,
+    );
+    insertWorkspace.run(
+      "ws_11111111111141111111111111111111",
+      "legacy-first",
+      "Legacy first",
+      "2026-07-18T00:00:00.000Z",
+      "2026-07-18T00:00:00.000Z",
+    );
+    insertWorkspace.run(
+      "ws_22222222222242222222222222222222",
+      "legacy-second",
+      "Legacy second",
+      "2026-07-19T00:00:00.000Z",
+      "2026-07-19T00:00:00.000Z",
+    );
+    const insertOwner = db.prepare(
+      `INSERT INTO workspace_owner_bindings
+        (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, created_at)
+       VALUES (?, ?, ?, 'primary', ?, ?)`,
+    );
+    insertOwner.run(
+      "wob_11111111111141111111111111111111",
+      "ws_11111111111141111111111111111111",
+      bindingId,
+      "2026-07-18T00:00:00.000Z",
+      "2026-07-18T00:00:00.000Z",
+    );
+    insertOwner.run(
+      "wob_22222222222242222222222222222222",
+      "ws_22222222222242222222222222222222",
+      bindingId,
+      "2026-07-19T00:00:00.000Z",
+      "2026-07-19T00:00:00.000Z",
+    );
+
+    migrate(db, migrations);
+
+    expect(
+      db
+        .prepare(
+          `SELECT workspace_id AS workspaceId, ended_at AS endedAt
+           FROM workspace_leases
+           ORDER BY started_at`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        workspaceId: "ws_11111111111141111111111111111111",
+        endedAt: "2026-07-19T00:00:00.000Z",
+      },
+      { workspaceId: "ws_22222222222242222222222222222222", endedAt: null },
+    ]);
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO workspace_leases
+            (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, created_at)
+           VALUES (?, ?, ?, 'primary', ?, ?)`,
+        )
+        .run(
+          "wob_33333333333343333333333333333333",
+          "ws_11111111111141111111111111111111",
+          bindingId,
+          "2026-07-20T00:00:00.000Z",
+          "2026-07-20T00:00:00.000Z",
+        ),
+    ).toThrow(/UNIQUE constraint failed/);
+    db.close();
+  });
+
+  it("does not broaden credentials issued before device authorization existed", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0007"),
+    );
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES ('rt_legacy', 'install-legacy', 'Legacy daemon', 'offline', '{}', '{}', ?, ?)`,
+    ).run("2026-07-13T00:00:00.000Z", "2026-07-13T00:00:00.000Z");
+    const insertToken = db.prepare(
+      `INSERT INTO runtime_tokens
+        (id, runtime_id, token_hash, label, scopes_json, created_at)
+       VALUES (?, 'rt_legacy', ?, ?, ?, ?)`,
+    );
+    insertToken.run(
+      "rttok_access",
+      "hash-access",
+      "runtime access token",
+      '["runtime:connect"]',
+      "2026-07-13T00:00:00.000Z",
+    );
+    insertToken.run(
+      "rttok_refresh",
+      "hash-refresh",
+      "runtime refresh token",
+      '["runtime:refresh"]',
+      "2026-07-13T00:00:00.000Z",
+    );
+    insertToken.run(
+      "rttok_custom",
+      "hash-custom",
+      "custom token",
+      '["runtime:connect","custom:scope"]',
+      "2026-07-13T00:00:00.000Z",
+    );
+
+    migrate(db, migrations);
+
+    const credentials = db
+      .prepare(
+        `SELECT id, kind, scopes_json AS scopesJson
+         FROM daemon_credentials
+         ORDER BY id`,
+      )
+      .all() as Array<{ id: string; kind: string; scopesJson: string }>;
+    expect(credentials).toEqual([
+      { id: "rttok_access", kind: "access", scopesJson: '["runtime:connect"]' },
+      { id: "rttok_custom", kind: "access", scopesJson: '["runtime:connect","custom:scope"]' },
+      { id: "rttok_refresh", kind: "refresh", scopesJson: '["runtime:refresh"]' },
+    ]);
+    db.close();
+  });
+
+  it("canonicalizes pre-existing runtime tokens into the hub-daemon credential family", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0026"),
+    );
+    const createdAt = "2026-07-13T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES ('rt_family', 'install-family', 'Family daemon', 'offline', '{}', '{}', ?, ?)`,
+    ).run(createdAt, createdAt);
+    db.prepare(
+      `INSERT INTO runtime_enrollment_tokens
+        (id, token_hash, label, scopes_json, created_at, expires_at, used_at, created_runtime_id)
+       VALUES ('rtetok_family', 'hash-bootstrap', 'bootstrap', '["runtime:daemon-attach","runtime:refresh"]', ?, ?, ?, 'rt_family')`,
+    ).run(createdAt, "2026-07-14T00:00:00.000Z", createdAt);
+    const insertToken = db.prepare(
+      `INSERT INTO runtime_tokens
+        (id, runtime_id, token_hash, label, scopes_json, created_at)
+       VALUES (?, 'rt_family', ?, ?, ?, ?)`,
+    );
+    insertToken.run(
+      "rttok_family_access",
+      "hash-family-access",
+      "runtime access token",
+      '["runtime:connect"]',
+      createdAt,
+    );
+    insertToken.run(
+      "rttok_family_refresh",
+      "hash-family-refresh",
+      "runtime refresh token",
+      '["runtime:refresh"]',
+      createdAt,
+    );
+    db.prepare(
+      `INSERT INTO runtime_sessions
+        (id, runtime_id, token_id, transport, status, connected_at, last_seen_at)
+       VALUES ('rtsn_family', 'rt_family', 'rttok_family_access', 'websocket', 'connected', ?, ?)`,
+    ).run(createdAt, createdAt);
+
+    migrate(db, migrations);
+
+    const credentials = db
+      .prepare(
+        `SELECT id, family, kind, bootstrap_kind AS bootstrapKind, bootstrap_id AS bootstrapId
+         FROM daemon_credentials
+         ORDER BY id`,
+      )
+      .all() as Array<{
+      id: string;
+      family: string;
+      kind: string;
+      bootstrapKind: string | null;
+      bootstrapId: string | null;
+    }>;
+    expect(credentials).toEqual([
+      {
+        id: "rttok_family_access",
+        family: "hub-daemon",
+        kind: "access",
+        bootstrapKind: "enrollment",
+        bootstrapId: "rtetok_family",
+      },
+      {
+        id: "rttok_family_refresh",
+        family: "hub-daemon",
+        kind: "refresh",
+        bootstrapKind: "enrollment",
+        bootstrapId: "rtetok_family",
+      },
+    ]);
+    // The uplink session's credential reference was re-pointed and still resolves.
+    const session = db
+      .prepare(
+        `SELECT rs.token_id AS tokenId, dc.kind AS credentialKind
+         FROM runtime_sessions rs
+         LEFT JOIN daemon_credentials dc ON dc.id = rs.token_id
+         WHERE rs.id = 'rtsn_family'`,
+      )
+      .get() as { tokenId: string | null; credentialKind: string | null } | undefined;
+    expect(session).toEqual({ tokenId: "rttok_family_access", credentialKind: "access" });
+    expect(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runtime_tokens'")
+        .all(),
+    ).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    db.close();
+  });
+
+  it("backfills owner daemon grants and retires workspace browser credentials", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0027"),
+    );
+    const now = "2026-08-23T00:00:00.000Z";
+    const insertUser = db.prepare(
+      `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, 'active', ?, ?)`,
+    );
+    insertUser.run("usr_owner", "Owner", "owner", now, now);
+    insertUser.run("usr_member", "Member", "member", now, now);
+    const insertRuntime = db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'offline', '{}', '{}', ?, ?)`,
+    );
+    insertRuntime.run("rt_a", "install-a", "Daemon A", now, now);
+    insertRuntime.run("rt_b", "install-b", "Daemon B", now, now);
+    db.prepare(
+      `INSERT INTO workspaces (id, slug, name, status, settings_json, created_at, updated_at)
+       VALUES ('ws_one', 'one', 'One', 'active', '{}', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+       VALUES ('sess_hub', 'usr_owner', 'hash-hub', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO sessions
+        (id, user_id, token_hash, workspace_id, created_at, expires_at)
+       VALUES ('sess_workspace', 'usr_member', 'hash-workspace', 'ws_one', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO workspace_access_tokens
+        (id, workspace_id, token_hash, label, created_at, expires_at)
+       VALUES ('watok_one', 'ws_one', 'hash-workspace-token', 'Workspace browser access', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO cockpit_access_tokens
+        (id, token_hash, label, created_by_user_id, created_at, expires_at)
+       VALUES ('catok_legacy', 'hash-hub-token', 'Hub browser access', 'usr_owner', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+
+    migrate(db, migrations);
+    migrate(db, migrations);
+
+    const grants = db
+      .prepare(
+        `SELECT user_id AS userId, runtime_id AS runtimeId, granted_by_user_id AS grantedBy
+         FROM user_daemon_grants
+         WHERE revoked_at IS NULL
+         ORDER BY runtime_id`,
+      )
+      .all() as Array<{ userId: string; runtimeId: string; grantedBy: string }>;
+    expect(grants).toEqual([
+      { userId: "usr_owner", runtimeId: "rt_a", grantedBy: "usr_owner" },
+      { userId: "usr_owner", runtimeId: "rt_b", grantedBy: "usr_owner" },
+    ]);
+
+    const sessionRows = db
+      .prepare(`SELECT id, revoked_at AS revokedAt FROM sessions ORDER BY id`)
+      .all() as Array<{ id: string; revokedAt: string | null }>;
+    expect(sessionRows).toEqual([
+      { id: "sess_hub", revokedAt: null },
+      { id: "sess_workspace", revokedAt: expect.any(String) },
+    ]);
+    expect(
+      db
+        .prepare("PRAGMA table_info(sessions)")
+        .all()
+        .map((column) => (column as { name: string }).name),
+    ).not.toContain("workspace_id");
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_access_tokens'",
+        )
+        .all(),
+    ).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+
+    // The active-grant partial unique index permits re-granting after revoke.
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO user_daemon_grants
+            (id, user_id, runtime_id, granted_by_user_id, created_at)
+           VALUES ('udg_dup', 'usr_owner', 'rt_a', 'usr_owner', ?)`,
+        )
+        .run(now),
+    ).toThrow(/UNIQUE constraint failed/u);
+    db.prepare(
+      "UPDATE user_daemon_grants SET revoked_at = ? WHERE user_id = ? AND runtime_id = ?",
+    ).run(now, "usr_owner", "rt_a");
+    db.prepare(
+      `INSERT INTO user_daemon_grants
+        (id, user_id, runtime_id, granted_by_user_id, created_at)
+       VALUES ('udg_regrant', 'usr_owner', 'rt_a', 'usr_owner', ?)`,
+    ).run(now);
+
+    // The hub access token view carries the new grant payload columns.
+    expect(
+      db
+        .prepare("SELECT daemon_ids_json AS daemonIdsJson FROM hub_access_tokens WHERE id = ?")
+        .get("catok_legacy"),
+    ).toEqual({ daemonIdsJson: "[]" });
+    db.prepare(
+      `INSERT INTO hub_access_tokens
+        (id, token_hash, label, created_by_user_id, daemon_ids_json, member_name, created_at, expires_at)
+       VALUES ('catok_member', 'hash-member-token', 'Member access', 'usr_owner', '["rt_a"]', 'teammate', ?, ?)`,
+    ).run(now, "2026-09-23T00:00:00.000Z");
+    expect(
+      db
+        .prepare(
+          "SELECT daemon_ids_json AS daemonIdsJson, member_name AS memberName FROM hub_access_tokens WHERE id = ?",
+        )
+        .get("catok_member"),
+    ).toEqual({ daemonIdsJson: '["rt_a"]', memberName: "teammate" });
+    db.close();
+  });
+
+  it("retires member authority created by display-name principal reuse", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0028"),
+    );
+    const now = "2026-08-30T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO users (id, email, display_name, role, status, created_at, updated_at)
+       VALUES ('usr_member', NULL, 'Hub member', 'member', 'active', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, capabilities_json, labels_json, created_at, updated_at)
+       VALUES ('rt_a', 'install-a', 'Daemon A', 'offline', '{}', '{}', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO user_daemon_grants
+        (id, user_id, runtime_id, granted_by_user_id, created_at)
+       VALUES ('udg_member', 'usr_member', 'rt_a', NULL, ?)`,
+    ).run(now);
+    db.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+       VALUES ('sess_member', 'usr_member', 'hash-member', ?, ?)`,
+    ).run(now, "2026-09-30T00:00:00.000Z");
+
+    migrate(db, migrations);
+
+    expect(db.prepare("SELECT status FROM users WHERE id = 'usr_member'").get()).toEqual({
+      status: "disabled",
+    });
+    expect(
+      db.prepare("SELECT revoked_at AS revokedAt FROM sessions WHERE id = 'sess_member'").get(),
+    ).toEqual({ revokedAt: expect.any(String) });
+    expect(
+      db
+        .prepare("SELECT revoked_at AS revokedAt FROM user_daemon_grants WHERE id = 'udg_member'")
+        .get(),
+    ).toEqual({ revokedAt: expect.any(String) });
+    db.close();
+  });
+
+  it("migrates event cursors and invocation streams without losing existing rows", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0011"),
+    );
+    const createdAt = "2026-07-15T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO events
+        (id, workspace_id, project_id, actor_kind, actor_id, kind, subject_kind, subject_id, payload_json, created_at)
+       VALUES ('evt_legacy', NULL, NULL, 'server', NULL, 'legacy.event', NULL, NULL, '{}', ?)`,
+    ).run(createdAt);
+    db.prepare(
+      `INSERT INTO workspaces
+        (id, slug, name, description, status, settings_json, created_at, updated_at)
+       VALUES ('ws_session', 'session-index', 'Session index', NULL, 'active', '{}', ?, ?)`,
+    ).run(createdAt, createdAt);
+    db.prepare(
+      `INSERT INTO events
+        (id, workspace_id, project_id, actor_kind, actor_id, kind, subject_kind, subject_id, payload_json, created_at)
+       VALUES ('evt_session', 'ws_session', NULL, 'runtime', NULL, 'daemon.view_event',
+               'view_model', 'evt_runtime', ?, ?)`,
+    ).run(
+      JSON.stringify({
+        type: "daemon.view_event",
+        sessionId: "sess_indexed",
+        view: { type: "session.message", sessionId: "sess_indexed" },
+      }),
+      createdAt,
+    );
+
+    migrate(db, migrations);
+
+    const legacy = db
+      .prepare("SELECT ingest_sequence AS sequence FROM events WHERE id = 'evt_legacy'")
+      .get() as { sequence: number };
+    expect(legacy.sequence).toBeGreaterThan(0);
+    expect(
+      db.prepare("SELECT session_id AS sessionId FROM events WHERE id = 'evt_session'").get(),
+    ).toEqual({ sessionId: "sess_indexed" });
+    const queryPlan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT id
+         FROM events
+         WHERE workspace_id = ? AND session_id = ?
+         ORDER BY created_at DESC
+         LIMIT 100`,
+      )
+      .all("ws_session", "sess_indexed")
+      .map((row) => String(row.detail));
+    expect(queryPlan.join("\n")).toContain("events_workspace_session_created_idx");
+
+    db.prepare(
+      `INSERT INTO events
+        (id, workspace_id, project_id, actor_kind, actor_id, kind, subject_kind, subject_id, payload_json, created_at)
+       VALUES ('evt_direct', NULL, NULL, 'server', NULL, 'direct.event', NULL, NULL, '{}', ?)`,
+    ).run(createdAt);
+    const direct = db
+      .prepare("SELECT ingest_sequence AS sequence FROM events WHERE id = 'evt_direct'")
+      .get() as { sequence: number };
+    expect(direct.sequence).toBeGreaterThan(legacy.sequence);
+
+    const importedSequence = direct.sequence + 10;
+    db.prepare(
+      `INSERT INTO events
+        (id, ingest_sequence, workspace_id, project_id, actor_kind, actor_id, kind, subject_kind, subject_id, payload_json, created_at)
+       VALUES ('evt_imported', ?, NULL, NULL, 'server', NULL, 'imported.event', NULL, NULL, '{}', ?)`,
+    ).run(importedSequence, createdAt);
+    db.prepare(
+      `INSERT INTO events
+        (id, workspace_id, project_id, actor_kind, actor_id, kind, subject_kind, subject_id, payload_json, created_at)
+       VALUES ('evt_after_import', NULL, NULL, 'server', NULL, 'after-import.event', NULL, NULL, '{}', ?)`,
+    ).run(createdAt);
+    const afterImport = db
+      .prepare("SELECT ingest_sequence AS sequence FROM events WHERE id = 'evt_after_import'")
+      .get() as { sequence: number };
+    expect(afterImport.sequence).toBeGreaterThan(importedSequence);
+
+    const logSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("invocation_log_chunks") as { sql: string };
+    expect(logSchema.sql).toContain("'assistant'");
+    expect(logSchema.sql).toContain("'tool'");
+    db.close();
+  });
+
+  it("hard-cuts legacy builtin Role selectors in persisted Hub delegations", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0021"),
+    );
+    const now = "2026-08-04T00:00:00.000Z";
+    const insertWorkspace = db.prepare(
+      `INSERT INTO workspaces
+        (id, slug, name, status, settings_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'active', '{}', ?, ?)`,
+    );
+    insertWorkspace.run("ws_source", "source", "Source", now, now);
+    insertWorkspace.run("ws_target", "target", "Target", now, now);
+    db.prepare(
+      `INSERT INTO workspace_delegations
+        (id, source_workspace_id, target_workspace_id, goal, requested_role,
+         actor_kind, actor_id, idempotency_key, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'hub_owner', 'hub', ?, 'queued', ?, ?)`,
+    ).run(
+      "deleg_legacy",
+      "ws_source",
+      "ws_target",
+      "Implement the approved change",
+      "role:builtin-worker",
+      "idem-legacy-role",
+      now,
+      now,
+    );
+
+    migrate(db, migrations);
+
+    expect(
+      db
+        .prepare("SELECT requested_role AS requestedRole FROM workspace_delegations WHERE id = ?")
+        .get("deleg_legacy"),
+    ).toEqual({ requestedRole: "role:builtin-executor" });
+    db.close();
+  });
+
+  it("rejects a migration set without bootstrap 0001", () => {
+    const db = openMemoryDatabase();
+    expect(() => migrate(db, [{ version: "0002", name: "later", sql: "select 1;" }])).toThrow(
+      /Missing bootstrap migration 0001/u,
+    );
+    db.close();
+  });
+
+  it("loads sorted sql migrations with version and name parts", () => {
+    const migrations = loadMigrations();
+    expect(migrations.length).toBeGreaterThan(1);
+    expect(migrations[0]?.version).toBe("0001");
+    expect(migrations.every((migration) => migration.sql.length > 0)).toBe(true);
+    expect(migrations.map((migration) => migration.version)).toEqual(
+      [...migrations].map((migration) => migration.version).sort(),
+    );
+  });
+});

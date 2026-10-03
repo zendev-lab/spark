@@ -3,14 +3,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { visibleWidth } from "@zendev-lab/spark-text-rendering";
 
 import piAskExtension from "@zendev-lab/spark-ask/extension";
-import { registerSparkCueTools } from "@zendev-lab/spark-cue";
 import piGraftExtension from "@zendev-lab/spark-graft/extension";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
 import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
-import sparkExtension from "@zendev-lab/spark-extension/extension";
+import registerSparkProduct from "../apps/spark-daemon/src/product/policy/index.ts";
 
 interface RenderTheme {
   fg: (_color: string, text: string) => string;
@@ -40,7 +39,7 @@ const ansiTheme: RenderTheme = {
 
 const snapshotDir = join(dirname(fileURLToPath(import.meta.url)), "snapshots");
 
-test("Spark extension canonical facade tools render parameter-aware tool calls", async () => {
+test("Spark product policy canonical facade tools render parameter-aware tool calls", async () => {
   const tools = registerSparkToolsForRendering();
 
   assertAllToolsHaveCallRenderers(tools);
@@ -60,11 +59,10 @@ test("Spark extension canonical facade tools render parameter-aware tool calls",
       },
       { name: "assign", args: { dryRun: true, maxConcurrency: 2 } },
       { name: "goal", args: { action: "status" } },
-      { name: "mode", args: { action: "plan", focus: "tighten tasks" } },
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-spark.txt"));
   assert.equal(tools.has("patch"), false, "patch workflows are owned by spark-graft");
-  assert.equal(tools.has("cue_exec"), false, "spark-cue is registered as its own extension");
+  assert.equal(tools.has("cue_exec"), false, "Cue tools are registered through DSH plugins");
   assert.deepEqual(
     [...tools.keys()].filter((name) => name.startsWith("spark_")),
     [],
@@ -96,7 +94,7 @@ test("Spark extension canonical facade tools render parameter-aware tool calls",
   assertVisibleWidthAtMost(crashTodo, crashWidth);
 });
 
-test("standalone Pi ask, cue, and role tools render parameter-aware tool calls", async () => {
+test("standalone Pi ask and role tools render parameter-aware tool calls", async () => {
   const askTools = new Map<string, RenderableToolConfig>();
   piAskExtension({
     registerTool: (config) => askTools.set(config.name, config),
@@ -124,76 +122,6 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-ask.txt"));
 
-  const cueTools = registerCueToolsForRendering();
-  assertAllToolsHaveCallRenderers(cueTools);
-  assert.deepEqual([...cueTools.keys()].sort(), [
-    "cue_exec",
-    "cue_history",
-    "cue_jobs",
-    "cue_resources",
-    "cue_run",
-    "cue_schedule",
-    "cue_scope",
-    "cue_script",
-    "script_eval",
-    "script_run",
-  ]);
-  await expect(
-    renderCallCases(cueTools, [
-      { name: "cue_jobs", args: { action: "status", id: "J12", tail_bytes: 4096 } },
-      { name: "cue_jobs", args: { action: "list", status: "running", limit: 5 } },
-      {
-        name: "cue_jobs",
-        args: { action: "wait", id: "J12", timeout: 30, tail_bytes: 4096 },
-      },
-      {
-        name: "cue_scope",
-        args: { action: "list", limit: 3, includeEnv: true, tail_bytes: 2048 },
-      },
-      { name: "cue_history", args: { id: "J12", limit: 10, tail_bytes: 4096 } },
-      {
-        name: "cue_schedule",
-        args: { action: "add", schedule: "every 5m", command: "pnpm test" },
-      },
-      { name: "cue_run", args: { path: "scripts/build.cue", timeout: 30, tail_bytes: 4096 } },
-      {
-        name: "cue_script",
-        args: {
-          script: 'job run { command: "echo ok" }',
-          pathLabel: "inline.cue",
-          timeout: 30,
-          tail_bytes: 4096,
-        },
-      },
-      {
-        name: "script_run",
-        args: { language: "python", path: "scripts/smoke.py", timeout: 30, tail_bytes: 4096 },
-      },
-      {
-        name: "script_eval",
-        args: {
-          language: "python",
-          script: 'print("ok")',
-          pathLabel: "inline.py",
-          timeout: 30,
-          tail_bytes: 4096,
-        },
-      },
-    ]),
-  ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-cue.txt"));
-
-  const longRun = renderCall(
-    cueTools,
-    "cue_exec",
-    {
-      command:
-        "pnpm exec node -e \"import('@zendev-lab/spark-tui-adapter/text').then(m=>console.log(m.visibleWidth('你好'))).catch(e=>{console.error(e);process.exit(1)})\"",
-      cwd: "/workspace/spark",
-    },
-    80,
-  );
-  assertVisibleWidthAtMost(longRun, 80);
-
   const roleTools = new Map<string, RenderableToolConfig>();
   registerSparkRolesTools({
     registerTool: (config) => roleTools.set(config.name, config),
@@ -205,7 +133,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
       { name: "role", args: { action: "list", source: "builtin" } },
       { name: "role", args: { action: "get", role: "worker" } },
       { name: "role", args: { action: "create", id: "repo-inspector" } },
-      { name: "role", args: { action: "call", role: "worker" } },
+      { name: "role", args: { action: "model_set", role: "worker" } },
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-role.txt"));
 
@@ -266,22 +194,11 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
 
 function registerSparkToolsForRendering(): Map<string, RenderableToolConfig> {
   const tools = new Map<string, RenderableToolConfig>();
-  sparkExtension({
+  registerSparkProduct({
     registerCommand: () => undefined,
     registerTool: (config) => tools.set(config.name, config),
     on: () => undefined,
     sendMessage: () => undefined,
-  });
-  return tools;
-}
-
-function registerCueToolsForRendering(): Map<string, RenderableToolConfig> {
-  const tools = new Map<string, RenderableToolConfig>();
-  registerSparkCueTools({
-    registerTool: (config) => tools.set(config.name, config),
-    on: () => undefined,
-    getActiveTools: () => [...tools.keys()],
-    setActiveTools: () => undefined,
   });
   return tools;
 }

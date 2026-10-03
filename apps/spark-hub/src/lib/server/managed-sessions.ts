@@ -5,8 +5,6 @@ import type {
   SparkSessionMediaReadRequest,
   SparkSessionMediaReadResult,
   SparkSessionProjection,
-  SparkSessionMode,
-  SparkSessionModeResult,
   SparkSideThreadSnapshot,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -80,7 +78,6 @@ export interface HubManagedSessionsClient {
   bind(input: SparkSessionBindRequest): Promise<SparkSessionProjection>;
   unbind(input: SparkSessionBindRequest): Promise<SparkSessionProjection>;
   archive(sessionId: string): Promise<SparkSessionProjection>;
-  setMode?(input: { sessionId: string; mode: SparkSessionMode }): Promise<SparkSessionModeResult>;
   close(sessionId: string): Promise<SparkSessionProjection>;
 }
 
@@ -399,16 +396,6 @@ export async function archiveManagedSessionForHub(
   return await client.archive(sessionId);
 }
 
-export async function setManagedSessionModeForHub(
-  input: { sessionId: string; mode: SparkSessionMode },
-  client: HubManagedSessionsClient = runtimeManagedSessionsClient,
-): Promise<SparkSessionModeResult> {
-  if (!client.setMode) {
-    throw new HubRuntimeSessionUnavailableError("Session mode control is unavailable.");
-  }
-  return await client.setMode(input);
-}
-
 export async function closeManagedSessionForHub(
   sessionId: string,
   client: HubManagedSessionsClient = runtimeManagedSessionsClient,
@@ -430,15 +417,5 @@ function isHubWorkspaceSession(
     options.scope?.kind === "workspace" ? options.scope.workspaceId : options.workspaceId;
   if (requestedWorkspaceId && session.scope.workspaceId !== requestedWorkspaceId) return false;
   if (!options.includeArchived && session.placement === "archived") return false;
-  if (
-    session.owner.kind === "task_run" ||
-    session.owner.kind === "task_revision" ||
-    session.owner.kind === "workflow_run" ||
-    session.owner.kind === "driver" ||
-    session.owner.kind === "driver_tick" ||
-    session.owner.kind === "invocation"
-  ) {
-    return false;
-  }
-  return session.owner.kind !== "side_thread" || options.related === true;
+  return true;
 }

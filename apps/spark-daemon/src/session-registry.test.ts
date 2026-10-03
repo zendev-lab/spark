@@ -30,7 +30,7 @@ describe("daemon Session registry", () => {
     expect(new Set(ensured.map((session) => session.sessionId))).toHaveLength(1);
     await expect(registry.list({ includeArchived: true })).resolves.toEqual([
       expect.objectContaining({
-        owner: { kind: "workspace", workspaceId: "ws_demo" },
+        lineage: { kind: "root" },
       }),
     ]);
   });
@@ -301,8 +301,7 @@ describe("daemon Session registry", () => {
     const session = await registry.createSupervised({
       sessionId: "sess_closed_discard",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
-      stateBinding: { kind: "session", ref: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       visibility: "internal",
       retention: "retain",
       purpose: "task_run",
@@ -345,32 +344,36 @@ describe("daemon Session registry", () => {
 });
 
 describe("daemon session registry cwd ownership", () => {
-  it("creates Channel sessions as Administrator-owned children of the workspace root", async () => {
+  it("creates Channel sessions as daemon roots with private derived cwd", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-channel-session-"));
     roots.push(sparkHome);
+    const channelRoot = join(sparkHome, "channels", "sessions");
     const registry = createDaemonSessionRegistry(sparkHome, {
-      resolveWorkspaceCwd: () => "/Users/demo/workspace/channel",
-    });
-
-    const channel = await registry.resolveBinding({
-      externalKey: "feishu:chat:oc_operations",
-      onUnbound: "create",
-      create: {
-        scope: { kind: "workspace", workspaceId: "ws_channel" },
-        name: "Operations",
+      daemonId: "installation-channel",
+      resolveChannelSessionCwd: async (sessionId) => {
+        const cwd = join(channelRoot, sessionId, "workspace");
+        await mkdir(cwd, { recursive: true });
+        return cwd;
       },
     });
-    const root = await registry.ensureWorkspaceAdministrator("ws_channel");
+
+    const channel = await registry.resolveChannelSession({
+      externalKey: "feishu:chat:oc_operations",
+      adapterId: "feishu-primary",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+      name: "Operations",
+    });
 
     expect(channel).toMatchObject({
-      scope: { kind: "workspace", workspaceId: "ws_channel" },
+      scope: { kind: "daemon", daemonId: "installation-channel" },
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: root.sessionId },
-      stateBinding: { kind: "channel", ref: "feishu:chat:oc_operations" },
+      lineage: { kind: "root" },
       visibility: "public",
       retention: "retain",
       purpose: "channel",
+      cwd: join(channelRoot, channel.sessionId, "workspace"),
     });
+    await expect(registry.list({ scope: { kind: "daemon" } })).resolves.toEqual([channel]);
   });
 
   it("ensures one stable workspace main session under concurrent delivery preparation", async () => {
@@ -388,7 +391,7 @@ describe("daemon session registry cwd ownership", () => {
     expect(ensured).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          owner: { kind: "workspace", workspaceId: "ws_main" },
+          lineage: { kind: "root" },
           scope: { kind: "workspace", workspaceId: "ws_main" },
         }),
       ]),
@@ -399,7 +402,7 @@ describe("daemon session registry cwd ownership", () => {
         (session) =>
           session.scope.kind === "workspace" &&
           session.scope.workspaceId === "ws_main" &&
-          session.owner.kind === "workspace",
+          session.lineage.kind === "root",
       ),
     ).toHaveLength(1);
     await expect(registry.archive(ensured[0]!.sessionId)).rejects.toMatchObject({
@@ -452,13 +455,21 @@ describe("daemon session registry cwd ownership", () => {
       supervisorSessionId: parent.sessionId,
       placement: "child",
     });
-    expect(child.owner).toEqual({ kind: "session", supervisorSessionId: parent.sessionId });
+    expect(child.lineage).toEqual({
+      kind: "child",
+      parentSessionId: parent.sessionId,
+      origin: { kind: "session" },
+    });
     const sibling = await registry.create({
       scope,
       supervisorSessionId: child.sessionId,
       placement: "sibling",
     });
-    expect(sibling.owner).toEqual(child.owner);
+    expect(sibling.lineage).toEqual({
+      kind: "child",
+      parentSessionId: parent.sessionId,
+      origin: { kind: "session" },
+    });
     await expect(
       registry.create({
         scope,

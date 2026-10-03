@@ -1,7 +1,4 @@
-/** Historical wire value retained for N-1 daemon compatibility. */
-export const sparkAgentsHubSource = "agents-cockpit" as const;
-/** @deprecated Use sparkAgentsHubSource; the serialized value remains frozen. */
-export const sparkAgentsCockpitSource = sparkAgentsHubSource;
+export const sparkAgentsHubSource = "agents-hub" as const;
 
 export const sparkCommandPayloadSourceOptions = [sparkAgentsHubSource] as const;
 

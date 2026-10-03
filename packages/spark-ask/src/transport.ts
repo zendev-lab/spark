@@ -4,7 +4,7 @@ import type {
   ExtensionInteractionCapabilities,
   ExtensionInteractionResponse,
   SparkHostContext,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import {
   parseSparkAskAcknowledgement,
   parseSparkInteractionCapabilities,

@@ -5,9 +5,9 @@ import {
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
-} from "@zendev-lab/spark-core";
-import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
-import { loadSessionGoal } from "@zendev-lab/spark-loop";
+} from "@zendev-lab/spark-invocation";
+import { loadSparkHeadlessSessionModule } from "../product/host/headless-loader.ts";
+import { loadSessionGoal } from "@zendev-lab/spark-driver";
 import {
   createSparkRoleRegistry,
   SparkRolesReviewerRunner,
@@ -20,6 +20,7 @@ import {
   isUnfinishedTaskStatus,
   type TaskGraph,
 } from "@zendev-lab/spark-tasks";
+import type { SparkDshTurnRuntime } from "../product/host/agent-runtime/agent-loop.ts";
 import type {
   SparkLoopEvaluationContext,
   SparkTrustedLoopEvaluator,
@@ -29,13 +30,18 @@ import type {
 export function createGoalLoopCompletionEvaluator(options: {
   sparkHome?: string;
   controlSparkHome?: string;
+  getDshContext?: () => SparkDshTurnRuntime["ctx"];
 }): SparkTrustedLoopEvaluator {
   return async (context, signal) => await reviewGoalLoopCompletion(context, options, signal);
 }
 
 async function reviewGoalLoopCompletion(
   context: SparkLoopEvaluationContext,
-  options: { sparkHome?: string; controlSparkHome?: string },
+  options: {
+    sparkHome?: string;
+    controlSparkHome?: string;
+    getDshContext?: () => SparkDshTurnRuntime["ctx"];
+  },
   signal?: AbortSignal,
 ): Promise<SparkTrustedLoopEvaluatorResult> {
   const cwd = context.route?.cwd;
@@ -136,6 +142,7 @@ async function reviewGoalLoopCompletion(
     nativeExecutor: module.createSparkHeadlessRoleExecutor({
       sparkHome: options.sparkHome,
       controlSparkHome: options.controlSparkHome,
+      ...(options.getDshContext ? { dshContext: options.getDshContext() } : {}),
     }),
     nativeExecutorFallback: {
       sparkHome: options.sparkHome,

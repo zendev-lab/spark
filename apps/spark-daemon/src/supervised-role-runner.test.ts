@@ -113,7 +113,6 @@ describe("supervised Role runner", () => {
       const sessions = await registry.list({
         includeArchived: true,
         includeClosed: true,
-        includeSideThreads: true,
       });
       const child = sessions.find(
         (session) =>
@@ -134,7 +133,11 @@ describe("supervised Role runner", () => {
         recordKind: "ephemeral_tombstone",
         lifecycle: "closed",
         placement: "archived",
-        owner: { kind: "invocation", supervisorSessionId: administrator.sessionId },
+        lineage: {
+          kind: "child",
+          parentSessionId: administrator.sessionId,
+          origin: { kind: "invocation", invocationId: childInvocation.invocationId },
+        },
       });
       expect(tombstone).not.toHaveProperty("roleBinding");
       expect(tombstone?.closeReceipts).toEqual([

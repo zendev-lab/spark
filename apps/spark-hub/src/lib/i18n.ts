@@ -14,7 +14,6 @@ export type Locale = SparkLocale;
 
 export const defaultLocale: Locale = "en";
 export const localeCookieName = "spark_hub_locale";
-export const legacyCockpitLocaleCookieName = "spark_cockpit_locale";
 
 export type AppMessages = HubMessages;
 

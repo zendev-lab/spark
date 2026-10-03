@@ -6,7 +6,9 @@ import {
   parseSparkDaemonEvent,
   parseSparkInteractionRequest,
   parseSparkViewModelEvent,
-  sparkSessionLifetimeForOwner,
+  sparkSessionLifetimeForLineage,
+  sparkSessionLineageOriginKind,
+  sparkSessionParentId,
   sparkThinkingLevelSchema,
   type SparkDaemonEvent,
   type SparkJsonObject,
@@ -21,52 +23,55 @@ import type {
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   SparkTaskExecutionScope,
-} from "@zendev-lab/spark-core";
-import { contentHash } from "@zendev-lab/spark-core";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+} from "@zendev-lab/spark-invocation";
+import { contentHash } from "@zendev-lab/spark-invocation";
+import { defaultTaskGraphStore, type TaskGraph, type TaskRun } from "@zendev-lab/spark-tasks";
 import {
   createDefaultRoleRegistry,
   defaultProjectRoleModelSettingsStore,
   defaultUserRoleModelSettingsStore,
   hydrateDefaultRoleRegistry,
   resolveRoleModelSetting,
-  RoleModelTypeUnconfiguredError,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import { validateChannelSessionWorkspace, type SparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   loadSparkHeadlessSessionModule,
   type CreateSparkHeadlessSessionCompactorFn,
   type CreateSparkHeadlessSessionExecutorFn,
   type SparkHeadlessSessionCompactor,
   type SparkHeadlessSessionExecutor,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "../product/host/headless-loader.ts";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
   renderSparkChannelSurfacePrompt,
-} from "@zendev-lab/spark-host/system-prompt";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+  composeSparkSystemPrompt,
+} from "../product/system-prompt.ts";
+
 import {
   refreshSparkSessionSnapshotIndex,
   SparkSessionRegistryError,
 } from "@zendev-lab/spark-session";
 import {
   isSparkTurnRestartYieldError,
+  type SparkDshTurnRuntime,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import {
   channelDeliveryFailureOutcome,
   channelDeliveryOutcomeUnknown,
+  channelAdapterAccountIdentity,
   renderInfoflowInternalSystemPrompt,
   renderInfoflowMessageContextPrompt,
   resolveInfoflowCustomSystemPrompt,
   type ChannelReplyStream,
   type ChannelReplyTarget,
-} from "@zendev-lab/spark-channels";
-import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/spark-channels";
-import { loadDaemonChannelsConfig, type DaemonChannelIngressRuntime } from "../channels/ingress.ts";
+} from "@zendev-lab/dsh-channel-transports";
+import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/dsh-channel-transports";
+import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
+import { loadDaemonGlobalChannelsConfig } from "../channels/config-migration.ts";
 import type {
   SparkDaemonSessionCompactTask,
   SparkDaemonSessionRunTask,
@@ -90,6 +95,9 @@ import type { ChannelReplyDeliveryStore } from "../channels/reply-delivery.ts";
 import { assignCompletedSessionName } from "./session-title.ts";
 import type { SessionSupervisor } from "../session-supervisor.ts";
 import { createSupervisedRoleRunner } from "../supervised-role-runner.ts";
+
+import { errorMessage } from "../text.ts";
+import { isRecord } from "../local-rpc/is-record.ts";
 
 export const CHANNEL_REPLY_EMPTY_ERROR_CODE = "CHANNEL_REPLY_EMPTY";
 export const CHANNEL_REPLY_TERMINAL_PRESENTED_ERROR_CODE = "CHANNEL_REPLY_TERMINAL_PRESENTED";
@@ -128,6 +136,8 @@ class ChannelReplyTerminalPresentedError extends Error {
 
 export interface SparkDaemonTaskExecutorOptions {
   paths: SparkPaths;
+  /** Shared daemon DSH root inherited by every Invocation-owned Agent handle. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
   cwd?: string;
   /** Resolve the current daemon-local root for workspace-owned state. */
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
@@ -197,6 +207,7 @@ export interface SparkDaemonTaskExecutorOptions {
     request: SparkInteractionRequest,
     task: SparkDaemonSessionRunTask,
     context: SparkDaemonTaskExecutionContext,
+    ownerSessionId: string,
   ) => Promise<SparkInteractionResponse>;
 }
 
@@ -205,7 +216,6 @@ export interface SparkDaemonChannelReplyDeliveryInput {
   idempotencyKey: string;
   invocationId: string;
   sessionId: string;
-  workspaceId: string;
   adapterId: string;
   adapterAccountIdentity?: string;
   externalKey?: string;
@@ -241,8 +251,9 @@ export function createSparkDaemonTaskExecutor(
       throw new Error("Spark headless session module does not export a session compactor");
     }
     sessionCompactor = createSessionCompactor({
-      ...(options.paths.piAgentDir ? { sparkHome: options.paths.piAgentDir } : {}),
+      ...(options.paths.sessionRuntimeDir ? { sparkHome: options.paths.sessionRuntimeDir } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+      ...(options.dshContext ? { dshContext: options.dshContext } : {}),
     });
     return sessionCompactor;
   };
@@ -253,8 +264,9 @@ export function createSparkDaemonTaskExecutor(
       options.createSparkHeadlessSessionExecutor ??
       (await loadSparkHeadlessSessionModule()).createSparkHeadlessSessionExecutor;
     sessionExecutor = createSessionExecutor({
-      ...(options.paths.piAgentDir ? { sparkHome: options.paths.piAgentDir } : {}),
+      ...(options.paths.sessionRuntimeDir ? { sparkHome: options.paths.sessionRuntimeDir } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+      ...(options.dshContext ? { dshContext: options.dshContext } : {}),
     });
     return sessionExecutor;
   };
@@ -328,27 +340,23 @@ export function createSparkDaemonTaskExecutor(
         await options.sessionSupervisor.instantiateOwnedContext({
           sessionId: loopTask.sessionId,
           parentSessionId: loopTask.ownerSessionId,
-          owner:
+          origin:
             sessionLifetime === "driver"
               ? {
                   kind: "driver",
                   driverId: loopTask.loopId,
                   generation: loopTask.generation,
-                  supervisorSessionId: loopTask.ownerSessionId,
                 }
               : {
                   kind: "driver_tick",
                   driverId: loopTask.loopId,
                   generation: loopTask.generation,
                   tickInvocationId: context.invocationId,
-                  supervisorSessionId: loopTask.ownerSessionId,
                 },
-          stateBinding: { kind: "session", ref: loopTask.ownerSessionId },
           purpose: sessionLifetime,
           cwd: loopTask.cwd,
         });
       }
-      const presentationSessionId = sessionTask.presentationSessionId ?? sessionTask.sessionId;
       let projectedFailure = false;
       let terminalProjectionBundleOpen = false;
       let terminalProjectionClosing: Promise<void> | undefined;
@@ -366,10 +374,10 @@ export function createSparkDaemonTaskExecutor(
         emitEvent: (event) => {
           const projected = canonicalSessionFailureEvent(
             event,
-            presentationSessionId,
+            sessionTask.sessionId,
             context.invocationId,
           );
-          if (isProjectedSessionFailure(projected, presentationSessionId)) projectedFailure = true;
+          if (isProjectedSessionFailure(projected, sessionTask.sessionId)) projectedFailure = true;
           const opensTerminalBundle = opensTerminalProjectionBundle(projected);
           const closesTerminalBundle = closesTerminalProjectionBundle(projected);
           terminalProjectionBundleOpen ||= opensTerminalBundle;
@@ -410,7 +418,7 @@ export function createSparkDaemonTaskExecutor(
         const frozenSessionContext = await sessionContextForTask(
           sessionTask,
           options.sessionRegistry,
-          options.paths.piAgentDir,
+          options.paths,
         );
         const effectiveTask = await withEffectiveTaskProfile(
           sessionTask,
@@ -541,17 +549,13 @@ function closesTerminalProjectionBundle(event: SparkDaemonEvent): boolean {
 }
 
 function loopTaskSessionLifetime(task: SparkDaemonLoopTickTask): "driver" | "driver_tick" {
-  return task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
+  return task.sessionLifetime;
 }
 
 function sessionRunTaskFromLoopTick(task: SparkDaemonLoopTickTask): SparkDaemonSessionRunTask {
-  const legacyExecutionSessionId = task.executionSessionId?.trim();
   return {
     type: "session.run",
-    sessionId: legacyExecutionSessionId || task.sessionId,
-    stateBindingSessionId: task.ownerSessionId,
-    presentationSessionId: task.ownerSessionId,
-    ...(legacyExecutionSessionId && !task.sessionLifetime ? { hiddenExecution: true } : {}),
+    sessionId: task.sessionId,
     prompt: task.prompt,
     cwd: task.cwd,
     workspaceBindingId: task.workspaceBindingId,
@@ -702,15 +706,7 @@ async function withEffectiveTaskProfile(
         userStore: defaultUserRoleModelSettingsStore(),
       })
     : undefined;
-  if (sessionContext.role && !task.model && !sessionContext.session?.model && !roleModel) {
-    throw new RoleModelTypeUnconfiguredError(
-      sessionContext.role.ref,
-      sessionContext.role.modelType,
-    );
-  }
-  const inheritedModel = sessionContext.role
-    ? undefined
-    : await inheritedSessionModel(sessionContext.session, registry);
+  const inheritedModel = await inheritedSessionModel(sessionContext.session, registry);
   const model = task.model
     ? modelRefFromValue(task.model)
     : sessionContext.session?.model
@@ -722,13 +718,16 @@ async function withEffectiveTaskProfile(
   const thinkingLevel =
     task.thinkingLevel ??
     sessionContext.session?.thinkingLevel ??
-    (sessionContext.role
-      ? undefined
-      : await inheritedSessionThinkingLevel(sessionContext.session, registry));
+    (await inheritedSessionThinkingLevel(sessionContext.session, registry));
+  const maxOutputTokens =
+    task.maxOutputTokens ??
+    sessionContext.session?.maxOutputTokens ??
+    (await inheritedSessionMaxOutputTokens(sessionContext.session, registry));
   return {
     ...task,
     model: `${model.providerName}/${model.modelId}`,
     ...(thinkingLevel ? { thinkingLevel } : {}),
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
   };
 }
 
@@ -783,8 +782,10 @@ export function createChannelAwareTaskExecutor(
       inlineDelivery = options.channelReplyDelivery.stage({
         invocationId: context.invocationId,
         sessionId: task.sessionId,
-        workspaceId: task.channelReply!.workspaceId,
         adapterId: task.channelReply!.adapterId,
+        ...(task.channelReply!.adapterAccountIdentity
+          ? { adapterAccountIdentity: task.channelReply!.adapterAccountIdentity }
+          : {}),
         target,
         // If the process exits during model execution, startup recovery updates
         // the already-created card with this honest terminal instead of sending
@@ -796,12 +797,9 @@ export function createChannelAwareTaskExecutor(
     };
     let stream: ChannelReplyStream | undefined;
     try {
-      stream = await options.channelIngress.openReplyStream(
-        task.channelReply.workspaceId,
-        task.channelReply.adapterId,
-        target,
-        { onCreated: persistInlineRecovery },
-      );
+      stream = await options.channelIngress.openReplyStream(task.channelReply.adapterId, target, {
+        onCreated: persistInlineRecovery,
+      });
       // Compatibility fallback for ingress implementations and tests that do
       // not yet invoke onCreated. The real registry calls it synchronously as
       // soon as the platform returns the recovery handle.
@@ -1077,7 +1075,6 @@ export function channelReplyDeliveryForCompletion(
     idempotencyKey: `channel.reply:${kind}:${invocationId}`,
     invocationId,
     sessionId: task.sessionId,
-    workspaceId: channelReply.workspaceId,
     adapterId: channelReply.adapterId,
     ...(channelReply.adapterAccountIdentity
       ? { adapterAccountIdentity: channelReply.adapterAccountIdentity }
@@ -1126,16 +1123,27 @@ function interactionForSessionRun(
   options: SparkDaemonTaskExecutorOptions,
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
+  taskOwnerSessionId?: string,
 ) {
   if (!options.interact) return undefined;
-  return (request: unknown) => {
-    const presentationSessionId = task.presentationSessionId?.trim();
-    const interactionTask =
-      presentationSessionId && presentationSessionId !== task.sessionId
-        ? { ...task, sessionId: presentationSessionId }
-        : task;
-    const operation = () =>
-      options.interact!(parseSparkInteractionRequest(request), interactionTask, context);
+  return async (request: unknown) => {
+    const parsed = parseSparkInteractionRequest(request);
+    const evidenceOwnerSessionId =
+      parsed.kind === "askFlow" ? parsed.evidenceRequest?.ownerSessionId.trim() : undefined;
+    if (evidenceOwnerSessionId && evidenceOwnerSessionId !== task.sessionId) {
+      if (evidenceOwnerSessionId !== taskOwnerSessionId) {
+        const session = await options.sessionRegistry?.get?.(task.sessionId);
+        if (
+          !session ||
+          session.lineage.kind !== "child" ||
+          session.lineage.parentSessionId !== evidenceOwnerSessionId
+        ) {
+          throw new Error("evidence-bound interaction owner is not the execution Session parent");
+        }
+      }
+    }
+    const ownerSessionId = evidenceOwnerSessionId ?? task.sessionId;
+    const operation = () => options.interact!(parsed, task, context, ownerSessionId);
     return context.withPausedTimeout ? context.withPausedTimeout(operation) : operation();
   };
 }
@@ -1161,38 +1169,44 @@ async function sessionExecutionIdentity(
   if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
     throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
   }
+  if (sessionContext.taskSession && !workspaceRoot) {
+    throw new Error("Task Session requires an authoritative workspace root");
+  }
   const taskExecutionScope =
     workspaceId && workspaceRoot && options.resolveSessionCwd && sessionContext.fleetWorker
       ? await resolveFleetExecutionScope({
           task,
           workspaceId,
           workspaceRoot,
-          executionSessionId: task.executionSessionId ?? task.sessionId,
+          executionSessionId: task.sessionId,
           binding: sessionContext.fleetWorker,
           resolveSessionCwd: options.resolveSessionCwd,
         })
-      : undefined;
+      : workspaceRoot && sessionContext.taskSession
+        ? await resolveWorkspaceTaskExecutionScope({
+            task,
+            workspaceId: sessionContext.workspaceId ?? task.workspaceId,
+            workspaceRoot,
+            executionSessionId: task.sessionId,
+            cwdArtifactRef: sessionContext.cwdArtifactRef,
+            resolveSessionCwd: options.resolveSessionCwd,
+            session: sessionContext.session,
+          })
+        : undefined;
   return {
     cwd,
     ...(workspaceId ? { workspaceId } : {}),
     ...(workspaceRoot ? { sparkStateRoot: join(workspaceRoot, ".spark") } : {}),
     ...(taskExecutionScope ? { taskExecutionScope } : {}),
-    sparkHome: options.paths.piAgentDir,
+    sparkHome: options.paths.sessionRuntimeDir,
     sessionId: task.sessionId,
-    ...(!task.hiddenExecution && sessionContext.sessionPath
-      ? { sessionPath: sessionContext.sessionPath }
-      : {}),
+    ...(sessionContext.sessionPath ? { sessionPath: sessionContext.sessionPath } : {}),
     ...(task.model ? { model: task.model } : {}),
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
+    ...(task.maxOutputTokens ? { maxOutputTokens: task.maxOutputTokens } : {}),
     reset: task.reset,
-    ...(task.hiddenExecution
-      ? {
-          sessionVisibility: "internal" as const,
-          sessionPurpose: "loop_tick" as const,
-        }
-      : {}),
     ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
   };
 }
@@ -1279,6 +1293,7 @@ async function resolveFleetExecutionScope(input: {
   }
   return Object.freeze({
     isolation: policy.isolation,
+    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
     primaryArtifactRef: input.binding.primaryArtifactRef as ArtifactRef,
     writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
     writableRoots,
@@ -1286,17 +1301,142 @@ async function resolveFleetExecutionScope(input: {
   });
 }
 
-function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
-  | {
-      projectRef: string;
-      taskRef: string;
-      runRef: string;
-      jobId: string;
-      attempt: number;
+async function resolveWorkspaceTaskExecutionScope(input: {
+  task: SparkDaemonSessionRunTask;
+  workspaceId?: string;
+  workspaceRoot: string;
+  executionSessionId: string;
+  cwdArtifactRef?: string;
+  resolveSessionCwd?: SparkDaemonTaskExecutorOptions["resolveSessionCwd"];
+  session?: SparkSessionState;
+}): Promise<SparkTaskExecutionScope | undefined> {
+  const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
+  if (!graph) throw new Error("Task execution scope requires the owning Workspace TaskGraph");
+  const request =
+    fleetTaskRequestMetadata(input.task) ??
+    taskSessionRequestMetadata(input.session, graph, input.executionSessionId);
+  if (!request) {
+    throw new Error("Task Session lineage does not resolve to one authoritative TaskRun");
+  }
+  const run = graph
+    .runs(request.projectRef as ProjectRef)
+    .find((candidate) => candidate.ref === request.runRef);
+  if (
+    !run?.execution ||
+    run.taskRef !== request.taskRef ||
+    (run.execution.sessionId ?? run.execution.executionSessionId) !== input.executionSessionId ||
+    run.execution.jobId !== request.jobId ||
+    run.execution.attempt !== request.attempt ||
+    !sessionOwnsTaskRun(input.session, run, input.executionSessionId)
+  ) {
+    throw new Error("Task invocation no longer matches its authoritative TaskRun binding");
+  }
+  const task = graph.getTask(run.taskRef);
+  const policy = task.executionPolicy;
+  if (!policy) throw new Error(`Task ${task.ref} has no executionPolicy`);
+  const binding = taskExecutionBinding(request, run.execution.ownerSessionId);
+  if (policy.isolation === "readonly") {
+    return Object.freeze({
+      isolation: "readonly",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [],
+    });
+  }
+  if (policy.isolation === "workspace") {
+    return Object.freeze({
+      isolation: "workspace",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [input.workspaceRoot],
+    });
+  }
+  if (policy.isolation === "isolated_results") {
+    if (!safeFleetJobId(request.jobId)) throw new Error("Task isolated_results jobId is unsafe");
+    const requestedRoot = join(input.workspaceRoot, ".spark", "task-results", request.jobId);
+    mkdirSync(requestedRoot, { recursive: true });
+    return Object.freeze({
+      isolation: "isolated_results",
+      binding,
+      writableArtifactRefs: [],
+      writableRoots: [],
+      resultsRoot: realpathSync(requestedRoot),
+    });
+  }
+
+  if (!input.workspaceId || !input.resolveSessionCwd) {
+    throw new Error("Task isolated_worktree requires daemon workspace path resolution");
+  }
+  const sessionArtifactRef = input.cwdArtifactRef?.startsWith("artifact:")
+    ? (input.cwdArtifactRef as ArtifactRef)
+    : undefined;
+  if (!sessionArtifactRef) {
+    throw new Error("Task isolated_worktree requires an attached Task Artifact");
+  }
+  const primaryArtifactRef = policy.worktreeTarget?.primaryArtifactRef ?? sessionArtifactRef;
+  const writableArtifactRefs = policy.worktreeTarget
+    ? [...new Set(policy.worktreeTarget.writableArtifactRefs)].sort()
+    : sessionArtifactRef
+      ? [sessionArtifactRef]
+      : [];
+  if (!primaryArtifactRef || writableArtifactRefs.length === 0) {
+    throw new Error("Task isolated_worktree requires an attached Task Artifact");
+  }
+  if (
+    sessionArtifactRef !== primaryArtifactRef ||
+    !writableArtifactRefs.includes(primaryArtifactRef) ||
+    writableArtifactRefs.some((ref) => !task.artifactRefs.includes(ref))
+  ) {
+    throw new Error("Task isolated_worktree Session target diverges from executionPolicy");
+  }
+  const writableRoots: string[] = [];
+  for (const ref of writableArtifactRefs) {
+    const resolved = await input.resolveSessionCwd({
+      workspaceId: input.workspaceId,
+      cwdArtifactRef: ref,
+      requireAttached: true,
+    });
+    if (resolved.cwdArtifactRef !== ref) {
+      throw new Error(`Task worktree target resolved to a different Artifact: ${ref}`);
     }
-  | undefined {
+    writableRoots.push(resolved.cwd);
+  }
+  return Object.freeze({
+    isolation: "isolated_worktree",
+    binding,
+    primaryArtifactRef,
+    writableArtifactRefs,
+    writableRoots,
+  });
+}
+
+interface TaskExecutionRequestMetadata {
+  projectRef: string;
+  taskRef: string;
+  runRef: string;
+  jobId: string;
+  attempt: number;
+}
+
+function taskExecutionBinding(
+  request: TaskExecutionRequestMetadata,
+  ownerSessionId: string,
+): NonNullable<SparkTaskExecutionScope["binding"]> {
+  return {
+    ownerSessionId,
+    projectRef: request.projectRef as ProjectRef,
+    taskRef: request.taskRef as NonNullable<SparkTaskExecutionScope["binding"]>["taskRef"],
+    runRef: request.runRef as NonNullable<SparkTaskExecutionScope["binding"]>["runRef"],
+    jobId: request.jobId,
+    attempt: request.attempt,
+  };
+}
+
+function fleetTaskRequestMetadata(
+  task: SparkDaemonSessionRunTask,
+): TaskExecutionRequestMetadata | undefined {
   const mail = recordValue(task.messageMetadata?.sessionMail);
-  const payload = recordValue(mail?.requestPayload);
+  const payload = recordValue(mail?.requestPayload) ?? recordValue(task.messageMetadata);
   if (
     payload?.kind !== "task_execution" ||
     typeof payload.projectRef !== "string" ||
@@ -1316,6 +1456,77 @@ function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
     jobId: payload.jobId,
     attempt: payload.attempt,
   };
+}
+
+function taskSessionRequestMetadata(
+  session: SparkSessionState | undefined,
+  graph: TaskGraph,
+  executionSessionId: string,
+): TaskExecutionRequestMetadata | undefined {
+  if (!session || session.lineage.kind !== "child") return undefined;
+  const origin = session.lineage.origin;
+  if (origin.kind !== "task_run" && origin.kind !== "task_revision") return undefined;
+  const candidates = graph
+    .runs(origin.projectRef as ProjectRef)
+    .filter(
+      (run) =>
+        run.taskRef === origin.taskRef &&
+        (run.execution?.sessionId ?? run.execution?.executionSessionId) === executionSessionId &&
+        sessionOwnsTaskRun(session, run, executionSessionId),
+    );
+  const run =
+    origin.kind === "task_run"
+      ? candidates.find((candidate) => candidate.ref === origin.runRef)
+      : currentTaskRevisionRun(candidates);
+  if (!run?.execution) return undefined;
+  return {
+    projectRef: run.projectRef,
+    taskRef: run.taskRef,
+    runRef: run.ref,
+    jobId: run.execution.jobId,
+    attempt: run.execution.attempt,
+  };
+}
+
+function currentTaskRevisionRun(candidates: TaskRun[]): TaskRun | undefined {
+  const active = candidates.filter(
+    (run) => run.status === "queued" || run.status === "running" || run.status === "blocked",
+  );
+  if (active.length > 1) return undefined;
+  if (active[0]) return active[0];
+  return [...candidates].sort(
+    (left, right) =>
+      (right.updatedAt ?? right.finishedAt ?? right.startedAt ?? "").localeCompare(
+        left.updatedAt ?? left.finishedAt ?? left.startedAt ?? "",
+      ) || right.ref.localeCompare(left.ref),
+  )[0];
+}
+
+function sessionOwnsTaskRun(
+  session: SparkSessionState | undefined,
+  run: TaskRun,
+  executionSessionId: string,
+): boolean {
+  if (!run.execution || !session || session.lineage.kind !== "child") return false;
+  const origin = session.lineage.origin;
+  if (origin.kind !== "task_run" && origin.kind !== "task_revision") return false;
+  if (
+    origin.projectRef !== run.projectRef ||
+    origin.taskRef !== run.taskRef ||
+    session.lineage.parentSessionId !== run.execution.ownerSessionId ||
+    origin.sessionGoalId !== run.execution.sessionGoalId ||
+    (run.execution.sessionId ?? run.execution.executionSessionId) !== executionSessionId
+  ) {
+    return false;
+  }
+  if (origin.kind === "task_run") {
+    return (
+      origin.runRef === run.ref &&
+      origin.jobId === run.execution.jobId &&
+      origin.attempt === run.execution.attempt
+    );
+  }
+  return run.execution.sessionLifetime === "task_revision";
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -1351,28 +1562,59 @@ function sessionExecutionPolicy(
   loop: SparkHostLoopContext | undefined,
   taskExecutionScope?: SparkTaskExecutionScope,
 ) {
-  const allowedTools = allowedToolsForSessionExecution(sessionContext, loop);
+  const loopAllowedTools =
+    sessionContext.surface !== "channel" && loop?.binding.workflowRunId && !loop.binding.reproId
+      ? ["workflow"]
+      : allowedToolsForSessionExecution(sessionContext, loop);
+  const allowedTools = taskScopedAllowedTools(loopAllowedTools, taskExecutionScope);
   return {
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
     ...(binding ? { channelBinding: binding } : {}),
-    ...(task.stateBindingSessionId ? { stateBindingSessionId: task.stateBindingSessionId } : {}),
     ...(loop ? { loop } : {}),
     ...(sessionQuestionChainForTask(task)
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
       : {}),
     ...(allowedTools ? { allowedTools } : {}),
-    ...(sessionContext.surface === "channel" ? { approvalMethod: "auto" as const } : {}),
+    ...(sessionContext.surface === "channel"
+      ? { approvalMethod: "auto" as const }
+      : { approvalMethod: "human" as const }),
     ...(sessionContext.role?.allowedToolEffects
       ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(sessionContext.taskSession ? { mode: "execute" as const } : {}),
     ...(taskExecutionScope?.isolation === "readonly"
       ? { allowedToolEffects: ["read"] as const }
       : {}),
-    ...(loop?.binding.workflowRunId && !loop.binding.reproId ? { allowedTools: ["workflow"] } : {}),
+    ...(taskExecutionScope?.isolation === "isolated_worktree" ||
+    taskExecutionScope?.isolation === "isolated_results"
+      ? { allowedToolEffects: ["read", "network_read", "local_write"] as const }
+      : {}),
   };
+}
+
+const READONLY_TASK_TOOLS = new Set(["read", "grep", "find", "context", "task_read"]);
+const ISOLATED_TASK_TOOLS = new Set([
+  ...READONLY_TASK_TOOLS,
+  "web_search",
+  "web_fetch",
+  "get_search_content",
+  "edit",
+  "write",
+]);
+
+function taskScopedAllowedTools(
+  allowedTools: string[] | undefined,
+  scope: SparkTaskExecutionScope | undefined,
+): string[] | undefined {
+  const ceiling =
+    scope?.isolation === "readonly"
+      ? READONLY_TASK_TOOLS
+      : scope?.isolation === "isolated_worktree" || scope?.isolation === "isolated_results"
+        ? ISOLATED_TASK_TOOLS
+        : undefined;
+  if (!ceiling) return allowedTools;
+  return (allowedTools ?? [...ceiling]).filter((tool) => ceiling.has(tool));
 }
 
 function allowedToolsForSessionExecution(
@@ -1381,7 +1623,13 @@ function allowedToolsForSessionExecution(
 ): string[] | undefined {
   let allowedTools: string[] | undefined =
     sessionContext.surface === "channel" ? [...SPARK_CHANNEL_ALLOWED_TOOLS] : undefined;
-  if (loop?.binding.workflowRunId && !loop.binding.reproId) allowedTools = ["workflow"];
+  if (
+    sessionContext.surface !== "channel" &&
+    loop?.binding.workflowRunId &&
+    !loop.binding.reproId
+  ) {
+    allowedTools = ["workflow"];
+  }
   const roleTools = sessionContext.role?.allowedTools;
   if (!roleTools) return allowedTools;
   if (!allowedTools) return [...roleTools];
@@ -1410,11 +1658,8 @@ export async function executeSparkDaemonSessionCompactTask(
   ) {
     throw sessionCompactionFenceError(task, session);
   }
-  if (session.owner.kind === "side_thread") {
-    throw new SparkSessionRegistryError(
-      "side_thread_mutation_forbidden",
-      `session.compact cannot mutate side thread ${task.sessionId}`,
-    );
+  if (session.scope.kind === "daemon" && session.purpose === "channel") {
+    await validateChannelSessionWorkspace(options.paths, session.sessionId, session.cwd);
   }
   const workspaceId =
     session.scope.kind === "workspace" ? session.scope.workspaceId : task.workspaceId;
@@ -1437,7 +1682,7 @@ export async function executeSparkDaemonSessionCompactTask(
   if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
     throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
   }
-  const sparkHome = options.paths.piAgentDir;
+  const sparkHome = options.paths.sessionRuntimeDir;
   if (!sparkHome) throw new Error("session.compact requires a daemon session state root");
   if (!session.sessionPath) {
     const existingPath = await resolveDaemonSessionTranscript({ session, sparkHome });
@@ -1507,7 +1752,7 @@ export async function executeSparkDaemonSessionRunTask(
 ): Promise<unknown> {
   const sessionContext =
     options.frozenSessionContext ??
-    (await sessionContextForTask(task, options.sessionRegistry, options.paths.piAgentDir));
+    (await sessionContextForTask(task, options.sessionRegistry, options.paths));
   const systemPrompt = await systemPromptForSession(
     task,
     options,
@@ -1517,19 +1762,23 @@ export async function executeSparkDaemonSessionRunTask(
   );
   const messageMetadata = sessionRunMessageMetadata(task, context.invocationId);
   const binding = completeChannelBinding(task);
-  const interaction = interactionForSessionRun(options, task, context);
+  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
+  const interaction = interactionForSessionRun(
+    options,
+    task,
+    context,
+    executionIdentity.taskExecutionScope?.binding?.ownerSessionId,
+  );
   const checkpointRestart =
     typeof context.yieldForRestartIfRequested === "function"
       ? (checkpoint: SparkTurnResumeCheckpoint) => context.yieldForRestartIfRequested?.(checkpoint)
       : undefined;
-  const canCheckpointRestart =
-    !loop && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
+  const canCheckpointRestart = !loop && !task.reset && !binding && Boolean(checkpointRestart);
   const usageExecutionKind = sessionContext.sideThread
     ? "side_thread"
     : sessionContext.taskSession
       ? "task_execution"
       : "root_session";
-  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
   const roleRunner =
     options.sessionSupervisor && executionIdentity.workspaceId
       ? createSupervisedRoleRunner({
@@ -1572,6 +1821,16 @@ export async function executeSparkDaemonSessionRunTask(
       ? { requireStructuredOutcome: task.requireStructuredOutcome }
       : {}),
     invocationId: context.invocationId,
+    invocationAttempt: context.invocationAttempt,
+    ...(sessionContext.role
+      ? {
+          invocationRole: {
+            ref: sessionContext.role.ref,
+            id: sessionContext.role.id,
+            revision: sessionContext.role.revision,
+          },
+        }
+      : {}),
     ...(context.recordTokenUsage
       ? {
           tokenUsage: {
@@ -1580,10 +1839,8 @@ export async function executeSparkDaemonSessionRunTask(
             kind: usageExecutionKind,
             ...(loop ? { detailKind: "loop_tick" } : {}),
             persistence:
-              task.hiddenExecution || sessionContext.retention === "discard_on_close"
-                ? "anonymous"
-                : "persistent",
-            sessionId: loop?.ownerSessionId ?? task.sessionId,
+              sessionContext.retention === "discard_on_close" ? "anonymous" : "persistent",
+            sessionId: task.sessionId,
             ...(context.registerTokenUsageExecution
               ? { register: context.registerTokenUsageExecution }
               : {}),
@@ -1605,20 +1862,13 @@ export async function executeSparkDaemonSessionRunTask(
 function completeChannelBinding(task: SparkDaemonSessionRunTask) {
   const reply = task.channelReply;
   if (!reply) return undefined;
-  if (
-    !reply.adapter ||
-    !reply.externalKey ||
-    !reply.adapterId ||
-    !reply.workspaceId ||
-    !reply.recipient
-  ) {
+  if (!reply.adapter || !reply.externalKey || !reply.adapterId || !reply.recipient) {
     throw new Error("channel-origin task has incomplete frozen binding");
   }
   if (task.channelContext && task.channelContext.externalKey !== reply.externalKey) {
     throw new Error("channel-origin task externalKey does not match frozen binding");
   }
   return {
-    workspaceId: reply.workspaceId,
     adapter: reply.adapter,
     externalKey: reply.externalKey,
     recipient: reply.recipient,
@@ -1827,9 +2077,9 @@ interface SessionInvocationContext {
 async function sessionContextForTask(
   task: SparkDaemonSessionRunTask,
   registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
-  sparkHome: string | undefined,
+  paths: SparkPaths,
 ): Promise<SessionInvocationContext> {
-  const session = await registry?.get?.(task.executionSessionId ?? task.sessionId);
+  const session = await registry?.get?.(task.sessionId);
   if (session && (session.lifecycle !== "open" || session.placement !== "active")) {
     throw new SparkSessionRegistryError(
       session.lifecycle === "closing"
@@ -1840,11 +2090,15 @@ async function sessionContextForTask(
       `cannot execute ${session.lifecycle} Session ${session.sessionId}`,
     );
   }
+  if (session?.scope.kind === "daemon" && session.purpose === "channel") {
+    await validateChannelSessionWorkspace(paths, session.sessionId, session.cwd);
+  }
+  const sparkHome = paths.sessionRuntimeDir;
   const role = session
     ? await resolveInvocationRole(registry, session, session.cwd ?? task.cwd ?? process.cwd())
     : undefined;
   const sessionPath =
-    !task.hiddenExecution && session && sparkHome && registry?.bindTranscriptPath
+    session && sparkHome && registry?.bindTranscriptPath
       ? await ensureDaemonSessionTranscript({
           session,
           sparkHome,
@@ -1854,6 +2108,11 @@ async function sessionContextForTask(
         })
       : session?.sessionPath;
   if (task.channelReply) {
+    if (session && (session.scope.kind !== "daemon" || session.purpose !== "channel")) {
+      throw new Error(
+        `Channel invocation ${task.sessionId} requires a daemon-owned Channel Session`,
+      );
+    }
     return {
       surface: "channel",
       ...(session ? { session } : {}),
@@ -1866,7 +2125,6 @@ async function sessionContextForTask(
           }
         : {}),
       ...(session?.cwd ? { cwd: session.cwd } : {}),
-      ...(session?.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
       ...(session?.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
       ...(role ? { role } : {}),
       ...(sessionPath ? { sessionPath } : {}),
@@ -1884,8 +2142,11 @@ async function sessionContextForTask(
     ...(session.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
     ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
     ...(role ? { role } : {}),
-    ...(session.owner.kind === "side_thread" ? { sideThread: true } : {}),
-    ...(session.owner.kind === "task_run" || session.owner.kind === "task_revision"
+    ...(session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread"
+      ? { sideThread: true }
+      : {}),
+    ...(session.lineage.kind === "child" &&
+    (session.lineage.origin.kind === "task_run" || session.lineage.origin.kind === "task_revision")
       ? { taskSession: true }
       : {}),
     ...(session.fleetWorker ? { taskSession: true, fleetWorker: session.fleetWorker } : {}),
@@ -1902,7 +2163,7 @@ async function inheritedSessionModel(
   let current = session;
   const visited = new Set<string>();
   while (current) {
-    const supervisorId = supervisorSessionIdForOwner(current);
+    const supervisorId = sparkSessionParentId(current.lineage);
     if (!supervisorId || visited.has(supervisorId)) return undefined;
     visited.add(supervisorId);
     current = await registry?.get?.(supervisorId);
@@ -1918,11 +2179,27 @@ async function inheritedSessionThinkingLevel(
   let current = session;
   const visited = new Set<string>();
   while (current) {
-    const supervisorId = supervisorSessionIdForOwner(current);
+    const supervisorId = sparkSessionParentId(current.lineage);
     if (!supervisorId || visited.has(supervisorId)) return undefined;
     visited.add(supervisorId);
     current = await registry?.get?.(supervisorId);
     if (current?.thinkingLevel) return current.thinkingLevel;
+  }
+  return undefined;
+}
+
+async function inheritedSessionMaxOutputTokens(
+  session: SparkSessionState | undefined,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+) {
+  let current = session;
+  const visited = new Set<string>();
+  while (current) {
+    const supervisorId = sparkSessionParentId(current.lineage);
+    if (!supervisorId || visited.has(supervisorId)) return undefined;
+    visited.add(supervisorId);
+    current = await registry?.get?.(supervisorId);
+    if (current?.maxOutputTokens) return current.maxOutputTokens;
   }
   return undefined;
 }
@@ -1948,14 +2225,15 @@ function recordInvocationReceiptContext(
     surface: context.surface ?? "local",
   };
   store.recordReceiptContext(invocationId, {
-    lifetime: sparkSessionLifetimeForOwner(session.owner),
-    ownerKind: session.owner.kind,
+    lifetime: sparkSessionLifetimeForLineage(session.lineage),
+    originKind: sparkSessionLineageOriginKind(session.lineage),
     ...(context.role ? { effectiveRoleRef: context.role.ref } : {}),
     ...(context.role ? { effectiveRoleRevision: context.role.revision } : {}),
     ...(task.model ? { model: modelRefFromValue(task.model) } : {}),
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
+    ...(task.maxOutputTokens ? { maxOutputTokens: task.maxOutputTokens } : {}),
     toolPolicyDigest: contentHash(JSON.stringify(policy)),
     authorizationSource: {
       kind: invocation.parentInvocationId
@@ -1991,7 +2269,7 @@ async function resolveInvocationRole(
       if (!role) throw new Error(`Session Role is not defined: ${current.roleBinding.roleRef}`);
       return role;
     }
-    const supervisorSessionId = supervisorSessionIdForOwner(current);
+    const supervisorSessionId = sparkSessionParentId(current.lineage);
     if (!supervisorSessionId) {
       throw new Error(`Session ${current.sessionId} cannot inherit Role without a supervisor`);
     }
@@ -2005,23 +2283,6 @@ async function resolveInvocationRole(
   return undefined;
 }
 
-function supervisorSessionIdForOwner(session: SparkSessionState): string | undefined {
-  switch (session.owner.kind) {
-    case "session":
-    case "task_run":
-    case "task_revision":
-    case "workflow_run":
-    case "driver":
-    case "driver_tick":
-    case "invocation":
-      return session.owner.supervisorSessionId;
-    case "side_thread":
-      return session.owner.parentSessionId;
-    case "workspace":
-      return undefined;
-  }
-}
-
 async function systemPromptForChannelSession(
   task: SparkDaemonSessionRunTask,
   options: SparkDaemonTaskExecutorOptions,
@@ -2030,7 +2291,7 @@ async function systemPromptForChannelSession(
   if (sessionSurface !== "channel") return undefined;
   const reply = task.channelReply;
   if (!reply) {
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
     ]);
@@ -2049,8 +2310,8 @@ async function systemPromptForChannelSession(
       : "user";
 
   if (reply.adapter === "infoflow") {
-    const infoflow = await loadInfoflowAdapterConfig(options, reply.workspaceId);
-    return composeAgentSystemPrompt([
+    const infoflow = await loadInfoflowAdapterConfig(options, reply.adapterAccountIdentity);
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderInfoflowInternalSystemPrompt({
         ...(infoflow ? { config: infoflow } : {}),
@@ -2064,9 +2325,9 @@ async function systemPromptForChannelSession(
   }
 
   if (reply.adapter === "qqbot") {
-    const qqbot = await loadQqbotAdapterConfig(options, reply.workspaceId);
+    const qqbot = await loadQqbotAdapterConfig(options, reply.adapterAccountIdentity);
     const custom = qqbot?.system_prompt?.trim();
-    return composeAgentSystemPrompt([
+    return composeSparkSystemPrompt([
       DEFAULT_SPARK_IDENTITY_PROMPT,
       renderSparkChannelSurfacePrompt({
         adapter: "qqbot",
@@ -2078,7 +2339,7 @@ async function systemPromptForChannelSession(
     ]);
   }
 
-  return composeAgentSystemPrompt([
+  return composeSparkSystemPrompt([
     DEFAULT_SPARK_IDENTITY_PROMPT,
     renderSparkChannelSurfacePrompt({
       adapter: reply.adapter ?? failIncompleteChannelBinding(),
@@ -2102,23 +2363,26 @@ async function systemPromptForSession(
   const channelPrompt = await systemPromptForChannelSession(task, options, sessionSurface);
   const rolePrompt = role?.systemPrompt;
   const sideThreadPrompt = sideThread ? SPARK_SIDE_THREAD_EXECUTION_PROMPT : undefined;
-  if (channelPrompt) return composeAgentSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
+  if (channelPrompt) return composeSparkSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
   if (rolePrompt || sideThreadPrompt) {
-    return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
+    return composeSparkSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
   }
   return undefined;
 }
 
 async function loadInfoflowAdapterConfig(
   options: SparkDaemonTaskExecutorOptions,
-  workspaceId: string,
+  adapterAccountIdentity?: string,
 ): Promise<InfoflowAdapterConfig | undefined> {
   const sparkHome = options.channelsSparkHome ?? options.controlSparkHome;
   if (!sparkHome) return undefined;
   try {
-    const loaded = await loadDaemonChannelsConfig(sparkHome, workspaceId);
-    const adapter = Object.values(loaded.config?.adapters ?? {}).find(
-      (entry) => entry.type === "infoflow",
+    const loaded = await loadDaemonGlobalChannelsConfig({ sparkHome });
+    const adapter = Object.values(loaded.state === "ready" ? loaded.config.adapters : {}).find(
+      (entry) =>
+        entry.type === "infoflow" &&
+        (!adapterAccountIdentity ||
+          channelAdapterAccountIdentity(entry) === adapterAccountIdentity),
     );
     return adapter?.type === "infoflow" ? adapter : undefined;
   } catch (error) {
@@ -2129,14 +2393,17 @@ async function loadInfoflowAdapterConfig(
 
 async function loadQqbotAdapterConfig(
   options: SparkDaemonTaskExecutorOptions,
-  workspaceId: string,
+  adapterAccountIdentity?: string,
 ): Promise<QqbotAdapterConfig | undefined> {
   const sparkHome = options.channelsSparkHome ?? options.controlSparkHome;
   if (!sparkHome) return undefined;
   try {
-    const loaded = await loadDaemonChannelsConfig(sparkHome, workspaceId);
-    const adapter = Object.values(loaded.config?.adapters ?? {}).find(
-      (entry) => entry.type === "qqbot",
+    const loaded = await loadDaemonGlobalChannelsConfig({ sparkHome });
+    const adapter = Object.values(loaded.state === "ready" ? loaded.config.adapters : {}).find(
+      (entry) =>
+        entry.type === "qqbot" &&
+        (!adapterAccountIdentity ||
+          channelAdapterAccountIdentity(entry) === adapterAccountIdentity),
     );
     return adapter?.type === "qqbot" ? adapter : undefined;
   } catch (error) {
@@ -2153,7 +2420,7 @@ function emitHeadlessEvent(
   const artifact = artifactDaemonProjectionEventFromToolResult(raw, {
     ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
     ...(task.projectId ? { projectId: task.projectId } : {}),
-    sessionId: task.presentationSessionId ?? task.sessionId,
+    sessionId: task.sessionId,
     invocationId: context.invocationId,
     metadata: daemonTaskRouteMetadata(task),
   });
@@ -2183,11 +2450,6 @@ function daemonEventFromHeadlessEvent(
   if (raw.type === "view_event") {
     try {
       const view = parseSparkViewModelEvent(raw.event);
-      const presentationSessionId = task.presentationSessionId ?? task.sessionId;
-      const projectsOwnedSession = presentationSessionId !== task.sessionId;
-      if ((task.hiddenExecution || projectsOwnedSession) && view.type === "session.snapshot") {
-        return undefined;
-      }
       const correlatedView =
         view.type === "session.message" && view.message.role === "user"
           ? {
@@ -2198,10 +2460,6 @@ function daemonEventFromHeadlessEvent(
               },
             }
           : view;
-      const projectedView =
-        task.hiddenExecution || projectsOwnedSession
-          ? projectHiddenLoopView(correlatedView, presentationSessionId)
-          : correlatedView;
       return {
         version: SPARK_PROTOCOL_VERSION,
         type: "daemon.view_event",
@@ -2210,9 +2468,9 @@ function daemonEventFromHeadlessEvent(
         ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
         ...(task.projectId ? { projectId: task.projectId } : {}),
         metadata: daemonTaskRouteMetadata(task),
-        sessionId: presentationSessionId,
+        sessionId: task.sessionId,
         invocationId,
-        view: projectedView,
+        view: correlatedView,
       };
     } catch {
       return undefined;
@@ -2221,37 +2479,16 @@ function daemonEventFromHeadlessEvent(
   if (raw.type === "daemon_event") {
     try {
       const event = parseSparkDaemonEvent(raw.event);
-      const presentationSessionId = task.presentationSessionId ?? task.sessionId;
-      const projectsOwnedSession = presentationSessionId !== task.sessionId;
-      if (
-        (task.hiddenExecution || projectsOwnedSession) &&
-        event.type === "daemon.view_event" &&
-        event.view.type === "session.snapshot"
-      ) {
-        return undefined;
-      }
-      const projectedEvent =
-        (task.hiddenExecution || projectsOwnedSession) && event.type === "daemon.view_event"
-          ? {
-              ...event,
-              view: projectHiddenLoopView(event.view, presentationSessionId),
-            }
-          : event;
       return {
-        ...projectedEvent,
-        emittedAt: projectedEvent.emittedAt ?? new Date().toISOString(),
-        ...(task.workspaceId && !projectedEvent.workspaceId
-          ? { workspaceId: task.workspaceId }
-          : {}),
-        ...(task.projectId && !projectedEvent.projectId ? { projectId: task.projectId } : {}),
-        sessionId:
-          task.hiddenExecution || projectsOwnedSession
-            ? presentationSessionId
-            : (projectedEvent.sessionId ?? task.sessionId),
-        invocationId: projectedEvent.invocationId ?? invocationId,
+        ...event,
+        emittedAt: event.emittedAt ?? new Date().toISOString(),
+        ...(task.workspaceId && !event.workspaceId ? { workspaceId: task.workspaceId } : {}),
+        ...(task.projectId && !event.projectId ? { projectId: task.projectId } : {}),
+        sessionId: event.sessionId ?? task.sessionId,
+        invocationId: event.invocationId ?? invocationId,
         metadata: {
           ...daemonTaskRouteMetadata(task),
-          ...projectedEvent.metadata,
+          ...event.metadata,
         },
       };
     } catch {
@@ -2259,33 +2496,6 @@ function daemonEventFromHeadlessEvent(
     }
   }
   return undefined;
-}
-
-function projectHiddenLoopView(
-  view: ReturnType<typeof parseSparkViewModelEvent>,
-  ownerSessionId: string,
-): ReturnType<typeof parseSparkViewModelEvent> {
-  if (view.type === "session.message") {
-    return {
-      ...view,
-      sessionId: ownerSessionId,
-      message: {
-        ...view.message,
-        metadata: {
-          ...view.message.metadata,
-          loopExecution: true,
-          stateOwnerSessionId: ownerSessionId,
-        },
-      },
-    };
-  }
-  if (view.type === "run.update") {
-    return { ...view, sessionId: ownerSessionId };
-  }
-  if (view.type === "loop.update") {
-    return { ...view, sessionId: ownerSessionId };
-  }
-  return view;
 }
 
 async function recordCompletedSessionCompaction(
@@ -2328,10 +2538,6 @@ async function recordCompletedSessionRun(
   refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,
 ): Promise<{ result: unknown; indexed: boolean }> {
   if (!registry) return { result, indexed: false };
-  if (task.hiddenExecution) {
-    await registry.recordTurnSettled(task.stateBindingSessionId ?? task.sessionId);
-    return { result, indexed: false };
-  }
   const sessionPath =
     isRecord(result) && typeof result.sessionPath === "string" && result.sessionPath.trim()
       ? result.sessionPath.trim()
@@ -2380,17 +2586,17 @@ async function closeLoopGenerationSession(
   task: SparkDaemonLoopTickTask | undefined,
   supervisor: SessionSupervisor | undefined,
 ): Promise<void> {
-  if (task?.continuity !== "fresh" || !task.executionSessionId || !supervisor) {
+  if (task?.sessionLifetime !== "driver_tick" || !supervisor) {
     return;
   }
   try {
     await supervisor.close({
-      sessionId: task.executionSessionId,
+      sessionId: task.sessionId,
       reason: `loop ${task.loopId} generation ${task.generation} terminated`,
     });
   } catch (error) {
     console.error(
-      `[spark-daemon] failed to close Loop generation Session ${task.executionSessionId}: ${errorMessage(error)}`,
+      `[spark-daemon] failed to close Loop generation Session ${task.sessionId}: ${errorMessage(error)}`,
     );
   }
 }
@@ -2406,7 +2612,7 @@ async function assignRoleAfterCompletedSessionRun(
   if (!task.model || !generateSessionName || !get || !setNameIfMissing) return;
   try {
     const current = await get(task.sessionId);
-    if (current?.owner?.kind === "side_thread") return;
+    if (current?.lineage.kind === "child" && current.lineage.origin.kind === "side_thread") return;
     const session = await assignCompletedSessionName(
       {
         sessionId: task.sessionId,
@@ -2484,10 +2690,16 @@ async function wakeTaskExecutionOwner(
     // Loop ticks can target a different owner Session, so they use the last
     // atomic visibility snapshot without waiting behind unrelated recordRun work.
     const session = knownSession ?? (await readVisibilitySnapshot!(sessionId));
-    if (session?.owner?.kind !== "task_run" && session?.owner?.kind !== "task_revision") return;
-    await options.loopControl.wakeOwner(session.owner.supervisorSessionId, {
+    if (
+      session?.lineage.kind !== "child" ||
+      (session.lineage.origin.kind !== "task_run" &&
+        session.lineage.origin.kind !== "task_revision")
+    ) {
+      return;
+    }
+    await options.loopControl.wakeOwner(session.lineage.parentSessionId, {
       target: "repro",
-      reason: `managed Task Session ${sessionId} settled; reconcile ${session.owner.taskRef}`,
+      reason: `managed Task Session ${sessionId} settled; reconcile ${session.lineage.origin.taskRef}`,
     });
   } catch (error) {
     console.error(`[spark-daemon] failed to wake Task Session owner for ${sessionId}`, error);
@@ -2511,14 +2723,6 @@ function sessionCompactionFenceError(
       `(expected incarnation ${task.sessionIncarnation} open, found ` +
       `${session.incarnation} ${session.lifecycle}/${session.placement})`,
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

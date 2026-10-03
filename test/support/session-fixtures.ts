@@ -26,6 +26,7 @@ export function workspaceSessionRecord(input: {
   sessionPath?: string;
   model?: SparkModelRef;
   thinkingLevel?: SparkThinkingLevel;
+  maxOutputTokens?: number;
   createdAt?: string;
   updatedAt?: string;
 }): SparkSessionProjection {
@@ -40,22 +41,16 @@ export function workspaceSessionRecord(input: {
     roleBinding: administrator
       ? { kind: "explicit", roleRef: "role:builtin-administrator" }
       : (input.roleBinding ?? { kind: "none" }),
-    owner: administrator
-      ? { kind: "workspace", workspaceId: input.workspaceId }
+    lineage: administrator
+      ? { kind: "root" }
       : {
-          kind: "session",
-          supervisorSessionId:
+          kind: "child",
+          parentSessionId:
             input.supervisorSessionId ??
             `sess_admin_${input.workspaceId.replace(/[^a-z0-9]+/giu, "_")}`,
+          origin: { kind: "session" },
         },
     incarnation: 1,
-    stateBinding: {
-      kind: "session",
-      ref: administrator
-        ? input.sessionId
-        : (input.supervisorSessionId ??
-          `sess_admin_${input.workspaceId.replace(/[^a-z0-9]+/giu, "_")}`),
-    },
     visibility: "public",
     retention: administrator ? "audit" : "retain",
     purpose: administrator ? "workspace_administrator" : "interactive",
@@ -68,6 +63,7 @@ export function workspaceSessionRecord(input: {
     ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+    ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
     createdAt: input.createdAt ?? defaultTimestamp,
     updatedAt: input.updatedAt ?? input.createdAt ?? defaultTimestamp,
   });
@@ -85,6 +81,7 @@ export async function createDaemonWorkspaceSession(
       roleBinding?: SparkSessionRoleBinding;
       cwd?: string;
       sessionPath?: string;
+      maxOutputTokens?: number;
     }): Promise<SparkSessionState>;
   },
   input: {
@@ -94,6 +91,7 @@ export async function createDaemonWorkspaceSession(
     roleBinding?: SparkSessionRoleBinding;
     cwd?: string;
     sessionPath?: string;
+    maxOutputTokens?: number;
   },
 ): Promise<SparkSessionState> {
   const administrator = await registry.ensureWorkspaceAdministrator(input.workspaceId);
@@ -106,5 +104,6 @@ export async function createDaemonWorkspaceSession(
     ...(input.roleBinding ? { roleBinding: input.roleBinding } : {}),
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
+    ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
   });
 }

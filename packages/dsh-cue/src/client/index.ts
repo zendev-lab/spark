@@ -1,0 +1,25 @@
+export {
+  CueClient,
+  CueError,
+  CueTransportError,
+  cueOperationId,
+  cueOperationStep,
+  defaultSocketPath,
+  resolveCueTransport,
+  DEFAULT_CUE_RESOLVER_TIMEOUT_MS,
+  DEFAULT_CUE_CONNECT_TIMEOUT_MS,
+  isSensitiveCueEnvKey,
+  isRetryableCueTransportError,
+} from "./cue-client.ts";
+export type {
+  CueOperationKey,
+  CueResolvedTransport,
+  CueSessionOptions,
+  ExecutionSummary,
+  ExecutionTextOutput,
+  ExecutionResult,
+  OutputEncoding,
+  ResourceNeeds,
+  ScriptResult,
+  StartExecutionResult,
+} from "./cue-client.ts";

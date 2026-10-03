@@ -38,7 +38,11 @@ const sessions = [
     lifecycle: "open" as const,
     placement: "active" as const,
     activity: "idle" as const,
-    owner: { kind: "session" as const, supervisorSessionId: "workspace-1-administrator" },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId: "workspace-1-administrator",
+      origin: { kind: "session" },
+    },
     createdAt: now,
     updatedAt: now,
   },
@@ -50,7 +54,11 @@ const sessions = [
     lifecycle: "open" as const,
     placement: "active" as const,
     activity: "idle" as const,
-    owner: { kind: "session" as const, supervisorSessionId: "workspace-1-administrator" },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId: "workspace-1-administrator",
+      origin: { kind: "session" },
+    },
     bindings: [{ kind: "channel", adapter: "qqbot", externalKey: "qqbot:group:reviewers" }],
     createdAt: now,
     updatedAt: now,
@@ -61,7 +69,7 @@ const administrator = {
   ...sessions[0]!,
   sessionId: "workspace-1-administrator",
   name: "Administrator",
-  owner: { kind: "workspace" as const, workspaceId: "workspace-1" },
+  lineage: { kind: "root" as const, workspaceId: "workspace-1" },
 };
 
 const hierarchySessions = [
@@ -85,7 +93,11 @@ function sideThread(
     sessionId,
     name: `${mode} ${generation}`,
     placement,
-    owner: { kind: "side_thread" as const, parentSessionId, generation },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId,
+      origin: { kind: "side_thread" as const, generation },
+    },
   };
 }
 
@@ -161,7 +173,7 @@ describe("WorkbenchSessionRail browser contract", () => {
     await screen.unmount();
   });
 
-  it("keeps an orphan Side Thread diagnostic out of the link and control surfaces", async () => {
+  it("keeps an orphan child Session diagnostic out of the link and control surfaces", async () => {
     const screen = await render(
       WorkbenchSessionRail,
       props({ sessions: [sideThread("orphan-child", "missing-parent", 4, "tangent")] }),
@@ -169,14 +181,14 @@ describe("WorkbenchSessionRail browser contract", () => {
     const orphanRow = screen.container.querySelector<HTMLElement>(
       '[data-session-id="orphan-child"][role="listitem"]',
     );
-    expect(orphanRow?.getAttribute("aria-level")).toBe("2");
+    expect(orphanRow?.getAttribute("aria-level")).toBe("1");
     expect(orphanRow?.querySelector(".orphan")?.getAttribute("aria-disabled")).toBe("true");
     expect(orphanRow?.querySelector("a, form, button")).toBeNull();
     expect(orphanRow?.textContent).toContain(messages.orphanedSideThreads);
     await screen.unmount();
   });
 
-  it("persists Show archived in the URL while preserving the Side Thread hierarchy", async () => {
+  it("persists Show archived in the URL while preserving the child Session hierarchy", async () => {
     const originalUrl = window.location.href;
     window.history.replaceState(
       window.history.state,
@@ -212,7 +224,7 @@ describe("WorkbenchSessionRail browser contract", () => {
       expect(childLink?.getAttribute("aria-label")).toContain(
         "parent=parent-alpha • generation=1 • lifecycle=open • activity=idle",
       );
-      expect(childLink?.getAttribute("href")).toBe("/spark/sessions/parent-alpha");
+      expect(childLink?.getAttribute("href")).toBe("/spark/sessions/alpha-context");
 
       screen.getByRole("link", { name: `${messages.showArchived} (1)` });
       const showArchivedToggle =

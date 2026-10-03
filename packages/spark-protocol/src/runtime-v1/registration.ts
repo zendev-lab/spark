@@ -27,13 +27,6 @@ export const runtimeWorkspaceRegistrationBindingSchema = z.object({
   status: z.enum(["available", "indexing", "degraded", "unavailable", "archived"]),
 });
 
-export const workspaceBrowserAuthorizationSchema = z.object({
-  workspaceId: prefixedIdSchema("ws"),
-  workspaceSlug: z.string().min(1),
-  oneTimeToken: z.string().startsWith("spark_workspace_auth_").min(32),
-  expiresAt: isoDateTimeSchema,
-});
-
 export const runtimeRegistrationResponseSchema = z.object({
   runtimeId: prefixedIdSchema("rt"),
   runtimeToken: z.string().min(32),
@@ -46,11 +39,28 @@ export const runtimeRegistrationResponseSchema = z.object({
   staleAfterMs: z.literal(45_000),
   registeredAt: isoDateTimeSchema,
   workspaceBinding: runtimeWorkspaceRegistrationBindingSchema.optional(),
-  workspaceAuthorization: workspaceBrowserAuthorizationSchema.optional(),
 });
 
+/**
+ * Scope granted by a daemon-level enrollment token: the daemon itself may
+ * attach or refresh workspaces under its own runtime identity. Enrollment
+ * tokens with this scope carry no workspace grant; workspace attachment is
+ * authorized by the daemon's runtime credentials.
+ */
+export const runtimeDaemonAttachScope = "daemon:attach";
+
+/**
+ * Scope granted by a legacy workspace-scoped enrollment token. Retained for
+ * compatibility: a one-time token still authorizes exactly one workspace.
+ */
+export const runtimeWorkspaceRegisterScope = "workspace:register";
+
 export const runtimeWorkspaceRegistrationRequestSchema = z.object({
-  registrationToken: z.string().min(1),
+  /**
+   * Optional for daemon-authenticated attachment. Present when a
+   * workspace-scoped enrollment token authorizes this specific workspace.
+   */
+  registrationToken: z.string().min(1).optional(),
   workspaceRegistration: runtimeWorkspaceRegistrationDetailsSchema,
 });
 
@@ -58,7 +68,6 @@ export const runtimeWorkspaceRegistrationResponseSchema = z.object({
   runtimeId: prefixedIdSchema("rt"),
   registeredAt: isoDateTimeSchema,
   workspaceBinding: runtimeWorkspaceRegistrationBindingSchema,
-  workspaceAuthorization: workspaceBrowserAuthorizationSchema,
 });
 
 export const runtimeTokenRefreshRequestSchema = z.object({
@@ -74,11 +83,7 @@ export const runtimeTokenRefreshResponseSchema = z.object({
   refreshedAt: isoDateTimeSchema,
 });
 
-export const legacyCockpitInstanceIdSchema = z.string().regex(/^cockpit_[a-f0-9]{32}$/u);
-export const hubInstanceIdSchema = z.union([
-  z.string().regex(/^hub_[a-f0-9]{32}$/u),
-  legacyCockpitInstanceIdSchema,
-]);
+export const hubInstanceIdSchema = z.string().regex(/^hub_[a-f0-9]{32}$/u);
 
 export const hubRuntimeRelocationMetadataSchema = z.object({
   instanceId: hubInstanceIdSchema,

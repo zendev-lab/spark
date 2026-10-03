@@ -198,6 +198,13 @@
     transform: translateY(-1px);
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .action-card,
+    .action-card:hover {
+      transform: none;
+    }
+  }
+
   .action-card.primary {
     background: var(--color-primary-weak);
     border-color: var(--color-primary-soft);

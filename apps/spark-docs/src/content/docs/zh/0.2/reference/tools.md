@@ -14,7 +14,7 @@ profile 或排查能力为何不可用时，再查看本页。
 | 请求决策 | `ask` | 暂停并等待结构化用户输入 |
 | 读取和修改文件 | `read`, `write`, `edit`, `grep`, `find` | 读取或 workspace 写入 |
 | 管理代码交付 | `git` | worktree、原生 PR stack、commit、submit、sync 与 cleanup 生命周期 |
-| 搜索和获取网页 | `web_search`, `code_search`, `fetch_content`, `get_search_content` | 外部读取；获取的文本不可信 |
+| 搜索和获取网页 | `web_search`, `web_fetch`, `get_search_content` | 通过 `ctx.web` 外部读取；获取的文本不可信 |
 | 查看和修改工作 | `task_read`, `task_write`, `assign`, `todo` | Task/session 状态；assign 可能执行工作 |
 | 保存结果 | `artifact`, `evidence`, `memory`, `context` | 产品产物、内部账本、记忆和受限上下文 |
 | 协调 agent | `role`, `session` | 定义、调用、持久 session 与 mail |

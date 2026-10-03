@@ -25,7 +25,7 @@ import {
   openDatabase,
   openMemoryDatabase,
   restoreHubSnapshot,
-} from "@zendev-lab/spark-hub-db";
+} from "@zendev-lab/spark-hub-storage-sqlite";
 import {
   createRuntimeEnrollmentToken,
   preflightRuntimeRelocation,
@@ -35,7 +35,7 @@ import {
   attachRuntimeWebSocket,
   authenticateRuntimeToken,
 } from "@zendev-lab/spark-hub-coordination/runtime-ws";
-import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-platform-node";
 
 import { createSparkDaemonUplinkControl } from "./daemon.ts";
 import { startSparkDaemon } from "./daemon-start.ts";

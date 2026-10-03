@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
-const hubDbEntry = realpathSync(fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-db")));
+const hubDbEntry = realpathSync(
+  fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-storage-sqlite")),
+);
 const migrationsSource = join(dirname(hubDbEntry), "migrations");
 const migrationsDestination = fileURLToPath(new URL("../dist/migrations/", import.meta.url));
 
@@ -23,17 +25,21 @@ const require = __sparkCreateRequire(import.meta.url);`,
   bundle: true,
   entryPoints: ["src/cli.ts"],
   external: [
+    "@deepseek-ai/node-addon-system",
+    "koffi",
+    "@zendev-lab/cue",
     "@ast-grep/napi",
     "ws",
     "@core-workspace/infoflow-sdk-nodejs",
     "axios",
     "protobufjs",
     "lodash.merge",
+    "sharp",
   ],
   format: "esm",
   outfile: temporaryCli,
   platform: "node",
-  target: "node26",
+  target: "node24",
 });
 
 await chmod(temporaryCli, 0o755);

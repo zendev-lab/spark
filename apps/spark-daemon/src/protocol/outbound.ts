@@ -91,10 +91,6 @@ export function workspaceSnapshot(payload: WorkspaceSnapshotPayload, route: Rout
   return runtimeEnvelope("workspace.snapshot", payload, route);
 }
 
-export function daemonEvent(payload: DaemonEventPayload, route: RouteContext) {
-  return runtimeEnvelope("daemon.event", payload, route);
-}
-
 export function artifactProjected(
   payload: ArtifactProjectionPayload,
   route: RouteContext,

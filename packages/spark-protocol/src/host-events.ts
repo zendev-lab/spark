@@ -4,7 +4,7 @@ import { z } from "zod";
  * Host runtime builtin lifecycle event names (SparkHostRuntime.on / emit).
  *
  * Distinct from:
- * - turn-loop subscriber events (`SparkAgentLoopEvent` in spark-turn)
+ * - agent-loop subscriber events (`SparkAgentLoopEvent` in daemon product composition)
  * - protocol view/daemon wire events (`SparkViewModelEvent` / `SparkDaemonEvent`)
  *
  * Do not invent a fourth event vocabulary; extend this list or the protocol
@@ -41,7 +41,7 @@ export type SparkHostBuiltinEventPayloadMap = {
   assistant_message: unknown;
 };
 
-/** Turn-loop subscriber event discriminants (spark-turn `SparkAgentLoopEvent`). */
+/** Agent-loop subscriber event discriminants (`SparkAgentLoopEvent`). */
 export const SPARK_AGENT_LOOP_EVENT_TYPES = [
   "stream_event",
   "user_message",
@@ -59,7 +59,7 @@ export const sparkAgentLoopEventTypeSchema = z.enum(SPARK_AGENT_LOOP_EVENT_TYPES
 
 export type SparkAgentLoopEventType = (typeof SPARK_AGENT_LOOP_EVENT_TYPES)[number];
 
-/** Terminal statuses for spark-turn `SparkRunOutcome` (in-process, not daemon invocation status). */
+/** Terminal statuses for `SparkRunOutcome` (in-process, not daemon invocation status). */
 export const SPARK_RUN_OUTCOME_STATUSES = ["completed", "aborted", "failed"] as const;
 
 export const sparkRunOutcomeStatusSchema = z.enum(SPARK_RUN_OUTCOME_STATUSES);

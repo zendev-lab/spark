@@ -7,19 +7,17 @@ import {
 import {
   conversationPartText,
   groupThinkingChainParts,
+  mergeToolParts,
+  normalizeConversationPart,
   textConversationPart,
+  toolState,
   visibleConversationParts,
   visibleConversationPartText,
   type ConversationPart,
 } from "@zendev-lab/spark-ui/conversation";
 import { isInternalExecutionTransportFailure } from "./internal-execution-detail";
-import {
-  mergeToolParts,
-  normalizeConversationPart,
-  toolState,
-} from "./conversation-part-converters";
 
-export { preferToolSummary } from "./conversation-part-converters";
+export { preferToolSummary } from "@zendev-lab/spark-ui/conversation";
 export {
   conversationPartText,
   groupThinkingChainParts,

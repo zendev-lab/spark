@@ -17,6 +17,7 @@
     ariaLabel,
     ariaExpanded,
     ariaControls,
+    element = $bindable(),
     class: className = "",
     onclick,
     children,
@@ -36,6 +37,7 @@
     ariaLabel?: string;
     ariaExpanded?: boolean;
     ariaControls?: string;
+    element?: HTMLButtonElement | HTMLAnchorElement;
     class?: string;
     onclick?: (event: MouseEvent) => void;
     children: Snippet;
@@ -44,6 +46,7 @@
 
 {#if href}
   <a
+    bind:this={element}
     class="ui-button {className}"
     class:loading
     data-variant={variant}
@@ -61,6 +64,7 @@
   </a>
 {:else}
   <button
+    bind:this={element}
     class="ui-button {className}"
     class:loading
     data-variant={variant}

@@ -15,7 +15,7 @@ const options = {
 
 describe("workbench session type groups", () => {
   it.each([
-    [session("administrator", { owner: { kind: "workspace" } }), "administrator"],
+    [session("administrator", { lineage: { kind: "root" } }), "administrator"],
     [session("workspace"), "workspace"],
     [channelSession("infoflow:user:alice"), "private"],
     [channelSession("qqbot:c2c:alice"), "private"],
@@ -58,7 +58,7 @@ describe("workbench session type groups", () => {
 
   it("keeps a stable type order and attention order without mutating input", () => {
     const input = [
-      session("administrator", { owner: { kind: "workspace" } }),
+      session("administrator", { lineage: { kind: "root" } }),
       channelSession("infoflow:group:old", { updatedAt: "2026-07-14T08:00:00Z" }),
       session("workspace"),
       channelSession("infoflow:group:running", {

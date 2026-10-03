@@ -38,7 +38,7 @@ import {
   type ExtensionInteractionCapabilities,
   type JsonValue,
   type ToolConfig,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 
 const TEST_ASK_INTERACTION_CAPABILITIES = {
   version: 1,
@@ -135,7 +135,7 @@ test("evidence store creates canonical evidence refs in the evidence root", asyn
 });
 
 test("Evidence store writes hashes, blobs, and lineage links", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-artifacts-evidence-"));
   try {
     const store = new EvidenceStore({ rootDir: dir });
     const projectRef = newRef("proj", "demo-project");
@@ -428,7 +428,7 @@ test("evidence record rejects conflicting top-level provenance shortcuts", async
 });
 
 test("Evidence store compacts large metadata while hydrating full bodies", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-compact-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-artifacts-evidence-compact-"));
   try {
     const store = new EvidenceStore({
       rootDir: dir,
@@ -461,7 +461,7 @@ test("Evidence store compacts large metadata while hydrating full bodies", async
 });
 
 test("Evidence store rejects malformed persisted metadata with file context", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-malformed-metadata-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-artifacts-evidence-malformed-metadata-"));
   try {
     const store = new EvidenceStore({ rootDir: dir });
     const invalidPath = join(dir, "not-evidence.json");
@@ -504,7 +504,7 @@ test("Evidence store rejects malformed persisted metadata with file context", as
 });
 
 test("Evidence store rejects invalid bodies before writing blobs or metadata", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-invalid-body-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-artifacts-evidence-invalid-body-"));
   try {
     const store = new EvidenceStore({ rootDir: dir });
     const ref = newRef("evidence", "invalid-body");
@@ -529,7 +529,7 @@ test("Evidence store rejects invalid bodies before writing blobs or metadata", a
 });
 
 test("Evidence metadata compaction dry-runs and rewrites legacy inline bodies", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-legacy-compact-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-artifacts-evidence-legacy-compact-"));
   try {
     const legacyStore = new EvidenceStore({
       rootDir: dir,
@@ -576,7 +576,7 @@ test("Evidence metadata compaction dry-runs and rewrites legacy inline bodies", 
 });
 
 test("Evidence store refuses metadata blob paths outside the Evidence root", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-blob-boundary-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-artifacts-evidence-blob-boundary-"));
   try {
     const legacyStore = new EvidenceStore({
       rootDir: dir,

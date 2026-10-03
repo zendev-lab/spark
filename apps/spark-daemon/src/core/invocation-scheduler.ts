@@ -11,7 +11,7 @@ import {
   isSparkTurnRestartYieldError,
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
-} from "@zendev-lab/spark-turn";
+} from "../product/host/agent-runtime/agent-loop.ts";
 import type { SparkReproUsageScope } from "@zendev-lab/spark-protocol/token-usage";
 import {
   SparkInvocationStore,
@@ -35,6 +35,7 @@ import {
   getSparkDaemonTaskSessionId,
   validateSparkDaemonTask,
   type SparkDaemonTask,
+  type SparkDaemonTaskExecutionContext,
   type SparkDaemonTaskExecutor,
   type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
@@ -43,7 +44,6 @@ import {
   INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
 } from "./invocation-scheduler-policy.ts";
 import { DaemonEventIngress } from "./daemon-event-ingress.ts";
-import { recoverInterruptedInvocations } from "./execution-reconciler.ts";
 
 export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
@@ -135,7 +135,8 @@ export class SparkInvocationScheduler {
   private readonly resolveReproUsageScope?: SparkInvocationSchedulerOptions["resolveReproUsageScope"];
   private readonly active = new Map<string, ActiveInvocation>();
   private readonly structuredActive = new Map<string, ActiveInvocation>();
-  private readonly activeSessions = new Set<string>();
+  private readonly activeSerializationKeys = new Set<string>();
+  private readonly activeSessionIds = new Set<string>();
   private readonly sessionIdleWaiters = new Map<string, Set<() => void>>();
   private terminalCommitTail: Promise<void> = Promise.resolve();
   private accepting: boolean;
@@ -176,21 +177,13 @@ export class SparkInvocationScheduler {
     this.accepting = options.initiallyAccepting !== false;
   }
 
-  recover(now?: string): number {
-    const recovered = recoverInterruptedInvocations({
-      invocationStore: this.store,
-      ...(now ? { now } : {}),
-    });
-    return recovered.invocationRequeues + recovered.invocationFailures;
-  }
-
   processBatch(): boolean {
     this.applyCancellationRequests();
     if (!this.accepting) return false;
     let launched = 0;
     while (this.active.size < this.concurrency) {
       const invocation = this.store.claimNext(this.workerId, new Date().toISOString(), [
-        ...this.activeSessions,
+        ...this.activeSerializationKeys,
       ]);
       if (!invocation) break;
       launched += 1;
@@ -207,7 +200,7 @@ export class SparkInvocationScheduler {
       const question = this.store.claimNext(
         this.workerId,
         new Date().toISOString(),
-        [...this.activeSessions],
+        [...this.activeSerializationKeys],
         { sourceKind: "session.question" },
       );
       if (question) {
@@ -260,7 +253,7 @@ export class SparkInvocationScheduler {
   isSessionActive(sessionId: string): boolean {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) return false;
-    if (this.activeSessions.has(normalizedSessionId)) return true;
+    if (this.activeSessionIds.has(normalizedSessionId)) return true;
     return [...this.structuredActive.values()].some(
       ({ invocation }) => invocation.sessionId === normalizedSessionId,
     );
@@ -411,8 +404,10 @@ export class SparkInvocationScheduler {
       started: this.store.hasDurableCommitStarted(invocation.invocationId),
     };
     const sessionId = getSparkDaemonTaskSessionId(task);
+    const serializationKey = invocation.serializationKey;
     let executorSettled: Promise<unknown> | undefined;
-    if (sessionId) this.activeSessions.add(sessionId);
+    this.activeSerializationKeys.add(serializationKey);
+    if (sessionId) this.activeSessionIds.add(sessionId);
     const entry: ActiveInvocation = {
       invocation,
       controller,
@@ -428,9 +423,10 @@ export class SparkInvocationScheduler {
         await this.yieldAfterInvocation();
       } finally {
         this.active.delete(invocation.invocationId);
-        if (!sessionId) return;
         const releaseSession = () => {
-          this.activeSessions.delete(sessionId);
+          this.activeSerializationKeys.delete(serializationKey);
+          if (!sessionId) return;
+          this.activeSessionIds.delete(sessionId);
           this.resolveSessionIdleWaiters(sessionId);
         };
         if (executorSettled) void executorSettled.then(releaseSession, releaseSession);
@@ -500,9 +496,7 @@ export class SparkInvocationScheduler {
           ? "anonymous"
           : task.type === "loop.tick"
             ? "anonymous"
-            : task.type === "session.run" && task.hiddenExecution
-              ? "anonymous"
-              : "persistent";
+            : "persistent";
     let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
     const pendingUsageRegistrations: Array<Omit<SparkDaemonTokenUsageObservation, "event">> = [];
     const pendingUsageObservations: SparkDaemonTokenUsageObservation[] = [];
@@ -522,10 +516,7 @@ export class SparkInvocationScheduler {
           ? { detailKind: "loop_evaluator" }
           : {}),
       persistence: rootUsagePersistence,
-      sessionId:
-        task.type === "loop.tick" || task.type === "loop.evaluate"
-          ? task.ownerSessionId
-          : task.sessionId,
+      sessionId: task.sessionId,
     });
     const registerRootUsageExecution = (scope?: SparkReproUsageScope): void => {
       if (!this.tokenUsageStore || rootUsageExecution) return;
@@ -553,11 +544,7 @@ export class SparkInvocationScheduler {
           kind: observation.kind ?? "root_session",
           ...(observation.detailKind ? { detailKind: observation.detailKind } : {}),
           persistence: observation.persistence ?? rootUsagePersistence,
-          sessionId:
-            observation.sessionId ??
-            (task.type === "loop.tick" || task.type === "loop.evaluate"
-              ? task.ownerSessionId
-              : task.sessionId),
+          sessionId: observation.sessionId ?? task.sessionId,
           ...(observation.parentExecutionId
             ? { parentExecutionId: observation.parentExecutionId }
             : {}),
@@ -588,11 +575,7 @@ export class SparkInvocationScheduler {
               ? { detailKind: "loop_evaluator" }
               : {}),
         persistence: observation.persistence ?? rootUsagePersistence,
-        sessionId:
-          observation.sessionId ??
-          (task.type === "loop.tick" || task.type === "loop.evaluate"
-            ? task.ownerSessionId
-            : task.sessionId),
+        sessionId: observation.sessionId ?? task.sessionId,
         ...(observation.parentExecutionId
           ? { parentExecutionId: observation.parentExecutionId }
           : {}),
@@ -642,7 +625,7 @@ export class SparkInvocationScheduler {
         flushPendingUsage();
         return;
       }
-      if (task.type !== "session.run" || task.hiddenExecution) return;
+      if (task.type !== "session.run") return;
       const scope = await this.resolveCurrentReproUsageScope(task);
       if (!scope) return;
       registerRootUsageExecution(scope);
@@ -654,7 +637,7 @@ export class SparkInvocationScheduler {
           ? { kind: "repro", reproId: task.binding.reproId }
           : undefined,
       );
-      if (!rootUsageExecution && task.type === "session.run" && !task.hiddenExecution) {
+      if (!rootUsageExecution && task.type === "session.run") {
         registerRootUsageExecution(await this.resolveCurrentReproUsageScope(task));
       }
     }
@@ -686,79 +669,87 @@ export class SparkInvocationScheduler {
         persistUsage: (usage) => recordUsage(usage as SparkDaemonTokenUsageObservation),
         eventIngress: this.executionEventIngress,
       });
-      const context = {
-        invocationId: invocation.invocationId,
-        signal: controller.signal,
-        timeoutMs: this.taskTimeoutMs,
-        beginDurableCommit: () => {
-          if (commitState.started) return;
-          if (controller.signal.aborted) {
-            throw abortReason(controller.signal, new Error("invocation aborted before commit"));
-          }
-          const persisted = this.store.require(invocation.invocationId);
-          if (persisted.status !== "running") {
-            throw new Error(
-              `Invocation ${invocation.invocationId} is ${persisted.status} before durable commit`,
-            );
-          }
-          if (persisted.cancelReason) {
-            const error = new InvocationCancelledError(persisted.cancelReason);
-            controller.abort(error);
-            throw error;
-          }
-          this.store.markDurableCommitStarted(invocation.invocationId);
-          commitState.started = true;
-          timeout.disable();
-        },
-        deferTerminalUntil,
-        withPausedTimeout: async <T>(operation: () => Promise<T>) => {
-          const entry = this.activeEntry(invocation.invocationId);
-          if (entry) entry.pauseState = "human-wait";
-          const humanWait = new AbortController();
-          try {
-            this.yieldHumanWaitForRestartIfRequested(invocation.invocationId, controller, () => {
+      const executionContextForCurrentAttempt = (): SparkDaemonTaskExecutionContext => {
+        const activeAttempt = attemptSession!.current();
+        return {
+          invocationId: invocation.invocationId,
+          invocationAttempt: {
+            epoch: activeAttempt.attemptEpoch,
+            daemonGeneration: activeAttempt.daemonGeneration,
+            correlationId: activeAttempt.correlationId,
+          },
+          signal: controller.signal,
+          timeoutMs: this.taskTimeoutMs,
+          beginDurableCommit: () => {
+            if (commitState.started) return;
+            if (controller.signal.aborted) {
+              throw abortReason(controller.signal, new Error("invocation aborted before commit"));
+            }
+            const persisted = this.store.require(invocation.invocationId);
+            if (persisted.status !== "running") {
+              throw new Error(
+                `Invocation ${invocation.invocationId} is ${persisted.status} before durable commit`,
+              );
+            }
+            if (persisted.cancelReason) {
+              const error = new InvocationCancelledError(persisted.cancelReason);
+              controller.abort(error);
+              throw error;
+            }
+            this.store.markDurableCommitStarted(invocation.invocationId);
+            commitState.started = true;
+            timeout.disable();
+          },
+          deferTerminalUntil,
+          withPausedTimeout: async <T>(operation: () => Promise<T>) => {
+            const entry = this.activeEntry(invocation.invocationId);
+            if (entry) entry.pauseState = "human-wait";
+            const humanWait = new AbortController();
+            try {
+              this.yieldHumanWaitForRestartIfRequested(invocation.invocationId, controller, () => {
+                restartYieldCommitted = true;
+              });
+              return await Promise.race([
+                timeout.runPaused(operation),
+                this.waitForRestartThenYieldHumanWait(
+                  invocation.invocationId,
+                  controller,
+                  humanWait.signal,
+                  () => {
+                    restartYieldCommitted = true;
+                  },
+                ),
+              ]);
+            } finally {
+              humanWait.abort();
+              if (entry && entry.pauseState === "human-wait") entry.pauseState = "busy";
+            }
+          },
+          yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
+            rememberPersistableRestartCheckpoint(invocation.invocationId, checkpoint);
+            if (!this.restartRequestedSignal?.aborted) return;
+            if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+              throw new Error(
+                `Spark daemon restart ${invocation.invocationId} cannot persist this turn checkpoint; refusing to continue past a model-to-tool boundary.`,
+              );
+            }
+            this.commitRestartYield(invocation.invocationId, checkpoint, controller, () => {
               restartYieldCommitted = true;
             });
-            return await Promise.race([
-              timeout.runPaused(operation),
-              this.waitForRestartThenYieldHumanWait(
-                invocation.invocationId,
-                controller,
-                humanWait.signal,
-                () => {
-                  restartYieldCommitted = true;
-                },
-              ),
-            ]);
-          } finally {
-            humanWait.abort();
-            if (entry && entry.pauseState === "human-wait") entry.pauseState = "busy";
-          }
-        },
-        yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
-          rememberPersistableRestartCheckpoint(invocation.invocationId, checkpoint);
-          if (!this.restartRequestedSignal?.aborted) return;
-          if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
-            throw new Error(
-              `Spark daemon restart ${invocation.invocationId} cannot persist this turn checkpoint; refusing to continue past a model-to-tool boundary.`,
-            );
-          }
-          this.commitRestartYield(invocation.invocationId, checkpoint, controller, () => {
-            restartYieldCommitted = true;
-          });
-        },
-        emitEvent: (event: SparkDaemonEvent) => attemptSession!.recordEvent(event),
-        ...(this.tokenUsageStore
-          ? {
-              ...(rootUsageExecution ? { tokenUsageScope: rootUsageExecution.scope } : {}),
-              registerTokenUsageExecution: registerUsageExecution,
-              settleTokenUsageExecution: settleUsageExecution,
-              recordTokenUsage: (observation: SparkDaemonTokenUsageObservation) =>
-                attemptSession!.recordUsage(observation),
-            }
-          : {}),
+          },
+          emitEvent: (event: SparkDaemonEvent) => attemptSession!.recordEvent(event),
+          ...(this.tokenUsageStore
+            ? {
+                ...(rootUsageExecution ? { tokenUsageScope: rootUsageExecution.scope } : {}),
+                registerTokenUsageExecution: registerUsageExecution,
+                settleTokenUsageExecution: settleUsageExecution,
+                recordTokenUsage: (observation: SparkDaemonTokenUsageObservation) =>
+                  attemptSession!.recordUsage(observation),
+              }
+            : {}),
+        };
       };
-      executeInProcess = () => this.executeTask(task, context);
+      executeInProcess = () => this.executeTask(task, executionContextForCurrentAttempt());
       executorSettled = attemptSession.execute();
       trackExecutorSettlement(executorSettled);
       const result = await Promise.race([

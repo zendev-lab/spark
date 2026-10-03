@@ -9,7 +9,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Type } from "typebox";
-import type { ToolConfig, ToolPolicy } from "@zendev-lab/spark-core";
+import type { ToolConfig, ToolPolicy } from "@zendev-lab/spark-invocation";
 
 import {
   applyEditsToNormalizedContent,
@@ -41,7 +41,6 @@ import {
 } from "./shared.ts";
 import {
   DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES,
   DEFAULT_READ_MAX_BYTES,
   DEFAULT_READ_MAX_LINES,
   formatSize,
@@ -54,7 +53,6 @@ const FILE_READ_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["files"],
-  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
@@ -62,7 +60,6 @@ const FILE_WRITE_POLICY = {
   effect: "local_write",
   executionMode: "sequential",
   domains: ["files"],
-  modes: ["execute"],
   approval: "none",
 } as const satisfies ToolPolicy;
 

@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-acp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Supported ACP stdio adapter for daemon-owned Spark sessions.",
   "license": "MIT",
@@ -26,15 +26,14 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "catalog:",
+    "@optique/core": "catalog:",
     "@zendev-lab/spark-daemon-client": "workspace:^",
+    "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^24.13.3",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=26.0.0 <27"
   }
 }

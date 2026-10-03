@@ -4,7 +4,7 @@
  * Registers read / write / edit / grep / find via `pi.registerTool`.
  * `ls` remains available only as an explicit compatibility opt-in.
  * Intentionally omits a `bash` tool: Spark uses `cue_exec` for shell
- * execution and spark-cue disables bash by policy.
+ * execution is supplied by the daemon's DSH Cue plugins.
  */
 
 import {
@@ -16,7 +16,7 @@ import {
 import { createFindToolConfig, createGrepToolConfig } from "./search-tools.ts";
 
 export interface SparkFilesHostApi {
-  registerTool(config: import("@zendev-lab/spark-core").ToolConfig): void;
+  registerTool(config: import("@zendev-lab/spark-invocation").ToolConfig): void;
 }
 
 export interface SparkFilesOptions {

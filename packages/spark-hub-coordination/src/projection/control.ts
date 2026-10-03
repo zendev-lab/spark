@@ -441,7 +441,7 @@ function workspaceControlMessage(reason: string | undefined): string {
   }
 }
 
-export function nonnegativeInteger(value: unknown): number {
+function nonnegativeInteger(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 

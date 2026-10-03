@@ -17,6 +17,7 @@ import {
   sparkSessionSubmittedInputTextSchema,
   sparkSessionUsageSchema,
   sparkTextPhaseFromSignature,
+  sparkViewModelStatusFromSessionActivity,
   summarizeToolCallArguments,
   summarizeToolResultContent,
   type SparkConversationPart,
@@ -32,7 +33,13 @@ import {
   type SparkSessionView,
   type SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
-import { gitCommand } from "@zendev-lab/spark-system";
+import { gitCommand } from "@zendev-lab/spark-platform-node";
+import {
+  SPARK_DSH_MESSAGE_META_EVENT_TYPE,
+  parseSparkDshMessageMetaData,
+  projectSparkDshMessageEntry,
+  type SparkDshProjectionMessageMetaData,
+} from "./dsh-message-projection.ts";
 import { SparkSessionRegistryError } from "./registry.ts";
 
 interface NativeSessionHeader {
@@ -61,6 +68,13 @@ interface NativeSessionEntryLocation {
   offset: number;
   length: number;
   sha256: string;
+  companion?: NativeSessionLineLocation;
+}
+
+interface NativeSessionLineLocation {
+  offset: number;
+  length: number;
+  sha256: string;
 }
 
 interface NativeSessionRecord {
@@ -72,7 +86,8 @@ interface NativeSessionRecord {
   modifiedAt: string;
 }
 
-const SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
+const LEGACY_SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
+const SPARK_DSH_RECORD_EVENT_TYPE = "spark/record";
 
 interface NativeSessionSnapshotIndex {
   version: 1;
@@ -111,7 +126,7 @@ export interface LoadSparkSessionSnapshotInput {
 
 export interface SparkSessionSnapshotReadStats {
   indexStatus: "hit" | "rebuilt";
-  rebuildReason?: "missing" | "stale" | "corrupt" | "raced";
+  rebuildReason?: "missing" | "stale" | "corrupt" | "raced" | "legacy";
   indexSaved: boolean;
   parsedTranscriptEntries: number;
   fullTranscriptRead: boolean;
@@ -121,6 +136,11 @@ export interface SparkSessionSnapshotTail {
   snapshot: SparkSessionView;
   totalMessages: number;
   read: SparkSessionSnapshotReadStats;
+}
+
+export interface SparkSessionSnapshotPageRead extends SparkSessionSnapshotTail {
+  startMessageIndex: number;
+  endMessageIndex: number;
 }
 
 export interface SparkSessionSnapshotIndexRefresh {
@@ -218,17 +238,32 @@ export async function refreshSparkSessionSnapshotIndex(input: {
 export async function loadSparkSessionSnapshotTail(
   input: LoadSparkSessionSnapshotInput & { messageLimit: number },
 ): Promise<SparkSessionSnapshotTail> {
+  return await loadSparkSessionSnapshotPage(input);
+}
+
+/** Read one indexed active-branch page using an exclusive message cursor. */
+export async function loadSparkSessionSnapshotPage(
+  input: LoadSparkSessionSnapshotInput & { messageLimit: number; beforeMessageId?: string },
+): Promise<SparkSessionSnapshotPageRead> {
   if (!Number.isInteger(input.messageLimit) || input.messageLimit < 1) {
     throw new Error("Spark session snapshot messageLimit must be a positive integer.");
   }
   const path = input.session.sessionPath;
   if (!path) {
+    if (input.beforeMessageId) {
+      throw new SparkSessionRegistryError(
+        "session_snapshot_cursor_not_found",
+        `session snapshot cursor is no longer available: ${input.beforeMessageId}`,
+      );
+    }
     const gitBranch = input.session.cwd
       ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(input.session.cwd)
       : undefined;
     return {
       snapshot: emptySessionSnapshot(input.session, gitBranch),
       totalMessages: 0,
+      startMessageIndex: 0,
+      endMessageIndex: 0,
       read: {
         indexStatus: "hit",
         indexSaved: true,
@@ -251,18 +286,29 @@ export async function loadSparkSessionSnapshotTail(
   }
 
   try {
-    return await projectSparkSessionSnapshotIndexTail(input, index, {
+    return await projectSparkSessionSnapshotIndexPage(input, index, {
       indexStatus,
       ...(loaded.reason ? { rebuildReason: loaded.reason } : {}),
       indexSaved,
       parsedTranscriptEntries: fullTranscriptEntries,
       fullTranscriptRead: fullTranscriptEntries > 0,
     });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof SparkSessionRegistryError &&
+      error.code === "session_snapshot_cursor_not_found"
+    ) {
+      throw error;
+    }
     const current = await transcriptCheckpoint(path);
-    const rebuildReason = sameTranscriptCheckpoint(index.checkpoint, current) ? "corrupt" : "raced";
+    const rebuildReason =
+      error instanceof LegacySnapshotIndexCoverageError
+        ? "legacy"
+        : sameTranscriptCheckpoint(index.checkpoint, current)
+          ? "corrupt"
+          : "raced";
     const rebuilt = await rebuildSparkSessionSnapshotIndex(path, input.session.sessionId);
-    return await projectSparkSessionSnapshotIndexTail(input, rebuilt.index, {
+    return await projectSparkSessionSnapshotIndexPage(input, rebuilt.index, {
       indexStatus: "rebuilt",
       rebuildReason,
       indexSaved: rebuilt.saved,
@@ -272,35 +318,70 @@ export async function loadSparkSessionSnapshotTail(
   }
 }
 
-async function projectSparkSessionSnapshotIndexTail(
-  input: LoadSparkSessionSnapshotInput & { messageLimit: number },
+class LegacySnapshotIndexCoverageError extends Error {}
+
+async function projectSparkSessionSnapshotIndexPage(
+  input: LoadSparkSessionSnapshotInput & { messageLimit: number; beforeMessageId?: string },
   index: NativeSessionSnapshotIndex,
   read: SparkSessionSnapshotReadStats,
-): Promise<SparkSessionSnapshotTail> {
+): Promise<SparkSessionSnapshotPageRead> {
   const path = input.session.sessionPath!;
-  const descriptors = index.messages.slice(-input.messageLimit);
-  const candidates = await readIndexedTranscriptEntries(path, index, descriptors);
-  const lastMessage = index.lastMessage
-    ? candidates.find((entry) => entry.id === index.lastMessage?.id)
-    : undefined;
+  const availableStart = index.totalMessages - index.messages.length;
+  const lastEntries = index.lastMessage
+    ? await readIndexedTranscriptEntries(path, index, [index.lastMessage])
+    : [];
+  const lastMessage = lastEntries[0];
   const interrupted = interruptedTurnMessage(
     lastMessage ? [lastMessage] : [],
     input.activity ?? "idle",
   );
-  const selectedEntries = interrupted ? candidates.slice(1) : candidates;
-  return await projectSparkSessionSnapshot(input, {
+  const totalMessages = index.totalMessages + (interrupted ? 1 : 0);
+  let endMessageIndex: number;
+  if (!input.beforeMessageId) {
+    endMessageIndex = totalMessages;
+  } else if (input.beforeMessageId === interrupted?.id) {
+    endMessageIndex = index.totalMessages;
+  } else {
+    const localCursor = index.messages.findIndex(({ id }) => id === input.beforeMessageId);
+    if (localCursor < 0) {
+      if (availableStart > 0) throw new LegacySnapshotIndexCoverageError();
+      throw new SparkSessionRegistryError(
+        "session_snapshot_cursor_not_found",
+        `session snapshot cursor is no longer available: ${input.beforeMessageId}`,
+      );
+    }
+    endMessageIndex = availableStart + localCursor;
+  }
+  const startMessageIndex = Math.max(0, endMessageIndex - input.messageLimit);
+  if (startMessageIndex < availableStart) throw new LegacySnapshotIndexCoverageError();
+  const descriptorStart = Math.min(startMessageIndex, index.totalMessages) - availableStart;
+  const descriptorEnd = Math.min(endMessageIndex, index.totalMessages) - availableStart;
+  const descriptors = index.messages.slice(descriptorStart, descriptorEnd);
+  const candidates = [
+    ...(await readIndexedTranscriptEntries(path, index, descriptors)),
+    ...lastEntries,
+  ];
+  const entriesById = new Map(candidates.map((entry) => [entry.id, entry]));
+  const selectedEntries = descriptors.map((descriptor) => {
+    const entry = entriesById.get(descriptor.id);
+    if (!entry) throw new Error(`Indexed transcript entry was not read: ${descriptor.id}`);
+    return entry;
+  });
+  const projected = await projectSparkSessionSnapshot(input, {
     header: index.header,
     modifiedAt: new Date(index.checkpoint.modifiedAtMs).toISOString(),
     activeLeafId: index.activeLeafId,
     lastMessage,
     selectedEntries,
     totalMessages: index.totalMessages,
+    includeInterruptedMessage: !input.beforeMessageId,
     usage: index.usage,
     read: {
       ...read,
       parsedTranscriptEntries: read.parsedTranscriptEntries + candidates.length,
     },
   });
+  return { ...projected, startMessageIndex, endMessageIndex };
 }
 
 async function projectSparkSessionSnapshot(
@@ -312,6 +393,7 @@ async function projectSparkSessionSnapshot(
     lastMessage?: NativeSessionEntry;
     selectedEntries: NativeSessionEntry[];
     totalMessages: number;
+    includeInterruptedMessage?: boolean;
     usage?: SparkSessionUsage;
     read: SparkSessionSnapshotReadStats;
   },
@@ -325,7 +407,10 @@ async function projectSparkSessionSnapshot(
     const message = messageView(entry, toolOutcomes);
     return message ? [message] : [];
   });
-  const messages = interrupted ? [...projectedMessages, interrupted] : projectedMessages;
+  const messages =
+    interrupted && projection.includeInterruptedMessage !== false
+      ? [...projectedMessages, interrupted]
+      : projectedMessages;
   const tools = toolCallViews(projection.selectedEntries, toolOutcomes);
   const metadata: SparkJsonObject = {
     sessionScope: input.session.scope,
@@ -345,7 +430,7 @@ async function projectSparkSessionSnapshot(
     ...(input.session.name ? { title: input.session.name } : {}),
     ...(cwd ? { cwd } : {}),
     ...(projection.activeLeafId ? { activeLeafId: projection.activeLeafId } : {}),
-    status: input.activity === "running" || input.activity === "queued" ? "running" : "idle",
+    status: sparkViewModelStatusFromSessionActivity(input.activity ?? "idle"),
     ...(input.session.model ? { model: input.session.model } : {}),
     ...(input.session.thinkingLevel ? { thinkingLevel: input.session.thinkingLevel } : {}),
     ...(gitBranch ? { gitBranch } : {}),
@@ -517,7 +602,6 @@ function buildSparkSessionSnapshotIndex(
     .filter((entry) => isProjectableMessageEntry(entry))
     .map((entry) => requiredEntryLocation(record, entry.id))
     .reverse();
-  const messages = activeMessages.slice(-SNAPSHOT_INDEX_MESSAGE_LIMIT);
   const activePrompts = activeNewestFirst
     .flatMap((entry): SparkSessionPromptHistoryEntry[] => {
       const text = promptHistoryText(entry);
@@ -540,7 +624,7 @@ function buildSparkSessionSnapshotIndex(
     checkpoint: record.checkpoint,
     header: record.header,
     ...(activeNewestFirst[0]?.id ? { activeLeafId: activeNewestFirst[0].id } : {}),
-    messages,
+    messages: activeMessages,
     totalMessages: activeMessages.length,
     prompts,
     totalPrompts: activePrompts.length,
@@ -623,10 +707,13 @@ function parseSparkSessionSnapshotIndex(
   }
   const messages = value.messages.map((entry) => parseIndexEntryLocation(entry, checkpoint));
   const totalMessages = nonnegativeInteger(value.totalMessages);
+  const isLegacyTailSummary =
+    totalMessages !== undefined &&
+    messages.length === Math.min(totalMessages, LEGACY_SNAPSHOT_INDEX_MESSAGE_LIMIT);
   if (
-    messages.length > SNAPSHOT_INDEX_MESSAGE_LIMIT ||
     totalMessages === undefined ||
-    totalMessages < messages.length
+    totalMessages < messages.length ||
+    (messages.length !== totalMessages && !isLegacyTailSummary)
   ) {
     throw new Error("Spark session snapshot index message summary is invalid.");
   }
@@ -782,7 +869,29 @@ function parseIndexEntryLocation(
   if (!sha256 || !/^[0-9a-f]{64}$/u.test(sha256)) {
     throw new Error("Spark session snapshot index entry hash is invalid.");
   }
-  return { id, offset, length, sha256 };
+  const companion =
+    value.companion === undefined ? undefined : parseIndexLineLocation(value.companion, checkpoint);
+  return { id, offset, length, sha256, ...(companion ? { companion } : {}) };
+}
+
+function parseIndexLineLocation(
+  value: unknown,
+  checkpoint: NativeTranscriptCheckpoint,
+): NativeSessionLineLocation {
+  if (!isRecord(value)) throw new Error("Spark session snapshot index companion is invalid.");
+  const offset = nonnegativeInteger(value.offset);
+  const length = positiveInteger(value.length);
+  const digest = optionalIndexString(value.sha256);
+  if (
+    offset === undefined ||
+    length === undefined ||
+    offset + length > checkpoint.byteLength ||
+    !digest ||
+    !/^[0-9a-f]{64}$/u.test(digest)
+  ) {
+    throw new Error("Spark session snapshot index companion is out of bounds.");
+  }
+  return { offset, length, sha256: digest };
 }
 
 async function readIndexedTranscriptEntries(
@@ -798,14 +907,14 @@ async function readIndexedTranscriptEntries(
   try {
     const entries: NativeSessionEntry[] = [];
     for (const descriptor of descriptors) {
-      const buffer = Buffer.alloc(descriptor.length);
-      const { bytesRead } = await handle.read(buffer, 0, descriptor.length, descriptor.offset);
-      if (bytesRead !== descriptor.length)
-        throw new Error("Indexed transcript read was truncated.");
-      if (sha256(buffer) !== descriptor.sha256) {
-        throw new Error("Indexed transcript entry hash mismatch.");
-      }
-      const entry = parseEntry(JSON.parse(buffer.toString("utf8").trim()) as unknown, path);
+      const value = await readIndexedTranscriptValue(handle, descriptor);
+      const entry = descriptor.companion
+        ? parseDshMessageEntry(
+            value,
+            await readIndexedTranscriptValue(handle, descriptor.companion),
+            path,
+          )
+        : parseEntry(value, path);
       if (entry.id !== descriptor.id)
         throw new Error("Indexed transcript entry identity mismatch.");
       entries.push(entry);
@@ -818,6 +927,19 @@ async function readIndexedTranscriptEntries(
   } finally {
     await handle.close();
   }
+}
+
+async function readIndexedTranscriptValue(
+  handle: Awaited<ReturnType<typeof open>>,
+  descriptor: NativeSessionLineLocation,
+): Promise<unknown> {
+  const buffer = Buffer.alloc(descriptor.length);
+  const { bytesRead } = await handle.read(buffer, 0, descriptor.length, descriptor.offset);
+  if (bytesRead !== descriptor.length) throw new Error("Indexed transcript read was truncated.");
+  if (sha256(buffer) !== descriptor.sha256) {
+    throw new Error("Indexed transcript entry hash mismatch.");
+  }
+  return JSON.parse(buffer.toString("utf8").trim()) as unknown;
 }
 
 async function loadNativeSessionRecord(
@@ -850,18 +972,78 @@ function parseNativeSessionRecord(
       `native transcript ${path} belongs to ${header.id}, not ${expectedSessionId}`,
     );
   }
-  const entries: NativeSessionEntry[] = [];
+  const positioned: Array<{
+    position: number;
+    entry: NativeSessionEntry;
+    location: NativeSessionEntryLocation;
+  }> = [];
   const entryLocations = new Map<string, NativeSessionEntryLocation>();
-  for (const line of lines.slice(1)) {
-    const entry = parseEntry(line.value, path);
-    entries.push(entry);
-    entryLocations.set(entry.id, {
-      id: entry.id,
-      offset: line.offset,
-      length: line.length,
-      sha256: line.sha256,
-    });
+  const dshHeader = isRecord(lines[0]?.value) && lines[0]?.value.type !== "session";
+  if (dshHeader) {
+    const eventsBySeq = new Map<number, (typeof lines)[number]>();
+    const nativeMessageIds = new Set<unknown>();
+    for (const line of lines.slice(1)) {
+      if (!isRecord(line.value) || typeof line.value.seq !== "number") continue;
+      if (eventsBySeq.has(line.value.seq)) {
+        throw new Error(`Native transcript ${path} repeats DSH event seq ${line.value.seq}.`);
+      }
+      eventsBySeq.set(line.value.seq, line);
+      if (line.value.type === "user/message" && isRecord(line.value.data))
+        nativeMessageIds.add(line.value.data.id);
+    }
+    for (const line of lines.slice(1)) {
+      const stored = storedSparkDshEntry(line.value, path);
+      if (stored) {
+        if (stored.entry.type === "compaction" && !nativeMessageIds.has(stored.entry.id)) continue;
+        positioned.push({
+          position: stored.position,
+          entry: stored.entry,
+          location: entryLocation(stored.entry.id, line),
+        });
+        continue;
+      }
+      const messageMeta = sparkDshMessageMeta(line.value, path);
+      if (!messageMeta) continue;
+      const nativeLine = eventsBySeq.get(messageMeta.eventSeq);
+      if (!nativeLine) {
+        throw new Error(
+          `Native transcript ${path} is missing DSH message seq ${messageMeta.eventSeq}.`,
+        );
+      }
+      const entry = parseDshMessageEntry(nativeLine.value, line.value, path);
+      positioned.push({
+        position: messageMeta.position,
+        entry,
+        location: {
+          ...entryLocation(entry.id, nativeLine),
+          companion: lineLocation(line),
+        },
+      });
+    }
+    const latest = new Map<number, (typeof positioned)[number]>();
+    for (const value of positioned) {
+      const previous = latest.get(value.position);
+      if (previous && previous.entry.id !== value.entry.id)
+        throw new Error(
+          `Native transcript ${path} changes entry identity at position ${value.position}.`,
+        );
+      latest.set(value.position, value);
+    }
+    positioned.splice(0, positioned.length, ...latest.values());
+    positioned.sort((left, right) => left.position - right.position);
+  } else {
+    for (const [position, line] of lines.slice(1).entries()) {
+      const entry = parseEntry(line.value, path);
+      positioned.push({ position, entry, location: entryLocation(entry.id, line) });
+    }
   }
+  for (const value of positioned) {
+    if (entryLocations.has(value.entry.id)) {
+      throw new Error(`Native transcript ${path} repeats Spark entry id ${value.entry.id}.`);
+    }
+    entryLocations.set(value.entry.id, value.location);
+  }
+  const entries = positioned.map(({ entry }) => entry);
   return {
     path,
     header,
@@ -870,6 +1052,21 @@ function parseNativeSessionRecord(
     checkpoint,
     modifiedAt: new Date(checkpoint.modifiedAtMs).toISOString(),
   };
+}
+
+function entryLocation(
+  id: string,
+  line: { offset: number; length: number; sha256: string },
+): NativeSessionEntryLocation {
+  return { id, ...lineLocation(line) };
+}
+
+function lineLocation(line: {
+  offset: number;
+  length: number;
+  sha256: string;
+}): NativeSessionLineLocation {
+  return { offset: line.offset, length: line.length, sha256: line.sha256 };
 }
 
 function nativeTranscriptLines(content: Buffer, path: string) {
@@ -930,31 +1127,48 @@ function positiveInteger(value: unknown): number | undefined {
 }
 
 function parseHeader(value: unknown, path: string): NativeSessionHeader {
-  if (
-    !isRecord(value) ||
-    value.type !== "session" ||
-    typeof value.id !== "string" ||
-    typeof value.timestamp !== "string"
-  ) {
+  const header = nativeSessionHeaderFromValue(value);
+  if (!header) {
     throw new SparkSessionRegistryError(
       "invalid_session_snapshot",
       `invalid native session header: ${path}`,
     );
   }
-  return {
-    type: "session",
-    id: value.id,
-    timestamp: value.timestamp,
-    ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
-  };
+  return header;
+}
+
+function nativeSessionHeaderFromValue(value: unknown): NativeSessionHeader | undefined {
+  if (!isRecord(value) || typeof value.id !== "string") return undefined;
+  if (value.type === "session" && typeof value.timestamp === "string") {
+    return {
+      type: "session",
+      id: value.id,
+      timestamp: value.timestamp,
+      ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+    };
+  }
+  if (
+    value.type !== "session" &&
+    typeof value.version === "number" &&
+    typeof value.createdAt === "number"
+  ) {
+    return {
+      type: "session",
+      id: value.id,
+      timestamp: new Date(value.createdAt).toISOString(),
+      ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+    };
+  }
+  return undefined;
 }
 
 function parseEntry(value: unknown, path: string): NativeSessionEntry {
+  const record = unwrapSparkDshEntry(value) ?? value;
   if (
-    !isRecord(value) ||
-    typeof value.type !== "string" ||
-    typeof value.id !== "string" ||
-    !(typeof value.parentId === "string" || value.parentId === null)
+    !isRecord(record) ||
+    typeof record.type !== "string" ||
+    typeof record.id !== "string" ||
+    !(typeof record.parentId === "string" || record.parentId === null)
   ) {
     throw new SparkSessionRegistryError(
       "invalid_session_snapshot",
@@ -962,12 +1176,57 @@ function parseEntry(value: unknown, path: string): NativeSessionEntry {
     );
   }
   return {
-    type: value.type,
-    id: value.id,
-    parentId: value.parentId,
-    ...(typeof value.timestamp === "string" ? { timestamp: value.timestamp } : {}),
-    ...(isRecord(value.message) ? { message: value.message } : {}),
+    type: record.type,
+    id: record.id,
+    parentId: record.parentId,
+    ...(typeof record.timestamp === "string" ? { timestamp: record.timestamp } : {}),
+    ...(isRecord(record.message) ? { message: record.message } : {}),
   };
+}
+
+function storedSparkDshEntry(
+  value: unknown,
+  path: string,
+): { position: number; entry: NativeSessionEntry } | undefined {
+  if (!isRecord(value) || value.type !== SPARK_DSH_RECORD_EVENT_TYPE) return undefined;
+  if (
+    !isRecord(value.data) ||
+    !Number.isSafeInteger(value.data.position) ||
+    Number(value.data.position) < 0
+  ) {
+    throw new Error(`Native transcript ${path} has invalid spark/record metadata.`);
+  }
+  return {
+    position: Number(value.data.position),
+    entry: parseEntry(value, path),
+  };
+}
+
+function sparkDshMessageMeta(
+  value: unknown,
+  path: string,
+): SparkDshProjectionMessageMetaData | undefined {
+  if (!isRecord(value) || value.type !== SPARK_DSH_MESSAGE_META_EVENT_TYPE) return undefined;
+  return parseSparkDshMessageMetaData(value.data, path);
+}
+
+function parseDshMessageEntry(
+  nativeValue: unknown,
+  metaValue: unknown,
+  path: string,
+): NativeSessionEntry {
+  const meta = sparkDshMessageMeta(metaValue, path);
+  if (!meta) {
+    throw new Error(`Native transcript ${path} has mismatched DSH message metadata.`);
+  }
+  return projectSparkDshMessageEntry(nativeValue, meta, path) as NativeSessionEntry;
+}
+
+function unwrapSparkDshEntry(value: unknown): unknown {
+  if (!isRecord(value) || value.type !== SPARK_DSH_RECORD_EVENT_TYPE || !isRecord(value.data)) {
+    return undefined;
+  }
+  return value.data.entry;
 }
 
 function activeBranchEntriesNewestFirst(entries: NativeSessionEntry[]): NativeSessionEntry[] {

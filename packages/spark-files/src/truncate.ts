@@ -22,7 +22,7 @@ export const DEFAULT_READ_MAX_LINES = 512;
 export const DEFAULT_READ_MAX_BYTES = 16 * 1024; // ~16KB
 export const GREP_MAX_LINE_LENGTH = 500; // Max chars per grep match line
 
-export type TruncatedBy = "lines" | "bytes" | null;
+type TruncatedBy = "lines" | "bytes" | null;
 
 export interface TruncationResult {
   content: string;
@@ -43,7 +43,7 @@ export interface TruncateOptions {
   maxBytes?: number;
 }
 
-export type TextLineEnding = "" | "\n" | "\r\n" | "\r";
+type TextLineEnding = "" | "\n" | "\r\n" | "\r";
 
 export interface TextLineSegment {
   text: string;

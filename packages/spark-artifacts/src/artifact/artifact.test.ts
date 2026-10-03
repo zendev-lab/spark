@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, stat, symlink, writeFile } from "node:fs/prom
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import type { ToolConfig } from "@zendev-lab/spark-core";
+import type { ToolConfig } from "@zendev-lab/spark-invocation";
 import { describe, expect, it } from "vitest";
 import { defaultEvidenceStore, type EvidenceRef } from "../index.ts";
 import { registerArtifactTool } from "./extension.ts";

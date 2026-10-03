@@ -1,3 +1,9 @@
+import {
+  buildSessionTreeRows,
+  type SessionTreeNodeLike,
+  type SessionTreeRow,
+} from "@zendev-lab/spark-ui/workbench";
+
 export type WorkbenchSessionScope =
   | { kind: "workspace"; workspaceId: string }
   | { kind: "daemon"; daemonId: string; daemonLabel?: string }
@@ -10,23 +16,9 @@ export interface WorkbenchSessionScopeLike {
     | null;
 }
 
-export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike {
-  sessionId: string;
-  placement?: string;
-  owner?: {
-    kind: string;
-    parentSessionId?: string;
-    generation?: number;
-    mode?: string;
-  };
-}
+export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike, SessionTreeNodeLike {}
 
-export interface WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> {
-  session: T;
-  ariaLevel: 1 | 2;
-  parentSessionId?: string;
-  orphaned: boolean;
-}
+export type WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> = SessionTreeRow<T>;
 
 /**
  * Read the canonical daemon-owned scope. Legacy unscoped records are rejected.
@@ -80,52 +72,45 @@ export function workspaceSessionsForWorkbench<T extends WorkbenchSessionScopeLik
 }
 
 /**
- * Flatten parent conversations and their Side Threads into a stable ARIA tree.
- * Orphans remain diagnostic rows and are never promoted to a parent control surface.
+ * Flatten the daemon-owned Session lineage into a stable recursive ARIA tree.
+ * Missing parents and lineage cycles remain explicit diagnostic rows.
  */
 export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   sessions: readonly T[],
   options: { includeArchived?: boolean } = {},
 ): WorkbenchSessionRailRow<T>[] {
-  const visible = sessions.filter(
-    (session) => options.includeArchived || session.placement !== "archived",
+  const visibleIds = new Set(
+    sessions
+      .filter((session) => options.includeArchived || session.placement !== "archived")
+      .map((session) => session.sessionId),
   );
-  const parents = visible.filter((session) => session.owner?.kind !== "side_thread");
-  const parentIds = new Set(parents.map((session) => session.sessionId));
-  const childrenByParent = new Map<string, T[]>();
-  const orphans: T[] = [];
-
-  for (const session of visible) {
-    if (session.owner?.kind !== "side_thread") continue;
-    const parentSessionId = session.owner.parentSessionId?.trim();
-    if (!parentSessionId || !parentIds.has(parentSessionId)) {
-      orphans.push(session);
-      continue;
+  const projected = sessions.map((session) => {
+    const parentSessionId =
+      session.lineage?.kind === "child" ? session.lineage.parentSessionId?.trim() : undefined;
+    if (
+      !parentSessionId ||
+      visibleIds.has(parentSessionId) ||
+      !isImplicitWorkspaceAdministrator(parentSessionId)
+    ) {
+      return session;
     }
-    const children = childrenByParent.get(parentSessionId) ?? [];
-    children.push(session);
-    childrenByParent.set(parentSessionId, children);
-  }
+    return { ...session, lineage: { kind: "root" as const } };
+  });
+  const originals = new Map(sessions.map((session) => [session.sessionId, session]));
+  return buildSessionTreeRows(projected, options).map((row) => {
+    const session = originals.get(row.session.sessionId) ?? row.session;
+    return {
+      ...row,
+      session,
+      ...(session.lineage?.kind === "child"
+        ? { parentSessionId: session.lineage.parentSessionId }
+        : {}),
+    };
+  });
+}
 
-  const rows: WorkbenchSessionRailRow<T>[] = [];
-  for (const parent of parents) {
-    rows.push({ session: parent, ariaLevel: 1, orphaned: false });
-    for (const child of childrenByParent.get(parent.sessionId) ?? []) {
-      rows.push({
-        session: child,
-        ariaLevel: 2,
-        parentSessionId: parent.sessionId,
-        orphaned: false,
-      });
-    }
-  }
-  for (const orphan of orphans) {
-    rows.push({
-      session: orphan,
-      ariaLevel: 2,
-      parentSessionId: orphan.owner?.parentSessionId,
-      orphaned: true,
-    });
-  }
-  return rows;
+// Delete this Hub-only adapter once every listed child is accompanied by its
+// legacy workspace-administrator parent record.
+function isImplicitWorkspaceAdministrator(sessionId: string): boolean {
+  return /(?:^|[_:-])admin(?:istrator)?(?:[_:-]|$)/iu.test(sessionId);
 }

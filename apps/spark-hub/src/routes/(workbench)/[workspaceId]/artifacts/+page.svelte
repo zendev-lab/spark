@@ -33,7 +33,7 @@
 </svelte:head>
 
 <section class="artifacts-page">
-  <PageHeader eyebrow={t.hero.eyebrow} title={t.hero.title} lede={t.hero.lede} />
+  <PageHeader title={t.hero.title} lede={t.hero.lede} />
 
   {#if !data.workspace}
     <Panel>

@@ -54,7 +54,8 @@ describe("workbench session scope", () => {
     };
     const channelSession = {
       sessionId: "sess_channel",
-      scope: { kind: "workspace" as const, workspaceId: "ws_current" },
+      scope: { kind: "daemon" as const, daemonId: "daemon-a" },
+      purpose: "channel",
       bindings: [{ kind: "channel", externalKey: "infoflow:user:u1" }],
     };
     const daemonSession = {
@@ -75,7 +76,7 @@ describe("workbench session scope", () => {
         ],
         "ws_current",
       ),
-    ).toEqual([workspaceSession, channelSession]);
+    ).toEqual([workspaceSession]);
   });
 
   it("builds adjacent parent and Side Thread rows without promoting orphans", () => {
@@ -84,10 +85,10 @@ describe("workbench session scope", () => {
     const child = {
       sessionId: "child-a",
       placement: "active",
-      owner: {
-        kind: "side_thread",
+      lineage: {
+        kind: "child",
         parentSessionId: parentA.sessionId,
-        generation: 2,
+        origin: { kind: "side_thread", generation: 2 },
       },
     };
     const archived = {
@@ -98,7 +99,7 @@ describe("workbench session scope", () => {
     const orphan = {
       ...child,
       sessionId: "child-orphan",
-      owner: { ...child.owner, parentSessionId: "missing-parent" },
+      lineage: { ...child.lineage, parentSessionId: "missing-parent" },
     };
 
     expect(buildSessionRailTree([parentA, child, parentB, archived, orphan])).toEqual([
@@ -112,9 +113,10 @@ describe("workbench session scope", () => {
       { session: parentB, ariaLevel: 1, orphaned: false },
       {
         session: orphan,
-        ariaLevel: 2,
+        ariaLevel: 1,
         parentSessionId: "missing-parent",
         orphaned: true,
+        diagnostic: "orphan",
       },
     ]);
     expect(
@@ -122,5 +124,43 @@ describe("workbench session scope", () => {
         ({ session }) => session.sessionId,
       ),
     ).toEqual(["parent-a", "child-a", "child-archived", "parent-b"]);
+  });
+
+  it("diagnoses arbitrary-depth lineage cycles without looping", () => {
+    const first = {
+      sessionId: "cycle-first",
+      placement: "active",
+      lineage: {
+        kind: "child" as const,
+        parentSessionId: "cycle-second",
+        origin: { kind: "driver" },
+      },
+    };
+    const second = {
+      sessionId: "cycle-second",
+      placement: "active",
+      lineage: {
+        kind: "child" as const,
+        parentSessionId: "cycle-first",
+        origin: { kind: "driver_tick" },
+      },
+    };
+
+    expect(buildSessionRailTree([first, second])).toEqual([
+      {
+        session: first,
+        ariaLevel: 1,
+        parentSessionId: second.sessionId,
+        orphaned: true,
+        diagnostic: "cycle",
+      },
+      {
+        session: second,
+        ariaLevel: 1,
+        parentSessionId: first.sessionId,
+        orphaned: true,
+        diagnostic: "cycle",
+      },
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import {
   requestSparkDaemon,
+  SparkDaemonConnectedTransportError,
   SparkDaemonRemoteError,
   SparkDaemonRpcError,
   SparkDaemonUnavailableError,
@@ -9,7 +10,7 @@ import type {
   SparkLocalRpcMethod,
   SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { localRpcResponseError } from "./results.ts";
 import { LocalRpcUnavailableError } from "./types.ts";
 
@@ -26,6 +27,9 @@ export async function localRpcRequest<M extends SparkLocalRpcMethod>(
     }
     if (error instanceof SparkDaemonRemoteError) {
       throw localRpcResponseError(error.payload);
+    }
+    if (error instanceof SparkDaemonConnectedTransportError) {
+      throw new LocalRpcUnavailableError(error.message);
     }
     if (error instanceof SparkDaemonRpcError) {
       throw new Error(error.message);

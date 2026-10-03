@@ -17,8 +17,12 @@ import {
   newRef,
   nowIso,
   stableId,
-} from "@zendev-lab/spark-core";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+} from "@zendev-lab/spark-invocation";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
+import { resolveSparkUserPaths } from "@zendev-lab/spark-platform-node";
 
 import {
   appendMemoryRevision,
@@ -1045,8 +1049,9 @@ export function defaultLearningStore(
   cwd: string,
   location?: LearningLocation,
   options: Omit<LearningStoreOptions, "evidenceStore" | "location" | "mutationLockPath"> = {},
+  ctx?: SparkStateRootContext,
 ): LearningStore {
-  const target = resolveLearningStoreTarget(cwd, location);
+  const target = resolveLearningStoreTarget(cwd, location, ctx);
   return new LearningStore({
     evidenceStore: new EvidenceStore({ rootDir: target.rootDir }),
     location: target.location,
@@ -1062,10 +1067,11 @@ export function defaultUserLearningStore(): LearningStore {
 export function resolveLearningStoreTarget(
   cwd: string,
   requestedLocation?: LearningLocation,
+  ctx?: SparkStateRootContext,
 ): { rootDir: string; location: LearningLocation } {
   const gitRoot = findGitRoot(cwd);
   if (requestedLocation === "user") return { rootDir: defaultUserLearningRoot(), location: "user" };
-  const rootDir = join(gitRoot ?? cwd, ".spark", "memory", "learnings");
+  const rootDir = sparkWorkspaceStatePath(gitRoot ?? cwd, ["memory", "learnings"], ctx);
   if (requestedLocation === "repo") {
     return {
       rootDir,

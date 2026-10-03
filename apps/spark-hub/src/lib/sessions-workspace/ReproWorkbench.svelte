@@ -1,17 +1,16 @@
 <script lang="ts">
-  import { invalidateAll } from "$app/navigation";
-  import { A2uiRenderer, type SparkA2uiInteractiveBinding } from "@zendev-lab/spark-ui/a2ui";
-  import type { SparkWorkbenchActionRequest } from "@zendev-lab/spark-protocol";
+  import { A2uiRenderer } from "@zendev-lab/spark-ui/a2ui";
+  import type { SparkSessionReproWorkView } from "@zendev-lab/spark-protocol";
+
+  type SparkA2uiInteractiveBinding = NonNullable<SparkSessionReproWorkView["workbench"]>;
 
   let {
     sessionId,
     binding,
-    canControl,
     labels,
   }: {
     sessionId: string;
     binding: SparkA2uiInteractiveBinding;
-    canControl: boolean;
     labels: {
       aria: string;
       loading: string;
@@ -35,9 +34,8 @@
   let error = $state<string | null>(null);
   let loadedKey = $state("");
   let requestGeneration = 0;
-  let acceptedGeneration = $state(0);
   let bindingKey = $derived(
-    `${sessionId}:${binding.artifactRef}:${binding.revision}:${binding.generation}:${binding.lifecycle}`,
+    `${sessionId}:${binding.artifactRef}:${binding.revision}:${binding.lifecycle}`,
   );
 
   $effect(() => {
@@ -75,28 +73,6 @@
     }
   }
 
-  async function control(action: SparkWorkbenchActionRequest) {
-    const response = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/workbench`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(action),
-    });
-    const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(messageFrom(payload) ?? "Workbench action was rejected.");
-    }
-    const nextGeneration =
-      isRecord(payload) && isRecord(payload.loop) && typeof payload.loop.generation === "number"
-        ? payload.loop.generation
-        : binding.generation + 1;
-    acceptedGeneration = Math.max(acceptedGeneration, nextGeneration);
-    document = null;
-    loading = true;
-    await invalidateAll();
-    loadedKey = "";
-    await loadDocument();
-  }
-
   function isReadyDocument(value: unknown): value is ReadyDocument {
     if (!isRecord(value) || value.status !== "ready" || typeof value.content !== "string") {
       return false;
@@ -106,9 +82,6 @@
       isRecord(candidate) &&
       candidate.artifactRef === binding.artifactRef &&
       candidate.revision === binding.revision &&
-      candidate.loopId === binding.loopId &&
-      candidate.generation === binding.generation &&
-      candidate.generation >= acceptedGeneration &&
       candidate.lifecycle === binding.lifecycle
     );
   }
@@ -124,12 +97,7 @@
 
 <section class="repro-workbench" aria-label={labels.aria} aria-busy={loading}>
   {#if document}
-    <A2uiRenderer
-      content={document.content}
-      binding={document.binding}
-      interactive={canControl && document.binding.lifecycle === "live"}
-      onAction={control}
-    />
+    <A2uiRenderer content={document.content} />
   {:else if loading}
     <div class="workbench-loading" role="status">{labels.loading}</div>
   {:else}

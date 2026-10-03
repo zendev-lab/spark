@@ -4,6 +4,7 @@ import {
   listHubAccessTokens,
   revokeHubAccessToken,
 } from "@zendev-lab/spark-hub-coordination/hub-access";
+import { listHubDaemons } from "@zendev-lab/spark-hub-coordination";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import { ensureCurrentOwnerSession } from "$lib/server/auth";
 import { getDatabase } from "$lib/server/db";
@@ -11,8 +12,10 @@ import { formText } from "$lib/server/form-data";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = () => {
+  const db = getDatabase();
   return {
-    accessTokens: listHubAccessTokens(getDatabase()),
+    accessTokens: listHubAccessTokens(db),
+    daemons: listHubDaemons(db),
   };
 };
 
@@ -26,16 +29,40 @@ export const actions: Actions = {
     const userId = ensureCurrentOwnerSession(db, cookies, locals.sessionToken);
     const formData = await request.formData();
     const label = formText(formData, "label").trim() || messages.access.defaultTokenLabel;
-    const token = createHubAccessToken(db, {
-      createdByUserId: userId,
-      label,
-    });
+    const memberName = formText(formData, "user").trim() || null;
+    const daemonIds = formData
+      .getAll("daemonIds")
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (daemonIds.length === 0) {
+      return fail(400, {
+        intent: "hubAccess",
+        message: messages.formMessages.daemonRequired,
+      });
+    }
+    let token: ReturnType<typeof createHubAccessToken>;
+    try {
+      token = createHubAccessToken(db, {
+        daemonIds,
+        memberName,
+        createdByUserId: userId,
+        label,
+      });
+    } catch (caught) {
+      return fail(400, {
+        intent: "hubAccess",
+        message: caught instanceof Error ? caught.message : messages.formMessages.daemonRequired,
+      });
+    }
     const loginUrl = new URL("/login", url.origin);
     return {
       intent: "hubAccess",
       message: messages.access.tokenCreatedHint,
       accessToken: token.token,
       accessExpiresAt: token.expiresAt,
+      accessDaemonIds: token.daemonIds,
+      accessMemberName: token.memberName,
       loginUrl: loginUrl.toString(),
     };
   },

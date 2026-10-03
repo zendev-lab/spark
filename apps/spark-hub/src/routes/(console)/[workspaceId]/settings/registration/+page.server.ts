@@ -38,13 +38,7 @@ export const actions: Actions = {
     const db = getDatabase();
     const page = loadWorkspaceRegistrationPage(db, params.workspaceId);
     if (!page) throw kitError(404, "Workspace not found.");
-    const userId = ensureCurrentOwnerSession(
-      db,
-      cookies,
-      locals.sessionToken,
-      page.workspace.id,
-      locals.workspaceSessionToken,
-    );
+    const userId = ensureCurrentOwnerSession(db, cookies, locals.sessionToken);
     const formData = await request.formData();
     const bindingId = formText(formData, "bindingId").trim();
     if (!bindingId) {
@@ -77,13 +71,7 @@ export const actions: Actions = {
     const page = loadWorkspaceRegistrationPage(db, params.workspaceId);
     if (!page) throw kitError(404, "Workspace not found.");
     const { workspace } = page;
-    const userId = ensureCurrentOwnerSession(
-      db,
-      cookies,
-      locals.sessionToken,
-      workspace.id,
-      locals.workspaceSessionToken,
-    );
+    const userId = ensureCurrentOwnerSession(db, cookies, locals.sessionToken);
 
     const formData = await request.formData();
     const label = formText(formData, "label").trim() || messages.enrollment.labelPlaceholder;
@@ -113,13 +101,7 @@ export const actions: Actions = {
     const db = getDatabase();
     const page = loadWorkspaceRegistrationPage(db, params.workspaceId);
     if (!page) throw kitError(404, "Workspace not found.");
-    ensureCurrentOwnerSession(
-      db,
-      cookies,
-      locals.sessionToken,
-      page.workspace.id,
-      locals.workspaceSessionToken,
-    );
+    ensureCurrentOwnerSession(db, cookies, locals.sessionToken);
 
     const formData = await request.formData();
     const tokenId = formText(formData, "tokenId").trim();

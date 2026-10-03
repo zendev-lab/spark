@@ -26,6 +26,8 @@ import type { LayoutServerLoad } from "./$types";
  * this load.
  */
 const WORKBENCH_SESSION_LIST_TIMEOUT_MS = 800;
+const WORKBENCH_SESSION_LIST_REFRESH_INTERVAL_MS = 10_000;
+const workbenchSessionListRefreshStartedAt = new Map<string, number>();
 
 export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) => {
   const workspaceIdParam = params.workspaceId ?? null;
@@ -35,7 +37,9 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
       cookies,
       workspaceIdParam,
       url,
-      authorizedWorkspaceId: locals?.workspaceId ?? null,
+      authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
+      authorizedDaemonIds: locals?.authorizedDaemonIds ?? null,
+      hasControlPlaneAccess: locals?.hasControlPlaneAccess ?? false,
     });
   }
 
@@ -54,7 +58,8 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
         ? workspaceIdForWorkbenchSession(projectedSelectedSession)
         : null,
     preferredWorkspaceSlug: url.searchParams.get("workspace") ?? null,
-    authorizedWorkspaceId: locals?.workspaceId ?? null,
+    authorizedWorkspaceIds: locals?.authorizedWorkspaceIds ?? null,
+    authorizedDaemonIds: locals?.authorizedDaemonIds ?? null,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions =
@@ -88,6 +93,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
     sessions,
     sessionsAvailable: managedSessions.available,
     sessionControlAvailable: managedSessions.controlAvailable,
+    hasControlPlaneAccess: locals?.hasControlPlaneAccess ?? false,
   };
 };
 
@@ -95,7 +101,9 @@ async function loadWorkspaceRailShell(input: {
   cookies: Parameters<LayoutServerLoad>[0]["cookies"];
   workspaceIdParam: string;
   url: URL;
-  authorizedWorkspaceId: string | null;
+  authorizedWorkspaceIds: readonly string[] | null;
+  authorizedDaemonIds: readonly string[] | null;
+  hasControlPlaneAccess: boolean;
 }) {
   const layout = loadShellWorkspaceLayout({
     cookies: input.cookies,
@@ -103,7 +111,8 @@ async function loadWorkspaceRailShell(input: {
     protocol: input.url.protocol,
     preferredWorkspaceId: null,
     preferredWorkspaceSlug: input.workspaceIdParam,
-    authorizedWorkspaceId: input.authorizedWorkspaceId,
+    authorizedWorkspaceIds: input.authorizedWorkspaceIds,
+    authorizedDaemonIds: input.authorizedDaemonIds,
   });
   const activeWorkspaceId = layout.activeWorkspace?.id ?? null;
   const managedSessions = activeWorkspaceId
@@ -124,6 +133,7 @@ async function loadWorkspaceRailShell(input: {
     sessions,
     sessionsAvailable: managedSessions.available,
     sessionControlAvailable: managedSessions.controlAvailable,
+    hasControlPlaneAccess: input.hasControlPlaneAccess,
   };
 }
 
@@ -133,10 +143,20 @@ async function loadWorkbenchManagedSessions(workspaceId: string) {
     includeArchived: true,
     related: true,
   });
-  // Prefer the local rail for every workbench navigation/invalidation. Waiting
-  // on live `session.list` (up to WORKBENCH_SESSION_LIST_TIMEOUT_MS) made each
-  // session switch feel like a full reload whenever layout re-ran.
-  if (projected.sessions.length > 0) return projected;
+  // Keep offline navigation projection-only. Reconcile connected rails often
+  // enough to discover channel-created Sessions, but throttle the owner round
+  // trip so switching between Sessions continues to use the local projection.
+  if (!projected.controlAvailable) return projected;
+  const now = Date.now();
+  const refreshStartedAt = workbenchSessionListRefreshStartedAt.get(workspaceId);
+  if (
+    projected.sessions.length > 0 &&
+    refreshStartedAt !== undefined &&
+    now - refreshStartedAt < WORKBENCH_SESSION_LIST_REFRESH_INTERVAL_MS
+  ) {
+    return projected;
+  }
+  workbenchSessionListRefreshStartedAt.set(workspaceId, now);
   const live = await listManagedSessionsForHub({
     scope: { kind: "workspace", workspaceId },
     includeArchived: true,
@@ -149,11 +169,12 @@ async function loadWorkbenchManagedSessions(workspaceId: string) {
 
 function sessionRailArchivedState(url: URL) {
   const showArchived = url.searchParams.get("archived") === "1";
-  const toggle = new URL(url);
-  if (showArchived) toggle.searchParams.delete("archived");
-  else toggle.searchParams.set("archived", "1");
+  const toggleSearchParams = new URLSearchParams(url.searchParams);
+  if (showArchived) toggleSearchParams.delete("archived");
+  else toggleSearchParams.set("archived", "1");
+  const toggleSearch = toggleSearchParams.size > 0 ? `?${toggleSearchParams.toString()}` : "";
   return {
     sessionRailShowArchived: showArchived,
-    sessionRailArchivedToggleHref: `${toggle.pathname}${toggle.search}${toggle.hash}`,
+    sessionRailArchivedToggleHref: `${url.pathname}${toggleSearch}`,
   };
 }

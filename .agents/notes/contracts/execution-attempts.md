@@ -112,7 +112,7 @@ also flush and clear pending timers before closing the attempt fence, so no
 timer may append an event after terminal commit. This is daemon-owned ingress
 policy shared by in-process and future process attempts. A queued leading
 snapshot is covered by the same fence: terminal commit cannot overtake it merely
-because the cooperative pump has not run yet. This is not a `spark-turn`
+because the cooperative pump has not run yet. This is not an agent-runtime
 projection rule.
 
 The production daemon loads the headless execution module and its host runtime
@@ -155,7 +155,8 @@ the answer, execution resumes within the same attempt epoch.
 ## Worker import boundary
 
 The worker entry may import only the private attempt contract, worker-local modules,
-and the shared `spark-host`, `spark-turn`, and `spark-protocol` contract surfaces. It
+the adjacent daemon agent runtime, and the shared `spark-invocation` and
+`spark-protocol` contract surfaces. It
 must not import adapters, daemon SQLite stores, token-usage owners, Task Claim
 authority, Session registry, channel owners, human-wait stores, daemon startup
 composition, or stateful capability packages. Dependency Cruiser's

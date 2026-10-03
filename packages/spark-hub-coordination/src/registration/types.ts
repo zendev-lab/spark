@@ -8,7 +8,6 @@ export interface RegisteredRuntime {
   refreshTokenExpiresAt: string;
   registeredAt: string;
   workspaceBinding?: RegisteredWorkspaceBinding;
-  workspaceAuthorization?: RegisteredWorkspaceAuthorization;
 }
 
 export type RefreshedRuntimeToken = Omit<RegisteredRuntime, "registeredAt"> & {
@@ -27,14 +26,6 @@ export interface RegisteredRuntimeWorkspace {
   runtimeId: string;
   registeredAt: string;
   workspaceBinding: RegisteredWorkspaceBinding;
-  workspaceAuthorization: RegisteredWorkspaceAuthorization;
-}
-
-export interface RegisteredWorkspaceAuthorization {
-  workspaceId: string;
-  workspaceSlug: string;
-  oneTimeToken: string;
-  expiresAt: string;
 }
 
 export interface UnboundRuntimeWorkspace {

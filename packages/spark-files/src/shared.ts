@@ -5,7 +5,8 @@
  * structured `details`, and the host renders them.
  */
 
-import { sparkStateCwd, type SparkHostContext } from "@zendev-lab/spark-core";
+import { type SparkHostContext } from "@zendev-lab/spark-invocation";
+import { sparkStateCwd } from "@zendev-lab/spark-platform-node/paths";
 
 export interface ToolTextContent {
   type: "text";

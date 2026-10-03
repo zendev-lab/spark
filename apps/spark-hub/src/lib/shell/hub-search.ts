@@ -1,5 +1,8 @@
 import { workbenchSessionScope } from "../workbench-session-scope";
-import { formatChannelSessionTitle, type ChannelSessionLabels } from "../channel-session-title";
+import {
+  formatChannelSessionTitle,
+  type ChannelSessionLabels,
+} from "@zendev-lab/spark-ui/channel-session";
 import { workspaceSessionPath } from "../workspace-routes";
 import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 
@@ -9,6 +12,12 @@ export interface HubSearchWorkspace {
   id: string;
   slug: string;
   name: string;
+}
+
+export interface HubDaemonSummary {
+  id: string;
+  name: string;
+  status: string;
 }
 
 export interface HubSearchResult {
@@ -72,15 +81,13 @@ export function buildHubSearchResults(input: {
       [workspace.name, workspace.slug].join("\n").toLowerCase().includes(query),
     )
     .slice(0, Math.max(0, 8 - sessionResults.length))
-    .map(
-      (workspace): HubSearchResult => ({
-        id: workspace.id,
-        type: "workspace",
-        title: workspace.name,
-        description: `/${workspace.slug}`,
-        href: `/${workspace.slug}`,
-      }),
-    );
+    .map((workspace): HubSearchResult => ({
+      id: workspace.id,
+      type: "workspace",
+      title: workspace.name,
+      description: `/${workspace.slug}`,
+      href: `/${workspace.slug}`,
+    }));
 
   const pageResults = (input.pages ?? [])
     .filter((page) => `${page.title}\n${page.description ?? ""}`.toLowerCase().includes(query))

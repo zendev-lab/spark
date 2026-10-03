@@ -6,7 +6,7 @@ import {
   runtimeRelocationPreflightResponseSchema,
   type RuntimeRelocationPreflightResponse,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 
 import { SparkDaemonControlError } from "./control-error.ts";
 import { validateRegistrationServerUrl } from "./registration.ts";
@@ -21,6 +21,9 @@ import {
   upsertSparkDaemonServerProfile,
   type SparkDaemonServerProfile,
 } from "./server-profiles.ts";
+
+import { stringValue } from "./text.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
 
 export interface SparkDaemonRelocationRequest {
   fromServerUrl?: string;
@@ -260,9 +263,6 @@ async function applyLocalRelocation(
     displayName: current.displayName,
     ...(current.invocationConcurrency !== undefined
       ? { invocationConcurrency: current.invocationConcurrency }
-      : {}),
-    ...(current.reproFormalEvidencePublicKeysJson
-      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
       : {}),
   };
   let targetProfileWritten = false;
@@ -577,12 +577,4 @@ function requireConfig(value: string | undefined, name: string): string {
     );
   }
   return value;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

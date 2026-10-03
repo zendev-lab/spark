@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import { writeJsonFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { migrateRoleSessionSqliteData } from "./role-session-sqlite-migration.ts";

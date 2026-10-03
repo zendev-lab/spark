@@ -1,11 +1,5 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": [
-    "packages/**/*.ts",
-    "apps/spark-cli/**/*.ts",
-    "apps/spark-tui/**/*.ts",
-    "benchmarks/**/*.ts",
-    "test/**/*.ts"
-  ],
+  "include": ["packages/**/*.ts", "apps/spark-cli/**/*.ts", "benchmarks/**/*.ts", "test/**/*.ts"],
   "exclude": ["apps/spark-hub/**"]
 }

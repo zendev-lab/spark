@@ -1,0 +1,147 @@
+import type { ProjectRef } from "@zendev-lab/spark-invocation";
+import type { TaskGraph } from "@zendev-lab/spark-tasks";
+import {
+  ASK_BEFORE_GUESSING,
+  MAIN_SESSION_SCHEDULING_FIRST,
+  MUST_ASK_ON_PROBLEMS,
+  renderModePrompt,
+} from "./spark-directive-prompts.ts";
+import {
+  renderSparkUltracodeWorkflowGuidance,
+  renderSparkWorkflowGuidance,
+  type SparkSavedWorkflowDiscovery,
+} from "./spark-workflow-builtins.ts";
+
+export function renderSparkWorkflowLoopPrompt(
+  focus: string | undefined,
+  savedWorkflows: SparkSavedWorkflowDiscovery = { workflows: [], errors: [] },
+  workflowSelector?: string,
+): string {
+  const workflowGuidance = renderSparkWorkflowGuidance(focus, savedWorkflows, workflowSelector);
+  const requirements = [
+    ...(workflowSelector && workflowSelector !== "agent:auto"
+      ? [`Workflow selector: ${workflowSelector}.`]
+      : []),
+    renderWorkflowLoopAction(workflowSelector),
+    "Workflow is an independent tool/runtime boundary, not an implement-mode strategy and not a project/task prerequisite. Do not create, select, or mutate a Spark project merely to run a workflow.",
+    "Run workflow-owned steps without Spark project attribution; only switch to project/task tools if the user explicitly asks to turn workflow results into durable project planning or implementation.",
+    workflowGuidance,
+  ];
+  return renderStandaloneWorkflowLoopPrompt(focus, requirements);
+}
+
+export function renderSparkGoalLoopPrompt(
+  graph: TaskGraph,
+  selectedProjectRef: ProjectRef | undefined,
+  focus: string | undefined,
+): string {
+  return [
+    renderSparkGoalModePrompt(graph, selectedProjectRef, focus),
+    renderGoalLoopGuidance(focus),
+  ].join("\n\n");
+}
+
+function renderGoalLoopGuidance(focus: string | undefined): string {
+  const goal = focus?.trim() || "the active Spark goal";
+  return [
+    "## Goal Loop guidance",
+    `- Active goal objective: ${goal}`,
+    "- Work toward the objective using Goal Task/Project state and Evidence boundaries. The owner Session requests completion, the Reviewer audits, and Spark applies any approved state transition.",
+    `- ${MAIN_SESSION_SCHEDULING_FIRST}`,
+    `- ${MUST_ASK_ON_PROBLEMS}`,
+    "- Goal turns do not need to classify the whole turn as plan or implement; choose concrete next actions from current task state, blockers, and validation needs.",
+    "- Before a goal turn uses canonical ask, inspect the workspace, dependencies, environment, and available evidence so the ask contains only a still-unresolved material decision, never a discoverable fact. Persist a detached asynchronous evidence request and continue independent work. Never start a blocking human wait or synthesize a decision through reviewer timeout. If every remaining action depends on the answer, checkpoint waiting_decision+dormant without changing the objective or inventing an answer.",
+    '- Request goal({ action: "complete" }) only after evidence covers every requirement in the objective.',
+  ].join("\n");
+}
+
+export function renderSparkGoalModePrompt(
+  graph: TaskGraph,
+  selectedProjectRef: ProjectRef | undefined,
+  focus: string | undefined,
+): string {
+  const requirements = selectedProjectRef
+    ? [
+        renderGoalAction(Boolean(focus?.trim())),
+        MAIN_SESSION_SCHEDULING_FIRST,
+        MUST_ASK_ON_PROBLEMS,
+        "Goal Loop decisions are research-first: inspect available evidence and run a focused probe before using canonical ask for a still-unresolved material decision. Persist the ask as a detached asynchronous evidence request, then continue every independent ready action. Never ask for a discoverable fact, start a blocking continuation, or synthesize a user answer through reviewer timeout. If all remaining actions depend on the request, checkpoint waiting_decision+dormant while keeping the goal objective unchanged.",
+        SPARK_GOAL_DECISION_RULE,
+      ]
+    : [
+        'No current project is selected for goal Loop execution. Inspect projects with task_read({ action: "workspace_status" }) or task_read({ action: "project_list" }), select a current project only when the inspected state identifies a single intended project, or stop and ask when multiple projects or scopes could be the intended goal.',
+        "Do not claim project-bound work until a current project is selected.",
+        MUST_ASK_ON_PROBLEMS,
+        ASK_BEFORE_GUESSING,
+      ];
+  return renderModePrompt(graph, selectedProjectRef, focus, "Goal Loop", requirements);
+}
+
+const PLANNING_AFFECTING_CHOICES =
+  "scope, dependencies, priorities, success criteria, evidence, architecture, dependency choices, or implementation order";
+
+const SPARK_GOAL_DECISION_RULE = `Goal objectives should normally describe the selected project's substantive intended outcome from its purpose, description, title, Task plans, Evidence requirements, and blockers; do not reduce the Goal to Task counts or merely stopping at a plan unless the user explicitly says planning-only/readiness-only/仅规划. Autonomous Goal edits require a strong reason and may only correct materially wrong description or direction; never lower difficulty, narrow required outcomes, or convert implementation work into planning-only/readiness-only work. If Task decomposition is wrong, missing, or blocks the Goal, create or revise high-bar concrete Tasks with task_write({ action: "plan" }) using objectively verifiable success criteria, concrete Evidence, and checkable plan items; if a missing user decision would change ${PLANNING_AFFECTING_CHOICES} and cannot be inferred from context, use canonical ask only as a detached asynchronous Evidence request and continue independent work. Never request blocking delivery, auto-answer, or Reviewer-timeout substitution in an active Goal/Repro. Keep owner reconciliation on the owner Session. Request Reviewer-gated Goal completion separately after Evidence covers the objective. Never invent the missing decision or work around it with Role/Session fan-out.`;
+
+function renderGoalAction(hasExplicitGoal: boolean): string {
+  const goalSource = hasExplicitGoal
+    ? "Use the explicit goal focus as the target objective."
+    : "Infer the target objective from the current project purpose, description, title, task plans, required evidence, recent Evidence records, and blockers.";
+  return (
+    'Run the Spark goal Loop from durable task/project state: read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). ' +
+    goalSource +
+    ' If the inspected state identifies a single next goal, state that derived goal briefly and work toward it by claiming one ready concrete task at a time with task_write({ action: "claim" }), executing it, verifying required evidence, and calling task_write({ action: "finish" }). Continue to the next ready task after each successful finish until the goal is complete, no ready task remains, validation fails, or every remaining action depends on a pending detached evidence request. A pending request blocks only its bound retirement/action; never freeze an independent frontier or start a reviewer-timeout fallback.'
+  );
+}
+
+function renderWorkflowLoopAction(workflowSelector: string | undefined): string {
+  if (workflowSelector?.startsWith("workspace:") || workflowSelector?.startsWith("user:")) {
+    return "Run the selected saved scripted workflow through Spark workflow runtime boundaries: use Spark-owned workflow script metadata, route agent steps through the Spark workflow role-run adapter, and keep workflow output standalone unless the user explicitly asks to attach it to a Spark project.";
+  }
+  return "Select or start the appropriate saved workflow for the focus. Use workflow for saved-script discovery/preview, run workflow-owned steps only through Spark workflow/runtime plumbing, keep workflow output standalone unless the user explicitly asks to attach it to a Spark project, and stop/report when workflow selection, scope, or approval is required.";
+}
+
+function renderStandaloneWorkflowLoopPrompt(
+  focus: string | undefined,
+  requirements: readonly string[],
+): string {
+  return [
+    "## Workflow requirements",
+    focus?.trim() ? `Focus: ${focus.trim()}` : undefined,
+    ...requirements.map((line) => "- " + line),
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+export function renderSparkUltracodeWorkflowPrompt(
+  focus: string | undefined,
+  savedWorkflows: SparkSavedWorkflowDiscovery = { workflows: [], errors: [] },
+): string {
+  return renderStandaloneWorkflowLoopPrompt(focus, [
+    "Ultracode high-effort workflow generation is explicitly requested. Do not trigger this path for ordinary prompts; it is opt-in only.",
+    'If an existing workflow clearly satisfies the request, run it with workflow({ action: "run", selector, args }) after reading it through workflow({ action: "read", selector }).',
+    "If no workflow fits, create .agents/workflows/<id>/WORKFLOW.md with strict frontmatter and Markdown instructions; JavaScript is allowed only as an explicitly referenced body-only stage handler.",
+    "Use bounded defaults unless the user explicitly asks otherwise: concurrency <= 4, maxAgents <= 12, clear stages, and a visible tokenBudget when the workflow may fan out.",
+    "Generated scripts should use quality helpers such as verify, judgePanel, completenessCheck, retry, gate, and evidenceRecord where they improve confidence, and should synthesize a compact final result.",
+    "Reuse workflow action=run approval, persistence, and telemetry paths; do not duplicate approval or run-manager state.",
+    "Keep workflow output standalone unless the user explicitly asks to attach results to Spark project/task state.",
+    renderSparkUltracodeWorkflowGuidance(focus, savedWorkflows),
+  ]);
+}
+
+export function renderSparkUltracodeWorkflowVisibleMessage(focus: string | undefined): string {
+  const parts = ["Spark ultracode workflow requested"];
+  if (focus?.trim()) parts.push(`focus: ${focus.trim()}`);
+  return parts.join(" · ");
+}
+
+export function renderSparkWorkflowLoopVisibleMessage(
+  focus: string | undefined,
+  workflowSelector?: string,
+): string {
+  const parts = ["Spark Workflow requested"];
+  if (workflowSelector && workflowSelector !== "agent:auto")
+    parts.push(`workflow: ${workflowSelector}`);
+  if (focus?.trim()) parts.push(`focus: ${focus.trim()}`);
+  return parts.join(" · ");
+}

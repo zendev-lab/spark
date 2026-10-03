@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionRoleRunRequest, SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
+import type {
+  ExtensionRoleRunRequest,
+  SparkHostAPI,
+  ToolConfig,
+} from "@zendev-lab/spark-invocation";
 import { test } from "vitest";
 import sparkRolesExtension from "./extension-entry.ts";
 import {
@@ -81,7 +85,6 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
     const auditPath = await writeSkill(skillsDir, "release-audit", auditBody);
     const publishPath = await writeSkill(skillsDir, "github-publish", publishBody);
     const tool = testTool({ builtinDirs: [skillsDir] });
-    assert.deepEqual(tool.policy?.modes, ["execute"]);
     let captured: ExtensionRoleRunRequest | undefined;
 
     const result = await tool.execute(

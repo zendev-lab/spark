@@ -30,10 +30,10 @@ The public application and executable names are `@zendev-lab/spark-hub` and
 
 The `apps/spark-hub`, `packages/spark-hub-*`,
 `@zendev-lab/spark-i18n/hub`, `SPARK_HUB_*`, and Hub XDG/SQLite names are
-canonical. Retired `Cockpit` XDG paths, SQLite/config files, environment aliases,
-cookies, snapshot v1 manifests, instance IDs, and schema-history identifiers are
-migration inputs only. Keep their reads explicit, idempotent, conflict-safe, and
-covered by rollback tests; never write new product state under a Cockpit name.
+canonical. Retired Cockpit CLI names, XDG paths, environment aliases, cookies,
+snapshot-v1 manifests, and `cockpit_` instance IDs are rejected. Do not add
+compatibility reads or writes under a Cockpit name. Historical SQLite
+migration filenames that still contain `cockpit` remain applied schema history.
 
 ## Server and browser placement
 

@@ -58,6 +58,7 @@ describe("daemon task validation", () => {
         prompt: "  human body stays exact  ",
         cwd: "/workspace/frozen",
         thinkingLevel: "high",
+        maxOutputTokens: 2_048,
         messageMetadata: {
           origin: { kind: "session", sessionId: "session:sender", host: "web" },
           sessionMail: { messageId: "mail:1" },
@@ -85,6 +86,7 @@ describe("daemon task validation", () => {
       prompt: "  human body stays exact  ",
       cwd: "/workspace/frozen",
       thinkingLevel: "high",
+      maxOutputTokens: 2_048,
       messageMetadata: {
         origin: { kind: "session", sessionId: "session:sender", host: "web" },
         sessionMail: { messageId: "mail:1" },
@@ -101,6 +103,19 @@ describe("daemon task validation", () => {
         mentionedSelf: true,
       },
     });
+  });
+
+  it("rejects non-positive or fractional output ceilings", () => {
+    for (const maxOutputTokens of [0, -1, 1.5]) {
+      expect(() =>
+        validateSparkDaemonTask({
+          type: "session.run",
+          sessionId: "session-a",
+          prompt: "hello",
+          maxOutputTokens,
+        }),
+      ).toThrow(/maxOutputTokens/u);
+    }
   });
 
   it("rejects malformed message metadata instead of silently dropping it", () => {

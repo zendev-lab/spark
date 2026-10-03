@@ -29,11 +29,5 @@
     "legacy": "/workflow-stop",
     "canonicalSlash": "/workflow stop <run>",
     "status": "deprecated alias"
-  },
-  {
-    "legacy": "/fork",
-    "canonicalSlash": "/session fork --current",
-    "canonicalCliTarget": "spark daemon session fork --current",
-    "status": "deprecated alias"
   }
 ]

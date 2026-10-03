@@ -16,7 +16,7 @@ export type SparkMemoryFeedbackErrorCode = (typeof SPARK_MEMORY_FEEDBACK_ERROR_C
 export const sparkMemoryFeedbackReceiptSchema = z.object({
   schema: z.literal("spark.memory.feedback-receipt/v1"),
   receiptId: z.string().min(1),
-  surface: z.enum(["tui", "hub", "cockpit", "channel"]),
+  surface: z.enum(["tui", "hub", "channel", "web"]),
   workspaceId: z.string().min(1),
   sessionId: z.string().min(1),
   turnId: z.string().min(1),
@@ -97,7 +97,7 @@ export type SparkMemoryDirectIntentHighRiskOperation =
 
 export const SPARK_MEMORY_DIRECT_INTENT_REASON = "Direct user intent from the current host turn.";
 
-const sparkMemoryDirectIntentSurfaceSchema = z.enum(["tui", "hub", "cockpit", "channel"]);
+const sparkMemoryDirectIntentSurfaceSchema = z.enum(["tui", "hub", "channel", "web"]);
 
 export const sparkMemoryDirectIntentReceiptSchema = z.object({
   schema: z.literal("spark.memory.direct-intent-receipt/v1"),

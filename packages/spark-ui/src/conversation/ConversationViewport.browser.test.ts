@@ -160,6 +160,37 @@ describe("ConversationViewport browser contract", () => {
     await screen.unmount();
   });
 
+  it("uses non-smooth marker navigation when reduced motion is requested", async () => {
+    const matchMedia = vi.spyOn(globalThis, "matchMedia").mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    const screen = await render(ConversationViewport, {
+      label: "Conversation",
+      jumpToLatestLabel: "Latest",
+      navigationItems: items,
+      children,
+    });
+    screen.container.style.width = "700px";
+    const viewport = viewportOf(screen.container);
+    setScrollGeometry(viewport, { clientHeight: 400, scrollHeight: 1200, scrollTop: 0 });
+    const scrollTo = vi.fn();
+    viewport.scrollTo = scrollTo;
+    screen.container.querySelectorAll<HTMLElement>("[data-message-id]").forEach((node, index) => {
+      Object.defineProperty(node, "offsetTop", { configurable: true, value: index * 120 });
+    });
+    await vi.waitFor(() =>
+      expect(
+        screen.container.querySelector('[data-testid="conversation-turn-rail"]'),
+      ).not.toBeNull(),
+    );
+
+    screen.container.querySelector<HTMLButtonElement>('[aria-label="You: Message 4"]')?.click();
+    expect(scrollTo).toHaveBeenCalledWith({ top: 462, behavior: "auto" });
+
+    await screen.unmount();
+    matchMedia.mockRestore();
+  });
+
   it("follows content updates with non-smooth auto scrolling", async () => {
     const screen = await render(ConversationViewport, {
       label: "Conversation",

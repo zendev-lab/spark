@@ -9,7 +9,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { defaultArtifactStore, projectArtifact, type Artifact } from "@zendev-lab/spark-artifacts";
 
-export const ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);
+const ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);
 
 export interface ArtifactProjectionSource {
   ref: string;
@@ -20,7 +20,7 @@ export interface ArtifactProjectionSource {
   updatedAt?: string;
 }
 
-export interface ArtifactProjectionContext {
+interface ArtifactProjectionContext {
   workspaceId: string;
   scope?: "workspace" | "project";
   invocationId?: string;
@@ -28,7 +28,7 @@ export interface ArtifactProjectionContext {
   projectId?: string;
 }
 
-export interface ArtifactDaemonEventContext {
+interface ArtifactDaemonEventContext {
   workspaceId?: string;
   projectId?: string;
   invocationId?: string;
@@ -37,13 +37,13 @@ export interface ArtifactDaemonEventContext {
   emittedAt?: string;
 }
 
-export interface ArtifactProjectionReconcileTarget {
+interface ArtifactProjectionReconcileTarget {
   localPath: string;
   workspaceBindingId: string;
   workspaceId: string;
 }
 
-export interface PendingArtifactProjection {
+interface PendingArtifactProjection {
   messageId: string;
   workspaceBindingId: string;
   workspaceId: string;
@@ -57,7 +57,7 @@ interface ArtifactProjectionReconcileState {
   lastSentAtMs: number;
 }
 
-export const ARTIFACT_PROJECTION_RETRY_AFTER_MS = 30_000;
+const ARTIFACT_PROJECTION_RETRY_AFTER_MS = 30_000;
 export const ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS = 60_000;
 
 /**
@@ -121,9 +121,7 @@ export function artifactProjectionPayload(
   };
 }
 
-export function artifactProjectionSourceFromToolResult(
-  raw: unknown,
-): ArtifactProjectionSource | null {
+function artifactProjectionSourceFromToolResult(raw: unknown): ArtifactProjectionSource | null {
   if (!isRecord(raw) || raw.type !== "tool_result") return null;
   const message = isRecord(raw.message) ? raw.message : null;
   if (!message || message.toolName !== "artifact" || message.isError === true) return null;
@@ -186,7 +184,7 @@ export function artifactDaemonProjectionEventFromToolResult(
   };
 }
 
-export async function listWorkspaceArtifactProjectionSources(
+async function listWorkspaceArtifactProjectionSources(
   localPath: string,
 ): Promise<ArtifactProjectionSource[]> {
   const artifacts = await defaultArtifactStore(localPath).list();

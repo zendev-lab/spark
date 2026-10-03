@@ -8,7 +8,7 @@ description: 端到端运行 Spark、连接 Hub、创建会话、检查 invocati
 ## 先分清状态由谁拥有
 
 - **daemon** 拥有执行、会话、invocation、工作区绑定和恢复状态。
-- **TUI** 是交互式终端宿主；它展示 daemon 状态，并把用户意图提交给 daemon。
+- **本地 Web 工作台** 是交互式宿主；它展示 daemon 状态，并把用户意图提交给 daemon。
 - **Hub Web** 是浏览器协调与投影界面，不能根据浏览器计时器或 transcript 文本推断执行状态。
 - 产品 Artifact 只有 Issue、Git Change 和 Document；一个 Git Change 拥有一个
   worktree 及其 PR stack，Preview 是 Document 的视图。内部验证 Evidence 使用独立
@@ -63,9 +63,9 @@ spark daemon auth login [provider]
 spark daemon model set <provider/model> --default --json
 ```
 
-或打开 `spark`，运行 `/login`，再用 `/model`。不可用模型仍会显示原因和登录动作，
-但不能成为 active。API Key 只应输入 Spark 的 secret prompt，不能写进仓库、
-命令历史或 Hub 注册命令。
+或启动 `spark web`，打开**设置**，在其中配置 provider 与模型。不可用模型仍会
+显示原因和登录动作，但不能成为 active。API Key 只应输入 Spark 的 secret 字段或
+prompt，不能写进仓库、命令历史或 Hub 注册命令。
 
 没有已认证模型时，Hub Web 会禁用会话提交。JSON CLI 提交会返回可处理的错误：
 
@@ -81,8 +81,8 @@ spark daemon model set <provider/model> --default --json
 
 配置 provider 后，只重试原提交一次。
 
-`spark daemon login` 是另一件事：它只授权本机连接 Hub。Provider 认证只存在于
-`spark daemon auth` 和对应的 TUI slash command。
+`spark daemon login` 是另一件事：它只授权本机连接 Hub。Provider 认证由 daemon
+持有，通过 `spark daemon auth`、本地 Web 与 Hub 的模型/provider 设置暴露。
 
 ## 3. 分别启动 daemon 和 Hub
 
@@ -122,13 +122,14 @@ spark hub web status --json
 生成命令的形式如下：
 
 ```bash
-spark daemon workspace register . \
-  --server-url http://127.0.0.1:5174 \
-  --token <one-time-workspace-token> \
-  --name <workspace-name>
+spark daemon login --server-url http://127.0.0.1:5174
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <enrollment-token>
 ```
 
-Token 只显示一次，只授权一个目录。它不是 provider 凭证，也不是可复用的 daemon login。
+`spark daemon login` 把 daemon 安装（每台机器一个）绑定到 Hub。第一条
+`workspace register` 在本地登记 workspace；带 token 的形式通过同一个 daemon
+绑定宣告它的 Hub 投影。Token 只显示一次，不是 provider 凭证。
 
 检查 daemon 拥有的绑定：
 
@@ -141,22 +142,24 @@ spark daemon workspace ls --json
 
 ## 5. 创建、检查并附着会话
 
-从 `spark daemon workspace ls --json` 读取 server workspace ID，然后创建托管会话：
+从 `spark daemon session list --registry --json` 读取受保护的 Administrator Session
+ID，选择精确静态 RoleRef，然后创建空的托管子 Session：
 
 ```bash
-spark daemon session create \
-  --workspace <server-workspace-id> \
-  --role operator \
+spark daemon session spawn \
+  --supervisor <administrator-session-id> \
+  --role-ref role:builtin-executor \
   --json
 
 spark daemon session list --registry --json
 spark daemon session show <session-id> --json
 ```
 
-对托管会话，`role` 是稳定的职责身份，也会用作兼容 title。请在同一个规范工作区目录中附着：
+`spawn` 不会创建 Invocation。只有子 Session 需要 supervisor 稳定 transcript 前缀的
+独立副本时，才使用同一组 flag 调用 `fork`。请在同一个规范工作区目录中附着：
 
 ```bash
-spark tui --session-id <session-id>
+spark web
 ```
 
 Hub Web 的 Conversations 会列出同一个 daemon 会话；打开第二个前端不会创建第二个 executor。
@@ -201,40 +204,21 @@ fail closed，不能自动 replay。
 
 ## 7. 体验产品工作流
 
-在 TUI 中使用：
-
-```text
-/plan <goal>
-/execute [focus]
-/inspect
-/goal start <objective>
-/repro start <objective>
-/workflow list
-/help commands
-```
-
-`/help` 始终在本地渲染，绝不会作为 agent prompt 提交。不带参数的 slash control
-会直接进入最终界面，selector 或 palette 的普通动作一次 Enter 即执行。prompt
-history、对话 viewport 滚动和空闲态双 Esc session navigation 都由 TUI 自身处理；
-当前键盘契约以 [TUI 指南](/zh/guides/tui/) 为准。
+在[本地 Web 工作台](/zh/guides/web/)或用 `spark run` 描述预期结果。一次性的
+`/plan`、`/execute`、`/fleet` 以及 Goal、Repro 和 Workflow 仍由 daemon
+持有；用 `spark daemon --help` 发现运维 CLI。
 
 这些界面应协同工作：
 
-- **Conversations** 与 TUI 展示 daemon 拥有的会话和 turn。
+- **Conversations** 与本地 Web 工作台展示 daemon 拥有的会话和 turn。
 - **Inbox** 展示内联问题与审批；Ask 不应变成全局 modal。
 - **Artifacts** 只包含 Issue、Git Change 和 Document。
 - **Resources** 包含工作区仓库、文档、URL、文件、工具和 secret reference。
 - Goal、Repro、Workflow 与后台 Loop 保持不同语义；不能合并 scheduled、running、
   retry-waiting、dormant、blocked 和 stopped 状态。
 
-继续阅读 [TUI](/zh/guides/tui/)、[运行与会话](/zh/guides/runs-and-sessions/)、
+继续阅读 [本地 Web](/zh/guides/web/)、[运行与会话](/zh/guides/runs-and-sessions/)、
 [Hub Web](/zh/guides/hub/) 和 [长期工作](/zh/guides/automation/)。
-
-### Renderer 状态
-
-Spark 0.2.0 继续在私有 `SparkTerminalController` 后使用 Pi TUI kernel。
-OpenTUI 只是隔离候选，不是生产依赖。切换 renderer 需要独立的架构决策，并提供
-component、Direct PTY、打包产物和受支持平台验证的实际证据。
 
 ## 8. 远程访问
 
@@ -244,12 +228,10 @@ component、Direct PTY、打包产物和受支持平台验证的实际证据。
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark hub access create
-spark hub workspace access create --workspace <hub-workspace-id>
+spark hub access create --daemon <runtime-id>
 ```
 
-- Hub Key 在 `/login` 兑换。
-- Workspace Key 在 `/{slug}/login` 兑换。
+- Hub Key 在 `/login` 兑换；会话只能访问被授权 daemon 拥有的 workspace。
 - 每增加一个本地目录，都要生成新的 Workspace Registration Token。
 
 所有一次性 Key 都应视为 secret，不能复制进日志或 PR。
@@ -263,7 +245,8 @@ spark hub workspace access create --workspace <hub-workspace-id>
 ```bash
 spark doctor --help
 spark hub web start --help
-spark daemon session create --help
+spark daemon session spawn --help
+spark daemon session fork --help
 ```
 
 如果已发布安装的行为不同，先对比 `spark version --json` 与预期源码或包版本。
@@ -291,8 +274,8 @@ Settings。一个 binding 只能拥有一条 active Hub lease；要迁移时，�
 
 先运行 `spark daemon auth status --json` 和
 `spark daemon model list --all --json`。然后使用
-`spark daemon auth login <provider>`，或回到 TUI 运行 `/login`、再运行
-`/model`。只有 daemon 报告可用的已认证模型后，Hub Web 才应允许提交。
+`spark daemon auth login <provider>`，或打开本地 Web 的**设置**、Hub 的
+**模型与提供商**。只有 daemon 报告可用的已认证模型后，Hub Web 才应允许提交。
 
 ### Run 看起来卡住
 

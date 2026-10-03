@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
@@ -24,7 +24,7 @@ export async function resolveDaemonSessionTranscript(
   input: ResolveDaemonSessionTranscriptInput,
 ): Promise<string | undefined> {
   const session = input.session;
-  if (session.owner?.kind === "side_thread") {
+  if (session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread") {
     if (!session.sessionPath) {
       throw new Error(`side-thread session ${session.sessionId} has no registered transcript`);
     }
@@ -65,7 +65,12 @@ export async function ensureDaemonSessionTranscript(
   const session = input.session;
   const existingPath = await resolveDaemonSessionTranscript(input);
   if (existingPath) {
-    if (session.sessionPath || session.owner?.kind === "side_thread") return existingPath;
+    if (
+      session.sessionPath ||
+      (session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread")
+    ) {
+      return existingPath;
+    }
     const bound = await input.registry.bindTranscriptPath({
       sessionId: session.sessionId,
       sessionPath: existingPath,

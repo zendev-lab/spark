@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveToolPolicyForArgs, type ToolConfig } from "@zendev-lab/spark-core";
+import { resolveToolPolicyForArgs, type ToolConfig } from "@zendev-lab/spark-invocation";
 
 describe("argument-aware tool policy", () => {
   it("resolves a concrete read action from a conservative registration envelope", () => {
@@ -13,7 +13,6 @@ describe("argument-aware tool policy", () => {
       effect: "read",
       executionMode: "parallel",
       domains: [],
-      modes: [],
       approval: "none",
     });
   });
@@ -31,7 +30,6 @@ describe("argument-aware tool policy", () => {
       effect: "unknown",
       executionMode: "sequential",
       domains: [],
-      modes: [],
       approval: "required",
     });
   });

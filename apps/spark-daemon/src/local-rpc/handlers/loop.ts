@@ -5,7 +5,6 @@ import { loopDriverCloseCandidate } from "../../spark/loop-close-completion.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "../../store/loops.ts";
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { resolveWorkspaceBindingId, resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
-import { executeTrustedWorkbenchLoopControl } from "../../workbench-loop-control.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
@@ -118,21 +117,6 @@ export async function handleLoopRequest(
     }
     case "loop.schedule":
       return mutation(store.schedule(request.params));
-    case "loop.control": {
-      const result = await executeTrustedWorkbenchLoopControl({
-        db: ctx.db,
-        request: request.params,
-        publish: (event) => ctx.options.eventBus?.publish(event),
-      });
-      if (result.loop.status === "stopped" || result.loop.status === "completed") {
-        const loop = store.require(result.loop.loopId);
-        const closeCompletion = loopDriverCloseCandidate(loop);
-        await closeDriverSession(ctx, loop.driverSessionId, `Loop ${result.loop.status}`, {
-          ...(closeCompletion ? { completion: closeCompletion } : {}),
-        });
-      }
-      return result;
-    }
   }
 }
 

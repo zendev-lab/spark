@@ -24,6 +24,7 @@ import {
   type ResetSparkSideThreadInput,
   type RecordSparkSessionRunInput,
   type ResolveBindingInput,
+  type ResolveChannelSessionInput,
   type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
 } from "@zendev-lab/spark-session";
@@ -130,6 +131,10 @@ export interface DaemonSessionRegistry {
   resetSideThread(input: ResetSparkSideThreadInput): Promise<SparkSessionState>;
   configureSideThread(input: ConfigureSparkSideThreadInput): Promise<SparkSessionState>;
   resolveBinding(input: ResolveBindingInput): Promise<SparkSessionState>;
+  /** Daemon-internal ingress primitive; callers cannot select scope or cwd. */
+  resolveChannelSession(
+    input: Omit<ResolveChannelSessionInput, "daemonId" | "createCwd">,
+  ): Promise<SparkSessionState>;
 }
 
 export interface CommitDaemonSessionTranscriptReplacementInput extends RecordSparkSessionRunInput {
@@ -145,10 +150,8 @@ export interface CommitDaemonClosedTranscriptDiscardInput {
   now?: Date;
 }
 
-/** Diagnostic child visibility is daemon-internal and absent from the wire schema. */
 export type DaemonSessionListRequest = SparkSessionListRequest & {
   includeClosed?: boolean;
-  includeSideThreads?: boolean;
 };
 
 export interface CreateDaemonSessionRegistryOptions {
@@ -168,6 +171,8 @@ export interface CreateDaemonSessionRegistryOptions {
     cwd?: string;
     cwdArtifactRef?: string;
   }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
+  /** Derive, create, and validate a private daemon Channel cwd from a Session id. */
+  resolveChannelSessionCwd?: (sessionId: string) => Promise<string>;
 }
 
 export interface SerializeDaemonSessionRegistryOptions {
@@ -244,6 +249,7 @@ export function createSerializedDaemonSessionRegistry(
     resetSideThread: (input) => mutate(() => registry.resetSideThread(input)),
     configureSideThread: (input) => mutate(() => registry.configureSideThread(input)),
     resolveBinding: (input) => mutate(() => registry.resolveBinding(input)),
+    resolveChannelSession: (input) => mutate(() => registry.resolveChannelSession(input)),
   };
 }
 
@@ -253,6 +259,10 @@ export function createDaemonSessionRegistry(
 ): DaemonSessionRegistry {
   const registry = new SparkSessionRegistry({
     rootDir: defaultSparkSessionRegistryRoot(sparkHome),
+    ...(options.daemonId ? { daemonId: options.daemonId } : {}),
+    ...(options.resolveChannelSessionCwd
+      ? { resolveChannelSessionCwd: options.resolveChannelSessionCwd }
+      : {}),
   });
   const ownedRegistry: DaemonSessionRegistry = {
     create: async (input) =>
@@ -335,9 +345,8 @@ export function createDaemonSessionRegistry(
         });
         create = {
           ...create,
-          owner: { kind: "session", supervisorSessionId: root.sessionId },
+          lineage: { kind: "child", parentSessionId: root.sessionId, origin: { kind: "session" } },
           roleBinding: { kind: "none" },
-          stateBinding: { kind: "channel", ref: input.externalKey },
           visibility: "public",
           retention: "retain",
           purpose: "channel",
@@ -346,6 +355,26 @@ export function createDaemonSessionRegistry(
       return await registry.resolveBinding({
         ...input,
         ...(create ? { create } : {}),
+      });
+    },
+    resolveChannelSession: async (input) => {
+      const daemonId = options.daemonId?.trim();
+      if (!daemonId) {
+        throw new SparkSessionRegistryError(
+          "daemon_identity_unavailable",
+          "Channel Session resolution requires the daemon installation identity",
+        );
+      }
+      if (!options.resolveChannelSessionCwd) {
+        throw new SparkSessionRegistryError(
+          "workspace_cwd_unavailable",
+          "Channel Session private cwd resolution is unavailable",
+        );
+      }
+      return await registry.resolveChannelSession({
+        ...input,
+        daemonId,
+        createCwd: options.resolveChannelSessionCwd,
       });
     },
   };
@@ -445,10 +474,9 @@ async function resolveCreateRequest(
     ...ordinaryInput,
     ...(taskExecution
       ? {
-          stateBinding: { kind: "task", ref: taskExecution.taskRef } as const,
           visibility: "internal" as const,
           retention: "discard_on_close" as const,
-          purpose: taskExecution.ownerKind,
+          purpose: taskExecution.originKind,
           roleBinding: { kind: "explicit", roleRef: taskExecution.roleRef } as const,
         }
       : fleetWorker
@@ -467,10 +495,28 @@ async function resolveCreateRequest(
       "session create requires an explicit workspace scope",
     );
   }
-  let owner: CreateSparkSessionInput["owner"];
+  let lineage: CreateSparkSessionInput["lineage"];
   if (taskExecution) {
-    const { ownerKind, ...ownerFields } = taskExecution;
-    owner = { kind: ownerKind, ...ownerFields } as CreateSparkSessionInput["owner"];
+    const parentSessionId = supervisorSessionId?.trim();
+    if (!parentSessionId) {
+      throw new SparkSessionRegistryError(
+        "session_owner_not_found",
+        "Task Session create requires supervisorSessionId",
+      );
+    }
+    const supervisor = await registry.get(parentSessionId);
+    if (!supervisor) {
+      throw new SparkSessionRegistryError(
+        "session_owner_not_found",
+        `unknown supervising Session: ${parentSessionId}`,
+      );
+    }
+    const { originKind, ...originFields } = taskExecution;
+    lineage = {
+      kind: "child",
+      parentSessionId,
+      origin: { kind: originKind, ...originFields },
+    } as CreateSparkSessionInput["lineage"];
   } else {
     const supervisorId = fleetWorker?.ownerSessionId ?? supervisorSessionId?.trim();
     if (!supervisorId) {
@@ -487,22 +533,30 @@ async function resolveCreateRequest(
       );
     }
     if (placement === "sibling") {
-      if (supervisor.owner.kind === "workspace") {
+      if (supervisor.lineage.kind === "root") {
         throw new SparkSessionRegistryError(
           "workspace_administrator_session_mutation_forbidden",
           "the Workspace Administrator has no persistent sibling owner",
         );
       }
-      owner = supervisor.owner;
+      lineage = {
+        kind: "child",
+        parentSessionId: supervisor.lineage.parentSessionId,
+        origin: { kind: "session" },
+      };
     } else {
-      owner = { kind: "session", supervisorSessionId: supervisorId };
+      lineage = {
+        kind: "child",
+        parentSessionId: supervisorId,
+        origin: { kind: "session" },
+      };
     }
   }
   return await resolveRegistryCreateInput(
     {
       ...ordinaryInput,
       scope,
-      owner,
+      lineage,
       placement: "active",
     },
     options,
@@ -578,7 +632,6 @@ function resolveListRequest(
 ): {
   includeArchived?: boolean;
   includeClosed?: boolean;
-  includeSideThreads?: boolean;
   query?: string;
   tags?: string[];
   scope?: SparkSessionScope;
@@ -588,9 +641,6 @@ function resolveListRequest(
     return {
       ...(input.includeArchived !== undefined ? { includeArchived: input.includeArchived } : {}),
       ...(input.includeClosed !== undefined ? { includeClosed: input.includeClosed } : {}),
-      ...(input.includeSideThreads !== undefined
-        ? { includeSideThreads: input.includeSideThreads }
-        : {}),
       ...(input.query ? { query: input.query } : {}),
       ...(input.tags?.length ? { tags: input.tags } : {}),
       scope: input.scope,
@@ -606,9 +656,6 @@ function resolveListRequest(
   return {
     ...(input.includeArchived !== undefined ? { includeArchived: input.includeArchived } : {}),
     ...(input.includeClosed !== undefined ? { includeClosed: input.includeClosed } : {}),
-    ...(input.includeSideThreads !== undefined
-      ? { includeSideThreads: input.includeSideThreads }
-      : {}),
     ...(input.query ? { query: input.query } : {}),
     ...(input.tags?.length ? { tags: input.tags } : {}),
     scope: { kind: "daemon", daemonId },

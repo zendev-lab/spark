@@ -1,11 +1,10 @@
+import { nowIso, type TaskRef } from "@zendev-lab/spark-invocation";
 import {
-  nowIso,
   type ProjectRoadmap,
   type RoadmapItem,
   type RoadmapItemRef,
   type RoadmapRef,
-  type TaskRef,
-} from "@zendev-lab/spark-core";
+} from "./types.ts";
 
 export function createDefaultProjectRoadmap(title: string, now = nowIso()): ProjectRoadmap {
   return {
@@ -36,7 +35,7 @@ export function normalizeProjectRoadmap(
   };
 }
 
-export function normalizeRoadmapItem(item: RoadmapItem, path: string): RoadmapItem {
+function normalizeRoadmapItem(item: RoadmapItem, path: string): RoadmapItem {
   validateRoadmapItem(item, path);
   return {
     ref: item.ref,

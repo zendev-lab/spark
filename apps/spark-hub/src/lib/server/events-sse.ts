@@ -20,7 +20,8 @@ export interface HubEventStreamOptions {
   request: Request;
   url: URL;
   sweepLivenessIfDue: (db: DatabaseSync) => void;
-  workspaceId?: string | null;
+  /** Restricts the stream to these workspaces; undefined/null streams everything. */
+  workspaceIds?: readonly string[] | null;
   /** Optional injected DB (tests). Defaults to the pinned Hub database. */
   db?: DatabaseSync;
 }
@@ -62,7 +63,7 @@ export function createHubEventStreamResponse(options: HubEventStreamOptions): Re
         const drained = drainEventBatches(db, cursor, {
           batchSize: eventBatchSize,
           maxBatches: maxBatchesPerFlush,
-          workspaceId: options.workspaceId,
+          workspaceIds: options.workspaceIds,
         });
         for (const row of drained.rows) {
           const serialized = serializeEventRow(row);

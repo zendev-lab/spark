@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { describe, expect, it } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { createSparkDaemonUplinkControl } from "./daemon.js";
 import { startSparkDaemon } from "./daemon-start.ts";
 import { upsertSparkDaemonServerProfile } from "./server-profiles.js";

@@ -6,21 +6,24 @@ import { delay } from "es-toolkit";
 import { Type, type Static, type TSchema } from "typebox";
 import { Errors } from "typebox/value";
 
+import { nowIso, stableId, type ProjectRef, type TaskRef } from "@zendev-lab/spark-invocation";
 import {
   formatJsonFile,
   isFileNotFoundError,
-  nowIso,
   parseJsonFileText,
-  stableId,
   writeJsonFileAtomic,
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
+import {
   type Project,
-  type ProjectRef,
   type ProjectRoadmap,
   type Task,
   type TaskDependency,
-  type TaskRef,
   type TaskRun,
-} from "@zendev-lab/spark-core";
+} from "./types.ts";
 import { TaskGraph } from "./graph.ts";
 import type {
   TaskGraphSnapshot,
@@ -241,8 +244,8 @@ export class TaskGraphStore {
   }
 }
 
-export function defaultTaskGraphStore(cwd: string): TaskGraphStore {
-  return new TaskGraphStore(join(cwd, ".spark", "projects"));
+export function defaultTaskGraphStore(cwd: string, ctx?: SparkStateRootContext): TaskGraphStore {
+  return new TaskGraphStore(sparkWorkspaceStatePath(cwd, ["projects"], ctx));
 }
 
 interface LoadedTaskGraphStoreSnapshot {
@@ -730,7 +733,7 @@ function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string)
 function persistedArtifactRefs(
   value: unknown,
   filePath: string,
-): import("@zendev-lab/spark-core").ArtifactRef[] {
+): import("@zendev-lab/spark-invocation").ArtifactRef[] {
   if (!Array.isArray(value))
     throw new TaskGraphStoreFormatError(filePath, "artifactRefs must be an array");
   return value.map((entry, index) => {
@@ -744,7 +747,7 @@ function persistedArtifactRefs(
         `artifactRefs[${index}] must be an artifact: ref`,
       );
     }
-    return entry as import("@zendev-lab/spark-core").ArtifactRef;
+    return entry as import("@zendev-lab/spark-invocation").ArtifactRef;
   });
 }
 
@@ -807,7 +810,7 @@ function persistedEvidenceRefs(
   filePath: string,
   field: string,
   migrateArtifactPrefix: boolean,
-): import("@zendev-lab/spark-core").EvidenceRef[] {
+): import("@zendev-lab/spark-invocation").EvidenceRef[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) return [];
   return value.map((entry, index) => {
@@ -815,14 +818,14 @@ function persistedEvidenceRefs(
       throw new TaskGraphStoreFormatError(filePath, `${field}[${index}] must be a ref`);
     }
     if (entry.startsWith("evidence:") && entry.length > "evidence:".length) {
-      return entry as import("@zendev-lab/spark-core").EvidenceRef;
+      return entry as import("@zendev-lab/spark-invocation").EvidenceRef;
     }
     if (
       migrateArtifactPrefix &&
       entry.startsWith("artifact:") &&
       entry.length > "artifact:".length
     ) {
-      return `evidence:${entry.slice("artifact:".length)}` as import("@zendev-lab/spark-core").EvidenceRef;
+      return `evidence:${entry.slice("artifact:".length)}` as import("@zendev-lab/spark-invocation").EvidenceRef;
     }
     throw new TaskGraphStoreFormatError(filePath, `${field}[${index}] must be an evidence: ref`);
   });

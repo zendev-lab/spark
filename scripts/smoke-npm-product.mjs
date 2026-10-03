@@ -18,7 +18,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import { npmDistributions, releaseVersion } from "./npm-distributions.mjs";
+import { nativeNpmDistributions, npmDistributions, releaseVersion } from "./npm-distributions.mjs";
 import { exerciseSparkDaemonLifecycle } from "../test/support/spark-process-harness.ts";
 
 const execFileAsync = promisify(execFile);
@@ -41,23 +41,50 @@ function suppliedTarballs() {
     spark: argumentValue("--spark-tarball", "--node-tarball", "--tarball"),
     cli: argumentValue("--cli-tarball"),
     daemon: argumentValue("--daemon-tarball"),
-    tui: argumentValue("--tui-tarball"),
     hub: argumentValue("--hub-tarball"),
+    web: argumentValue("--web-tarball"),
+    "native-darwin-arm64": argumentValue("--native-darwin-arm64-tarball"),
+    "native-linux-arm64": argumentValue("--native-linux-arm64-tarball"),
+    "native-linux-x64": argumentValue("--native-linux-x64-tarball"),
   };
   const count = Object.values(values).filter(Boolean).length;
-  if (count !== 0 && count !== npmDistributions.length) {
-    throw new Error(
-      "Supply all five release tarballs: --spark-tarball, --cli-tarball, --daemon-tarball, --tui-tarball, and --hub-tarball",
-    );
+  const expected = npmDistributions.length + nativeNpmDistributions.length;
+  if (count !== 0 && count !== expected) {
+    throw new Error(`Supply all ${expected} release tarballs, including every native-* tarball`);
   }
   return count === 0 ? undefined : values;
 }
 
+async function assertLocalNativePayloads() {
+  if (supplied) return;
+  const nativeBinaryRoot = resolve(root, process.env.SPARK_NATIVE_BIN_DIR ?? "dist/native");
+  const missing = [];
+  for (const distribution of nativeNpmDistributions) {
+    const binary = resolve(nativeBinaryRoot, distribution.target, "spark");
+    try {
+      const metadata = await stat(binary);
+      if (!metadata.isFile()) missing.push(distribution.target);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      missing.push(distribution.target);
+    }
+  }
+  if (missing.length === 0) return;
+  const expectedTarballs = npmDistributions.length + nativeNpmDistributions.length;
+  throw new Error(
+    [
+      "[NATIVE_PAYLOADS_MISSING] Source smoke requires prebuilt native CLI payloads for every supported target.",
+      `Expected binaries under ${nativeBinaryRoot}.`,
+      `Missing targets: ${missing.join(", ")}.`,
+      `Run the release native-artifact stage first, set SPARK_NATIVE_BIN_DIR, or supply all ${expectedTarballs} exact release tarballs.`,
+    ].join("\n"),
+  );
+}
+
 function cleanPath(extra = []) {
-  const repoPrefix = `${root.replaceAll("\\", "/")}/`;
+  const repoPrefix = `${root}/`;
   const pathEntries = (process.env.PATH ?? "").split(delimiter).filter((entry) => {
-    const portable = entry.replaceAll("\\", "/");
-    const normalized = portable.endsWith("/") ? portable : `${portable}/`;
+    const normalized = entry.endsWith("/") ? entry : `${entry}/`;
     return !normalized.startsWith(repoPrefix) && !normalized.includes("/node_modules/.bin/");
   });
   return [
@@ -179,7 +206,7 @@ async function probeHubRoute(url, child, output) {
 
 function terminateProcessTree(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform !== "win32" && child.pid !== undefined) {
+  if (child.pid !== undefined) {
     try {
       process.kill(-child.pid, "SIGTERM");
       return;
@@ -253,7 +280,7 @@ if (
 }
 const diagnostics = String(result.stderr ?? "") + "\\n" + String(result.outcome.reason ?? "");
 if (
-  diagnostics.includes("Cannot find package '@zendev-lab/spark-ai'") ||
+  diagnostics.includes("Cannot find package '@zendev-lab/spark-llm-providers'") ||
   diagnostics.includes("defaultSparkConfigPath") ||
   diagnostics.includes("Dynamic require of")
 ) {
@@ -266,7 +293,15 @@ if (
   });
 }
 
-async function installCandidates(temporary, id, packageIds, tarballs) {
+function currentNativeDistribution() {
+  const current = nativeNpmDistributions.find(
+    (distribution) => distribution.os === process.platform && distribution.cpu === process.arch,
+  );
+  if (!current) throw new Error(`Unsupported npm smoke target ${process.platform}/${process.arch}`);
+  return current;
+}
+
+async function installCandidates(temporary, id, packageIds, tarballs, options = {}) {
   const installRoot = resolve(temporary, `install-${id}`);
   await mkdir(installRoot, { recursive: true });
   const dependencies = Object.fromEntries(
@@ -276,15 +311,31 @@ async function installCandidates(temporary, id, packageIds, tarballs) {
       return [distribution.packageName, fileSpecifier(installRoot, tarballs[packageId])];
     }),
   );
+  if (
+    !options.omitNative &&
+    packageIds.some((packageId) => packageId === "spark" || packageId === "cli")
+  ) {
+    const native = currentNativeDistribution();
+    dependencies[native.aliasPackageName] = fileSpecifier(installRoot, tarballs[native.id]);
+  }
   await writeFile(
     resolve(installRoot, "package.json"),
     `${JSON.stringify({ private: true, dependencies }, null, 2)}\n`,
   );
-  await run("npm", ["install", "--ignore-scripts", "--no-package-lock"], {
-    cwd: installRoot,
-    env: { ...process.env, PATH: cleanPath() },
-    timeout: 300_000,
-  });
+  await run(
+    "npm",
+    [
+      "install",
+      "--ignore-scripts",
+      "--no-package-lock",
+      ...(options.omitNative ? ["--omit=optional"] : []),
+    ],
+    {
+      cwd: installRoot,
+      env: { ...process.env, PATH: cleanPath() },
+      timeout: 300_000,
+    },
+  );
   return installRoot;
 }
 
@@ -311,6 +362,7 @@ async function countFiles(directory) {
   return count;
 }
 
+await assertLocalNativePayloads();
 const temporary = await temporaryRoot();
 try {
   let tarballs;
@@ -318,7 +370,7 @@ try {
     tarballs = Object.fromEntries(
       Object.entries(supplied).map(([id, path]) => [id, resolve(root, path)]),
     );
-    console.log(`Using five prebuilt npm distributions at ${releaseVersion}...`);
+    console.log(`Using prebuilt npm distributions at ${releaseVersion}...`);
   } else {
     console.log("Building npm distributions...");
     await run("node", ["scripts/build-npm-product.mjs"], {
@@ -329,7 +381,7 @@ try {
     console.log("Packing generated npm distributions...");
     tarballs = Object.fromEntries(
       await Promise.all(
-        npmDistributions.map(async (distribution) => [
+        [...nativeNpmDistributions, ...npmDistributions].map(async (distribution) => [
           distribution.id,
           await packProduct(temporary, distribution),
         ]),
@@ -340,31 +392,76 @@ try {
   const packedStats = Object.fromEntries(
     await Promise.all(Object.entries(tarballs).map(async ([id, path]) => [id, await stat(path)])),
   );
+  for (const distribution of nativeNpmDistributions) {
+    const manifest = JSON.parse(
+      await readFile(resolve(distribution.directory, "package.json"), "utf8"),
+    );
+    if (
+      manifest.name !== "@zendev-lab/spark-cli" ||
+      manifest.version !== distribution.version ||
+      manifest.os?.[0] !== distribution.os ||
+      manifest.cpu?.[0] !== distribution.cpu
+    ) {
+      throw new Error(`invalid native package metadata for ${distribution.target}`);
+    }
+  }
   console.log(
     "Installing the complete meta package, the real CLI package, and standalone apps from exact tarballs...",
   );
   const allIds = npmDistributions.map(({ id }) => id);
   const cliIds = allIds.filter((id) => id !== "spark");
-  const [completeRoot, cliRoot, daemonRoot, tuiRoot, hubRoot] = await Promise.all([
-    installCandidates(temporary, "complete", allIds, tarballs),
-    installCandidates(temporary, "cli", cliIds, tarballs),
-    installCandidates(temporary, "daemon", ["daemon"], tarballs),
-    installCandidates(temporary, "tui", ["tui", "daemon"], tarballs),
-    installCandidates(temporary, "hub", ["hub"], tarballs),
-  ]);
+  const [completeRoot, cliRoot, missingNativeRoot, daemonRoot, hubRoot, webRoot] =
+    await Promise.all([
+      installCandidates(temporary, "complete", allIds, tarballs),
+      installCandidates(temporary, "cli", cliIds, tarballs),
+      installCandidates(temporary, "missing-native", cliIds, tarballs, { omitNative: true }),
+      installCandidates(temporary, "daemon", ["daemon"], tarballs),
+      installCandidates(temporary, "hub", ["hub"], tarballs),
+      installCandidates(temporary, "web", ["web"], tarballs),
+    ]);
+
+  const currentNative = currentNativeDistribution();
+  for (const distribution of nativeNpmDistributions) {
+    const installed = resolve(
+      completeRoot,
+      "node_modules",
+      ...distribution.aliasPackageName.split("/"),
+    );
+    const exists = await stat(installed).then(
+      () => true,
+      () => false,
+    );
+    if (exists !== (distribution.id === currentNative.id)) {
+      throw new Error(
+        `expected only ${currentNative.aliasPackageName} to be installed, found ${distribution.aliasPackageName}=${exists}`,
+      );
+    }
+  }
+
+  const missingNative = installedBin(missingNativeRoot, "@zendev-lab/spark-cli", "spark");
+  try {
+    await execFileAsync(missingNative.command, [...missingNative.argvPrefix, "--help"], {
+      cwd: missingNativeRoot,
+      env: { ...process.env, PATH: cleanPath() },
+    });
+    throw new Error("spark-cli unexpectedly ran without its native optional package");
+  } catch (error) {
+    if (!String(error?.stderr).includes("NATIVE_PACKAGE_MISSING")) throw error;
+  }
 
   const spark = installedBin(completeRoot, "@zendev-lab/spark", "spark");
   const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const completeHub = installedBin(completeRoot, "@zendev-lab/spark-hub", "spark-hub");
-  const completeTui = installedBin(completeRoot, "@zendev-lab/spark-tui", "spark-tui");
+  const completeWeb = installedBin(completeRoot, "@zendev-lab/spark-web", "spark-web");
   const cli = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
   const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
-  const tui = installedBin(tuiRoot, "@zendev-lab/spark-tui", "spark-tui");
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
+  const web = installedBin(webRoot, "@zendev-lab/spark-web", "spark-web");
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),
     SPARK_HOME: resolve(temporary, "spark-node-home"),
+    SPARK_DAEMON_SERVICE_MODE: "detached",
   };
   const hubEnvironment = {
     ...process.env,
@@ -372,11 +469,8 @@ try {
     SPARK_HOME: resolve(temporary, "spark-hub-home"),
   };
 
-  console.log("Probing installed daemon and TUI headless role executor exports...");
-  await Promise.all([
-    probeInstalledHeadlessExecutor(daemonRoot, "@zendev-lab/spark-daemon", nodeEnvironment),
-    probeInstalledHeadlessExecutor(tuiRoot, "@zendev-lab/spark-tui", nodeEnvironment),
-  ]);
+  console.log("Probing installed daemon headless role executor exports...");
+  await probeInstalledHeadlessExecutor(daemonRoot, "@zendev-lab/spark-daemon", nodeEnvironment);
 
   console.log("Probing the complete meta package and the real spark CLI package...");
   await run(spark.command, [...spark.argvPrefix, "--help"], {
@@ -425,7 +519,7 @@ try {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
-    run(completeTui.command, [...completeTui.argvPrefix, "--help"], {
+    run(completeWeb.command, [...completeWeb.argvPrefix, "--help"], {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
@@ -448,7 +542,7 @@ try {
   if (!rootMcpHelp.stdout.includes("Spark Model Context Protocol stdio adapter")) {
     throw new Error("complete meta package did not expose the spark-mcp companion");
   }
-  await run(spark.command, [...spark.argvPrefix, "tui", "--help"], {
+  await run(spark.command, [...spark.argvPrefix, "web", "--help"], {
     cwd: completeRoot,
     env: nodeEnvironment,
   });
@@ -460,14 +554,14 @@ try {
     timeoutMs: 120_000,
   });
 
-  console.log("Probing independently installed daemon and TUI packages...");
+  console.log("Probing independently installed daemon and web packages...");
   await run(daemon.command, [...daemon.argvPrefix, "--help"], {
     cwd: daemonRoot,
     env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-daemon-home") },
   });
-  await run(tui.command, [...tui.argvPrefix, "--help"], {
-    cwd: tuiRoot,
-    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-tui-home") },
+  await run(web.command, [...web.argvPrefix, "--help"], {
+    cwd: webRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-home") },
   });
 
   const port = await availablePort();
@@ -480,7 +574,7 @@ try {
       PORT: String(port),
       ORIGIN: `http://127.0.0.1:${port}`,
     },
-    detached: process.platform !== "win32",
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const hubOutput = { stderr: "" };

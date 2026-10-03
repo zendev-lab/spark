@@ -91,7 +91,7 @@ export SPARK_HUB_TRUST_PROXY=loopback
 spark hub
 ```
 
-Remote browser authority is progressive. After restore, mint a fresh Hub key with `spark hub access create`, then workspace keys with `spark hub workspace access create --workspace <id>` (or use the one-time key printed by registration). Hub and workspace rotating refresh sessions stay separate. The reverse proxy must replace forwarding headers, preserve the public host, forward WebSocket upgrades, and leave streaming responses unbuffered. Verify:
+Remote browser authority is grant-based. After restore, owner sessions keep their backfilled per-daemon grants; mint member keys with `spark hub access create --daemon <runtime-id>` (repeat `--daemon` for several daemons). One-time workspace browser keys no longer exist. The reverse proxy must replace forwarding headers, preserve the public host, forward WebSocket upgrades, and leave streaming responses unbuffered. Verify:
 
 ```sh
 curl --fail --silent --show-error "$TARGET_URL/api/v1/runtime/relocation/metadata"
@@ -134,7 +134,8 @@ Use an authenticated HTTPS browser session for protected pages. Verify:
 - target heartbeat count is positive in both windows and source count remains unchanged;
 - session create/list/bind/unbind/archive and turn submit/cancel/result work over WSS;
 - model catalog/default/session model/thinking and provider logout/OAuth lifecycle work;
-- channel status/configure/reload work and credential flags are redacted;
+- daemon-global channel status/configure/reload work for an explicitly selected
+  installation/runtime, and credential flags are redacted;
 - daemon-local and third-origin bindings do not appear on source or target projections.
 
 Send one secret request to an HTTP test endpoint and require rejection with `daemonExecutionCount: 0`. Run a unique marker through HTTPS/WSS test credentials, then scan Hub SQLite, cache, logs, artifacts, events, audit payloads, durable commands, and generic outbox. Every target must report `matchCount: 0`; only daemon-owned provider/OAuth/channel credential targets may match.

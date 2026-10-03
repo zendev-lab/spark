@@ -15,7 +15,6 @@
     buildWorkbenchNavItems,
     isWorkbenchNavItemActive,
     settingsHubHref,
-    workspaceSwitcherHrefForPage,
   } from "$lib/workbench-nav";
   import { workbenchSessionIdFromPath, workspacePath } from "$lib/workspace-routes";
   import {
@@ -114,10 +113,6 @@
     });
   }
 
-  let workspaceSwitcherHref = $derived(
-    workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
-  );
-
   const pendingAskCursorKey = "spark-hub:pending-ask:events-cursor";
 
   function readPendingAskCursor() {
@@ -146,6 +141,7 @@
       selectedSessionId={selectedSessionId}
       sessionsAvailable={data.sessionsAvailable}
       sessionControlAvailable={data.sessionControlAvailable}
+      showUnavailableNotice={!isWorkspaceDirectory}
       showArchived={data.sessionRailShowArchived}
       archivedToggleHref={data.sessionRailArchivedToggleHref}
       locale={data.locale}
@@ -173,7 +169,7 @@
       }}
     />
 
-    <nav class="secondary-nav" aria-label={t.aria.workspaceNavigation}>
+    <nav class="secondary-nav" aria-label={t.aria.workbenchNavigation}>
       {#each navItems as item}
         <a
           class="shell-nav-link workbench-nav-link"
@@ -208,23 +204,25 @@
   </div>
 {/snippet}
 
+<!-- THESIS: Spark is a daemon-authenticated attention workbench; Workspace is a Session grouping and execution context, never a top-level user identity. OWN-WORLD: quiet slate surfaces, precise one-pixel rules, Spark blue selection, and semantic execution color. STORY: scan Needs you, Running, Failed, and Recent across authorized daemons; select durable work; act in its owning Session. FIRST VIEWPORT: a 52px command bar with daemon context, compact Session rail, attention queue, and persistent Session/Invocation pane. FORM: Focus + Pulse, assigned surface roll 5a7f18fc and corrected by the user-pinned daemon-auth boundary. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance. -->
 <HubShell
   activeWorkspace={isWorkspaceDirectory ? null : data.activeWorkspace}
+  canManageDaemonAccess={data.hasControlPlaneAccess}
   {children}
-  closeNavigationLabel={t.aria.closeWorkspaceNavigation}
+  closeNavigationLabel={t.aria.closeNavigation}
   {common}
   {contentMode}
+  daemons={data.daemons ?? []}
   layout={t}
   {navigation}
-  navigationAriaLabel={t.aria.workspaceNavigation}
+  navigationAriaLabel={t.aria.workbenchNavigation}
   navigationId="workbench-sidebar"
   pathname={page.url.pathname}
   sessions={sidebarSessions}
   sessionMessages={data.messages.sessions}
-  showNavigation={!isWorkspaceDirectory}
-  showNavigationToggle={!isWorkspaceDirectory}
-  showWorkspaceMenu={!isWorkspaceDirectory}
-  workspaceHref={workspaceSwitcherHref}
+  showNavigation={true}
+  showNavigationToggle={true}
+  showDaemonMenu={true}
   workspaces={workspaceOptions}
 />
 

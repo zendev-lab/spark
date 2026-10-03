@@ -32,7 +32,12 @@ export function sessionWorkStatus(
 ): SparkLoopStatus | "active" | "waiting_decision" | "paused" | "complete" | undefined {
   const loop = primarySessionLoop(session);
   if (loop) return loop.status;
-  if (session?.work?.repro) return session.work.repro.status;
+  if (session?.work?.repro) {
+    const status = session.work.repro.status;
+    if (status === "provisioning") return "scheduled";
+    if (status === "waiting_attention") return "waiting_decision";
+    return status;
+  }
   return session?.work?.goal?.status;
 }
 

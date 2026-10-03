@@ -211,8 +211,8 @@ describe("Hub Web background service", () => {
     const stopped = await stopHubWebService(env, injected);
     expect(stopped.alreadyStopped).toBe(false);
     expect(killProcess.mock.calls).toEqual([
-      [process.platform === "win32" ? 4242 : -4242, "SIGTERM"],
-      [process.platform === "win32" ? 4242 : -4242, "SIGKILL"],
+      [-4242, "SIGTERM"],
+      [-4242, "SIGKILL"],
     ]);
   });
 

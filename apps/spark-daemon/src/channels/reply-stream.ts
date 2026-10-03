@@ -1,4 +1,4 @@
-import type { ChannelReplyStream } from "@zendev-lab/spark-channels";
+import type { ChannelReplyStream } from "@zendev-lab/dsh-channel-transports";
 import type {
   SparkConversationPart,
   SparkDaemonEvent,

@@ -1,13 +1,15 @@
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 
+import { newRef, nowIso, type RunRef } from "@zendev-lab/spark-invocation";
 import {
-  newRef,
-  nowIso,
-  type RunRef,
   writeJsonFileAtomic,
   readJsonFileOptional,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import {
   type WorkflowAgentTelemetry,
   type WorkflowJournalEntry,
@@ -786,8 +788,13 @@ export function dynamicWorkflowRecordFromEventRun(
   };
 }
 
-export function defaultSparkDynamicWorkflowEventStore(cwd: string): SparkDynamicWorkflowEventStore {
-  return new SparkDynamicWorkflowEventStore(join(cwd, ".spark", "dynamic-workflows"));
+export function defaultSparkDynamicWorkflowEventStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): SparkDynamicWorkflowEventStore {
+  return new SparkDynamicWorkflowEventStore(
+    sparkWorkspaceStatePath(cwd, ["dynamic-workflows"], ctx),
+  );
 }
 
 function snapshotStatusToDynamicStatus(

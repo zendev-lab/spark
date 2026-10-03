@@ -4,8 +4,8 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { RPCHandler } from "@orpc/server/message-port";
-import type { SparkPaths } from "@zendev-lab/spark-system";
-import { createSocketMessagePort } from "@zendev-lab/spark-system/socket-message-port";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
+import { createSocketMessagePort } from "@zendev-lab/spark-platform-node/socket-message-port";
 import { createLocalRpcOrpcRouter, type CreateLocalRpcOrpcRouterOptions } from "./orpc-router.ts";
 import type { LocalRpcHandlerOptions } from "./types.ts";
 

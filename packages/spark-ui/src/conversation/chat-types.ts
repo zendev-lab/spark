@@ -1,3 +1,5 @@
+import type { BrandIconName } from "../brand-icons";
+
 export type ConversationAttachmentKind = "image" | "audio" | "file";
 
 export type ConversationAttachmentView = Readonly<{
@@ -43,6 +45,8 @@ export type ConversationModelGroup = Readonly<{
   id: string;
   label: string;
   description?: string;
+  brandIcon?: BrandIconName;
+  settingsHref?: string;
   options: readonly ConversationModelOption[];
 }>;
 

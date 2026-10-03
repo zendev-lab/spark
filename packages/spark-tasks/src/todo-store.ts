@@ -1,16 +1,14 @@
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { nowIso, stableId, type ProjectRef, type TaskRef } from "@zendev-lab/spark-invocation";
+import { readJsonFileOptional } from "@zendev-lab/spark-platform-node/json-files";
 import {
-  nowIso,
-  readJsonFileOptional,
-  stableId,
-  type ProjectRef,
-  type TaskRef,
-  type TaskTodo,
-  type TaskTodoStatus,
-} from "@zendev-lab/spark-core";
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
+import { type TaskTodo, type TaskTodoStatus } from "./types.ts";
 import { TaskGraph } from "./graph.ts";
 import type {
   LoadableTaskTodoStoreSnapshot,
@@ -235,8 +233,12 @@ export class TaskTodoStore {
   }
 }
 
-export function defaultTaskTodoStore(cwd: string, _scope?: string): TaskTodoStore {
-  return new TaskTodoStore(join(cwd, ".spark", "todos", "todos.sqlite"));
+export function defaultTaskTodoStore(
+  cwd: string,
+  _scope?: string,
+  ctx?: SparkStateRootContext,
+): TaskTodoStore {
+  return new TaskTodoStore(sparkWorkspaceStatePath(cwd, ["todos", "todos.sqlite"], ctx));
 }
 
 function taskTodoRowInput(

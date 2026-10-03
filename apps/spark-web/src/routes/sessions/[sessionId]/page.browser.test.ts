@@ -1,0 +1,981 @@
+import "@zendev-lab/spark-ui/tokens.css";
+import { render } from "vitest-browser-svelte";
+import { page, userEvent } from "vitest/browser";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { tick, type ComponentProps } from "svelte";
+
+const mocks = vi.hoisted(() => ({
+  attachWebSessionEvents: vi.fn(
+    (
+      _id: string,
+      _snapshot: unknown,
+      _connection?: (state: "connecting" | "connected" | "reconnecting") => void,
+    ) =>
+      () =>
+        undefined,
+  ),
+  goto: vi.fn(),
+  invalidate: vi.fn(),
+  webRpc: vi.fn(),
+}));
+
+vi.mock("$app/navigation", () => ({ goto: mocks.goto, invalidate: mocks.invalidate }));
+vi.mock("$lib/live-events", () => ({
+  attachWebSessionEvents: mocks.attachWebSessionEvents,
+}));
+vi.mock("$lib/web-rpc", () => ({ webRpc: mocks.webRpc }));
+
+import { getDictionary } from "$lib/i18n";
+import SessionPage from "./+page.svelte";
+
+type SessionPageData = ComponentProps<typeof SessionPage>["data"];
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, reject, resolve };
+}
+
+function sessionData(sessionId: string, requestedMessageId: string | null = null): SessionPageData {
+  const updatedAt = "2026-08-22T00:00:00.000Z";
+  return {
+    messages: getDictionary("en"),
+    window: {
+      snapshot: {
+        sessionId,
+        status: "idle",
+        updatedAt,
+        pendingTurns: [],
+        messages: [],
+        tools: [],
+        runs: [],
+        tasks: [],
+        artifacts: [
+          {
+            ref: `artifact:${sessionId}`,
+            title: `Artifact ${sessionId}`,
+            kind: "document",
+            format: "text",
+            metadata: {},
+          },
+        ],
+        evidence: [],
+        metadata: {},
+      },
+      history: {
+        totalMessages: 0,
+        loadedMessages: 0,
+        hiddenMessages: 0,
+        earlierMessages: 0,
+        laterMessages: 0,
+        hasEarlierMessages: false,
+      },
+    },
+    catalog: { providers: [] },
+    sessions: [
+      {
+        sessionId,
+        name: `Session ${sessionId}`,
+        lifecycle: "open",
+        placement: "active",
+        activity: "idle",
+        scope: { kind: "workspace", workspaceId: `workspace-${sessionId}` },
+        lineage: { kind: "root" },
+      },
+    ],
+    requestedMessageId,
+  } as unknown as SessionPageData;
+}
+
+function sessionDataWithEarlierHistory(sessionId: string, requestedMessageId: string) {
+  const data = sessionData(sessionId, requestedMessageId);
+  data.window.snapshot.messages = [
+    {
+      version: 4,
+      id: "latest",
+      role: "assistant",
+      text: "latest message",
+      status: "done",
+      metadata: {},
+    },
+  ];
+  data.window.history = {
+    totalMessages: 3,
+    loadedMessages: 1,
+    hiddenMessages: 2,
+    earlierMessages: 2,
+    laterMessages: 0,
+    hasEarlierMessages: true,
+    nextBeforeMessageId: "latest",
+  };
+  return data;
+}
+
+function sessionDataWithMemoryRef(sessionId: string) {
+  const data = sessionData(sessionId);
+  data.window.snapshot.messages = [
+    {
+      version: 4,
+      id: `memory-${sessionId}`,
+      role: "assistant",
+      text: "Use memory:shared",
+      status: "done",
+      metadata: {},
+    },
+  ];
+  data.window.history.loadedMessages = 1;
+  data.window.history.totalMessages = 1;
+  return data;
+}
+
+function sessionDataWithModels(sessionId: string) {
+  const data = sessionData(sessionId);
+  data.window.snapshot.model = {
+    providerName: "provider",
+    modelId: "owner",
+    modelLabel: "Owner",
+  };
+  data.catalog = {
+    diagnostics: [],
+    enabledModels: [
+      { providerName: "provider", modelId: "owner" },
+      { providerName: "provider", modelId: "candidate" },
+    ],
+    providers: [
+      {
+        providerName: "provider",
+        label: "Provider",
+        auth: { providerName: "provider", kind: "none", configured: true },
+        models: [
+          {
+            model: { providerName: "provider", modelId: "owner", modelLabel: "Owner" },
+            reasoning: false,
+            input: ["text"],
+            available: true,
+          },
+          {
+            model: {
+              providerName: "provider",
+              modelId: "candidate",
+              modelLabel: "Candidate",
+            },
+            reasoning: false,
+            input: ["text"],
+            available: true,
+          },
+        ],
+      },
+    ],
+  };
+  return data;
+}
+
+function sessionDataWithReadableMessages(sessionId: string) {
+  const data = sessionData(sessionId);
+  const createdAt = "2026-08-24T07:03:45.382Z";
+  data.window.snapshot.messages = [
+    {
+      version: 4,
+      id: "user-message",
+      role: "user",
+      text: "Review [PR 189](https://github.com/zendev-lab/spark/pull/189)",
+      status: "done",
+      createdAt,
+      metadata: {},
+    },
+    {
+      version: 4,
+      id: "error-message",
+      role: "assistant",
+      text: 'OpenAI API error (404): {"message":"Unknown endpoint: POST /v1/responses","type":"not_found"}',
+      status: "error",
+      createdAt,
+      metadata: {},
+    },
+  ];
+  data.window.history.loadedMessages = 2;
+  data.window.history.totalMessages = 2;
+  return data;
+}
+
+function earlierPage(sessionId: string, messageId: string, text: string) {
+  const page = sessionData(sessionId);
+  page.window.snapshot.messages = [
+    {
+      version: 4,
+      id: messageId,
+      role: "assistant",
+      text,
+      status: "done",
+      metadata: {},
+    },
+  ];
+  page.window.history = {
+    totalMessages: 3,
+    loadedMessages: 1,
+    hiddenMessages: 1,
+    earlierMessages: 1,
+    laterMessages: 1,
+    hasEarlierMessages: true,
+    nextBeforeMessageId: messageId,
+  };
+  return page.window;
+}
+
+afterEach(() => {
+  mocks.attachWebSessionEvents.mockClear();
+  mocks.goto.mockReset();
+  mocks.invalidate.mockReset();
+  mocks.webRpc.mockReset();
+  vi.restoreAllMocks();
+});
+
+describe("Session page owner state", () => {
+  it("retains the turn identity on retry and preserves a newer draft during submission", async () => {
+    const response = deferred<{ invocationId: string }>();
+    let attempts = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") {
+        if (++attempts === 1) return Promise.reject(new Error("connection lost"));
+        return response.promise;
+      }
+      throw new Error(`Unexpected RPC ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("connection lost");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await composer.fill("My next message");
+    response.resolve({ invocationId: "inv-a" });
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await expect.element(composer).toHaveValue("My next message");
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0][1].idempotencyKey).toEqual(expect.any(String));
+    expect(submissions[1][1]).toEqual(submissions[0][1]);
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    const next = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit")[2];
+    expect(next[1].idempotencyKey).not.toBe(submissions[0][1].idempotencyKey);
+    await screen.unmount();
+  });
+
+  it("releases a completed turn identity while viewing another session", async () => {
+    const response = deferred<{ invocationId: string }>();
+    mocks.webRpc.mockImplementation((method: string) =>
+      method === "turn.submit" ? response.promise : Promise.resolve({ waits: [] }),
+    );
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Repeat this");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    response.resolve({ invocationId: "inv-a" });
+    await tick();
+    await screen.rerender({ data: sessionData("a") });
+    await composer.fill("Repeat this");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[1][1].idempotencyKey).not.toBe(submissions[0][1].idempotencyKey);
+    await screen.unmount();
+  });
+
+  it("fences stale turn responses after returning to the same session", async () => {
+    const first = deferred<{ invocationId: string }>();
+    const second = deferred<{ invocationId: string }>();
+    let attempts = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "turn.submit") return ++attempts === 1 ? first.promise : second.promise;
+      return Promise.resolve({ waits: [] });
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Repeat this");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    await screen.rerender({ data: sessionData("a") });
+    await composer.fill("Next message");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await composer.fill("Repeat this");
+    first.resolve({ invocationId: "inv-first" });
+    await tick();
+    await expect.element(composer).toHaveValue("Repeat this");
+    await expect
+      .element(
+        screen.getByRole("button", { name: getDictionary("en").web.session.sending, exact: true }),
+      )
+      .toBeDisabled();
+    second.resolve({ invocationId: "inv-second" });
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await expect.element(composer).toHaveValue("Repeat this");
+    await screen.unmount();
+  });
+
+  it("keeps the retry identity when an older attempt succeeds before a retry fails", async () => {
+    const first = deferred<{ invocationId: string }>();
+    const second = deferred<{ invocationId: string }>();
+    let attempts = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method !== "turn.submit") return Promise.resolve({ waits: [] });
+      if (++attempts === 1) return first.promise;
+      if (attempts === 2) return second.promise;
+      return Promise.resolve({ invocationId: "inv-a" });
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const composer = screen.getByRole("textbox", { name: "Prompt" });
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    await screen.rerender({ data: sessionData("a") });
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    first.resolve({ invocationId: "inv-a" });
+    await tick();
+    second.reject(new Error("connection lost"));
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("connection lost");
+    await composer.fill("Keep this once");
+    await screen.getByRole("button", { name: "Send", exact: true }).click();
+    const submissions = mocks.webRpc.mock.calls.filter(([method]) => method === "turn.submit");
+    expect(submissions).toHaveLength(3);
+    expect(submissions[1][1].idempotencyKey).toBe(submissions[0][1].idempotencyKey);
+    expect(submissions[2][1].idempotencyKey).toBe(submissions[0][1].idempotencyKey);
+    await screen.unmount();
+  });
+
+  it("shows reconnection without losing the draft and enables sending after recovery", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("After reconnect");
+    const onConnection = mocks.attachWebSessionEvents.mock.calls.at(-1)?.[2];
+    expect(onConnection).toBeTypeOf("function");
+    onConnection?.("reconnecting");
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Reconnecting");
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    onConnection?.("connected");
+    await expect.element(screen.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await expect
+      .element(screen.getByRole("textbox", { name: "Prompt" }))
+      .toHaveValue("After reconnect");
+    await screen.unmount();
+  });
+
+  it("refreshes the sidebar on activity transitions without reloading it for every streaming snapshot", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const data = sessionData("activity");
+    const screen = await render(SessionPage, { data });
+    const onSnapshot = mocks.attachWebSessionEvents.mock.calls.at(-1)?.[1] as (
+      window: SessionPageData["window"],
+    ) => void;
+    onSnapshot({ ...data.window, snapshot: { ...data.window.snapshot, status: "running" } });
+    await tick();
+    expect(mocks.invalidate).toHaveBeenCalledExactlyOnceWith("spark:navigation");
+    onSnapshot({
+      ...data.window,
+      snapshot: { ...data.window.snapshot, status: "running", updatedAt: "2026-09-06T00:00:01Z" },
+    });
+    await tick();
+    expect(mocks.invalidate).toHaveBeenCalledTimes(1);
+    onSnapshot(data.window);
+    await tick();
+    expect(mocks.invalidate).toHaveBeenCalledTimes(2);
+    await screen.unmount();
+  });
+
+  it("shows only enabled models and preserves the current model label", async () => {
+    const data = sessionDataWithModels("a");
+    data.catalog.enabledModels = [{ providerName: "provider", modelId: "candidate" }];
+    const screen = await render(SessionPage, { data });
+    await screen.getByText("Conversation settings", { exact: true }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Model", exact: true }))
+      .toHaveAttribute("title", "Owner");
+    await screen.getByRole("button", { name: "Model", exact: true }).click();
+    await expect
+      .element(screen.getByRole("option", { name: "Candidate", exact: true }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("option", { name: "Owner", exact: true }))
+      .not.toBeInTheDocument();
+    await screen.unmount();
+  });
+
+  it("keeps mobile menus inside the viewport and their actions clickable", async () => {
+    await page.viewport(390, 844);
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionDataWithModels("a") });
+    try {
+      await screen.getByText("Conversation settings", { exact: true }).click();
+      const panel = screen.container.querySelector<HTMLElement>(".conversation-settings-panel");
+      expect(panel).not.toBeNull();
+      const bounds = panel!.getBoundingClientRect();
+      expect(bounds.left).toBeGreaterThanOrEqual(0);
+      expect(bounds.right).toBeLessThanOrEqual(390);
+      const visiblePoint = document.elementFromPoint(bounds.left + 12, bounds.top + 12);
+      expect(panel!.contains(visiblePoint)).toBe(true);
+      await userEvent.keyboard("{Escape}");
+      expect(
+        screen.container.querySelector<HTMLDetailsElement>(".conversation-settings")?.open,
+      ).toBe(false);
+      expect(document.activeElement).toBe(
+        screen.container.querySelector(".conversation-settings > summary"),
+      );
+      await screen.getByText("Conversation settings", { exact: true }).click();
+      await screen.getByText("More actions", { exact: true }).click();
+      expect(
+        screen.container.querySelector<HTMLDetailsElement>(".conversation-settings")?.open,
+      ).toBe(false);
+      await expect
+        .element(screen.getByRole("button", { name: "Search history", exact: true }))
+        .toBeVisible();
+      await screen.getByRole("button", { name: "Search history", exact: true }).click();
+      await expect
+        .element(screen.getByRole("searchbox", { name: "Search every durable message" }))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+      await page.viewport(1280, 720);
+    }
+  });
+
+  it("renders readable message metadata, safe user links, copy actions, and error details", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionDataWithReadableMessages("a") });
+
+    const link = screen.getByRole("link", { name: "PR 189" });
+    await expect
+      .element(link)
+      .toHaveAttribute("href", "https://github.com/zendev-lab/spark/pull/189");
+    await expect.element(screen.getByText("You", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("Spark", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("Done", { exact: true })).toBeVisible();
+    await expect
+      .element(screen.getByText("Unknown endpoint: POST /v1/responses", { exact: true }))
+      .toBeVisible();
+    await expect.element(screen.getByText("Technical details", { exact: true })).toBeVisible();
+    expect(screen.container.querySelectorAll('[title="Copy message"]')).toHaveLength(2);
+
+    const time = screen.container.querySelector<HTMLTimeElement>("time");
+    expect(time?.dateTime).toBe("2026-08-24T07:03:45.382Z");
+    expect(time?.textContent).not.toBe("2026-08-24T07:03:45.382Z");
+    expect(screen.container.querySelector(".composer-context .attach-button")).not.toBeNull();
+
+    await screen.unmount();
+  });
+
+  it("keeps conversation settings available without crowding the composer", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const data = sessionData("a");
+    data.messages = getDictionary("zh-CN");
+    const screen = await render(SessionPage, { data });
+
+    await expect.element(screen.getByRole("button", { name: "停止" })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    await screen.getByText("对话设置", { exact: true }).click();
+    const thinking = screen.getByRole("button", { name: "思考级别" });
+    await expect.element(thinking).toHaveClass(/ui-select-trigger/u);
+    await expect.element(thinking).toHaveTextContent("高");
+    expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.thinking.set")).toBe(
+      false,
+    );
+
+    await thinking.click();
+    await screen.getByRole("option", { name: "极高" }).click();
+    await expect
+      .poll(() =>
+        mocks.webRpc.mock.calls.some(
+          ([method, input]) =>
+            method === "session.thinking.set" &&
+            input.sessionId === "a" &&
+            input.thinkingLevel === "xhigh",
+        ),
+      )
+      .toBe(true);
+
+    await screen.unmount();
+  });
+
+  it("keeps the transcript primary and opens only one contextual panel at a time", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const conversations = screen.container.querySelector<HTMLElement>("#conversation-list-panel");
+    const work = screen.container.querySelector<HTMLElement>("#session-work-details");
+
+    expect(conversations?.hidden).toBe(true);
+    expect(work?.hidden).toBe(true);
+    await expect.element(screen.getByRole("heading", { name: "Session a" })).toBeVisible();
+    await expect.element(screen.getByRole("textbox", { name: "Prompt" })).toBeVisible();
+
+    await screen.getByRole("button", { name: "Open conversations" }).click();
+    expect(conversations?.hidden).toBe(false);
+    expect(work?.hidden).toBe(true);
+
+    await screen.getByRole("button", { name: "Open work details" }).click();
+    expect(conversations?.hidden).toBe(true);
+    expect(work?.hidden).toBe(false);
+    await screen.unmount();
+  });
+
+  it("confirms Session closure with the shared dialog before calling the daemon owner", async () => {
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.close") {
+        return Promise.resolve({
+          ...sessionData("a").sessions[0],
+          lifecycle: "closed",
+        });
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("button", { name: "Open conversations" }).click();
+    await screen.getByRole("button", { name: "Close", exact: true }).click();
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    await expect.element(screen.getByText("Spark will mark Session a as closed.")).toBeVisible();
+    expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.close")).toBe(false);
+
+    await screen.getByRole("button", { name: "Keep session" }).click();
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    expect(mocks.webRpc.mock.calls.some(([method]) => method === "session.close")).toBe(false);
+
+    await screen.getByRole("button", { name: "Close", exact: true }).click();
+    await screen.getByRole("button", { name: "Close session" }).click();
+    await expect
+      .poll(() => mocks.webRpc.mock.calls.some(([method]) => method === "session.close"))
+      .toBe(true);
+    await expect.poll(() => mocks.goto).toHaveBeenCalledWith("/sessions");
+    await screen.unmount();
+  });
+
+  it("drops an Artifact response from the previous Session", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const response = deferred<Response>();
+    vi.spyOn(globalThis, "fetch").mockReturnValue(response.promise);
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("button", { name: "Open work details" }).click();
+    await screen.getByRole("tab", { name: "Details" }).click();
+    await screen.getByRole("button", { name: "Open", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    response.resolve(new Response("private Session A content"));
+
+    await expect.element(screen.getByRole("heading", { name: "Session b" })).toBeVisible();
+    expect(screen.container.textContent).not.toContain("private Session A content");
+    expect(screen.container.querySelector('[role="dialog"]')).toBeNull();
+    await screen.unmount();
+  });
+
+  it("drops an Artifact failure from the previous Session", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const response = deferred<Response>();
+    vi.spyOn(globalThis, "fetch").mockReturnValue(response.promise);
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("button", { name: "Open work details" }).click();
+    await screen.getByRole("tab", { name: "Details" }).click();
+    await screen.getByRole("button", { name: "Open", exact: true }).click();
+    await screen.rerender({ data: sessionData("b") });
+    response.reject(new Error("private Session A failure"));
+
+    await expect.element(screen.getByRole("heading", { name: "Session b" })).toBeVisible();
+    expect(screen.container.textContent).not.toContain("private Session A failure");
+    expect(screen.container.querySelector('[role="alert"]')).toBeNull();
+    await screen.unmount();
+  });
+
+  it("keeps concurrent file reads within the attachment count boundary", async () => {
+    mocks.webRpc.mockResolvedValue({ waits: [] });
+    const firstRead = deferred<ArrayBuffer>();
+    const secondRead = deferred<ArrayBuffer>();
+    const screen = await render(SessionPage, { data: sessionData("a") });
+    const input = screen.container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    const selectFiles = (files: File[]) => {
+      const transfer = new DataTransfer();
+      for (const file of files) transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    const file = (name: string, read?: Promise<ArrayBuffer>) => {
+      const selected = new File(["x"], name, { type: "text/plain" });
+      if (read) Object.defineProperty(selected, "arrayBuffer", { value: () => read });
+      return selected;
+    };
+
+    selectFiles([
+      file("a-1.txt", firstRead.promise),
+      file("a-2.txt"),
+      file("a-3.txt"),
+      file("a-4.txt"),
+      file("a-5.txt"),
+    ]);
+    selectFiles([
+      file("b-1.txt", secondRead.promise),
+      file("b-2.txt"),
+      file("b-3.txt"),
+      file("b-4.txt"),
+    ]);
+
+    firstRead.resolve(Uint8Array.of(1).buffer);
+    await expect.element(screen.getByText(/a-5\.txt/u)).toBeVisible();
+    secondRead.resolve(Uint8Array.of(1).buffer);
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("at most 8 attachments");
+    expect(screen.container.textContent).not.toContain("b-1.txt");
+    await screen.unmount();
+  });
+
+  it("uses the latest same-Session message query when pages resolve out of order", async () => {
+    const firstPage = deferred<ReturnType<typeof earlierPage>>();
+    const secondPage = deferred<ReturnType<typeof earlierPage>>();
+    let snapshotRequests = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "session.snapshot-page") {
+        snapshotRequests += 1;
+        return snapshotRequests === 1 ? firstPage.promise : secondPage.promise;
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, {
+      data: sessionDataWithEarlierHistory("a", "message-a"),
+    });
+    await expect.poll(() => snapshotRequests).toBe(1);
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("preserve this draft");
+    const attachmentInput = screen.container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["x"], "keep.txt", { type: "text/plain" }));
+    attachmentInput.files = transfer.files;
+    attachmentInput.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.element(screen.getByText(/keep\.txt/u)).toBeVisible();
+
+    await screen.rerender({ data: sessionDataWithEarlierHistory("a", "message-b") });
+    await expect.poll(() => snapshotRequests).toBe(2);
+    secondPage.resolve(earlierPage("a", "message-b", "newer query result"));
+    await expect.element(screen.getByText("newer query result")).toBeVisible();
+    firstPage.resolve(earlierPage("a", "message-a", "stale query result"));
+    await expect.element(screen.getByText("newer query result")).toBeVisible();
+    await expect
+      .element(screen.getByRole("textbox", { name: "Prompt" }))
+      .toHaveValue("preserve this draft");
+    await expect.element(screen.getByText(/keep\.txt/u)).toBeVisible();
+    expect(mocks.attachWebSessionEvents).toHaveBeenCalledTimes(1);
+    expect(screen.container.textContent).not.toContain("stale query result");
+    await screen.unmount();
+  });
+
+  it("does not let an old feedback request overwrite a newer request after A to B to A", async () => {
+    const previousResponse = deferred<{ invocationId: string }>();
+    const currentResponse = deferred<{ invocationId: string }>();
+    let feedbackSubmits = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") {
+        feedbackSubmits += 1;
+        return feedbackSubmits === 1 ? previousResponse.promise : currentResponse.promise;
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionDataWithMemoryRef("a") });
+    const helpfulButton = () =>
+      screen.getByRole("button", {
+        name: "Mark memory reference helpful: memory:shared",
+      });
+
+    await helpfulButton().click();
+    await screen.rerender({ data: sessionDataWithMemoryRef("b") });
+    await screen.rerender({ data: sessionDataWithMemoryRef("a") });
+    await helpfulButton().click();
+    await expect.poll(() => feedbackSubmits).toBe(2);
+    await expect.element(helpfulButton()).toBeDisabled();
+
+    previousResponse.resolve({ invocationId: "stale-a-feedback" });
+
+    await expect.element(helpfulButton()).toBeDisabled();
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Sending memory feedback…");
+
+    currentResponse.resolve({ invocationId: "current-a-feedback" });
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Memory feedback submitted as a visible Session turn.");
+    await expect.element(helpfulButton()).toBeEnabled();
+    await screen.unmount();
+  });
+
+  it("runs the enabled Plan action as a one-shot directive turn", async () => {
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") {
+        return Promise.resolve({ invocationId: "inv-plan" });
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    const runPlan = screen.getByRole("button", { name: "Run /plan" });
+    await expect.element(runPlan).toBeEnabled();
+    await runPlan.click();
+
+    await expect
+      .poll(() =>
+        mocks.webRpc.mock.calls.some(
+          ([method, input]) =>
+            method === "turn.submit" && input.sessionId === "a" && input.prompt === "/plan",
+        ),
+      )
+      .toBe(true);
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("One-shot directive issued for this turn: /plan.");
+    await screen.unmount();
+  });
+
+  it("does not let an old directive response overwrite a newer A to B to A request", async () => {
+    const previousResponse = deferred<{ invocationId: string }>();
+    const currentResponse = deferred<{ invocationId: string }>();
+    let directiveSubmits = 0;
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") {
+        directiveSubmits += 1;
+        return directiveSubmits === 1 ? previousResponse.promise : currentResponse.promise;
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.rerender({ data: sessionData("b") });
+    await screen.rerender({ data: sessionData("a") });
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/fleet");
+    await screen.getByRole("button", { name: "Run /fleet" }).click();
+    await expect.poll(() => directiveSubmits).toBe(2);
+
+    currentResponse.resolve({ invocationId: "inv-fleet" });
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("One-shot directive issued for this turn: /fleet.");
+    previousResponse.reject(new Error("stale Plan failure"));
+
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("One-shot directive issued for this turn: /fleet.");
+    expect(screen.container.textContent).not.toContain("stale Plan failure");
+    await screen.unmount();
+  });
+
+  it("does not let an old directive response overwrite a newer status action", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") return modeResponse.promise;
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/status");
+    await screen.getByRole("button", { name: "Refresh status" }).click();
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Session status: idle.");
+
+    modeResponse.reject(new Error("stale Plan failure"));
+
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Session status: idle.");
+    expect(screen.container.textContent).not.toContain("stale Plan failure");
+    await screen.unmount();
+  });
+
+  it("does not let an old directive response overwrite a newer compaction", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") return modeResponse.promise;
+      if (method === "session.compact") {
+        return Promise.resolve({ invocationId: "compact-current" });
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/compact");
+    await screen.getByRole("button", { name: "Send" }).click();
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Compaction queued as compact-current.");
+
+    modeResponse.reject(new Error("stale Plan failure"));
+
+    await expect
+      .element(screen.getByRole("status"))
+      .toHaveTextContent("Compaction queued as compact-current.");
+    expect(screen.container.textContent).not.toContain("stale Plan failure");
+    await screen.unmount();
+  });
+
+  it("does not let an old directive response overwrite a newer control failure", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") return modeResponse.promise;
+      if (method === "session.retry-target") {
+        return Promise.reject(new Error("current retry failure"));
+      }
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionData("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/queue");
+    await screen.getByRole("button", { name: "Retry" }).click();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
+
+    modeResponse.resolve({ invocationId: "inv-plan" });
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current retry failure");
+    expect(screen.container.textContent).not.toContain("One-shot directive issued");
+    await screen.unmount();
+  });
+
+  it("keeps a newer model failure and restores the owner selection", async () => {
+    const modeResponse = deferred<{ invocationId: string }>();
+    const modelResponse = deferred<unknown>();
+    mocks.webRpc.mockImplementation((method: string) => {
+      if (method === "human.interaction.list") return Promise.resolve({ waits: [] });
+      if (method === "turn.submit") return modeResponse.promise;
+      if (method === "session.model.set") return modelResponse.promise;
+      throw new Error(`Unexpected RPC method: ${method}`);
+    });
+    const screen = await render(SessionPage, { data: sessionDataWithModels("a") });
+
+    await screen.getByRole("textbox", { name: "Prompt" }).fill("/plan");
+    await screen.getByRole("button", { name: "Run /plan" }).click();
+    await screen.getByText("Conversation settings", { exact: true }).click();
+    await screen.getByRole("button", { name: "Model", exact: true }).click();
+    await screen.getByText("Candidate", { exact: true }).click();
+    modelResponse.reject(new Error("current model failure"));
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current model failure");
+    await expect
+      .element(screen.getByRole("button", { name: "Model", exact: true }))
+      .toHaveAttribute("title", "Owner");
+
+    modeResponse.resolve({ invocationId: "inv-plan" });
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("current model failure");
+    expect(screen.container.textContent).not.toContain("One-shot directive issued");
+    await screen.unmount();
+  });
+});
+
+describe("grouped execution presentation", () => {
+  it("shows one Spark header, expands source details, and retains the final answer", async () => {
+    const data = sessionData("grouped");
+    data.window.snapshot.messages = [
+      {
+        version: 4,
+        id: "call",
+        role: "assistant",
+        text: "",
+        status: "done",
+        metadata: {},
+        parts: [
+          {
+            id: "t",
+            type: "tool-call",
+            toolCallId: "read",
+            toolName: "read",
+            status: "complete",
+            metadata: {},
+          },
+        ],
+      },
+      {
+        version: 4,
+        id: "result",
+        parentId: "call",
+        role: "tool",
+        text: "",
+        status: "done",
+        metadata: {},
+        parts: [
+          {
+            id: "r",
+            type: "tool-result",
+            toolCallId: "read",
+            toolName: "read",
+            summary: "Unique execution detail",
+            status: "complete",
+            metadata: {},
+          },
+        ],
+      },
+      {
+        version: 4,
+        id: "final",
+        parentId: "result",
+        role: "assistant",
+        text: "Finished reviewing",
+        status: "done",
+        metadata: {},
+      },
+    ];
+    const screen = await render(SessionPage, { data });
+    await expect.element(screen.getByText("Finished reviewing", { exact: true })).toBeVisible();
+    expect(document.querySelectorAll(".thinking-chain")).toHaveLength(1);
+    expect(document.querySelectorAll(".conversation-message.spark")).toHaveLength(1);
+    expect(document.querySelector(".thinking-chain")?.hasAttribute("open")).toBe(false);
+    await userEvent.click(document.querySelector(".thinking-chain summary")!);
+    await expect
+      .element(screen.getByText("Unique execution detail", { exact: true }).first())
+      .toBeVisible();
+    await userEvent.click(document.querySelector(".thinking-chain summary")!);
+    await screen.rerender({ data: { ...data, requestedMessageId: "result" } });
+    await expect
+      .element(screen.getByText("Unique execution detail", { exact: true }).first())
+      .toBeVisible();
+    expect(document.querySelectorAll(".conversation-message.spark")).toHaveLength(1);
+  });
+});
+
+it("keeps the composer compact until attachments exist and shows the workspace-relative directory", async () => {
+  mocks.webRpc.mockResolvedValue({ waits: [] });
+  const data = sessionData("a");
+  data.window.snapshot.cwd = "/repo/spark/src";
+  data.navigation = {
+    unavailable: false,
+    sessions: [],
+    workspaces: [
+      { id: "workspace-a", displayName: "Spark", localPath: "/repo/spark", status: "ready" },
+    ],
+  };
+  const screen = await render(SessionPage, { data });
+  const attachments = screen.container.querySelector<HTMLElement>(".composer-attachments")!;
+  expect(attachments.getBoundingClientRect().height).toBe(0);
+  expect(screen.container.querySelector(".cwd")?.textContent).toBe("./src");
+  expect(screen.container.querySelector(".workspace-context")?.getAttribute("title")).toContain(
+    "/repo/spark/src",
+  );
+  const input = screen.container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const transfer = new DataTransfer();
+  transfer.items.add(new File(["test"], "note.txt", { type: "text/plain" }));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await expect.element(screen.getByText(/note\.txt/u)).toBeVisible();
+  expect(attachments.getBoundingClientRect().height).toBeGreaterThan(0);
+  await screen.getByRole("button", { name: "Remove note.txt" }).click();
+  await expect.poll(() => attachments.getBoundingClientRect().height).toBe(0);
+  await screen.unmount();
+});

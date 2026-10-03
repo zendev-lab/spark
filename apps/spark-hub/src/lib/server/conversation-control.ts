@@ -1,7 +1,7 @@
 import {
   createSparkMemoryDirectIntentTurnAuthority,
   type SparkMemoryDirectIntentTurnAuthority,
-} from "@zendev-lab/spark-host/memory-direct-intent";
+} from "@zendev-lab/spark-memory/direct-intent";
 import {
   parseSparkAssignment,
   sparkTurnCancelResultSchema,

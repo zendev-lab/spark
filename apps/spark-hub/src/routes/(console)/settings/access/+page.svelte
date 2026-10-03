@@ -2,7 +2,7 @@
   import { enhance } from "$app/forms";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
-  import { ConfirmDialog, PageHeader } from "@zendev-lab/spark-ui";
+  import { ConfirmDialog, Field, Input, PageHeader } from "@zendev-lab/spark-ui";
   import { DialogTrigger } from "@zendev-lab/spark-ui/headless";
 
   let { data, form } = $props();
@@ -29,7 +29,12 @@
     return "ready";
   }
 
+  function daemonName(daemonId: string) {
+    return data.daemons.find((daemon) => daemon.id === daemonId)?.name ?? t.access.unknownDaemon;
+  }
+
   let revokingId = $state<string | null>(null);
+  let selectedDaemonIds = $state<string[]>([]);
 </script>
 
 <svelte:head>
@@ -55,7 +60,33 @@
       emptyTitle={t.access.emptyTitle}
       emptyBody={t.access.emptyBody}
       hasTokens={data.accessTokens.length > 0}
+      submitDisabled={selectedDaemonIds.length === 0}
     >
+      {#snippet fields()}
+        <Field id="access-user" label={t.access.userLabel} reserveMeta={false}>
+          <Input id="access-user" name="user" placeholder={t.access.userPlaceholder} />
+        </Field>
+        <fieldset class="daemon-grants">
+          <legend>{t.access.daemonsLabel}</legend>
+          {#each data.daemons as daemon}
+            <label class="daemon-grant">
+              <input type="checkbox" name="daemonIds" value={daemon.id} bind:group={selectedDaemonIds} />
+              <span>{daemon.name}</span>
+            </label>
+          {/each}
+          {#if selectedDaemonIds.length === 0}
+            <small class="selection-hint">{t.access.daemonSelectionRequired}</small>
+          {/if}
+        </fieldset>
+        <details class="daemon-identifiers">
+          <summary>{t.access.daemonTechnicalDetails}</summary>
+          <dl>
+            {#each data.daemons as daemon}
+              <div><dt>{daemon.name}</dt><dd><code>{daemon.id}</code></dd></div>
+            {/each}
+          </dl>
+        </details>
+      {/snippet}
       {#snippet created()}
         {#if form?.intent === "hubAccess" && form?.accessToken}
           <div class="token-created">
@@ -71,6 +102,12 @@
               <span>{t.access.oneTimeToken}</span>
               <pre>{form.accessToken}</pre>
             </div>
+            {#if form.accessMemberName}
+              <small>{t.access.memberLabel}: {form.accessMemberName}</small>
+            {/if}
+            {#if form.accessDaemonIds?.length}
+              <small>{t.access.grantedDaemons}: {form.accessDaemonIds.map(daemonName).join(", ")}</small>
+            {/if}
             <small>{t.access.expiresPrefix} {formatRelative(form.accessExpiresAt ?? null)}</small>
           </div>
         {/if}
@@ -81,6 +118,12 @@
           <div class="token-row">
             <div>
               <strong>{token.label ?? t.access.defaultTokenLabel}</strong>
+              {#if token.memberName}
+                <small>{t.access.memberLabel}: {token.memberName}</small>
+              {/if}
+              {#if token.daemonIds.length > 0}
+                <small>{t.access.grantedDaemons}: {token.daemonIds.map(daemonName).join(", ")}</small>
+              {/if}
             </div>
             <span class="status-pill {status}">{statusLabel(status)}</span>
             <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
@@ -221,6 +264,67 @@
     white-space: pre-wrap;
     word-break: break-all;
   }
+
+  .daemon-grants {
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+  }
+
+  .daemon-grants legend {
+    color: var(--color-ink-muted);
+    font-size: 12px;
+    font-weight: 650;
+    padding: 0 4px;
+  }
+
+  .daemon-grant {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    min-height: 32px;
+  }
+
+  .selection-hint {
+    color: var(--color-warning-strong);
+    margin-top: 2px;
+  }
+
+  .daemon-identifiers {
+    border-top: 1px solid var(--color-border-soft);
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+    padding-top: var(--spacing-xs);
+  }
+
+  .daemon-identifiers summary {
+    cursor: pointer;
+    font-weight: 650;
+    padding-block: 4px;
+  }
+
+  .daemon-identifiers summary:focus-visible {
+    border-radius: var(--rounded-sm);
+    box-shadow: var(--shadow-focus);
+    outline: none;
+  }
+
+  .daemon-identifiers dl {
+    display: grid;
+    gap: 6px;
+    margin: var(--spacing-xs) 0 0;
+  }
+
+  .daemon-identifiers dl div {
+    display: grid;
+    gap: var(--spacing-xs);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+
+  .daemon-identifiers dd { margin: 0; overflow-wrap: anywhere; }
 
   .token-row {
     align-items: center;

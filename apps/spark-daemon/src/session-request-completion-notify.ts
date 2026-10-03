@@ -1,5 +1,8 @@
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkSessionState } from "@zendev-lab/spark-protocol";
+import {
+  isSparkInvocationTerminalStatus,
+  type SparkSessionState,
+} from "@zendev-lab/spark-protocol";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
@@ -49,19 +52,18 @@ interface CompletionNotificationSender {
 }
 
 /**
- * After an async session request (`wait=accepted`) reaches a terminal status,
+ * After an async session request with `wake: true` reaches a terminal status,
  * submit one durable continuation on the originating sender session so it can
- * synthesize the child result immediately (default auto parent turn).
+ * synthesize the child result immediately.
  *
  * Idempotent on `session.request.completion:${sourceInvocationId}`. Does not
- * fire for `wait=completed` callers (`notifyOnCompletion: false`).
+ * fire for `send({ wake: false })`. In-flight tasks that only persist
+ * `notifyOnCompletion: true` still wake.
  */
 export function sessionRequestCompletionRequested(task: SparkDaemonTask): boolean {
   const mail = sessionMailFromTask(task);
   return Boolean(
-    mail?.notifyOnCompletion === true &&
-    mail.kind === "request" &&
-    trimmedString(mail.fromSessionId),
+    sessionMailWakes(mail) && mail?.kind === "request" && trimmedString(mail.fromSessionId),
   );
 }
 
@@ -121,7 +123,7 @@ export async function reconcileSessionRequestCompletions(
     const claimToken = delivery.claimToken;
     if (!claimToken) continue;
     const invocation = deps.invocationStore.get(delivery.sourceInvocationId);
-    if (!invocation || !invocation.task || !isTerminalStatus(invocation.status)) {
+    if (!invocation || !invocation.task || !isSparkInvocationTerminalStatus(invocation.status)) {
       deliveryStore.recordFailure(
         delivery.sourceInvocationId,
         claimToken,
@@ -217,17 +219,13 @@ function completionFromInvocation(invocation: SparkInvocationRecord): CompleteSp
   };
 }
 
-function isTerminalStatus(status: SparkInvocationRecord["status"]): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
-}
-
 function completionNotificationCandidate(input: {
   invocation: SparkInvocationRecord;
   task: SparkDaemonTask;
 }): CompletionNotificationCandidate | SessionRequestCompletionNotifyResult {
   const mail = sessionMailFromTask(input.task);
   if (!mail) return skipped("no_session_mail");
-  if (mail.notifyOnCompletion !== true) return skipped("notify_disabled");
+  if (!sessionMailWakes(mail)) return skipped("notify_disabled");
   if (mail.kind !== "request") return skipped("not_request");
   const fromSessionId = trimmedString(mail.fromSessionId);
   if (!fromSessionId) return skipped("missing_from_session");
@@ -336,6 +334,7 @@ interface SessionMailMetadata {
   correlationId?: string;
   fromSessionId?: string;
   toSessionId?: string;
+  wake?: boolean;
   notifyOnCompletion?: boolean;
 }
 
@@ -360,10 +359,17 @@ function sessionMailFromTask(task: SparkDaemonTask): SessionMailMetadata | undef
     ...(typeof record.correlationId === "string" ? { correlationId: record.correlationId } : {}),
     ...(typeof record.fromSessionId === "string" ? { fromSessionId: record.fromSessionId } : {}),
     ...(typeof record.toSessionId === "string" ? { toSessionId: record.toSessionId } : {}),
+    ...(typeof record.wake === "boolean" ? { wake: record.wake } : {}),
     ...(typeof record.notifyOnCompletion === "boolean"
       ? { notifyOnCompletion: record.notifyOnCompletion }
       : {}),
   };
+}
+
+function sessionMailWakes(mail: SessionMailMetadata | undefined): boolean {
+  if (!mail) return false;
+  if (typeof mail.wake === "boolean") return mail.wake;
+  return mail.notifyOnCompletion === true;
 }
 
 function completionSummaryText(completion: CompleteSparkInvocationInput): string {

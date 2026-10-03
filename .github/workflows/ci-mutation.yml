@@ -6,9 +6,10 @@ on:
       - main
     paths:
       - ".github/workflows/ci-mutation.yml"
-      - "packages/spark-extension/src/extension/**"
-      - "packages/spark-extension/stryker.config.json"
-      - "packages/spark-extension/vitest.mutation.config.ts"
+      - "apps/spark-daemon/src/product/policy/**"
+      - "apps/spark-daemon/stryker.config.json"
+      - "apps/spark-daemon/vitest.mutation.config.ts"
+      - "apps/spark-daemon/package.json"
       - "packages/spark-tasks/src/**"
       - "packages/spark-tasks/stryker.config.json"
       - "packages/spark-tasks/vitest.mutation.config.ts"
@@ -44,7 +45,7 @@ jobs:
       - name: Run focused mutation tests
         run: >-
           pnpm --workspace-concurrency=1
-          --filter @zendev-lab/spark-extension
+          --filter @zendev-lab/spark-daemon
           --filter @zendev-lab/spark-tasks
           run test:mutation
 
@@ -53,6 +54,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-ci-reports
-          path: packages/*/reports/mutation/
+          path: |
+            apps/*/reports/mutation/
+            packages/*/reports/mutation/
           if-no-files-found: ignore
           retention-days: 14

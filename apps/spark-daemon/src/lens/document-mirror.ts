@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export interface LensDocumentSnapshot {
+interface LensDocumentSnapshot {
   worktreeRoot: string;
   uri: string;
   languageId: string;

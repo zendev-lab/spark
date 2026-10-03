@@ -3,14 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import {
   createId,
   runtimeProtocolVersion,
   serverCommandEnvelopeSchema,
   type ServerCommandEnvelope,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   attachRuntimeWebSocket,
   createWorkspaceWithLease,
@@ -259,6 +259,7 @@ function messageContext(
     config: { installationId: "install-typed-control", displayName: "Typed daemon", runtimeId },
     db,
     runtimeId,
+    sparkHome: paths.dataDir,
     runtimeSessionId: undefined,
     setRuntimeSessionId() {},
     ensureHeartbeat() {},

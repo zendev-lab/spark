@@ -23,7 +23,7 @@ export type SlashHandlerDeps = {
   getLatestRetryPrompt: () => string | null;
   retryConversationTurn: (prompt: string) => void;
   submitThinkingSelection: () => Promise<void>;
-  submitModeSelection: (mode: "plan" | "execute" | "fleet") => Promise<void>;
+  submitDirectiveSelection: (directive: "plan" | "execute" | "fleet") => Promise<void>;
   openActivityPane: () => void;
 };
 
@@ -35,8 +35,8 @@ function thinkingLevelFromAction(action: SparkActionView): SparkThinkingLevel | 
     : null;
 }
 
-function modeFromAction(action: SparkActionView): "plan" | "execute" | "fleet" | null {
-  const candidate = action.payload.mode;
+function directiveFromAction(action: SparkActionView): "plan" | "execute" | "fleet" | null {
+  const candidate = action.payload.directive;
   return candidate === "plan" || candidate === "execute" || candidate === "fleet"
     ? candidate
     : null;
@@ -47,10 +47,14 @@ function firstVisibleElement(selector: string): HTMLElement | null {
   return elements.find((element) => element.getClientRects().length > 0) ?? elements[0] ?? null;
 }
 
+function preferredScrollBehavior(): ScrollBehavior {
+  return globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
 function focusSurface(selector: string): boolean {
   const target = firstVisibleElement(selector);
   if (!target) return false;
-  target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  target.scrollIntoView({ behavior: preferredScrollBehavior(), block: "nearest" });
   target.focus({ preventScroll: true });
   return true;
 }
@@ -61,7 +65,7 @@ function showQueueSurface(): boolean {
   const details = queue.querySelector("details");
   if (details) details.open = true;
   const target = queue.querySelector<HTMLElement>(".queue-scroll") ?? queue;
-  target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  target.scrollIntoView({ behavior: preferredScrollBehavior(), block: "nearest" });
   target.focus({ preventScroll: true });
   return true;
 }
@@ -194,11 +198,11 @@ export function createSlashHandlers(deps: SlashHandlerDeps) {
       return;
     }
 
-    if (action.intent === "mode.select") {
-      const mode = modeFromAction(action);
-      if (!mode) return;
+    if (action.intent === "directive.run") {
+      const directive = directiveFromAction(action);
+      if (!directive) return;
       clearSlashInput(surface);
-      await deps.submitModeSelection(mode);
+      await deps.submitDirectiveSelection(directive);
       return;
     }
 

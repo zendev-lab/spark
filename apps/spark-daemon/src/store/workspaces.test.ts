@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { constants as sqliteConstants, type DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { SparkDaemonControlError } from "../control-error.ts";
 import { openSparkDaemonDatabase } from "./schema.js";
 import {

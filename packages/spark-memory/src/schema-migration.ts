@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
-import { writeTextFileAtomic } from "@zendev-lab/spark-core";
+import { writeTextFileAtomic } from "@zendev-lab/spark-platform-node/json-files";
 
 import type { RecallScope } from "./recall-store.ts";
 import { normalizeRecallStoreSnapshot } from "./recall-store.ts";

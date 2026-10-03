@@ -37,17 +37,17 @@
     border-radius: var(--rounded-md);
     color: var(--color-ink);
     font: inherit;
-    min-height: 40px;
+    min-height: var(--control-height-default);
     min-width: 0;
     padding: 8px 12px;
     transition:
-      border-color 120ms ease,
-      box-shadow 120ms ease;
+      border-color var(--motion-fast) ease,
+      box-shadow var(--motion-fast) ease;
     width: 100%;
   }
 
   .ui-input[data-size="compact"] {
-    min-height: 32px;
+    min-height: var(--control-height-compact);
     padding-block: 4px;
   }
 

@@ -3,7 +3,7 @@ import {
   planEvidenceNamespaceMigration,
   type EvidenceNamespaceMigrationReport,
 } from "@zendev-lab/spark-artifacts/evidence-migration";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import { parseFlags, type CliIo } from "./cli-shared.ts";
 import { discoverRegisteredEvidenceMigrationWorkspaces } from "./evidence-migration.js";
 import { readRunningPid } from "./service.js";

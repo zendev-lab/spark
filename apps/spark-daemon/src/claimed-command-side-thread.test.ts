@@ -7,7 +7,7 @@ import {
   runtimeProtocolVersion,
   serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ sideThreadControl: vi.fn() }));
@@ -71,6 +71,7 @@ function makeContext(): {
       config: { installationId: "claimed-side-thread-test", displayName: "Test daemon" },
       db,
       runtimeId: "rt_11111111111111111111111111111111",
+      sparkHome: root,
       runtimeSessionId: undefined,
       setRuntimeSessionId() {},
       ensureHeartbeat() {},

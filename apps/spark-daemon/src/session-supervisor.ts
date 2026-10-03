@@ -3,13 +3,15 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   sparkSessionCloseCandidateSchema,
   sparkSessionCloseReceiptSchema,
-  sparkSessionLifetimeForOwner,
+  sparkSessionLifetimeForLineage,
+  sparkSessionLineageOriginKind,
+  sparkSessionParentId,
   type SparkSessionCloseCandidate,
   type SparkSessionCloseReceipt,
-  type SparkSessionOwner,
+  type SparkSessionLineage,
+  type SparkSessionLineageOrigin,
   type SparkSessionState,
   type SparkSessionRetention,
-  type SparkSessionStateBinding,
   type SparkSessionVisibility,
 } from "@zendev-lab/spark-protocol/session-assignment";
 import type { SparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
@@ -28,7 +30,7 @@ export interface InstantiateSupervisedSessionInput {
   role: SparkRoleSpec;
   title?: string;
   parentSessionId?: string;
-  owner?: SparkSessionOwner;
+  origin?: SparkSessionLineageOrigin;
   sessionId?: string;
   cwd?: string;
   purpose: string;
@@ -39,7 +41,7 @@ export interface InstantiateSupervisedSessionInput {
 
 export interface InstantiateInvocationSessionInput extends Omit<
   InstantiateSupervisedSessionInput,
-  "owner"
+  "origin"
 > {
   invocationId: string;
   parentSessionId: string;
@@ -62,7 +64,7 @@ export interface InvokeSupervisedSessionInput {
   now?: string;
   receiptProfile?: Omit<
     SparkInvocationReceiptContext,
-    "lifetime" | "ownerKind" | "authorizationSource"
+    "lifetime" | "originKind" | "authorizationSource"
   > & {
     authorizationSource: SparkInvocationReceiptContext["authorizationSource"];
   };
@@ -71,8 +73,7 @@ export interface InvokeSupervisedSessionInput {
 export interface InstantiateOwnedContextInput {
   sessionId: string;
   parentSessionId: string;
-  owner: SparkSessionOwner;
-  stateBinding: SparkSessionStateBinding;
+  origin: SparkSessionLineageOrigin;
   purpose: string;
   cwd?: string;
   visibility?: SparkSessionVisibility;
@@ -106,7 +107,10 @@ export interface SessionSupervisorOptions {
     session: SparkSessionState,
     reason: string,
   ) => { invocationSessionIds: string[] } | Promise<{ invocationSessionIds: string[] }>;
-  ownerExists?: (owner: SparkSessionOwner, session: SparkSessionState) => Promise<boolean>;
+  originExists?: (
+    origin: SparkSessionLineageOrigin,
+    session: SparkSessionState,
+  ) => Promise<boolean>;
   resolveWorkspaceBindingId?: (workspaceId: string) => string | undefined;
 }
 
@@ -120,7 +124,7 @@ export class SessionSupervisor {
   private scheduler?: SessionSupervisorOptions["scheduler"];
   private readonly deleteTranscript: NonNullable<SessionSupervisorOptions["deleteTranscript"]>;
   private readonly quiesceOwnedLoops?: SessionSupervisorOptions["quiesceOwnedLoops"];
-  private readonly ownerExists?: SessionSupervisorOptions["ownerExists"];
+  private readonly originExists?: SessionSupervisorOptions["originExists"];
   private readonly resolveWorkspaceBindingId?: SessionSupervisorOptions["resolveWorkspaceBindingId"];
   private readonly reservedInvocationOwners = new Set<string>();
   private readonly inFlightCloses = new Map<
@@ -139,7 +143,7 @@ export class SessionSupervisor {
     this.scheduler = options.scheduler;
     this.deleteTranscript = options.deleteTranscript ?? deleteTranscriptArtifacts;
     this.quiesceOwnedLoops = options.quiesceOwnedLoops;
-    this.ownerExists = options.ownerExists;
+    this.originExists = options.originExists;
     this.resolveWorkspaceBindingId = options.resolveWorkspaceBindingId;
   }
 
@@ -177,10 +181,9 @@ export class SessionSupervisor {
     try {
       return await this.instantiate({
         ...input,
-        owner: {
+        origin: {
           kind: "invocation",
           invocationId,
-          supervisorSessionId: input.parentSessionId,
         },
       });
     } finally {
@@ -194,7 +197,7 @@ export class SessionSupervisor {
     if (
       input.role.ref === "role:builtin-administrator" &&
       !input.parentSessionId &&
-      !input.owner &&
+      !input.origin &&
       !input.sessionId
     ) {
       return await this.ensureWorkspaceAdministrator(workspaceId);
@@ -217,19 +220,21 @@ export class SessionSupervisor {
         );
       }
     }
-    const owner =
-      input.owner ??
-      (parent ? ({ kind: "session", supervisorSessionId: parent.sessionId } as const) : undefined);
-    if (!owner) {
+    if (!parent) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `Role ${input.role.ref} requires a typed Session owner`,
+        `Role ${input.role.ref} requires a parent Session`,
       );
     }
-    if (!(await this.isOwnerReferenceValid(owner, workspaceId, input.sessionId))) {
+    const lineage: SparkSessionLineage = {
+      kind: "child",
+      parentSessionId: parent.sessionId,
+      origin: input.origin ?? { kind: "session" },
+    };
+    if (!(await this.isLineageReferenceValid(lineage, workspaceId, input.sessionId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `owner ${ownerIdentity(owner)} is not active in workspace ${workspaceId}`,
+        `lineage ${lineageIdentity(lineage)} is not active in workspace ${workspaceId}`,
       );
     }
     return await this.registry.createSupervised({
@@ -238,11 +243,7 @@ export class SessionSupervisor {
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.title ? { name: input.title } : {}),
       roleBinding: { kind: "explicit", roleRef: input.role.ref },
-      owner,
-      stateBinding: {
-        kind: "session",
-        ref: parent?.sessionId ?? ownerSupervisorSessionId(owner) ?? input.sessionId ?? purpose,
-      },
+      lineage,
       visibility: input.visibility ?? "internal",
       retention: input.retention ?? "discard_on_close",
       purpose,
@@ -296,7 +297,7 @@ export class SessionSupervisor {
           input.sourceRef ??
           (session.roleBinding.kind === "explicit"
             ? session.roleBinding.roleRef
-            : ownerIdentity(session.owner)),
+            : lineageIdentity(session.lineage)),
         ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
         claimClass: structured ? "structured" : "root",
         ...(input.now ? { now: input.now } : {}),
@@ -305,8 +306,8 @@ export class SessionSupervisor {
         this.invocations.recordReceiptContext(
           admitted.invocationId,
           {
-            lifetime: sparkSessionLifetimeForOwner(session.owner),
-            ownerKind: session.owner.kind,
+            lifetime: sparkSessionLifetimeForLineage(session.lineage),
+            originKind: sparkSessionLineageOriginKind(session.lineage),
             ...input.receiptProfile,
           },
           input.now,
@@ -350,29 +351,31 @@ export class SessionSupervisor {
         existing.lifecycle === "open" &&
         existing.scope.kind === "workspace" &&
         existing.scope.workspaceId === parent.scope.workspaceId &&
-        sameOwnedContextOwner(existing.owner, input.owner) &&
-        existing.stateBinding.kind === input.stateBinding.kind &&
-        existing.stateBinding.ref === input.stateBinding.ref
+        sameChildLineage(existing.lineage, parent.sessionId, input.origin)
       ) {
         return existing;
       }
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `owned Session identity ${sessionId} conflicts with its persisted owner`,
+        `owned Session identity ${sessionId} conflicts with its persisted lineage`,
       );
     }
-    if (!(await this.isOwnerReferenceValid(input.owner, parent.scope.workspaceId, sessionId))) {
+    const lineage: SparkSessionLineage = {
+      kind: "child",
+      parentSessionId: parent.sessionId,
+      origin: input.origin,
+    };
+    if (!(await this.isLineageReferenceValid(lineage, parent.scope.workspaceId, sessionId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `owner ${ownerIdentity(input.owner)} is not active in workspace ${parent.scope.workspaceId}`,
+        `lineage ${lineageIdentity(lineage)} is not active in workspace ${parent.scope.workspaceId}`,
       );
     }
     return await this.registry.createSupervised({
       sessionId,
       scope: parent.scope,
       ...((input.cwd ?? parent.cwd) ? { cwd: input.cwd ?? parent.cwd } : {}),
-      owner: input.owner,
-      stateBinding: input.stateBinding,
+      lineage,
       visibility: input.visibility ?? "internal",
       retention: input.retention ?? "discard_on_close",
       purpose: required(input.purpose, "purpose"),
@@ -388,14 +391,14 @@ export class SessionSupervisor {
     if (
       session.lifecycle !== "open" ||
       session.placement !== "archived" ||
-      session.owner.kind === "workspace"
+      session.lineage.kind === "root"
     ) {
       throw new SparkSessionRegistryError(
         "session_restore_forbidden",
         `session ${sessionId} is not an open archived scoped Session`,
       );
     }
-    if (!(await this.isOwnerValid(session))) {
+    if (!(await this.isLineageValid(session))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
         `session ${sessionId} owner is no longer valid`,
@@ -418,7 +421,6 @@ export class SessionSupervisor {
     const sessions = await this.registry.list({
       includeArchived: true,
       includeClosed: true,
-      includeSideThreads: true,
     });
     const closedSessionIds: string[] = [];
     const closingSessionIds: string[] = [];
@@ -445,8 +447,8 @@ export class SessionSupervisor {
         continue;
       }
       if (
-        sparkSessionLifetimeForOwner(session.owner) !== "persistent" &&
-        !(await this.isOwnerValid(session))
+        sparkSessionLifetimeForLineage(session.lineage) !== "persistent" &&
+        !(await this.isLineageValid(session))
       ) {
         const closed = await this.close({
           sessionId: session.sessionId,
@@ -540,7 +542,7 @@ export class SessionSupervisor {
   ): Promise<SparkSessionState> {
     const current = await this.require(input.sessionId);
     if (current.lifecycle === "closed") return current;
-    if (current.owner.kind === "workspace") {
+    if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
         `workspace Administrator ${current.sessionId} cannot be closed`,
@@ -558,11 +560,11 @@ export class SessionSupervisor {
     const invocationSessionIds = [
       ...new Set([closing.sessionId, ...(quiesced?.invocationSessionIds ?? [])]),
     ];
-    const all = await this.registry.list({ includeArchived: false, includeSideThreads: true });
+    const all = await this.registry.list({ includeArchived: false });
     const children = all.filter(
       (session) =>
         session.sessionId !== current.sessionId &&
-        ownerSupervisorSessionId(session.owner) === current.sessionId,
+        sparkSessionParentId(session.lineage) === current.sessionId,
     );
     for (const child of children) {
       const closedChild = await this.closeCoalesced(
@@ -599,12 +601,12 @@ export class SessionSupervisor {
       sessionId: settled.sessionId,
       source: "manual",
       reason: input.reason ?? "closed by SessionSupervisor",
-      tags: ["lifecycle:closed", `owner:${settled.owner?.kind ?? "unknown"}`],
+      tags: ["lifecycle:closed", `origin:${sparkSessionLineageOriginKind(settled.lineage)}`],
       discardTranscript: settled.retention === "discard_on_close",
       ...(input.now ? { now: input.now } : {}),
     };
     const closed = await this.registry.archiveOwned(archiveInput);
-    const parentSessionId = ownerSupervisorSessionId(settled.owner);
+    const parentSessionId = sparkSessionParentId(settled.lineage);
     if (parentSessionId) this.queueCleanupRetry(parentSessionId);
     return closed;
   }
@@ -782,10 +784,10 @@ export class SessionSupervisor {
     const terminal = this.invocations
       .listPage({
         sessionId: session.sessionId,
+        terminalOnly: true,
         limit: 100,
       })
-      .invocations.filter(isTerminalInvocation)
-      .slice(0, 64);
+      .invocations.slice(0, 64);
 
     if (completion) {
       const candidate = sparkSessionCloseCandidateSchema.safeParse(completion);
@@ -867,57 +869,53 @@ export class SessionSupervisor {
     );
   }
 
-  private async isOwnerValid(session: SparkSessionState): Promise<boolean> {
-    const owner = session.owner;
-    if (owner.kind === "workspace") {
-      return sparkSessionLifetimeForOwner(session.owner) === "persistent";
-    }
-    const supervisorId = ownerSupervisorSessionId(owner);
-    if (owner.kind === "session" || owner.kind === "side_thread") {
-      const parent = supervisorId ? await this.registry.get(supervisorId) : undefined;
-      return Boolean(parent && parent.lifecycle === "open" && parent.placement === "active");
-    }
-    if (owner.kind === "invocation") {
-      const invocation = this.invocations.getSummary(owner.invocationId);
+  private async isLineageValid(session: SparkSessionState): Promise<boolean> {
+    if (session.lineage.kind === "root") return true;
+    const parent = await this.registry.get(session.lineage.parentSessionId);
+    if (!parent || parent.lifecycle !== "open" || parent.placement !== "active") return false;
+    const origin = session.lineage.origin;
+    if (origin.kind === "session" || origin.kind === "side_thread") return true;
+    if (origin.kind === "invocation") {
+      const invocation = this.invocations.getSummary(origin.invocationId);
       return invocation?.status === "queued" || invocation?.status === "running";
     }
-    return (await this.ownerExists?.(owner, session)) ?? false;
+    return (await this.originExists?.(origin, session)) ?? false;
   }
 
-  private async isOwnerReferenceValid(
-    owner: SparkSessionOwner,
+  private async isLineageReferenceValid(
+    lineage: SparkSessionLineage,
     workspaceId: string,
     sessionId?: string,
   ): Promise<boolean> {
-    if (owner.kind === "workspace") return owner.workspaceId === workspaceId;
-    const supervisorId = ownerSupervisorSessionId(owner);
-    if (owner.kind === "session" || owner.kind === "side_thread") {
-      const session = supervisorId ? await this.registry.get(supervisorId) : undefined;
-      return Boolean(
-        session &&
-        session.lifecycle === "open" &&
-        session.placement === "active" &&
-        session.scope.kind === "workspace" &&
-        session.scope.workspaceId === workspaceId,
-      );
+    if (lineage.kind === "root") return true;
+    const parent = await this.registry.get(lineage.parentSessionId);
+    if (
+      !parent ||
+      parent.lifecycle !== "open" ||
+      parent.placement !== "active" ||
+      parent.scope.kind !== "workspace" ||
+      parent.scope.workspaceId !== workspaceId
+    ) {
+      return false;
     }
-    if (owner.kind === "invocation") {
-      const invocation = this.invocations.getSummary(owner.invocationId);
+    const origin = lineage.origin;
+    if (origin.kind === "session" || origin.kind === "side_thread") return true;
+    if (origin.kind === "invocation") {
+      const invocation = this.invocations.getSummary(origin.invocationId);
       if (invocation) {
         return invocation.status === "queued" || invocation.status === "running";
       }
-      return this.reservedInvocationOwners.has(owner.invocationId);
+      return this.reservedInvocationOwners.has(origin.invocationId);
     }
-    if (!this.ownerExists) return false;
-    return await this.ownerExists(owner, {
+    if (!this.originExists) return false;
+    return await this.originExists(origin, {
       sessionId: sessionId?.trim() || "session-owner-validation",
       scope: { kind: "workspace", workspaceId },
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "none" },
       incarnation: 1,
-      owner,
-      stateBinding: { kind: "session", ref: supervisorId ?? "owner-validation" },
+      lineage,
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "owner_validation",
@@ -958,58 +956,60 @@ function required(value: string, field: string): string {
   return normalized;
 }
 
-function ownerSupervisorSessionId(owner: SparkSessionOwner): string | undefined {
-  if (owner.kind === "workspace") return undefined;
-  if (owner.kind === "side_thread") return owner.parentSessionId;
-  return owner.supervisorSessionId;
+function lineageIdentity(lineage: SparkSessionLineage): string {
+  if (lineage.kind === "root") return "root";
+  return `${lineage.parentSessionId}/${originIdentity(lineage.origin)}`;
 }
 
-function ownerIdentity(owner: SparkSessionOwner): string {
-  switch (owner.kind) {
-    case "workspace":
-      return `workspace:${owner.workspaceId}`;
+function originIdentity(origin: SparkSessionLineageOrigin): string {
+  switch (origin.kind) {
     case "session":
-      return `session:${owner.supervisorSessionId}`;
+      return "session";
     case "side_thread":
-      return `side_thread:${owner.parentSessionId}:${owner.generation}`;
+      return `side_thread:${origin.generation}`;
     case "invocation":
-      return `invocation:${owner.invocationId}`;
+      return `invocation:${origin.invocationId}`;
     case "task_run":
-      return `task_run:${owner.runRef}`;
+      return `task_run:${origin.runRef}`;
     case "task_revision":
-      return `task_revision:${owner.revisionRef}`;
+      return `task_revision:${origin.revisionRef}`;
     case "workflow_run":
-      return `workflow_run:${owner.workflowRef}:${owner.runRef}:${owner.generation}`;
+      return `workflow_run:${origin.workflowRef}:${origin.runRef}:${origin.generation}`;
     case "driver":
-      return `driver:${owner.driverId}:${owner.generation}`;
+      return `driver:${origin.driverId}:${origin.generation}`;
     case "driver_tick":
-      return `driver_tick:${owner.driverId}:${owner.generation}:${owner.tickInvocationId}`;
+      return `driver_tick:${origin.driverId}:${origin.generation}:${origin.tickInvocationId}`;
   }
 }
 
-function sameOwnedContextOwner(
-  persisted: SparkSessionOwner,
-  requested: SparkSessionOwner,
+function sameChildLineage(
+  persisted: SparkSessionLineage,
+  parentSessionId: string,
+  origin: SparkSessionLineageOrigin,
 ): boolean {
-  if (persisted.kind === "driver" && requested.kind === "driver") {
-    return (
-      persisted.driverId === requested.driverId &&
-      persisted.supervisorSessionId === requested.supervisorSessionId
-    );
+  if (
+    persisted.kind === "child" &&
+    persisted.parentSessionId === parentSessionId &&
+    persisted.origin.kind === "driver" &&
+    origin.kind === "driver"
+  ) {
+    return persisted.origin.driverId === origin.driverId;
   }
-  return ownerIdentity(persisted) === ownerIdentity(requested);
+  return (
+    persisted.kind === "child" &&
+    persisted.parentSessionId === parentSessionId &&
+    originIdentity(persisted.origin) === originIdentity(origin)
+  );
 }
 
 function closedRepairSessionIds(invocation: SparkInvocationRecord): string[] {
   const sessionIds = new Set<string>();
   if (invocation.sessionId) sessionIds.add(invocation.sessionId);
   if (invocation.task && typeof invocation.task === "object" && !Array.isArray(invocation.task)) {
-    const task = invocation.task as {
-      ownerSessionId?: unknown;
-      stateOwnerSessionId?: unknown;
-    };
-    for (const candidate of [task.ownerSessionId, task.stateOwnerSessionId]) {
-      if (typeof candidate === "string" && candidate.trim()) sessionIds.add(candidate.trim());
+    const task = invocation.task as { ownerSessionId?: unknown };
+    const ownerSessionId = task.ownerSessionId;
+    if (typeof ownerSessionId === "string" && ownerSessionId.trim()) {
+      sessionIds.add(ownerSessionId.trim());
     }
   }
   return [...sessionIds];
@@ -1021,10 +1021,6 @@ function sessionTranscriptPaths(session: SparkSessionState): string[] {
 
 function isPresentString(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0;
-}
-
-function isTerminalInvocation(invocation: SparkInvocationRecord): boolean {
-  return invocation.status !== "queued" && invocation.status !== "running";
 }
 
 function assistantText(result: unknown): string | undefined {

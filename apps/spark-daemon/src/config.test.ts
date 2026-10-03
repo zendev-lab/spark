@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   DEFAULT_SPARK_DAEMON_INVOCATION_CONCURRENCY,
   readSparkDaemonConfig,
@@ -37,7 +37,6 @@ describe("Spark daemon config", () => {
         refreshToken: "spark_rt_refresh_test_0000000000000000000000000000",
         refreshTokenExpiresAt: "2026-06-24T00:00:00.000Z",
         webSocketUrl: "ws://127.0.0.1:5173/api/v1/runtime/runtimes/rt/ws",
-        reproFormalEvidencePublicKeysJson: '{"external-validator":"c3BraQ=="}',
       });
 
       expect(readSparkDaemonConfig(paths)).toMatchObject({
@@ -47,7 +46,6 @@ describe("Spark daemon config", () => {
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeTokenExpiresAt: "2026-05-25T01:00:00.000Z",
         refreshTokenExpiresAt: "2026-06-24T00:00:00.000Z",
-        reproFormalEvidencePublicKeysJson: '{"external-validator":"c3BraQ=="}',
       });
       expect(statSync(paths.configFile).mode & 0o777).toBe(0o600);
     } finally {

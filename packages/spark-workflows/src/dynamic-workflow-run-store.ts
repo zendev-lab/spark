@@ -4,13 +4,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
 
+import { newRef, nowIso, type RunRef } from "@zendev-lab/spark-invocation";
 import {
-  newRef,
-  nowIso,
   readJsonFileOptional,
-  type RunRef,
   writeJsonFileAtomic,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-platform-node/json-files";
+import {
+  sparkWorkspaceStatePath,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-platform-node/paths";
 import { parseWorkflowScript } from "./metadata.ts";
 import type {
   WorkflowAgentTelemetry,
@@ -497,13 +499,16 @@ export class SparkDynamicWorkflowRunStore {
   }
 }
 
-export function sparkDynamicWorkflowRunStorePath(cwd: string): string {
-  return join(cwd, ".spark", "dynamic-workflow-runs.json");
+export function sparkDynamicWorkflowRunStorePath(cwd: string, ctx?: SparkStateRootContext): string {
+  return sparkWorkspaceStatePath(cwd, ["dynamic-workflow-runs.json"], ctx);
 }
 
 /** Legacy v1 import helper. Prefer defaultSparkDynamicWorkflowEventStore for active code. */
-export function defaultSparkDynamicWorkflowRunStore(cwd: string): SparkDynamicWorkflowRunStore {
-  return new SparkDynamicWorkflowRunStore(sparkDynamicWorkflowRunStorePath(cwd));
+export function defaultSparkDynamicWorkflowRunStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): SparkDynamicWorkflowRunStore {
+  return new SparkDynamicWorkflowRunStore(sparkDynamicWorkflowRunStorePath(cwd, ctx));
 }
 
 export function hashWorkflowScript(script: string): string {

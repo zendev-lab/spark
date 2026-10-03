@@ -8,7 +8,7 @@ import {
   type RuntimeDeviceAuthorizationResponse,
   type RuntimeRegistrationResponse,
 } from "@zendev-lab/spark-protocol";
-import type { SparkPaths } from "@zendev-lab/spark-system";
+import type { SparkPaths } from "@zendev-lab/spark-platform-node";
 import WebSocket from "ws";
 import { readSparkDaemonConfig, writeSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 import { SparkDaemonControlError } from "./control-error.ts";
@@ -21,6 +21,8 @@ import {
   upsertSparkDaemonServerProfile,
 } from "./server-profiles.js";
 import { refreshSparkDaemonCredentials, shouldRefreshSparkDaemonToken } from "./token-refresh.js";
+
+import { isRecord } from "./local-rpc/is-record.ts";
 
 export class RegistrationGrantRefusedError extends Error {}
 
@@ -65,7 +67,6 @@ export interface SparkDaemonRegistrationInput {
 export interface SparkDaemonRegistrationResult {
   config: SparkDaemonConfig;
   workspaceBinding?: RuntimeRegistrationResponse["workspaceBinding"];
-  workspaceAuthorization?: RuntimeRegistrationResponse["workspaceAuthorization"];
 }
 
 export interface SparkDaemonWorkspaceUnbindResult {
@@ -228,12 +229,6 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   let current = existingProfile
     ? sparkDaemonConfigForServerProfile(identity, existingProfile)
     : identity;
-  if (!input.registrationToken) {
-    throw new SparkDaemonControlError(
-      "workspace_registration_invalid",
-      `Workspace registration for ${serverUrl} requires a new one-time workspace token. Hub machine credentials do not grant access to additional workspaces.`,
-    );
-  }
   if (!input.workspaceRegistration) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
@@ -248,14 +243,20 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
       serverUrl,
       runtimeId: current.runtimeId!,
       runtimeToken: current.runtimeToken!,
-      registrationToken: input.registrationToken,
+      ...(input.registrationToken ? { registrationToken: input.registrationToken } : {}),
       workspaceRegistration: input.workspaceRegistration,
     });
     return {
       config: current,
       workspaceBinding: registered.workspaceBinding,
-      workspaceAuthorization: registered.workspaceAuthorization,
     };
+  }
+
+  if (!input.registrationToken) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      `The daemon is not yet connected to ${serverUrl}. Register it first with spark daemon login, then attach this workspace with the same command and no token.`,
+    );
   }
 
   const registered = await registerSparkDaemonWithToken(paths, {
@@ -266,9 +267,6 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   return {
     config: configForRegisteredServer(paths, serverUrl),
     ...(registered.workspaceBinding ? { workspaceBinding: registered.workspaceBinding } : {}),
-    ...(registered.workspaceAuthorization
-      ? { workspaceAuthorization: registered.workspaceAuthorization }
-      : {}),
   };
 }
 
@@ -567,7 +565,7 @@ function toWebSocketUrl(value: string): string {
 function requireConfig(value: string | undefined, name: string): string {
   if (!value) {
     throw new Error(
-      `Spark daemon config is missing ${name}. Run spark daemon workspace register first.`,
+      `Spark daemon config is missing ${name}. Run spark daemon login --server-url <url>.`,
     );
   }
   return value;
@@ -615,7 +613,7 @@ async function registerWorkspaceWithRuntime(input: {
   serverUrl: string;
   runtimeId: string;
   runtimeToken: string;
-  registrationToken: string;
+  registrationToken?: string;
   workspaceRegistration: NonNullable<SparkDaemonRegistrationInput["workspaceRegistration"]>;
 }) {
   const url = new URL(
@@ -629,7 +627,7 @@ async function registerWorkspaceWithRuntime(input: {
       authorization: `Bearer ${input.runtimeToken}`,
     },
     body: JSON.stringify({
-      registrationToken: input.registrationToken,
+      ...(input.registrationToken ? { registrationToken: input.registrationToken } : {}),
       workspaceRegistration: input.workspaceRegistration,
     }),
   });
@@ -674,9 +672,6 @@ async function persistSparkDaemonCredentials(
     ...(current.invocationConcurrency !== undefined
       ? { invocationConcurrency: current.invocationConcurrency }
       : {}),
-    ...(current.reproFormalEvidencePublicKeysJson
-      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
-      : {}),
   });
 }
 
@@ -718,8 +713,4 @@ async function readHttpFailure(response: Response): Promise<{ code: string; mess
 function stringProperty(value: Record<string, unknown>, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

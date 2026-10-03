@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26.7.0-bookworm-slim AS base
+FROM node:24.20.0-bookworm-slim AS base
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
@@ -20,12 +20,12 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm_version="$(node -p "require('./package.json').packageManager.split('@').at(-1)")" \
     && npm install --global "pnpm@${pnpm_version}"
 
-RUN pnpm fetch --frozen-lockfile --ignore-scripts
+RUN pnpm fetch --ignore-scripts
 
 COPY . .
 
 RUN pnpm install --offline --frozen-lockfile --ignore-scripts
-RUN pnpm run release:pack
+RUN SPARK_CONTAINER_PRODUCT_ONLY=1 pnpm run release:pack
 
 FROM base AS runtime
 

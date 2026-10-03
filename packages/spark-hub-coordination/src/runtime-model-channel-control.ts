@@ -210,7 +210,6 @@ export function recordRuntimeEphemeralSecretProjection(
   db: DatabaseSync,
   input: {
     runtimeId: string;
-    runtimeWorkspaceBindingId?: string;
     result: RuntimeEphemeralSecretResultPayload;
   },
 ): void {
@@ -223,16 +222,9 @@ export function recordRuntimeEphemeralSecretProjection(
       input.result.completedAt,
     );
   } else if (input.result.operation === "channel.configure") {
-    if (!input.runtimeWorkspaceBindingId) {
-      throw new RuntimeControlCommandError(
-        "Channel secret result omitted its workspace lease route.",
-        "CHANNEL_ROUTE_MISMATCH",
-      );
-    }
     upsertChannelProjection(
       db,
       input.runtimeId,
-      input.runtimeWorkspaceBindingId,
       parseSparkChannelControlSnapshot(input.result.result),
       input.result.completedAt,
     );
@@ -254,23 +246,13 @@ export function recordRuntimeModelChannelProjection(
     );
   } else if (payload.projection.kind === "channel.status") {
     const snapshot = parseSparkChannelControlSnapshot(payload.projection.data);
-    if (
-      command.scope !== "workspace" ||
-      command.workspaceId !== snapshot.workspaceId ||
-      !command.runtimeWorkspaceBindingId
-    ) {
+    if (command.scope !== "daemon") {
       throw new RuntimeControlCommandError(
-        "Channel projection did not match its workspace lease route.",
+        "Channel projection did not use its daemon route.",
         "CHANNEL_ROUTE_MISMATCH",
       );
     }
-    upsertChannelProjection(
-      db,
-      command.runtimeId,
-      command.runtimeWorkspaceBindingId,
-      snapshot,
-      payload.completedAt,
-    );
+    upsertChannelProjection(db, command.runtimeId, snapshot, payload.completedAt);
   }
 }
 
@@ -292,26 +274,18 @@ export function getRuntimeModelControlProjection(
 
 export function getRuntimeChannelControlProjection(
   db: DatabaseSync,
-  workspaceId: string,
+  runtimeId: string,
 ): SparkChannelControlSnapshot | null {
-  const rows = db
+  const row = db
     .prepare(
       `SELECT snapshot_json AS snapshotJson
        FROM runtime_channel_control_projections
-       WHERE workspace_id = ?
-       ORDER BY projected_at DESC
-       LIMIT 2`,
+       WHERE runtime_id = ?`,
     )
-    .all(workspaceId) as Array<{ snapshotJson: string }>;
-  if (rows.length === 0) return null;
-  if (rows.length > 1) {
-    throw new RuntimeControlCommandError(
-      "Channel projection is ambiguous across runtimes.",
-      "CHANNEL_ROUTE_AMBIGUOUS",
-    );
-  }
+    .get(runtimeId) as { snapshotJson: string } | undefined;
+  if (!row) return null;
   return parseSparkChannelControlSnapshot(
-    parsePersistedJson(rows[0]!.snapshotJson, "runtime channel control projection"),
+    parsePersistedJson(row.snapshotJson, "runtime channel control projection"),
   );
 }
 
@@ -333,11 +307,8 @@ export function runtimeModelRouteForWorkspace(
   return runtimeSessionRouteForWorkspace(db, workspaceId);
 }
 
-export function runtimeChannelRouteForWorkspace(
-  db: DatabaseSync,
-  workspaceId: string,
-): RuntimeSessionRoute {
-  return runtimeSessionRouteForWorkspace(db, workspaceId);
+export function runtimeChannelRouteForRuntime(runtimeId: string): RuntimeSessionRoute {
+  return runtimeSessionRouteForRuntime(runtimeId);
 }
 
 function waitForEphemeralResult(
@@ -392,9 +363,9 @@ function assertEphemeralRoute(
 ): void {
   const channel = request.operation === "channel.configure";
   if (channel) {
-    if (route.scope !== "workspace" || route.workspaceId !== request.workspaceId) {
+    if (route.scope !== "daemon") {
       throw new RuntimeControlCommandError(
-        "Channel secret request does not match the active workspace lease.",
+        "Channel secret requests must use a daemon route.",
         "SECRET_ROUTE_INVALID",
       );
     }
@@ -420,13 +391,12 @@ function insertSecretAudit(
   try {
     db.prepare(
       `INSERT INTO runtime_ephemeral_secret_audit
-        (request_id, runtime_id, workspace_id, actor_user_id, browser_request_id,
+        (request_id, runtime_id, actor_user_id, browser_request_id,
          operation, outcome, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
     ).run(
       input.requestId,
       input.route.runtimeId,
-      input.route.workspaceId ?? null,
       input.actorUserId,
       input.browserRequestId,
       input.operation,
@@ -474,20 +444,18 @@ function upsertModelProjection(
 function upsertChannelProjection(
   db: DatabaseSync,
   runtimeId: string,
-  runtimeWorkspaceBindingId: string,
   snapshot: SparkChannelControlSnapshot,
   projectedAt: string,
 ): void {
   const snapshotJson = JSON.stringify(parseSparkChannelControlSnapshot(snapshot));
   db.prepare(
     `INSERT INTO runtime_channel_control_projections
-      (runtime_id, workspace_id, runtime_workspace_binding_id, snapshot_json, projected_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(runtime_id, workspace_id) DO UPDATE SET
-       runtime_workspace_binding_id = excluded.runtime_workspace_binding_id,
+      (runtime_id, snapshot_json, projected_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(runtime_id) DO UPDATE SET
        snapshot_json = excluded.snapshot_json,
        projected_at = excluded.projected_at`,
-  ).run(runtimeId, snapshot.workspaceId, runtimeWorkspaceBindingId, snapshotJson, projectedAt);
+  ).run(runtimeId, snapshotJson, projectedAt);
 }
 
 export function publicRuntimeObject(value: unknown): Record<string, SparkProtocolJsonValue> {

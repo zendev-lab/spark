@@ -35,5 +35,5 @@
     "**/*.test.ts",
     "**/*.integration.test.ts"
   ],
-  "ignoreBinaries": ["vp", "prek", "spark", "spark-daemon", "spark-tui"]
+  "ignoreBinaries": ["vp", "prek", "spark", "spark-daemon", "spark-web"]
 }

@@ -80,11 +80,16 @@ export const actions: Actions = {
     }
 
     const label = `${t.registrationLabelPrefix}: ${workspaceSetup.name}`;
+    // The daemon is the hub binding unit: a daemon-scoped token authorizes the
+    // daemon installation (one per machine) and attaches this workspace in the
+    // same command. Workspace name/slug remain profile inputs, not a separate
+    // workspace-scoped grant.
     const token = createRuntimeEnrollmentToken(db, {
       label,
       createdByUserId: userId,
       workspaceName: workspaceSetup.name,
       workspaceSlug: workspaceSetup.slug,
+      daemonScope: true,
     });
     workspaceSetup = { ...workspaceSetup, enrollmentTokenId: token.id };
     setPendingWorkspaceSetup(cookies, workspaceSetup);
@@ -100,11 +105,13 @@ export const actions: Actions = {
     };
   },
 
-  createWorkspace: async ({ cookies, request }) => {
+  createWorkspace: async ({ cookies, locals, request }) => {
     const t = getRequestDictionary({
       cookieLocale: cookies.get(localeCookieName),
       acceptLanguage: request.headers.get("accept-language"),
     }).home.formMessages;
+    const db = getDatabase();
+    ensureCurrentOwnerSession(db, cookies, locals.sessionToken);
     const formData = await request.formData();
     const pendingWorkspaceSetup = readPendingWorkspaceSetup(cookies);
     let workspaceSetup: PendingWorkspaceSetup;
@@ -117,7 +124,7 @@ export const actions: Actions = {
       });
     }
     const description = workspaceSetup.description;
-    const targetRunnerBinding = resolvePendingWorkspaceBinding(getDatabase(), workspaceSetup);
+    const targetRunnerBinding = resolvePendingWorkspaceBinding(db, workspaceSetup);
     const runtimeWorkspaceBindingId = targetRunnerBinding?.id ?? null;
 
     if (!runtimeWorkspaceBindingId) {
@@ -182,7 +189,7 @@ export const actions: Actions = {
 
     let workspaceSlug = slug;
     try {
-      const workspace = createWorkspaceWithLease(getDatabase(), {
+      const workspace = createWorkspaceWithLease(db, {
         name,
         slug,
         description,
@@ -205,7 +212,7 @@ export const actions: Actions = {
       });
       workspaceSlug = workspace.slug;
       if (workspaceSetup.enrollmentTokenId) {
-        bindRuntimeRefreshTokenToWorkspace(getDatabase(), {
+        bindRuntimeRefreshTokenToWorkspace(db, {
           tokenId: workspaceSetup.enrollmentTokenId,
           workspaceId: workspace.id,
         });

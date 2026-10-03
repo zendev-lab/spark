@@ -4,11 +4,15 @@ import { resolve } from "node:path";
 import { publint } from "publint";
 import { formatMessage } from "publint/utils";
 
-import { npmDistributions, releaseDirectory } from "./npm-distributions.mjs";
+import {
+  nativeNpmDistributions,
+  npmDistributions,
+  releaseDirectory,
+} from "./npm-distributions.mjs";
 
 let failed = false;
 
-for (const distribution of npmDistributions) {
+for (const distribution of [...nativeNpmDistributions, ...npmDistributions]) {
   const archivePath = resolve(releaseDirectory, distribution.assetName);
   const archive = await readFile(archivePath);
   const tarball = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);

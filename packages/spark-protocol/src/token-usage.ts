@@ -187,38 +187,6 @@ export const sparkTokenUsagePersistenceRequestSchema = z.object({
   scope: sparkReproUsageScopeSchema,
 });
 
-const sparkLegacyTokenUsageBackfillBaseSchema = z.object({
-  sourceEventId: z.string().trim().min(1),
-  invocationId: z.string().trim().min(1),
-  scope: sparkReproUsageScopeSchema,
-  executionId: z.string().trim().min(1).optional(),
-  parentExecutionId: z.string().trim().min(1).optional(),
-  executionKind: sparkUsageExecutionKindSchema,
-  persistence: sparkUsageExecutionPersistenceSchema,
-  sessionId: z.string().trim().min(1).optional(),
-  runRef: z.string().trim().min(1).optional(),
-  observedAt: isoDateTimeSchema,
-});
-
-export const sparkLegacyTokenUsageBackfillRequestSchema = z.discriminatedUnion("action", [
-  sparkLegacyTokenUsageBackfillBaseSchema.extend({
-    action: z.literal("response"),
-    provider: z.string().trim().min(1),
-    model: z.string().trim().min(1),
-    providerResponseId: z.string().trim().min(1).optional(),
-    usage: sparkTokenBreakdownSchema,
-    costUsd: z.number().nonnegative().optional(),
-  }),
-  sparkLegacyTokenUsageBackfillBaseSchema.extend({
-    action: z.literal("coverage_gap"),
-    reason: z.enum(["unproven_attribution", "unproven_seed_boundary"]),
-  }),
-]);
-
-export const sparkLegacyTokenUsageBackfillResultSchema = z.object({
-  recorded: z.boolean(),
-});
-
 export type SparkReproUsageScope = z.infer<typeof sparkReproUsageScopeSchema>;
 export type SparkUsageExecutionKind = z.infer<typeof sparkUsageExecutionKindSchema>;
 export type SparkUsageExecutionPersistence = z.infer<typeof sparkUsageExecutionPersistenceSchema>;
@@ -238,12 +206,6 @@ export type SparkTokenUsagePersistenceBucket = z.infer<
 export type SparkTokenUsageByPersistence = z.infer<typeof sparkTokenUsageByPersistenceSchema>;
 export type SparkTokenUsagePersistenceRequest = z.infer<
   typeof sparkTokenUsagePersistenceRequestSchema
->;
-export type SparkLegacyTokenUsageBackfillRequest = z.infer<
-  typeof sparkLegacyTokenUsageBackfillRequestSchema
->;
-export type SparkLegacyTokenUsageBackfillResult = z.infer<
-  typeof sparkLegacyTokenUsageBackfillResultSchema
 >;
 
 function validateQualityInvariant(

@@ -1,4 +1,4 @@
-import { decodeKittyPrintable, parseKey } from "@zendev-lab/spark-tui-adapter/input";
+import { decodeKittyPrintable, parseKey } from "./keys.ts";
 
 import type { AskAction } from "../state/reducer.ts";
 import { reduce } from "../state/reducer.ts";

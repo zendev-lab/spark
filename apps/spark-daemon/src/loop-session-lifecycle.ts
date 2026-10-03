@@ -44,20 +44,20 @@ export function quiesceLoopsForClosingSession(
   // generation. A stable driver is the Loop's execution resource, so closing
   // that exact Session stops its current incarnation. Closing the durable
   // owner Session quiesces every Loop it owns.
-  if (session.owner.kind === "driver_tick") {
+  if (session.lineage.kind === "child" && session.lineage.origin.kind === "driver_tick") {
     return { invocationSessionIds: [], stoppedLoops: [] };
   }
   const candidates =
-    session.owner.kind === "driver"
+    session.lineage.kind === "child" && session.lineage.origin.kind === "driver"
       ? matchingDriverLoop(
-          loops.get(session.owner.driverId),
+          loops.get(session.lineage.origin.driverId),
           session.sessionId,
-          session.owner.supervisorSessionId,
+          session.lineage.parentSessionId,
         )
       : loops.list({ ownerSessionId: session.sessionId, includeTerminal: true });
   const stoppedLoops: SparkLoopRecord[] = [];
   const invocationSessionIds = new Set(
-    session.owner.kind === "driver"
+    session.lineage.kind === "child" && session.lineage.origin.kind === "driver"
       ? []
       : invocations.listLoopExecutionSessionIds(session.sessionId),
   );
@@ -68,7 +68,12 @@ export function quiesceLoopsForClosingSession(
         ? candidate
         : loops.stop(candidate.loopId, reason);
     if (loop !== candidate) stoppedLoops.push(loop);
-    if (session.owner.kind === "driver" || !loop.lastInvocationId) continue;
+    if (
+      (session.lineage.kind === "child" && session.lineage.origin.kind === "driver") ||
+      !loop.lastInvocationId
+    ) {
+      continue;
+    }
     const invocation = invocations.get(loop.lastInvocationId);
     if (!invocation?.sessionId || invocation.payloadRedactedAt) continue;
     invocationSessionIds.add(invocation.sessionId);

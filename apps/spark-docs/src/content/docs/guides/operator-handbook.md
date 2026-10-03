@@ -10,8 +10,8 @@ also defines the checks to run before changing state when something goes wrong.
 
 - The **daemon** owns execution, sessions, invocations, workspace bindings, and
   recovery.
-- The **TUI** is the interactive terminal host. It presents daemon state and
-  sends user intent to the daemon.
+- The **local web workbench** is the interactive host. It presents daemon state
+  and sends user intent to the daemon.
 - **Hub Web** is the browser coordination and projection surface. It does not
   infer execution state from browser timers or transcript text.
 - Product artifacts are exactly Issues, Git changes, and Documents. A Git change
@@ -72,10 +72,10 @@ spark daemon auth login [provider]
 spark daemon model set <provider/model> --default --json
 ```
 
-Or open `spark`, run `/login`, then `/model`. Unavailable models remain visible
-with their reason and login action, but cannot become active. Enter API keys
-only in Spark's secret prompt. Do not put them in a repository, command history,
-or a Hub registration command.
+Or start `spark web`, open **Settings**, and configure the provider and model
+there. Unavailable models remain visible with their reason and login action, but
+cannot become active. Enter API keys only in Spark's secret field or prompt. Do
+not put them in a repository, command history, or a Hub registration command.
 
 Hub Web disables conversation submission when no authenticated model is
 available. A JSON CLI submission reports an actionable error:
@@ -93,8 +93,8 @@ available. A JSON CLI submission reports an actionable error:
 Configure the provider, then retry the original submission once.
 
 `spark daemon login` is unrelated: it authorizes machine connectivity to
-Hub. Provider authentication exists only under `spark daemon auth` and the
-corresponding TUI slash commands.
+Hub. Provider authentication is owned by the daemon and is exposed through
+`spark daemon auth` plus the model/provider settings in local Web and Hub.
 
 ## 3. Start the daemon and Hub independently
 
@@ -137,14 +137,15 @@ separately.
 The generated command has this shape:
 
 ```bash
-spark daemon workspace register . \
-  --server-url http://127.0.0.1:5174 \
-  --token <one-time-workspace-token> \
-  --name <workspace-name>
+spark daemon login --server-url http://127.0.0.1:5174
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <enrollment-token>
 ```
 
-The token is shown once and authorizes one directory. It is not a provider
-credential or a reusable daemon login.
+`spark daemon login` binds the daemon installation (one per machine) to the
+Hub. The first `workspace register` records the workspace locally; the token
+form announces its Hub projection through the same daemon binding. The token
+is shown once and is not a provider credential.
 
 Verify the daemon-owned binding:
 
@@ -159,25 +160,26 @@ binding display name.
 
 ## 5. Create, inspect, and attach a session
 
-Read the server workspace ID from `spark daemon workspace ls --json`, then
-create a managed session:
+Read the protected Administrator Session ID from
+`spark daemon session list --registry --json`, select an exact static RoleRef,
+then create an empty managed child:
 
 ```bash
-spark daemon session create \
-  --workspace <server-workspace-id> \
-  --role operator \
+spark daemon session spawn \
+  --supervisor <administrator-session-id> \
+  --role-ref role:builtin-executor \
   --json
 
 spark daemon session list --registry --json
 spark daemon session show <session-id> --json
 ```
 
-For managed sessions, `role` is the stable division-of-labour identity and is
-also used as the compatibility title. Run attach commands from the same
-canonical workspace:
+`spawn` creates no Invocation. Use `fork` with the same flags only when the
+child needs an independent copy of the supervisor's stable transcript prefix.
+Run attach commands from the same canonical workspace:
 
 ```bash
-spark tui --session-id <session-id>
+spark web
 ```
 
 Hub Web lists the same daemon-owned session under Conversations. Creating a
@@ -223,27 +225,14 @@ unknown mutation or delivery outcome must fail closed rather than replay.
 
 ## 7. Exercise the product workflow
 
-Inside the TUI, use:
-
-```text
-/plan <goal>
-/execute [focus]
-/inspect
-/goal start <objective>
-/repro start <objective>
-/workflow list
-/help commands
-```
-
-`/help` is rendered locally and is never submitted as an agent prompt. Bare
-slash controls enter their final surface directly, and normal selector or
-palette actions execute on one Enter. The TUI owns prompt history, transcript
-viewport scrolling, and idle double-Esc session navigation; use the [TUI
-guide](/guides/tui/) for the current keyboard contract.
+Describe the intended outcome in the [local web workbench](/guides/web/) or
+with `spark run`. One-shot `/plan`, `/execute`, and `/fleet`, plus Goal,
+Repro, and Workflow, remain daemon-owned operations; discover operator CLI
+forms with `spark daemon --help`.
 
 Use these surfaces together:
 
-- **Conversations** and the TUI show daemon-owned sessions and turns.
+- **Conversations** and the local web workbench show daemon-owned sessions and turns.
 - **Inbox** shows inline questions and approvals without moving Ask into a
   global modal.
 - **Artifacts** contains only Issues, Git changes, and Documents.
@@ -252,16 +241,8 @@ Use these surfaces together:
 - Goal, Repro, Workflow, and background loops remain distinct; do not collapse
   scheduled, running, retry-waiting, dormant, blocked, and stopped states.
 
-Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),
+Continue with [local web](/guides/web/), [runs and sessions](/guides/runs-and-sessions/),
 [Hub Web](/guides/hub/), and [long-running work](/guides/automation/).
-
-### Renderer status
-
-Spark 0.2.0 keeps the Pi TUI kernel behind the private
-`SparkTerminalController`. OpenTUI is an isolated candidate, not a production
-dependency. A renderer change requires a separate architecture decision and
-evidence from the component, Direct PTY, packaged-product, and supported
-platform validation lanes.
 
 ## 8. Remote access
 
@@ -271,12 +252,11 @@ Machine connectivity and browser access are separate:
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark hub access create
-spark hub workspace access create --workspace <hub-workspace-id>
+spark hub access create --daemon <runtime-id>
 ```
 
-- Exchange the Hub key at `/login`.
-- Exchange the workspace key at `/{slug}/login`.
+- Exchange the Hub key at `/login`; the session reaches exactly the workspaces
+  owned by the granted daemons.
 - Generate a fresh workspace registration token for every additional local
   directory.
 
@@ -291,7 +271,8 @@ Help is read-only at every nested surface:
 ```bash
 spark doctor --help
 spark hub web start --help
-spark daemon session create --help
+spark daemon session spawn --help
+spark daemon session fork --help
 ```
 
 If a packaged installation behaves differently, compare `spark version --json`
@@ -322,9 +303,9 @@ registering it elsewhere.
 
 Run `spark daemon auth status --json` and
 `spark daemon model list --all --json`. Then use
-`spark daemon auth login <provider>` or return to the TUI and run `/login`,
-followed by `/model`. Hub Web should enable submission only after the daemon
-reports an available authenticated model.
+`spark daemon auth login <provider>`, or open **Settings** in local Web or
+**Models and providers** in Hub. Hub Web should enable submission only after
+the daemon reports an available authenticated model.
 
 ### A run appears stuck
 

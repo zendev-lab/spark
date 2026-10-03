@@ -6,12 +6,12 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { JsonValue, RoleRef, RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
+import type { JsonValue, RoleRef, RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-invocation";
 import {
   collectRoleRunEvidenceRetentionPlan,
   isRoleRunEvidenceBody,
   readRoleRunEvidencePreview,
-} from "@zendev-lab/spark-runtime";
+} from "@zendev-lab/spark-task-runtime";
 
 test("runtime role-run Evidence body guard owns compact Evidence shape", () => {
   const valid = {

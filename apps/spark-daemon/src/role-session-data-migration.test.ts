@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
-import { contentHash } from "@zendev-lab/spark-core";
+import { contentHash } from "@zendev-lab/spark-invocation";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";
@@ -203,6 +203,38 @@ describe("Role/Session v6 structured data migration", () => {
       hash: contentHash(malformed),
       body: malformed,
       provenance: { producer: "role", roleRef: "role:builtin-executor" },
+    });
+  });
+
+  it("skips the workspace walk after a complete sentinel", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-role-session-sentinel-"));
+    roots.push(root);
+    const sparkHome = join(root, "home");
+    const workspace = join(root, "workspace");
+    const userRoleSettings = join(sparkHome, "role-model-settings.json");
+    await migrateRoleSessionStructuredData({
+      sparkHome,
+      userRoleModelSettingsFile: userRoleSettings,
+      workspaces: [{ workspaceId: "ws_demo", rootDir: workspace }],
+      now: () => "2026-08-18T00:00:00.000Z",
+    });
+    const planted = join(workspace, ".spark", "role-model-settings.json");
+    await mkdir(join(planted, ".."), { recursive: true });
+    await writeJson(planted, {
+      version: 1,
+      roleModels: { "role:builtin-worker": "provider/executor" },
+    });
+
+    await expect(
+      migrateRoleSessionStructuredData({
+        sparkHome,
+        userRoleModelSettingsFile: userRoleSettings,
+        workspaces: [{ workspaceId: "ws_demo", rootDir: workspace }],
+      }),
+    ).resolves.toEqual({ changed: false, files: 0, evidenceRefs: [] });
+    expect(await readJson(planted)).toEqual({
+      version: 1,
+      roleModels: { "role:builtin-worker": "provider/executor" },
     });
   });
 });

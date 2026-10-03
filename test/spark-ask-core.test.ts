@@ -9,7 +9,6 @@ import {
   runSparkAskFlow,
   SparkAskTransportError,
 } from "@zendev-lab/spark-ask";
-import { detectCopyLanguage } from "@zendev-lab/spark-core";
 
 test("Spark asks are built from caller-provided context-specific questions", () => {
   const request = createSparkAskFlowRequest({
@@ -34,11 +33,6 @@ test("Spark asks are built from caller-provided context-specific questions", () 
   assert.equal(request.flow, "svg-role-approval");
   assert.equal(request.questions[0]?.id, "approval");
   assert.match(request.context ?? "", /svg-role/);
-});
-
-test("copy helpers only detect language; they do not create canned ask forms", () => {
-  assert.equal(detectCopyLanguage("梳理下一步改进点"), "zh");
-  assert.equal(detectCopyLanguage("Plan next work"), "en");
 });
 
 test("approval flow without UI blocks instead of implicitly approving", async () => {

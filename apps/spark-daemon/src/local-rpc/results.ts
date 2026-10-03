@@ -260,7 +260,6 @@ export function channelIngressStatus(value: unknown): DaemonChannelIngressStatus
     value.plane !== "daemon" ||
     value.resource !== "channel" ||
     value.available !== true ||
-    typeof value.workspaceId !== "string" ||
     typeof value.configPath !== "string" ||
     typeof value.configured !== "boolean" ||
     typeof value.ingressEnabled !== "boolean" ||
@@ -274,7 +273,6 @@ export function channelIngressStatus(value: unknown): DaemonChannelIngressStatus
   return {
     plane: "daemon",
     resource: "channel",
-    workspaceId: value.workspaceId,
     configPath: value.configPath,
     available: true,
     configured: value.configured,
@@ -467,9 +465,7 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
   const hubBindingState =
     value.hubBindingState === "bound" || value.hubBindingState === "unbound"
       ? value.hubBindingState
-      : value.cockpitBindingState === "bound" || value.cockpitBindingState === "unbound"
-        ? value.cockpitBindingState
-        : undefined;
+      : undefined;
   const workspace: SparkDaemonWorkspace = {
     id: value.id,
     ...(typeof value.serverWorkspaceId === "string"
@@ -525,20 +521,6 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
       : {}),
     ...(typeof value.sessionCount === "number" ? { sessionCount: value.sessionCount } : {}),
     ...(typeof value.lastSessionAt === "string" ? { lastSessionAt: value.lastSessionAt } : {}),
-    ...(isRecord(value.workspaceAuthorization) &&
-    typeof value.workspaceAuthorization.workspaceId === "string" &&
-    typeof value.workspaceAuthorization.workspaceSlug === "string" &&
-    typeof value.workspaceAuthorization.oneTimeToken === "string" &&
-    typeof value.workspaceAuthorization.expiresAt === "string"
-      ? {
-          workspaceAuthorization: {
-            workspaceId: value.workspaceAuthorization.workspaceId,
-            workspaceSlug: value.workspaceAuthorization.workspaceSlug,
-            oneTimeToken: value.workspaceAuthorization.oneTimeToken,
-            expiresAt: value.workspaceAuthorization.expiresAt,
-          },
-        }
-      : {}),
     ...(Array.isArray(value.recentSessions)
       ? { recentSessions: value.recentSessions.map(sparkDaemonWorkspaceRecentSession) }
       : {}),

@@ -1,4 +1,4 @@
-import { updateSessionGoalStatus } from "@zendev-lab/spark-loop";
+import { updateSessionGoalStatus } from "@zendev-lab/spark-driver";
 import type { SparkLoopStore } from "../store/loops.ts";
 
 export async function reconcileLoopGoalSettlements(

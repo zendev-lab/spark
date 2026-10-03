@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultArtifactStore, type GitChangeArtifactBody } from "@zendev-lab/spark-artifacts";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 import {
   resolveSessionCwdForWorkspace,
   resolveSessionCwdOwner,
@@ -84,6 +84,21 @@ describe("session cwd ownership", () => {
     await expect(
       resolveSessionCwdForWorkspace({ workspace: fixture.workspace, cwd: escape }),
     ).rejects.toThrow(/must be inside workspace/u);
+    fixture.db.close();
+  });
+
+  it("ignores stale registrations while resolving another live workspace", async () => {
+    const fixture = await createFixture();
+    const staleRoot = join(fixture.root, "stale-workspace");
+    await mkdir(staleRoot);
+    registerWorkspace(fixture.db, { localPath: staleRoot });
+    await rm(staleRoot, { recursive: true });
+
+    await expect(resolveSessionCwdOwner(fixture.db, fixture.workspaceRoot)).resolves.toMatchObject({
+      workspace: { id: fixture.workspace.id },
+      cwd: fixture.workspaceRoot,
+    });
+    expect(listWorkspaces(fixture.db)).toHaveLength(2);
     fixture.db.close();
   });
 

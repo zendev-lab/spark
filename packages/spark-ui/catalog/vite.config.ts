@@ -14,6 +14,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
+    include: ["bits-ui > svelte-toolbelt > style-to-object"],
   },
   build: {
     outDir: path.resolve(catalogRoot, "../node_modules/.cache/spark-ui-catalog"),

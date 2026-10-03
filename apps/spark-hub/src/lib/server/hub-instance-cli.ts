@@ -15,7 +15,7 @@ import {
   inspectHubSnapshot,
   readHubInstanceId,
   restoreHubSnapshot,
-} from "@zendev-lab/spark-hub-db";
+} from "@zendev-lab/spark-hub-storage-sqlite";
 
 // Hub instance persistence is a server-owned Node surface. The public CLI
 // path re-exports this module without taking a direct dependency on spark-db.

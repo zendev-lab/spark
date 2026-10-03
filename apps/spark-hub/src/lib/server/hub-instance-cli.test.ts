@@ -21,7 +21,7 @@ import {
   migrate,
   openDatabase,
   type HubSnapshotManifest,
-} from "@zendev-lab/spark-hub-db";
+} from "@zendev-lab/spark-hub-storage-sqlite";
 
 import {
   handleSparkHubCliCommand,

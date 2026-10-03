@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { JsonValue } from "@zendev-lab/spark-core";
+import type { JsonValue } from "@zendev-lab/spark-invocation";
 
 export const MEMORY_LIFECYCLE_SCHEMA_VERSION = 2 as const;
 

@@ -166,13 +166,16 @@
       value={host.selected.sessionId}
     />
     <form
-      id="session-mode-form"
-      bind:this={() => host.sessionModeForm, (v) => (host.sessionModeForm = v)}
+      bind:this={() => host.sessionDirectiveForm, (v) => (host.sessionDirectiveForm = v)}
       method="POST"
-      action="?/selectMode"
-    ></form>
-    <input form="session-mode-form" type="hidden" name="sessionId" value={host.selected.sessionId} />
-    <input form="session-mode-form" type="hidden" name="mode" value={host.sessionMode} />
+      action="?/sendMessage"
+      hidden
+      use:enhance={host.enhanceRetryMessage}
+    >
+      <input type="hidden" name="sessionId" value={host.selected.sessionId} />
+      <input type="hidden" name="submissionId" value={host.directiveSubmissionId} />
+      <input type="hidden" name="message" value={host.directivePrompt} />
+    </form>
 
     {#each host.queueItems as item (item.id)}
       <form

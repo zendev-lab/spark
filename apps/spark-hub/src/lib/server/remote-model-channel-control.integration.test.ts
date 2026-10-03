@@ -12,7 +12,7 @@ import type { DatabaseSync } from "node:sqlite";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { test } from "vitest";
 
-import { FakeChannelTransport } from "@zendev-lab/spark-channels";
+import { FakeChannelTransport } from "@zendev-lab/dsh-channel-transports";
 import {
   createId,
   runtimeProtocolVersion,
@@ -23,14 +23,19 @@ import {
   type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import {
+  channelConfigPath,
+  resolveSparkPaths,
+  writePrivateFile,
+} from "@zendev-lab/spark-platform-node";
 
 import {
   handleServerMessage,
   sparkDaemonSupportedFeatures,
   type MessageContext,
 } from "../../../../spark-daemon/src/daemon.ts";
-import { createDaemonChannelIngressRuntime } from "../../../../spark-daemon/src/channels/ingress.ts";
+import { createDaemonChannelIngressRuntime } from "../../../../spark-daemon/src/channels/global-ingress-runtime.ts";
+import { openSparkDaemonCordisContext } from "../../../../spark-daemon/src/cordis-root.ts";
 import type { SparkDaemonModelControl } from "../../../../spark-daemon/src/model-control.ts";
 import { acknowledgeRuntimeCommandTerminal } from "../../../../spark-daemon/src/runtime-command-receipts.ts";
 import { createDaemonSessionRegistry } from "../../../../spark-daemon/src/session-registry.ts";
@@ -42,7 +47,7 @@ import {
   createWorkspaceWithLease,
   hashSecret,
 } from "@zendev-lab/spark-hub-coordination";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-storage-sqlite";
 import { createOwnerSession, getCurrentUserId } from "./auth.ts";
 import { createHubRuntimeModelChannelClient } from "./hub-runtime-model-channel-client.ts";
 import { createHubRuntimeSessionClient } from "./hub-runtime-session-client.ts";
@@ -77,6 +82,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
   let wss: WebSocketServer | undefined;
   let daemonWs: WebSocket | undefined;
   let httpsServer: ReturnType<typeof createHttpsServer> | undefined;
+  const cordisContext = openSparkDaemonCordisContext();
   try {
     await Promise.all([
       mkdir(daemonHome, { recursive: true }),
@@ -98,11 +104,11 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
       .run(runtimeId, installationId, runtimeProtocolVersion, now, now);
     hubDb
       .prepare(
-        `INSERT INTO runtime_tokens
-        (id, runtime_id, token_hash, label, scopes_json, created_at)
-       VALUES (?, ?, ?, 'runtime access token', '["runtime:connect"]', ?)`,
+        `INSERT INTO daemon_credentials
+        (id, family, kind, runtime_id, token_hash, label, scopes_json, created_at)
+       VALUES (?, 'hub-daemon', 'access', ?, ?, 'runtime access token', '["runtime:connect"]', ?)`,
       )
-      .run(createId("rttok"), runtimeId, hashSecret(runtimeToken), now);
+      .run(createId("rtdc"), runtimeId, hashSecret(runtimeToken), now);
     hubDb
       .prepare(
         `INSERT INTO runtime_workspace_bindings
@@ -139,12 +145,12 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     const credentialTargets = {
       provider: join(daemonHome, "credentials", "provider.key"),
       oauth: join(daemonHome, "credentials", "oauth.response"),
-      channel: join(daemonHome, "workspaces", daemonWorkspace.id, "channels", "config.json"),
+      channel: channelConfigPath(resolveSparkPaths({ app: "daemon", sparkHome: daemonHome })),
     };
     const modelControl = new FixtureModelControl(registry, credentialTargets);
     const channelIngress = createDaemonChannelIngressRuntime({
       sparkHome: daemonHome,
-      workspaceId: daemonWorkspace.id,
+      ctx: cordisContext,
       hooks: { onAssignment: async () => {} },
       sessionRegistry: registry,
       createTransport: () => new FakeChannelTransport(),
@@ -362,7 +368,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
             oauthStartStatusRespondCancel: true,
           },
           channelsPage: {
-            path: "/[workspaceId]/settings/channels",
+            path: "/settings/channels?runtimeId=[runtimeId]",
             statusLoaded: true,
             configured: true,
             reloaded: true,
@@ -372,7 +378,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
         pageAndApiPaths: {
           conversation: "/sessions/[sessionId]",
           models: "/settings/models",
-          channels: "/[workspaceId]/settings/channels",
+          channels: "/settings/channels?runtimeId=[runtimeId]",
           controlApi: "/control",
         },
         exercisedActions: [
@@ -419,6 +425,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     await closeRuntimeSocket(daemonWs);
     await closeWebSocketServer(wss);
     await closeHttpsServer(httpsServer);
+    await cordisContext.fiber.dispose();
     hubDb.close();
     daemonDb.close();
     await rm(root, { recursive: true, force: true });
@@ -706,10 +713,10 @@ async function runControlAction(
         flowId: String(input.flowId),
       });
     case "channelStatus":
-      return await client.channelStatus(route.workspaceId);
+      return await client.channelStatus(route.runtimeId);
     case "channelConfigure":
       return await client.configureChannel({
-        workspaceId: route.workspaceId,
+        runtimeId: route.runtimeId,
         config: {
           adapters: {
             infoflow: {
@@ -729,7 +736,7 @@ async function runControlAction(
         context: route.context,
       });
     case "channelReload":
-      return await client.reloadChannel({ workspaceId: route.workspaceId });
+      return await client.reloadChannel({ runtimeId: route.runtimeId });
     default:
       throw new Error(`unknown control action: ${String(input.action)}`);
   }

@@ -7,7 +7,11 @@ export interface GitChangePreviewPullRequest {
   baseRef: string;
   draft?: boolean;
   labels?: string[];
+  checks?: Array<{ name: string; state: string }>;
   checksSummary?: string;
+  checksVerdict?: "pass" | "fail" | "pending" | "inconclusive";
+  mergeable?: boolean;
+  mergeStateStatus?: string;
   bodyText?: string;
   diffSummary?: string;
 }
@@ -62,6 +66,8 @@ export interface GitChangePreviewLabels {
   draft: string;
   openPullRequest: string;
   checks: string;
+  mergeable: string;
+  conflict: string;
   description: string;
   diff: string;
   technicalDetails: string;
@@ -84,6 +90,8 @@ export const defaultGitChangePreviewLabels: GitChangePreviewLabels = {
   draft: "Draft",
   openPullRequest: "Open pull request",
   checks: "Checks",
+  mergeable: "Mergeable",
+  conflict: "Conflict",
   description: "Description",
   diff: "Diff summary",
   technicalDetails: "Technical details",

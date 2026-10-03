@@ -4,10 +4,12 @@ import type {
   ExtensionRoleRunRequest,
   ExtensionRoleRunResult,
   RoleRunCompletionOutcome,
-} from "@zendev-lab/spark-core";
+} from "@zendev-lab/spark-invocation";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import { parseSparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import type { SessionSupervisor } from "./session-supervisor.ts";
+
+import { stringValue } from "./text.ts";
 
 export interface SupervisedRoleRunnerOptions {
   supervisor: SessionSupervisor;
@@ -258,10 +260,6 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function required(value: string | undefined, field: string): string {

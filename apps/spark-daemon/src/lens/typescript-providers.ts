@@ -18,7 +18,7 @@ export interface CommandDiagnosticValue {
   findings: DiagnosticFinding[];
 }
 
-export interface PackageBinary {
+interface PackageBinary {
   command: string;
   argsPrefix: string[];
   entrypoint: string;

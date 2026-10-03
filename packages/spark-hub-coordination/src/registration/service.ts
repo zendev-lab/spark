@@ -3,16 +3,18 @@ import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
   createId,
+  runtimeDaemonAttachScope,
   runtimeDeviceAuthorizationRequestSchema,
   runtimeProtocolVersion,
+  runtimeWorkspaceRegisterScope,
   type RuntimeDeviceAuthorizationRequest,
   type RuntimeRegistrationRequest,
   type RuntimeWorkspaceRegistrationRequest,
 } from "@zendev-lab/spark-protocol";
-import { asciiSlug } from "@zendev-lab/spark-system";
+import { asciiSlug } from "@zendev-lab/spark-platform-node";
+import { grantDaemonToActiveOwners } from "../hub-access.ts";
 import { appendEvent } from "../projection-services.ts";
 import { hashSecret } from "../security.ts";
-import { createWorkspaceAccessToken } from "../workspace-access.ts";
 import {
   resolveWorkspaceDirectoryDisplayName,
   syncWorkspaceIdentityFromLocalPath,
@@ -32,7 +34,6 @@ import type {
   RefreshedRuntimeToken,
   RegisteredWorkspaceBinding,
   RegisteredRuntimeWorkspace,
-  RegisteredWorkspaceAuthorization,
   UnboundRuntimeWorkspace,
   RuntimeEnrollmentToken,
   RuntimeEnrollmentTokenSummary,
@@ -328,6 +329,8 @@ export function exchangeRuntimeDeviceAuthorization(
       runtimeId,
       registration,
       grantScopes,
+      grantScopes,
+      { kind: "device", id: authorization.id },
       workspaceGrant,
       preparedWorkspace,
       polledAt,
@@ -364,6 +367,8 @@ export function createRuntimeEnrollmentToken(
     workspaceId?: string | null;
     ttlMs?: number;
     createdAt?: string;
+    /** Authorize the daemon itself (one enrollment per machine) instead of a single workspace. */
+    daemonScope?: boolean;
   } = {},
 ): RuntimeEnrollmentToken {
   const createdAtDate = input.createdAt ? new Date(input.createdAt) : new Date();
@@ -371,6 +376,14 @@ export function createRuntimeEnrollmentToken(
   const expiresAt = new Date(createdAtDate.getTime() + (input.ttlMs ?? 86_400_000)).toISOString();
   const refreshToken = `spark_wsreg_${randomBytes(32).toString("base64url")}`;
   const id = createId("rtetok");
+  const scopes = input.daemonScope
+    ? [runtimeDaemonAttachScope, "runtime:refresh"]
+    : [runtimeWorkspaceRegisterScope, "runtime:refresh"];
+  // A daemon-scoped token authorizes the daemon installation itself; it must
+  // not carry a workspace grant (workspace binding follows the daemon).
+  const workspaceName = input.daemonScope ? null : (input.workspaceName ?? null);
+  const workspaceSlug = input.daemonScope ? null : (input.workspaceSlug ?? null);
+  const workspaceId = input.daemonScope ? null : (input.workspaceId ?? null);
 
   db.prepare(
     `INSERT INTO runtime_enrollment_tokens
@@ -379,12 +392,15 @@ export function createRuntimeEnrollmentToken(
   ).run(
     id,
     hashSecret(refreshToken),
-    input.label ?? "Spark workspace registration token",
-    JSON.stringify(["workspace:register", "runtime:refresh"]),
+    input.label ??
+      (input.daemonScope
+        ? "Spark daemon registration token"
+        : "Spark workspace registration token"),
+    JSON.stringify(scopes),
     input.createdByUserId ?? null,
-    input.workspaceName ?? null,
-    input.workspaceSlug ?? null,
-    input.workspaceId ?? null,
+    workspaceName,
+    workspaceSlug,
+    workspaceId,
     createdAt,
     expiresAt,
   );
@@ -394,8 +410,8 @@ export function createRuntimeEnrollmentToken(
     refreshToken,
     createdAt,
     expiresAt,
-    workspaceName: input.workspaceName ?? null,
-    workspaceSlug: input.workspaceSlug ?? null,
+    workspaceName,
+    workspaceSlug,
   };
 }
 
@@ -503,6 +519,8 @@ export function registerRuntime(
       runtimeId,
       request,
       [],
+      enrollment.scopes,
+      { kind: "enrollment", id: enrollment.id },
       workspaceGrant,
       preparedWorkspace,
       now,
@@ -527,8 +545,17 @@ export function registerRuntimeWorkspace(
   return withRuntimeRegistrationTransaction(db, () => {
     authenticateRuntimeAccessToken(db, runtimeId, runtimeToken, now, ["runtime:connect"]);
 
-    const enrollment = consumeRuntimeEnrollmentToken(db, request.registrationToken, now);
-    const workspaceGrant = workspaceGrantFromEnrollment(enrollment);
+    // The daemon is the binding unit: an authenticated daemon may attach one
+    // of its local workspaces under its own runtime identity. A
+    // workspace-scoped enrollment token remains an explicit auth-owner grant
+    // (and the only way to move an existing origin lease), but it is no longer
+    // required for a daemon to attach a workspace that runs on it.
+    const consumedEnrollment = request.registrationToken
+      ? consumeRuntimeEnrollmentToken(db, request.registrationToken, now)
+      : null;
+    const workspaceGrant = consumedEnrollment
+      ? workspaceGrantFromEnrollment(consumedEnrollment)
+      : emptyWorkspaceGrant();
 
     const preparedWorkspace = prepareWorkspaceRegistration(
       db,
@@ -537,18 +564,23 @@ export function registerRuntimeWorkspace(
       request.workspaceRegistration,
       now,
     );
-    const consumed = db
-      .prepare(
-        `UPDATE runtime_enrollment_tokens
-           SET used_at = ?, created_runtime_id = ?
-           WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL`,
-      )
-      .run(now, runtimeId, workspaceGrant.enrollmentTokenId);
-    if (consumed.changes !== 1) {
-      throw new RuntimeEnrollmentError(
-        "Workspace registration token was already consumed.",
-        "WORKSPACE_REGISTRATION_TOKEN_USED",
-      );
+
+    // The enrollment token is one-shot regardless of scope: consume it even
+    // when a daemon-scoped token carries no workspace grant.
+    if (consumedEnrollment) {
+      const consumed = db
+        .prepare(
+          `UPDATE runtime_enrollment_tokens
+             SET used_at = ?, created_runtime_id = ?
+             WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL`,
+        )
+        .run(now, runtimeId, consumedEnrollment.id);
+      if (consumed.changes !== 1) {
+        throw new RuntimeEnrollmentError(
+          "Workspace registration token was already consumed.",
+          "WORKSPACE_REGISTRATION_TOKEN_USED",
+        );
+      }
     }
 
     const workspaceBinding = completeWorkspaceRegistration(
@@ -569,12 +601,6 @@ export function registerRuntimeWorkspace(
       runtimeId,
       registeredAt: now,
       workspaceBinding,
-      workspaceAuthorization: createRegisteredWorkspaceAuthorization(
-        db,
-        workspaceBinding.workspaceId,
-        runtimeId,
-        now,
-      ),
     };
   });
 }
@@ -629,50 +655,6 @@ export function unbindRuntimeWorkspace(
       workspaceIds: leases.map(({ workspaceId }) => workspaceId),
       unboundAt,
     };
-  });
-}
-
-/** Mint a one-time workspace browser key for a binding leased by this runtime. */
-export function createRuntimeWorkspaceBrowserAccess(
-  db: DatabaseSync,
-  input: {
-    runtimeId: string;
-    bindingId: string;
-    runtimeToken: string | null;
-    label?: string | null;
-    createdAt?: string;
-  },
-): RegisteredWorkspaceAuthorization {
-  const createdAt = input.createdAt ?? new Date().toISOString();
-  return withRuntimeRegistrationTransaction(db, () => {
-    authenticateRuntimeAccessToken(db, input.runtimeId, input.runtimeToken, createdAt, [
-      "runtime:connect",
-    ]);
-    const lease = db
-      .prepare(
-        `SELECT wl.workspace_id AS workspaceId
-         FROM workspace_leases wl
-         JOIN runtime_workspace_bindings rwb
-           ON rwb.id = wl.runtime_workspace_binding_id
-         WHERE wl.runtime_workspace_binding_id = ?
-           AND rwb.runtime_id = ?
-           AND wl.ended_at IS NULL
-         LIMIT 1`,
-      )
-      .get(input.bindingId, input.runtimeId) as { workspaceId: string } | undefined;
-    if (!lease) {
-      throw new RuntimeEnrollmentError(
-        "Runtime workspace binding was not found or has no active workspace lease.",
-        "WORKSPACE_BINDING_NOT_FOUND",
-      );
-    }
-    return createRegisteredWorkspaceAuthorization(
-      db,
-      lease.workspaceId,
-      input.runtimeId,
-      createdAt,
-      input.label ?? "Daemon workspace browser access",
-    );
   });
 }
 
@@ -749,16 +731,20 @@ function rotateRuntimeTokenInTransaction(
     .prepare(
       `SELECT id,
               scopes_json AS scopesJson,
+              bootstrap_kind AS bootstrapKind,
+              bootstrap_id AS bootstrapId,
               expires_at AS expiresAt,
               revoked_at AS revokedAt
-       FROM runtime_tokens
-       WHERE runtime_id = ? AND token_hash = ?
+       FROM daemon_credentials
+       WHERE runtime_id = ? AND token_hash = ? AND kind = 'refresh'
        LIMIT 1`,
     )
     .get(runtimeId, hashSecret(refreshTokenValue)) as
     | {
         id: string;
         scopesJson: string;
+        bootstrapKind: "enrollment" | "device" | null;
+        bootstrapId: string | null;
         expiresAt: string | null;
         revokedAt: string | null;
       }
@@ -766,9 +752,13 @@ function rotateRuntimeTokenInTransaction(
 
   validateRuntimeRefreshToken(refreshToken, refreshedAt);
   const grantScopes = parseScopes(refreshToken.scopesJson);
+  const bootstrap: DaemonCredentialBootstrap =
+    refreshToken.bootstrapKind && refreshToken.bootstrapId
+      ? { kind: refreshToken.bootstrapKind, id: refreshToken.bootstrapId }
+      : null;
   const credentials = createRuntimeCredentials(refreshedAt);
   const consumed = db
-    .prepare("UPDATE runtime_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+    .prepare("UPDATE daemon_credentials SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
     .run(refreshedAt, refreshToken.id);
   if (consumed.changes !== 1) {
     throw new RuntimeTokenRefreshError(
@@ -777,19 +767,25 @@ function rotateRuntimeTokenInTransaction(
     );
   }
   revokeActiveRuntimeAccessTokens(db, runtimeId, refreshedAt);
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "access",
     token: credentials.runtimeToken,
     label: "runtime access token",
     scopes: runtimeAccessScopesFromGrant(grantScopes),
+    bootstrap,
+    rotatedFromId: refreshToken.id,
     createdAt: refreshedAt,
     expiresAt: credentials.runtimeTokenExpiresAt,
   });
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "refresh",
     token: credentials.refreshToken,
     label: "runtime refresh token",
     scopes: runtimeRefreshScopesFromGrant(grantScopes),
+    bootstrap,
+    rotatedFromId: refreshToken.id,
     createdAt: refreshedAt,
     expiresAt: credentials.refreshTokenExpiresAt,
   });
@@ -864,14 +860,16 @@ function consumeRuntimeEnrollmentToken(
   }
 
   const scopes = parseScopes(enrollment.scopesJson);
-  if (!scopes.includes("workspace:register")) {
+  const isDaemonGrant = scopes.includes(runtimeDaemonAttachScope);
+  const isWorkspaceGrant = scopes.includes(runtimeWorkspaceRegisterScope);
+  if (!isDaemonGrant && !isWorkspaceGrant) {
     throw new RuntimeEnrollmentError(
-      "Workspace registration token does not grant workspace registration.",
+      "Workspace registration token does not grant registration or daemon attachment.",
       "WORKSPACE_REGISTRATION_TOKEN_SCOPE_INVALID",
     );
   }
 
-  return { ...enrollment, scopes };
+  return { ...enrollment, scopes, isDaemonGrant };
 }
 
 function createRuntimeCredentials(nowIso: string) {
@@ -896,6 +894,10 @@ function registerRuntimeInTransaction(
   runtimeId: string,
   request: RuntimeRegistrationRequest,
   grantScopes: string[],
+  /** Scopes of the enrollment credential that authorized this daemon binding. */
+  enrollmentScopes: string[],
+  /** Bootstrap exchange (enrollment token or device authorization) that issued this credential family. */
+  bootstrap: DaemonCredentialBootstrap,
   workspaceGrant: RuntimeWorkspaceGrant,
   preparedWorkspace: PreparedWorkspaceRegistration | undefined,
   now: string,
@@ -908,21 +910,23 @@ function registerRuntimeInTransaction(
   if (existing) {
     db.prepare(
       `UPDATE runtime_connections
-       SET name = ?, protocol_version = ?, capabilities_json = ?, labels_json = ?, updated_at = ?
+       SET name = ?, protocol_version = ?, capabilities_json = ?, labels_json = ?,
+           enrollment_scopes_json = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       request.displayName,
       runtimeProtocolVersion,
       JSON.stringify({ supportedFeatures: request.supportedFeatures }),
       JSON.stringify(request.labels),
+      JSON.stringify(enrollmentScopes),
       now,
       runtimeId,
     );
   } else {
     db.prepare(
       `INSERT INTO runtime_connections
-        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
-       VALUES (?, ?, ?, 'offline', ?, ?, ?, ?, ?)`,
+        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, enrollment_scopes_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'offline', ?, ?, ?, ?, ?, ?)`,
     ).run(
       runtimeId,
       request.installationId,
@@ -930,25 +934,33 @@ function registerRuntimeInTransaction(
       runtimeProtocolVersion,
       JSON.stringify({ supportedFeatures: request.supportedFeatures }),
       JSON.stringify(request.labels),
+      JSON.stringify(enrollmentScopes),
       now,
       now,
     );
+    // A newly registered daemon becomes reachable to every active Hub owner
+    // through an explicit user-daemon grant.
+    grantDaemonToActiveOwners(db, { runtimeId, createdAt: now });
   }
 
   revokeActiveRuntimeTokens(db, runtimeId, now);
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "access",
     token: credentials.runtimeToken,
     label: "runtime access token",
     scopes: runtimeAccessScopesFromGrant(grantScopes),
+    bootstrap,
     createdAt: now,
     expiresAt: credentials.runtimeTokenExpiresAt,
   });
-  insertRuntimeToken(db, {
+  insertDaemonCredential(db, {
     runtimeId,
+    kind: "refresh",
     token: credentials.refreshToken,
     label: "runtime refresh token",
     scopes: runtimeRefreshScopesFromGrant(grantScopes),
+    bootstrap,
     createdAt: now,
     expiresAt: credentials.refreshTokenExpiresAt,
   });
@@ -960,36 +972,11 @@ function registerRuntimeInTransaction(
     preparedWorkspace,
     now,
   );
-  const workspaceAuthorization = workspaceBinding
-    ? createRegisteredWorkspaceAuthorization(db, workspaceBinding.workspaceId, runtimeId, now)
-    : undefined;
   return {
     runtimeId,
     ...credentials,
     registeredAt: now,
     ...(workspaceBinding ? { workspaceBinding } : {}),
-    ...(workspaceAuthorization ? { workspaceAuthorization } : {}),
-  };
-}
-
-function createRegisteredWorkspaceAuthorization(
-  db: DatabaseSync,
-  workspaceId: string,
-  runtimeId: string,
-  createdAt: string,
-  label = "Daemon workspace registration",
-): RegisteredWorkspaceAuthorization {
-  const authorization = createWorkspaceAccessToken(db, {
-    workspaceId,
-    createdByRuntimeId: runtimeId,
-    label,
-    createdAt,
-  });
-  return {
-    workspaceId: authorization.workspaceId,
-    workspaceSlug: authorization.workspaceSlug,
-    oneTimeToken: authorization.token,
-    expiresAt: authorization.expiresAt,
   };
 }
 
@@ -1003,6 +990,11 @@ interface RuntimeWorkspaceGrant {
 }
 
 function workspaceGrantFromEnrollment(enrollment: RuntimeEnrollmentRow): RuntimeWorkspaceGrant {
+  // A daemon-scoped enrollment authorizes the daemon installation, not a
+  // specific workspace; its grant carries no workspace fields.
+  if (enrollment.isDaemonGrant) {
+    return emptyWorkspaceGrant();
+  }
   return {
     enrollmentTokenId: enrollment.id,
     workspaceId: enrollment.workspaceId,
@@ -1579,27 +1571,36 @@ function slugify(value: string): string {
   return asciiSlug(value, { fallback: "workspace" });
 }
 
-function insertRuntimeToken(
+type DaemonCredentialBootstrap = { kind: "enrollment" | "device"; id: string } | null;
+
+function insertDaemonCredential(
   db: DatabaseSync,
   input: {
     runtimeId: string;
+    kind: "access" | "refresh";
     token: string;
     label: string;
     scopes: string[];
+    bootstrap?: DaemonCredentialBootstrap;
+    rotatedFromId?: string | null;
     createdAt: string;
     expiresAt: string;
   },
 ): void {
   db.prepare(
-    `INSERT INTO runtime_tokens
-      (id, runtime_id, token_hash, label, scopes_json, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO daemon_credentials
+      (id, family, kind, runtime_id, token_hash, label, scopes_json, bootstrap_kind, bootstrap_id, rotated_from_id, created_at, expires_at)
+     VALUES (?, 'hub-daemon', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    createId("rttok"),
+    createId("rtdc"),
+    input.kind,
     input.runtimeId,
     hashSecret(input.token),
     input.label,
     JSON.stringify(input.scopes),
+    input.bootstrap?.kind ?? null,
+    input.bootstrap?.id ?? null,
+    input.rotatedFromId ?? null,
     input.createdAt,
     input.expiresAt,
   );
@@ -1607,7 +1608,7 @@ function insertRuntimeToken(
 
 function revokeActiveRuntimeTokens(db: DatabaseSync, runtimeId: string, revokedAt: string): void {
   db.prepare(
-    `UPDATE runtime_tokens
+    `UPDATE daemon_credentials
      SET revoked_at = ?
      WHERE runtime_id = ? AND revoked_at IS NULL`,
   ).run(revokedAt, runtimeId);
@@ -1619,11 +1620,11 @@ function revokeActiveRuntimeAccessTokens(
   revokedAt: string,
 ): void {
   db.prepare(
-    `UPDATE runtime_tokens
+    `UPDATE daemon_credentials
      SET revoked_at = ?
      WHERE runtime_id = ?
-       AND revoked_at IS NULL
-      AND scopes_json LIKE '%runtime:connect%'`,
+       AND kind = 'access'
+       AND revoked_at IS NULL`,
   ).run(revokedAt, runtimeId);
 }
 
@@ -1646,8 +1647,8 @@ function authenticateRuntimeAccessToken(
       `SELECT scopes_json AS scopesJson,
               expires_at AS expiresAt,
               revoked_at AS revokedAt
-       FROM runtime_tokens
-       WHERE runtime_id = ? AND token_hash = ?
+       FROM daemon_credentials
+       WHERE runtime_id = ? AND token_hash = ? AND kind = 'access'
        LIMIT 1`,
     )
     .get(runtimeId, hashSecret(runtimeToken)) as

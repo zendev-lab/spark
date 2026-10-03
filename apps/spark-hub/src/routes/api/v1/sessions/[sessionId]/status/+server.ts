@@ -15,14 +15,14 @@ import type { RequestHandler } from "./$types";
  * probe cannot hang on a live `session.get`. Fall back to the owner only when
  * the projection is missing or still reports running.
  */
-export const GET: RequestHandler = async ({ locals, params }) => {
+export const GET: RequestHandler = async ({ params }) => {
   const projected = getProjectedManagedSessionForHub(params.sessionId);
   const session =
     projected && projected.activity !== "running"
       ? projected
       : ((await getManagedSessionForHub(params.sessionId)) ?? projected);
   const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-  if (session && (!workspaceId || (locals?.workspaceId && locals.workspaceId !== workspaceId))) {
+  if (session && !workspaceId) {
     return json({ error: "session_not_found" }, { status: 404 });
   }
   if (!session) {

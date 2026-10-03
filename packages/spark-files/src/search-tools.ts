@@ -11,7 +11,7 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, relative, sep } from "node:path";
 import { Type } from "typebox";
 import { minimatch } from "minimatch";
-import type { ToolConfig, ToolPolicy } from "@zendev-lab/spark-core";
+import type { ToolConfig, ToolPolicy } from "@zendev-lab/spark-invocation";
 
 import { walkTree } from "./gitignore-walker.ts";
 import {
@@ -36,7 +36,6 @@ const FILE_SEARCH_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["files", "search"],
-  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 

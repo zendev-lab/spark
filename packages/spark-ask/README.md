@@ -1,6 +1,6 @@
 # @zendev-lab/spark-ask
 
-Structured human-input primitives for Spark extension hosts. The package is host-neutral and exposes one public action tool:
+Structured human-input primitives for Spark host adapters. The package is host-neutral and exposes one public action tool:
 
 - `action: "ask"` for structured questions;
 - `action: "flow"` when the fullscreen multi-question renderer is required.

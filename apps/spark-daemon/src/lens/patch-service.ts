@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 import {
   atomicReplaceTextFiles,
@@ -33,7 +33,7 @@ interface VerificationResult {
   evidenceRef?: `evidence:${string}`;
 }
 
-export interface DaemonLensPatchServiceOptions {
+interface DaemonLensPatchServiceOptions {
   store: DaemonLensPatchStore;
   verifyOverlay: (input: {
     overlayRoot: string;
@@ -204,7 +204,6 @@ export class DaemonLensPatchService {
       }
     }
     const record = { ...input, updatedAt: new Date().toISOString() };
-    this.#store.saveDisposition(workspaceRoot, record);
     return record;
   }
 }
@@ -308,9 +307,9 @@ async function materializeOverlay(
   await cp(sourceRoot, overlayRoot, {
     recursive: true,
     filter(source) {
-      const path = relative(sourceRoot, source).replaceAll("\\", "/");
+      const path = relative(sourceRoot, source);
       if (!path) return true;
-      const parts = path.split("/");
+      const parts = path.split(sep);
       if (parts.includes(".git") || parts.includes(".spark")) return false;
       return path !== "node_modules";
     },
@@ -346,7 +345,7 @@ function workspacePath(workspaceRoot: string, path: string): string {
   const root = resolve(workspaceRoot);
   const absolute = resolve(root, path);
   const relation = relative(root, absolute);
-  if (relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+  if (relation === ".." || relation.startsWith(`..${sep}`)) {
     throw new Error(`patch path escapes workspace: ${path}`);
   }
   return absolute;

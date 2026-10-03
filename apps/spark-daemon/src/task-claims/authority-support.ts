@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { DatabaseSync } from "node:sqlite";
-import type { Task } from "@zendev-lab/spark-core";
+import { type Task } from "@zendev-lab/spark-tasks";
 import type { SparkLocalRpcParsedInput } from "@zendev-lab/spark-protocol";
 import type { SparkTaskClaimMutationResult } from "@zendev-lab/spark-protocol/task-claim";
 import {
@@ -50,19 +50,41 @@ export function mainClaimSessionId(task: Task): string | undefined {
   return task.claim.sessionId ?? task.claim.claimedBy;
 }
 
+export function taskClaimSessionId(task: Task): string | undefined {
+  return task.claim?.sessionId ?? task.claim?.claimedBy;
+}
+
+/** Connected interactive client session ids for a workspace (fenced rows only). */
+export function interactiveConnectedSessionIds(
+  db: DatabaseSync,
+  workspaceId: string,
+  now: string,
+): string[] {
+  return listWorkspaceClients(db, workspaceId, now)
+    .filter(
+      (client) =>
+        client.kind === "interactive" && client.status === "connected" && Boolean(client.sessionId),
+    )
+    .map((client) => client.sessionId!);
+}
+
+/** True when a fenced interactive client is connected for the session. */
+export function isWorkspaceSessionLive(
+  db: DatabaseSync,
+  workspaceId: string,
+  sessionId: string,
+  now: string,
+): boolean {
+  return interactiveConnectedSessionIds(db, workspaceId, now).includes(sessionId);
+}
+
 export function assertPreviousSessionInactive(
   db: DatabaseSync,
   workspaceId: string,
   previousSessionId: string,
   now: string,
 ): void {
-  const fresh = listWorkspaceClients(db, workspaceId, now).some(
-    (client) =>
-      client.kind === "interactive" &&
-      client.status === "connected" &&
-      client.sessionId === previousSessionId,
-  );
-  if (fresh) {
+  if (isWorkspaceSessionLive(db, workspaceId, previousSessionId, now)) {
     throw new SparkDaemonControlError(
       "task_claim_recovery_refused",
       `Session ${previousSessionId} still has an active fenced client.`,

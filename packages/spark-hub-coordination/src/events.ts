@@ -34,14 +34,16 @@ export function loadEventBatch(
   db: DatabaseSync,
   cursor: EventCursor | null,
   limit = 50,
-  workspaceId?: string | null,
+  workspaceIds?: readonly string[] | null,
 ): EventRow[] {
-  const scopedToWorkspace = workspaceId !== undefined && workspaceId !== null;
+  const scoped = workspaceIds !== undefined && workspaceIds !== null;
+  if (scoped && workspaceIds.length === 0) return [];
+  const scope = scoped ? workspaceScopePredicate(workspaceIds) : null;
   if (cursor) {
     const sequence = cursor.sequence ?? eventSequenceForLegacyCursor(db, cursor);
     if (sequence !== null) {
-      const scopePredicate = scopedToWorkspace ? "workspace_id = ? AND " : "";
-      const parameters = scopedToWorkspace ? [workspaceId, sequence, limit] : [sequence, limit];
+      const scopePredicate = scope ? `${scope.predicate} AND ` : "";
+      const parameters = scope ? [...scope.parameters, sequence, limit] : [sequence, limit];
       return db
         .prepare(
           `SELECT id,
@@ -65,9 +67,9 @@ export function loadEventBatch(
 
     // Compatibility for a stale cursor whose event has since been removed.
     // New cursors always resolve to ingest_sequence above.
-    const scopePredicate = scopedToWorkspace ? "workspace_id = ? AND " : "";
-    const parameters = scopedToWorkspace
-      ? [workspaceId, cursor.createdAt, cursor.createdAt, cursor.id, limit]
+    const scopePredicate = scope ? `${scope.predicate} AND ` : "";
+    const parameters = scope
+      ? [...scope.parameters, cursor.createdAt, cursor.createdAt, cursor.id, limit]
       : [cursor.createdAt, cursor.createdAt, cursor.id, limit];
     return db
       .prepare(
@@ -90,8 +92,8 @@ export function loadEventBatch(
       .all(...parameters) as unknown as EventRow[];
   }
 
-  const scopePredicate = scopedToWorkspace ? "WHERE workspace_id = ?" : "";
-  const parameters = scopedToWorkspace ? [workspaceId, limit] : [limit];
+  const scopePredicate = scope ? `WHERE ${scope.predicate}` : "";
+  const parameters = scope ? [...scope.parameters, limit] : [limit];
   return db
     .prepare(
       `SELECT * FROM (
@@ -114,6 +116,14 @@ export function loadEventBatch(
        ORDER BY sequence ASC`,
     )
     .all(...parameters) as unknown as EventRow[];
+}
+
+function workspaceScopePredicate(workspaceIds: readonly string[]): {
+  predicate: string;
+  parameters: string[];
+} {
+  const placeholders = workspaceIds.map(() => "?").join(", ");
+  return { predicate: `workspace_id IN (${placeholders})`, parameters: [...workspaceIds] };
 }
 
 export function latestEventCursor(db: DatabaseSync): EventCursor | null {
@@ -160,7 +170,7 @@ export function cursorFromEvent(row: EventRow | SerializedEvent): EventCursor {
 export interface EventDrainOptions {
   batchSize?: number;
   maxBatches?: number;
-  workspaceId?: string | null;
+  workspaceIds?: readonly string[] | null;
 }
 
 export interface EventDrainResult {
@@ -183,7 +193,7 @@ export function drainEventBatches(
   let lastBatchSize = 0;
 
   for (let index = 0; index < maxBatches; index += 1) {
-    const batch = loadEventBatch(db, nextCursor, batchSize, options.workspaceId);
+    const batch = loadEventBatch(db, nextCursor, batchSize, options.workspaceIds);
     lastBatchSize = batch.length;
     if (batch.length === 0) break;
     rows.push(...batch);

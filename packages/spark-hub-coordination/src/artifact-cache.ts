@@ -3,7 +3,7 @@ import { dirname, extname, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { createId } from "@zendev-lab/spark-protocol";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths } from "@zendev-lab/spark-platform-node";
 
 /**
  * Maximum body size the server is willing to materialize as an inline preview
