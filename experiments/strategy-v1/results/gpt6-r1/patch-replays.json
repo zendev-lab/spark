@@ -1,0 +1,451 @@
+{
+  "schema": "spark.strategy-replays/v1",
+  "modelCalls": 0,
+  "replays": [
+    {
+      "id": "holdout-cross-realm-baseline-r1",
+      "matchesRecordedAcceptance": true,
+      "acceptance": {
+        "bundleDigest": "41a67fdc958be2afe334db1004ccf4b3914a120c4e2fe0156d3912773b200790",
+        "passed": true,
+        "cases": [
+          {
+            "id": "local-native",
+            "passed": true,
+            "expected": true,
+            "actual": true,
+            "durationMs": 35,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "true",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "remote-native",
+            "passed": true,
+            "expected": true,
+            "actual": true,
+            "durationMs": 32,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "true",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "forged-object",
+            "passed": true,
+            "expected": false,
+            "actual": false,
+            "durationMs": 32,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "false",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "wrong-native-type",
+            "passed": true,
+            "expected": false,
+            "actual": false,
+            "durationMs": 32,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "false",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "similar-message",
+            "passed": true,
+            "expected": false,
+            "actual": false,
+            "durationMs": 36,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "false",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "unrelated-message",
+            "passed": true,
+            "expected": false,
+            "actual": false,
+            "durationMs": 37,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "false",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "throwing-getter",
+            "passed": true,
+            "expected": false,
+            "actual": false,
+            "durationMs": 34,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "false",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "null",
+            "passed": true,
+            "expected": false,
+            "actual": false,
+            "durationMs": 32,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "false",
+              "stderr": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "holdout-sqlite-scope-candidate-1-r1",
+      "matchesRecordedAcceptance": true,
+      "acceptance": {
+        "bundleDigest": "9048393c6c75c2612028b5c68382ee30ba4a2f79f517348240a40060275e633c",
+        "passed": true,
+        "cases": [
+          {
+            "id": "shared-memory",
+            "passed": true,
+            "expected": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -2000,
+              "hardHeapLimit": 0,
+              "softHeapLimit": 0,
+              "tempStore": 0
+            },
+            "actual": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -2000,
+              "hardHeapLimit": 0,
+              "softHeapLimit": 0,
+              "tempStore": 0
+            },
+            "durationMs": 33,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "{\"foreignKeys\":1,\"busyTimeout\":5000,\"cacheSize\":-2000,\"hardHeapLimit\":0,\"softHeapLimit\":0,\"tempStore\":0}",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "explicit-daemon",
+            "passed": true,
+            "expected": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -262144,
+              "hardHeapLimit": 402653184,
+              "softHeapLimit": 268435456,
+              "tempStore": 1
+            },
+            "actual": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -262144,
+              "hardHeapLimit": 402653184,
+              "softHeapLimit": 268435456,
+              "tempStore": 1
+            },
+            "durationMs": 33,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "{\"foreignKeys\":1,\"busyTimeout\":5000,\"cacheSize\":-262144,\"hardHeapLimit\":402653184,\"softHeapLimit\":268435456,\"tempStore\":1}",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "shared-file",
+            "passed": true,
+            "expected": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -2000,
+              "hardHeapLimit": 0,
+              "softHeapLimit": 0,
+              "tempStore": 0,
+              "autoVacuum": 0
+            },
+            "actual": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -2000,
+              "hardHeapLimit": 0,
+              "softHeapLimit": 0,
+              "tempStore": 0,
+              "autoVacuum": 0
+            },
+            "durationMs": 34,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "{\"foreignKeys\":1,\"busyTimeout\":5000,\"cacheSize\":-2000,\"hardHeapLimit\":0,\"softHeapLimit\":0,\"tempStore\":0,\"autoVacuum\":0}",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "incremental-shared",
+            "passed": true,
+            "expected": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -2000,
+              "hardHeapLimit": 0,
+              "softHeapLimit": 0,
+              "tempStore": 0,
+              "autoVacuum": 2
+            },
+            "actual": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -2000,
+              "hardHeapLimit": 0,
+              "softHeapLimit": 0,
+              "tempStore": 0,
+              "autoVacuum": 2
+            },
+            "durationMs": 32,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "{\"foreignKeys\":1,\"busyTimeout\":5000,\"cacheSize\":-2000,\"hardHeapLimit\":0,\"softHeapLimit\":0,\"tempStore\":0,\"autoVacuum\":2}",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "incremental-daemon",
+            "passed": true,
+            "expected": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -262144,
+              "hardHeapLimit": 402653184,
+              "softHeapLimit": 268435456,
+              "tempStore": 1,
+              "autoVacuum": 2
+            },
+            "actual": {
+              "foreignKeys": 1,
+              "busyTimeout": 5000,
+              "cacheSize": -262144,
+              "hardHeapLimit": 402653184,
+              "softHeapLimit": 268435456,
+              "tempStore": 1,
+              "autoVacuum": 2
+            },
+            "durationMs": 32,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "{\"foreignKeys\":1,\"busyTimeout\":5000,\"cacheSize\":-262144,\"hardHeapLimit\":402653184,\"softHeapLimit\":268435456,\"tempStore\":1,\"autoVacuum\":2}",
+              "stderr": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "holdout-terminal-width-baseline-r1",
+      "matchesRecordedAcceptance": true,
+      "acceptance": {
+        "bundleDigest": "dcdf5886685bd368c6361f1b8f800d8218e46bb515135993ddabdc4c20fb2af3",
+        "passed": false,
+        "cases": [
+          {
+            "id": "ascii",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "abcd…",
+              "ansi": false
+            },
+            "actual": ["abcd\u001b[0m…\u001b[0m"],
+            "durationMs": 44,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"abcd\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "chinese",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "中文…",
+              "ansi": false
+            },
+            "actual": ["中文\u001b[0m…\u001b[0m"],
+            "durationMs": 45,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"中文\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "ansi-chinese",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "中文…",
+              "ansi": true
+            },
+            "actual": ["\u001b[1m中文\u001b[0m…\u001b[0m"],
+            "durationMs": 48,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"\\u001b[1m中文\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "fits",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "hello",
+              "ansi": false
+            },
+            "actual": ["hello"],
+            "durationMs": 48,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"hello\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "narrow",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "…",
+              "ansi": false
+            },
+            "actual": ["\u001b[0m…\u001b[0m"],
+            "durationMs": 45,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "zero-clamped",
+            "passed": false,
+            "expected": {
+              "assertion": "render",
+              "plain": "…",
+              "ansi": false
+            },
+            "actual": [""],
+            "durationMs": 47,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "mixed",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "ab中…",
+              "ansi": false
+            },
+            "actual": ["ab中\u001b[0m…\u001b[0m"],
+            "durationMs": 46,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"ab中\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "emoji",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "😀😀…",
+              "ansi": false
+            },
+            "actual": ["😀😀\u001b[0m…\u001b[0m"],
+            "durationMs": 53,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"😀😀\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "combining",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "éco…",
+              "ansi": false
+            },
+            "actual": ["éco\u001b[0m…\u001b[0m"],
+            "durationMs": 43,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"éco\\u001b[0m…\\u001b[0m\"]",
+              "stderr": ""
+            }
+          },
+          {
+            "id": "empty",
+            "passed": true,
+            "expected": {
+              "assertion": "render",
+              "plain": "",
+              "ansi": false
+            },
+            "actual": [""],
+            "durationMs": 41,
+            "process": {
+              "code": 0,
+              "signal": null,
+              "stdout": "[\"\"]",
+              "stderr": ""
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

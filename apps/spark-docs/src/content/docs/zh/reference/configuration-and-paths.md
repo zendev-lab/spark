@@ -12,6 +12,13 @@ spark paths --json
 
 这些命令只检查有效路径，不会创建文件。
 
+## 默认模型
+
+新建模型选择默认使用 `openai-codex/gpt-6-astra`（GPT-6 Astra），需要先在 Settings
+中配置 OpenAI Codex OAuth。显式设置的默认模型或 Session 模型仍然优先。Native host
+和模型设置使用同一条默认选择规则；Role 与子 Session 没有显式覆盖时，继续继承所属
+Session 的模型。
+
 ## 自包含的 SPARK_HOME
 
 需要一个显式根目录时设置 `SPARK_HOME`：
