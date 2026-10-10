@@ -22,7 +22,7 @@
     "test:browser": "vp test run --config vitest.browser.config.ts"
   },
   "dependencies": {
-    "@sveltejs/adapter-node": "^5.3.1",
+    "@sveltejs/adapter-node": "^6.0.0",
     "@sveltejs/kit": "^2.28.0",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-i18n": "workspace:*",
