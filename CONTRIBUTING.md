@@ -42,17 +42,17 @@ supported packages.
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
-| `.agents/notes/contracts` | Normative architecture and behavior contracts for implementers |
-| `.agents/notes/runbooks` | Maintainer-only procedures and validation runbooks |
-| `.agents/notes/decisions` | Dated engineering decisions and durable rationale |
+| `docs/contracts` | Normative architecture and behavior contracts for implementers |
+| `docs/runbooks` | Maintainer-only procedures and validation runbooks |
+| `docs/decisions` | Dated engineering decisions and durable rationale |
 | `.agents/{roles,skills,workflows}` | Versioned agent identities, task procedures, and orchestration |
 | `test` | Root integration and cross-package behavior tests |
 | `scripts` | Repository checks, packaging, migration, and validation tooling |
 
 For the current package dependency model, read
-[`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md).
+[`docs/contracts/package-architecture.md`](./docs/contracts/package-architecture.md).
 For command and state ownership, read
-[`.agents/notes/contracts/command-planes.md`](./.agents/notes/contracts/command-planes.md).
+[`docs/contracts/command-planes.md`](./docs/contracts/command-planes.md).
 
 ## Choose the owner before changing code
 
@@ -115,7 +115,7 @@ the change:
 | Architecture exception non-growth against a Git revision | `pnpm run check:architecture-transition -- --base-ref <git-ref>` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
 | Write the gitignored architecture health JSON | `pnpm run report:architecture` |
-| Packed public product and clean installation (requires the [native release payloads](./.agents/notes/runbooks/releases.md#local-artifact-and-smoke-reproduction)) | `pnpm run smoke` |
+| Packed public product and clean installation (requires the [native release payloads](./docs/runbooks/releases.md#local-artifact-and-smoke-reproduction)) | `pnpm run smoke` |
 | Release tarballs and manifests (same native prerequisite) | `pnpm run release:pack` |
 | High and critical dependency advisories | `pnpm run audit` |
 | Advisory hygiene reports | `pnpm run report:hygiene` |
@@ -144,7 +144,7 @@ anything that could not be executed.
   itself part of the contract.
 
 More detailed test ownership and golden-file policy live in
-[`.agents/notes/contracts/test-architecture.md`](./.agents/notes/contracts/test-architecture.md).
+[`docs/contracts/test-architecture.md`](./docs/contracts/test-architecture.md).
 
 ## Architecture changes
 
@@ -184,9 +184,9 @@ name:
 
 ```text
 apps/spark-docs              → How do I use Spark?
-.agents/notes/contracts      → What must Spark guarantee?
-.agents/notes/runbooks       → How do maintainers validate, migrate, deploy, or release it?
-.agents/notes/decisions      → Why did this dated engineering decision change?
+docs/contracts               → What must Spark guarantee?
+docs/runbooks                → How do maintainers validate, migrate, deploy, or release it?
+docs/decisions               → Why did this dated engineering decision change?
 ```
 
 | Document | Owns |
@@ -196,9 +196,9 @@ apps/spark-docs              → How do I use Spark?
 | `AGENTS.md` | Stable repository-wide constraints for coding agents |
 | `SPARK.md` | Project intent, goals, non-goals, open questions, and current direction |
 | `apps/spark-docs` | Public installation, workflows, command/tool references, user-visible configuration/paths, client setup, and troubleshooting |
-| `.agents/notes/contracts` | Normative ownership, state-machine, protocol, persistence, and compatibility invariants |
-| `.agents/notes/runbooks` | Maintainer procedures, release/deployment gates, migration execution, incident handling, and validation runbooks |
-| `.agents/notes/decisions` | Dated engineering decisions and their durable rationale |
+| `docs/contracts` | Normative ownership, state-machine, protocol, persistence, and compatibility invariants |
+| `docs/runbooks` | Maintainer procedures, release/deployment gates, migration execution, incident handling, and validation runbooks |
+| `docs/decisions` | Dated engineering decisions and their durable rationale |
 | `.agents/AGENTS.md` | Agent knowledge classification and progressive-disclosure rules |
 | Package READMEs | Package-local purpose, API, and implementation guidance |
 
@@ -221,7 +221,7 @@ contract, or operation that owns the behavior.
 
 Pull-request sequencing, issue status, delivery notes, completed-work recaps,
 and active backlogs belong in the PR, issue tracker, or Spark runtime state—not
-in Agent Notes or package READMEs. Dated decisions retain only durable rationale;
+in `docs/` or package READMEs. Dated decisions retain only durable rationale;
 unresolved project-level direction remains in `SPARK.md`.
 
 Local timings, mutation scores, current readiness output, and other run results

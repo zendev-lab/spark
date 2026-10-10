@@ -35,7 +35,7 @@ For contributors, the source topology stays compact by family:
 | `spark-protocol`, `spark-invocation`, `spark-task-runtime`, `spark-platform-node`, `spark-text-rendering` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
 
-Contributors can inspect `.agents/notes/contracts/package-architecture.md` for dependency
+Contributors can inspect `docs/contracts/package-architecture.md` for dependency
 rules and `architecture/packages.json` for the exhaustive owner/stability
 inventory. Ordinary users do not need to learn individual workspace packages.
 

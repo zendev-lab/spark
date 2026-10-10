@@ -48,9 +48,9 @@ Removal of `apps/spark-web-dsh`, its CLI route, build/updater inventory, and
 architecture entry was approved explicitly by the repository owner on
 2026-09-04 ("spark-web-dsh 可以全量移除了，我们现在全力做原生 spark-web
 (dsh内核）"), satisfying the manual-approval clause of the
-[2026-08-23 replacement decision](../../.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md);
+[2026-08-23 replacement decision](../../docs/decisions/2026-08-23-web-replacement-and-package-normalization.md);
 see
-[2026-09-04 retire-spark-web-dsh](../../.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md).
+[2026-09-04 retire-spark-web-dsh](../../docs/decisions/2026-09-04-retire-spark-web-dsh.md).
 The rows marked `dropped` above are Web-DSH-only surfaces consciously retired
 with the application rather than reimplemented for native Web. Removal never
 deletes user DSH profiles or Session data: `~/.dsh` profiles and presets on

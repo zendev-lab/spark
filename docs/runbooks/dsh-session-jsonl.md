@@ -6,7 +6,7 @@ there is no sidecar.
 
 Authoritative policy, codec ownership, and rollback:
 
-[`.agents/notes/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md)
+[`docs/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md)
 
 Do not treat restoring SQLite as a transcript rollback. Invocation data stays
 in SQLite; transcripts live under the session JSONL tree.

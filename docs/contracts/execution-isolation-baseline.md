@@ -26,7 +26,7 @@ and local child processes. It does not read the real daemon database, credential
 or remote services. Reports are intentionally not committed because timestamps, RSS, PIDs, and
 latency vary by machine. RSS is a whole-source-process observation across sequential fixtures, not
 an isolated per-fixture allocation or leak measurement. The schema is
-[`test/process/execution-isolation-baseline.schema.json`](../../../test/process/execution-isolation-baseline.schema.json).
+[`test/process/execution-isolation-baseline.schema.json`](../../test/process/execution-isolation-baseline.schema.json).
 
 ## Fixtures and interpretation
 
