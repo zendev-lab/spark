@@ -15,7 +15,7 @@ Source development requires:
 - Git.
 
 `pnpm install` runs the `prepare` script and installs the `prek` commit hooks.
-Run `prek install-hooks` when hooks are missing from an existing checkout.
+Run `prek install` when Git hooks are missing from an existing checkout.
 
 ## Setup
 

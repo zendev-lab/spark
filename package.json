@@ -74,7 +74,7 @@
     "audit": "pnpm audit --registry=https://registry.npmjs.org/ --audit-level high",
     "report:architecture": "node scripts/check-architecture-governance.mjs --write",
     "report:hygiene": "node scripts/report-hygiene.mjs",
-    "prepare": "prek install --hook-type commit-msg --hook-type pre-commit"
+    "prepare": "prek install"
   },
   "dependencies": {
     "@zendev-lab/dsh-channel-transports": "workspace:^",
