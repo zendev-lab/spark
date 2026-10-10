@@ -9,7 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootAgentsPath = join(repositoryRoot, "AGENTS.md");
 const agentsRoot = join(repositoryRoot, ".agents");
 const notesRoot = join(repositoryRoot, ".agents", "notes");
-const allowedNoteHomes = new Set(["contracts", "decisions", "runbooks"]);
+const allowedNoteHomes = new Set(["plans", "qa", "research", "reviews", "validation"]);
 const activeSourceExtensions = new Set([
   ".js",
   ".json",
@@ -35,6 +35,7 @@ async function main() {
   await checkAgentsBudgets(files, failures);
   await checkAgentsIndependence(files, failures);
   checkNoteHomes(files, failures);
+  await checkFormalDocsAvoidNotes(files, failures);
   await checkRoutingDescriptions(files, failures);
   await checkMarkdownLinks(files, failures);
   await checkRetiredPaths(files, failures);
@@ -64,6 +65,7 @@ async function checkAgentsIndependence(files, failures) {
       const path = localMarkdownPath(destination);
       if (!path) continue;
       const target = resolve(dirname(file), path);
+      if (target === notesRoot || isWithin(target, notesRoot)) continue;
       if (target === agentsRoot || isWithin(target, agentsRoot)) {
         failures.push(
           `${repositoryPath(file)} must not depend on agent asset ${destination}; standing orders are self-contained.`,
@@ -87,9 +89,34 @@ async function checkAgentsBudgets(files, failures) {
 function checkNoteHomes(files, failures) {
   for (const file of files.filter((candidate) => isWithin(candidate, notesRoot))) {
     const parts = relative(notesRoot, file).split(sep);
+    if (parts.length === 1 && parts[0] === "README.md") continue;
     if (parts.length < 2 || !allowedNoteHomes.has(parts[0])) {
       failures.push(
-        `${repositoryPath(file)} must live under .agents/notes/contracts, decisions, or runbooks.`,
+        `${repositoryPath(file)} must live under .agents/notes/{${[...allowedNoteHomes].join(",")}} or be its README.md.`,
+      );
+    }
+  }
+}
+
+// Formal documentation must not reference Notes; only AGENTS.md files and agent assets may.
+async function checkFormalDocsAvoidNotes(files, failures) {
+  const formalDocs = files.filter(
+    (file) =>
+      [".md", ".mdx"].includes(extname(file)) &&
+      !isWithin(file, agentsRoot) &&
+      !file.endsWith(`${sep}AGENTS.md`),
+  );
+  for (const file of formalDocs) {
+    const text = await readFile(file, "utf8");
+    const linksIntoNotes = markdownDestinations(text).some((destination) => {
+      const path = localMarkdownPath(destination);
+      if (!path) return false;
+      const target = resolve(dirname(file), path);
+      return target === notesRoot || isWithin(target, notesRoot);
+    });
+    if (linksIntoNotes || text.includes(".agents/notes")) {
+      failures.push(
+        `${repositoryPath(file)} is formal documentation and must not reference .agents/notes.`,
       );
     }
   }

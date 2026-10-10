@@ -4,7 +4,7 @@ Spark package boundaries follow execution ownership, state ownership, and
 adapter/runtime placement. They do not follow file count alone.
 
 The machine-readable source of truth is
-[`../../architecture/packages.json`](../../../architecture/packages.json). Every
+[`../../architecture/packages.json`](../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and `stateWriter`. The same
 inventory owns the layer matrix, exact temporary
 exceptions, Pi manifest ownership, workspace-count policy, and expected composition

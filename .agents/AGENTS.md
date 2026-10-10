@@ -5,7 +5,8 @@ This subtree contains versioned project assets for coding agents. Keep machine-l
 ## One home per fact
 
 - Put stable automatically applied constraints in the nearest `AGENTS.md`.
-- Put internal contracts, dated decisions, and runbooks in `notes/`; Notes are read on demand and are never runtime-loaded context.
+- Put internal contracts, dated decisions, and runbooks in `docs/contracts`, `docs/decisions`, and `docs/runbooks`; they are formal documentation.
+- Put working notes (research, plans, reviews, acceptance and validation records) in `notes/`, indexed by `notes/README.md` when present. Notes are read on demand, never runtime-loaded context, and never a source of current truth.
 - Give each Role one responsibility. Its body contains only responsibility, authority, stop conditions, and output contract; bind reusable methods through ordered `skills`.
 - Put reusable task decision procedures in Skills. Every Role and Skill description starts with `Use when ...` so routing follows the same rule.
 - Put stage order, handoffs, parallel boundaries, rejection rules, and completion conditions in Workflows.
@@ -19,6 +20,9 @@ Root and subtree `AGENTS.md` files should stay short enough to apply on every ta
 
 Knowledge assets may cite repository standing orders. `AGENTS.md` files outside
 this subtree must not link back into this subtree or require its contents to
-interpret their standing orders.
+interpret their standing orders; a brief pointer to `notes/` is the only exception.
+Formal documentation (`docs/`, READMEs, `CONTRIBUTING.md`, `SPARK.md`, and
+`apps/spark-docs`) must not reference Notes. Notes may link to formal documentation;
+only `AGENTS.md`, Skills, and `notes/README.md` may point to Notes.
 
 Do not add lifecycle, supersession, or archive metadata to Notes without an explicit owner and enforced need. Do not modify archived public documentation unless the task targets an archive.

@@ -67,7 +67,7 @@ prompt items, outbox, views, Spark tool policy, approval, and mixed-batch
 sequential dispatch). `@deepseek-ai/dsh-agent-loop` is the low-level model/tool
 driver on the process-local Cordis root. Invocation durability and
 `SparkTurnResumeCheckpoint` stay in daemon SQLite; the AgentLoop Session log is
-not a second Invocation store. See [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../decisions/2026-08-20-dsh-cordis-composition.md).
+not a second Invocation store. See [`docs/decisions/2026-08-20-dsh-cordis-composition.md`](../decisions/2026-08-20-dsh-cordis-composition.md).
 
 Every agent submission terminates with a `SparkRunOutcome`: `completed`, `aborted`, or `failed`. The legacy `submit()` API returns its assistant envelope, while `submitWithOutcome()` and headless callers consume the explicit terminal status. `roundtrips` counts attempted model calls, including a one-call answer without tools, as an observability metric rather than a runtime limit. The loop has no roundtrip ceiling; explicit cancellation, execution deadlines, and provider/tool per-operation timeouts remain in force. Model-stream failures, aborts, and cancelled approval waits therefore cannot be mistaken for completion.
 

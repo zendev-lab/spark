@@ -8,7 +8,7 @@ This package is not the LLM abstraction owner. That role belongs to
 those adapters. Daemon product composition registers Invocation-scoped
 provider routes on the single daemon Cordis root, and the daemon agent runtime consumes
 the injected `LlmRuntime` through `dsh-agent-loop`. See
-[`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../../.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md).
+[`docs/decisions/2026-08-20-dsh-cordis-composition.md`](../../docs/decisions/2026-08-20-dsh-cordis-composition.md).
 `SparkProviderRegistry` remains the catalog/auth loader used to
 construct adapters; it is not the turn-loop injection point.
 

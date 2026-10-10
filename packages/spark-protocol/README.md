@@ -26,4 +26,4 @@ FIFO order across daemon restart.
 The shared conversation model projects the message-part wire schema into
 stateless rendering semantics. The package must not import terminal, Svelte, Pi
 SDK, `pi-tui`, or Spark application internals. See
-[`../../.agents/notes/contracts/turn.md`](../../.agents/notes/contracts/turn.md).
+[`../../docs/contracts/turn.md`](../../docs/contracts/turn.md).

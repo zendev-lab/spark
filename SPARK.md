@@ -19,7 +19,7 @@ updated: 2026-09-05
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。session TODO 延续由 daemon 内部产品组合的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - `/plan`、`/execute`、`/fleet` 是 daemon 在 turn 提交通道上解析的一次性命令：仅向当前 Invocation 注入工作意图指导，不改变工具集合、sandbox、审批、授权或 admission，不持久化，普通下一轮恢复中性。持久 Session mode 已整体废除；fleet 协调复用现有 TaskGraph、TaskRun、资源调度器与 Session Registry，worker 只消费 Task 已关联的 `git_change` worktree，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
-- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh`（DSH-hosted fallback 及其托管 `spark-standard` / `spark-ptc` preset）已经所有者明确批准全量退场，见 [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md)。
+- 让 `spark web` 成为以 daemon-wide Session tree / active Invocation 为首页的默认本地浏览器产品，Workspace 只作为执行上下文、分组与过滤信息；`spark web-dsh`（DSH-hosted fallback 及其托管 `spark-standard` / `spark-ptc` preset）已经所有者明确批准全量退场，见 [2026-09-04 退役决策](docs/decisions/2026-09-04-retire-spark-web-dsh.md)。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm-providers` 边界）。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 daemon 内部产品模块静态组合 Spark 策略与受支持的 DSH/Cordis 插件；不新增 `spark-base`、Spark extension 发现路径或 Spark-owned `package.json#pi`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
@@ -33,11 +33,11 @@ updated: 2026-09-05
 
 精确的包清单、层级、owner、稳定性和依赖方向以
 [`architecture/packages.json`](./architecture/packages.json) 为准；包创建、合并与依赖
-规则由 [`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md) 约束。
+规则由 [`docs/contracts/package-architecture.md`](./docs/contracts/package-architecture.md) 约束。
 
-- Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm-providers` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm-providers` 只作为 provider / `LlmAdapter` 实现族。Cordis 是 daemon 根、`dsh-llm` 小岛与 daemon 内部 agent runtime 的 process-local 组合运行时，不是 Spark Session；详见 [Cordis 生命周期决策](.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md)与 [daemon 产品组合决策](.agents/notes/decisions/2026-08-21-daemon-product-composition.md)。
+- Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm-providers` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm-providers` 只作为 provider / `LlmAdapter` 实现族。Cordis 是 daemon 根、`dsh-llm` 小岛与 daemon 内部 agent runtime 的 process-local 组合运行时，不是 Spark Session；详见 [Cordis 生命周期决策](docs/decisions/2026-08-20-dsh-cordis-composition.md)与 [daemon 产品组合决策](docs/decisions/2026-08-21-daemon-product-composition.md)。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。
-- `@zendev-lab/dsh-channel-transports` 是 daemon root 内的 Cordis transport/lifecycle 插件；Channel Session 是无需 Workspace 的 daemon-scoped root，私有 cwd 位于 daemon data root。Cordis 不接管 Registry、Invocation、outbox、retry、human wait 或 SQLite 权威；详见 [`.agents/notes/decisions/2026-08-21-daemon-global-channel-sessions.md`](.agents/notes/decisions/2026-08-21-daemon-global-channel-sessions.md)。
+- `@zendev-lab/dsh-channel-transports` 是 daemon root 内的 Cordis transport/lifecycle 插件；Channel Session 是无需 Workspace 的 daemon-scoped root，私有 cwd 位于 daemon data root。Cordis 不接管 Registry、Invocation、outbox、retry、human wait 或 SQLite 权威；详见 [`docs/decisions/2026-08-21-daemon-global-channel-sessions.md`](docs/decisions/2026-08-21-daemon-global-channel-sessions.md)。
 - 跨表面 schema 与语义进入 `spark-protocol`，传输层只校验和翻译。
 - `apps/spark-daemon/src/product` 是唯一产品组合实现；daemon workspace 是唯一组合根。
 
@@ -81,7 +81,7 @@ updated: 2026-09-05
 
 ## 当前方向
 
-- [Web 替代与包规范化决策](.agents/notes/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 已按 [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md) 全量退场；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
+- [Web 替代与包规范化决策](docs/decisions/2026-08-23-web-replacement-and-package-normalization.md) 已完成源码拓扑硬切：native Web 使用 daemon-wide Session / Invocation 主路径，Web DSH 已按 [2026-09-04 退役决策](docs/decisions/2026-09-04-retire-spark-web-dsh.md) 全量退场；owner 命名已经归一，过渡 facade 已并入 daemon product composition，持久 Session mode 已废除为一次性 `/plan`/`/execute`/`/fleet` 命令，不保留别名包。
 - 公共 CLI argv 只使用 Optique 作为解析器。
 - 对齐跨表面的 ask、gate 与 submit 语义，让协议成为唯一判定来源。
 - 为本地 RPC 兼容层定义可验证的退出条件，不向兼容传输增加新行为。
@@ -90,7 +90,7 @@ updated: 2026-09-05
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
 - Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。
   `spark-web-dsh` 已经所有者批准全量退场（见
-  [2026-09-04 退役决策](.agents/notes/decisions/2026-09-04-retire-spark-web-dsh.md)）；新增 workspace
+  [2026-09-04 退役决策](docs/decisions/2026-09-04-retire-spark-web-dsh.md)）；新增 workspace
   必须更新 `architecture/packages.json` 并说明新的硬边界。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
   persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
@@ -128,7 +128,7 @@ updated: 2026-09-05
   `fetch_content` 名称。`spark-fusion` 同样已改名为 `dsh-tool-fusion`，旧
   SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon durable admission seam，
   因此 `spark-acp` 暂不替换。完整处置见
-  [DSH Web 决策](.agents/notes/decisions/2026-08-25-dsh-tool-web.md)。
+  [DSH Web 决策](docs/decisions/2026-08-25-dsh-tool-web.md)。
 - 产品 subagent 是 Role-bound 子 Session：官方 `@deepseek-ai/dsh-subagent`
   作为 HOST（`ctx.subagents`），`spark-session` 注册 spawn/fork provider。
   daemon 挂官方 HOST 再挂 session 插件（host → `createManagedChildSession`）。

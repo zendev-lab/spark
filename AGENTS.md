@@ -108,6 +108,9 @@ Follow the documentation ownership table in
 Keep this file limited to stable, self-contained standing orders; reusable
 methods belong in their Role, Skill, Workflow, or Note owner without making
 standing orders depend on those assets.
+Contracts, dated decisions, and runbooks are formal docs under `docs/`. Working
+notes (research, plans, acceptance records) live in `.agents/notes/`, are not
+current truth, and must never be referenced from formal docs.
 
 When changing public documentation, update English and Chinese pages together.
 Do not modify archived versions unless the task explicitly targets an archive.

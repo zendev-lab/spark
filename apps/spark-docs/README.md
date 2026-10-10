@@ -7,7 +7,7 @@ Spark workspace.
 This tree owns **how users operate Spark**: installation, workflows, public
 commands and tools, user-visible configuration and paths, client setup, and
 troubleshooting. Repository-internal contracts and maintainer runbooks live in
-[`../../.agents/notes`](../../.agents/notes) and must link here instead of
+[`../../docs`](../../docs) and must link here instead of
 maintaining a second public reference.
 
 Public behavior should be documented at the highest useful level. Keep

@@ -52,4 +52,4 @@ once, after backup. Older snapshots fail closed with an explicit upgrade path.
 After migration, runtime code does not read the legacy JSON.
 
 The normative ownership, transition, and recovery rules are in
-[`../../.agents/notes/contracts/autonomous-three-lane.md`](../../.agents/notes/contracts/autonomous-three-lane.md).
+[`../../docs/contracts/autonomous-three-lane.md`](../../docs/contracts/autonomous-three-lane.md).

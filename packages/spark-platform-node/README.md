@@ -22,7 +22,7 @@ Precedence is explicit API `sparkHome`, then `SPARK_HOME`; when neither is set, 
 
 Retired Pi/component-specific path variables are not active overrides.
 
-See [`../../.agents/notes/contracts/configuration-and-paths.md`](../../.agents/notes/contracts/configuration-and-paths.md) for layout, precedence, and migration policy.
+See [`../../docs/contracts/configuration-and-paths.md`](../../docs/contracts/configuration-and-paths.md) for layout, precedence, and migration policy.
 
 This package is part of the Spark monorepo and targets Node 24 and newer.
 Consumers that only need workspace path resolution or atomic file helpers use

@@ -14,7 +14,7 @@ adding another harness or copying repository policy.
 Identify the triggering input or event order, the expected observable result,
 and the production path that must enforce it. Consult
 [the package inventory](../../../architecture/packages.json) and
-[test architecture](../../notes/contracts/test-architecture.md) to locate the
+[test architecture](../../../docs/contracts/test-architecture.md) to locate the
 owner, nearest tests, and appropriate lane.
 
 Keep package behavior in its package. Root integration tests are for behavior

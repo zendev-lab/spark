@@ -23,4 +23,4 @@ stores remain authoritative. Daemon-global configuration and Session cwd paths
 are defined by the linked normative contract; this package does not read or
 write those stores directly.
 
-See [`sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).
+See [`sessions-and-channels.md`](../../docs/contracts/sessions-and-channels.md).

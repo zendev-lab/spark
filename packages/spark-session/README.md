@@ -29,7 +29,7 @@ with an explicit Role bind is a subagent; the human operator is not a Role.
 The native `session({ action })` tool stays the standalone surface. Daemon
 always passes a durable host so spawn stays `createManagedChildSession` and
 send stays `session.send`. See
-[`.agents/notes/decisions/2026-08-20-role-session-bind.md`](../../.agents/notes/decisions/2026-08-20-role-session-bind.md).
+[`docs/decisions/2026-08-20-role-session-bind.md`](../../docs/decisions/2026-08-20-role-session-bind.md).
 
 All mailbox reads and writes cross the daemon-owned `session.inbox`, `session.mail.read`, `session.mail.ack`, and `session.send` RPC boundary; extension hosts never open the mailbox store directly.
 
@@ -39,7 +39,7 @@ For `kind=request`, omitting `onActive` is an idle-only attempt: an idle target 
 
 Channel hosts expose only same-workspace coordination actions. Sends require a local target. Child creation and lifecycle actions are rejected from channel callers.
 
-See [`../../.agents/notes/contracts/sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).
+See [`../../docs/contracts/sessions-and-channels.md`](../../docs/contracts/sessions-and-channels.md).
 
 DSH 0.2.0-rc.1 uses log format 4; Spark transcript metadata now identifies
 version 5. The daemon backs up registered transcripts under

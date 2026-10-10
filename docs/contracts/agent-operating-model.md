@@ -147,12 +147,12 @@ binding changes before the child Role starts.
 
 Repository-owned engineering Workflows keep distinct entry boundaries:
 
-- [`workspace:repo-change`](../../workflows/repo-change/WORKFLOW.md) handles an
+- [`workspace:repo-change`](../../.agents/workflows/repo-change/WORKFLOW.md) handles an
   already-bounded repository change;
-- [`workspace:maintainability-change`](../../workflows/maintainability-change/WORKFLOW.md)
+- [`workspace:maintainability-change`](../../.agents/workflows/maintainability-change/WORKFLOW.md)
   establishes a behavior baseline, combines correctness and simplification
   review, and implements only bounded equivalent improvements;
-- [`workspace:feature-change`](../../workflows/feature-change/WORKFLOW.md)
+- [`workspace:feature-change`](../../.agents/workflows/feature-change/WORKFLOW.md)
   separates research, architecture selection, planning, implementation, and
   independent review.
 

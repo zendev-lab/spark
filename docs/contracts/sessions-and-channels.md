@@ -79,7 +79,7 @@ v4 rewrites through the existing `spark/record` bridge. Native DSH header
 round trips so nested recursion limits do not reset after restart.
 
 Role definition representation and catalog ownership are in
-[`../../../packages/spark-roles/README.md`](../../../packages/spark-roles/README.md).
+[`../../../packages/spark-roles/README.md`](../../packages/spark-roles/README.md).
 The dated mapping that registers Spark spawn/fork providers on official
 `dsh-subagent` is
 [`../decisions/2026-08-20-role-session-bind.md`](../decisions/2026-08-20-role-session-bind.md).
@@ -145,7 +145,7 @@ owned by the daemon attempt store and epoch fence. The daemon implements
 `dsh-session-persistence` owns the coordinator. Before admission, daemon startup
 backs up and journals the idempotent v3 to v4 hard cut. Session projections
 remain Spark-owned.
-See [`.agents/notes/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md).
+See [`docs/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md).
 
 ## Invocation serialization
 
