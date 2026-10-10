@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -15,6 +25,7 @@ import {
   type DocumentArtifactBody,
 } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
+import { requireCueCommandContract } from "@zendev-lab/dsh-cue";
 import {
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
@@ -165,9 +176,12 @@ test("attention answer resumes the same checkpoint Session after daemon restart"
     const waiting = await waitForRepro(fixture, (repro) => repro.status === "waiting_attention");
     const implementationSessionId = waiting.lanes.implementation.sessionId;
     const pendingBefore = await waitForSinglePendingAsk(fixture.target, rootSessionId);
+    const providerBefore = await readProviderLedger(fixture.providerLedgerPath);
     observedProcessPids.push(await restartDaemon(fixture.target));
     const pendingAfter = await waitForSinglePendingAsk(fixture.target, rootSessionId);
     assert.equal(pendingAfter.interactionRequestId, pendingBefore.interactionRequestId);
+    assert.equal(pendingAfter.humanRequestId, pendingBefore.humanRequestId);
+    assert.deepEqual(await readProviderLedger(fixture.providerLedgerPath), providerBefore);
     const question = arrayField(pendingAfter, "questions")[0];
     assert.ok(question);
 
@@ -192,6 +206,38 @@ test("attention answer resumes the same checkpoint Session after daemon restart"
       ).stdout,
     );
     assert.equal(answered.outcome, "accepted");
+
+    const response = {
+      interactionRequestId: stringField(pendingAfter, "interactionRequestId"),
+      sessionId: rootSessionId,
+      humanResponseId: stringField(answered, "winnerResponseId"),
+      status: "answered" as const,
+      answers: {
+        [stringField(question, "id")]: {
+          values: [],
+          customText: "Use the official upstream GLM-5.2 implementation.",
+        },
+      },
+      responseArtifactRefs: [],
+    };
+    const replayed = await requestSparkDaemon("human.interaction.respond", response, {
+      env: fixture.target.env,
+    });
+    assert.equal(replayed.outcome, "replayed");
+    assert.equal(replayed.winnerResponseId, response.humanResponseId);
+    const conflicting = await requestSparkDaemon(
+      "human.interaction.respond",
+      {
+        ...response,
+        humanResponseId: "hres_00000000000000000000000000000000",
+        answers: {
+          [stringField(question, "id")]: { values: [], customText: "Use another reference." },
+        },
+      },
+      { env: fixture.target.env },
+    );
+    assert.equal(conflicting.outcome, "already_resolved");
+    assert.equal(conflicting.winnerResponseId, response.humanResponseId);
 
     const complete = await waitForRepro(
       fixture,
@@ -1024,8 +1070,11 @@ async function waitForInvocation(
 }
 
 async function stopProcesses(target: SparkProcessTarget, pids: number[]): Promise<void> {
-  await runSparkProcess(target, ["daemon", "stop", "--yes"]).catch(() => undefined);
-  await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
+  const stopped = await Promise.allSettled([
+    runSparkProcess(target, ["daemon", "stop", "--yes"]),
+    runSparkProcess(target, ["hub", "web", "stop", "--json"]),
+    stopCueFixture(target),
+  ]);
   await Promise.all(
     [...new Set(pids)]
       .filter((pid) => pid > 0)
@@ -1034,8 +1083,42 @@ async function stopProcesses(target: SparkProcessTarget, pids: number[]): Promis
           async () => (isProcessAlive(pid) ? undefined : true),
           10_000,
           `process ${pid} to stop`,
-        ).catch(() => undefined);
+        );
       }),
+  );
+  for (const result of stopped) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+async function stopCueFixture(target: SparkProcessTarget): Promise<void> {
+  assert.ok(target.env.XDG_RUNTIME_DIR);
+  const socketPath = join(target.env.XDG_RUNTIME_DIR, "cue", "cued.sock");
+  try {
+    await access(socketPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const contract = await requireCueCommandContract({ env: target.env });
+  const options = { env: target.env, encoding: "utf8" as const, timeout: 10_000 };
+  const status = await execFileAsync(
+    contract.daemon.command,
+    [...contract.daemon.args, "status", "--socket", socketPath],
+    options,
+  );
+  const pidMatch = /\bpid (\d+)\b/u.exec(status.stdout);
+  assert.ok(pidMatch, `Cue fixture status has no process identity: ${status.stdout.trim()}`);
+  const pid = Number(pidMatch[1]);
+  await execFileAsync(
+    contract.daemon.command,
+    [...contract.daemon.args, "stop", "--socket", socketPath],
+    options,
+  );
+  await waitFor(
+    async () => (isProcessAlive(pid) ? undefined : true),
+    10_000,
+    `Cue fixture ${pid} to stop`,
   );
 }
 

@@ -54,6 +54,18 @@ The attention scenario proves:
 7. Implementation has three Runs total: attention, resumed implementation, and
    implementation refresh.
 
+The same answer identity replays without another resume; a conflicting answer
+cannot replace it. The provider ledger does not advance while the Ask is waiting
+across a crash. Teardown verifies that the isolated daemon, Hub, and Cue processes
+have exited and fails if cleanup fails.
+
+Provider and harness ledger mutations share a bounded SQLite transaction lock.
+The JSON ledger remains authoritative; the sidecar contains no application data
+and is retained until fixture teardown so all contenders lock the same file.
+Real-process root tests kill the owner before and after atomic JSON replacement,
+check concurrent waiters for lost or duplicate writes, and reject contenders
+that time out while the owner remains alive.
+
 On failure, the retained temporary fixture contains daemon logs, provider
 ledger, SQLite, Session JSONL, TaskGraph, Evidence, Artifacts, and both Git
 repositories. Diagnose those sources; do not replace the process Journey with

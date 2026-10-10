@@ -424,6 +424,9 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
+      '@zendev-lab/dsh-cue':
+        specifier: workspace:^
+        version: link:packages/dsh-cue
       '@zendev-lab/spark-daemon':
         specifier: workspace:*
         version: link:apps/spark-daemon
