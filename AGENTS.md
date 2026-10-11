@@ -6,7 +6,7 @@ Human contributor setup, development commands, validation, documentation
 ownership, and pull-request conventions are maintained in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). Do not duplicate them here. Read
 [`README.md`](./README.md) for the public product overview and
-[`SPARK.md`](./SPARK.md) for project intent, goals, non-goals, and current
+[`EVOLUTION.md`](./EVOLUTION.md) for project intent, goals, non-goals, and current
 direction. This file is self-contained standing orders. Project Roles, Skills,
 Workflows, and Notes may add task methods, but they must not supply prerequisites
 for interpreting this file.
@@ -31,7 +31,7 @@ for interpreting this file.
   Pi ownership, and package budget:
   [`architecture/packages.json`](./architecture/packages.json).
 - Public behavior and current commands: [`apps/spark-docs`](./apps/spark-docs).
-- Project intent and open design direction: [`SPARK.md`](./SPARK.md).
+- Project intent and open design direction: [`EVOLUTION.md`](./EVOLUTION.md).
 
 ## Repository-wide invariants
 

@@ -52,7 +52,7 @@ Spark Web is not a generic chat client, and Spark Hub is not a generic project d
 
 ## Evidence on Hand
 
-- Product intent and current direction: [`SPARK.md`](./SPARK.md)
+- Product intent and current direction: [`EVOLUTION.md`](./EVOLUTION.md)
 - Public product overview: [`README.md`](./README.md)
 - Repository and ownership invariants: [`AGENTS.md`](./AGENTS.md)
 - Hub-specific product boundary: [`apps/spark-hub/AGENTS.md`](./apps/spark-hub/AGENTS.md)

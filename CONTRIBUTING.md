@@ -194,7 +194,7 @@ apps/spark-docs              → How do I use Spark?
 | `README.md` | Stable product positioning, first run, architecture summary, and links |
 | `CONTRIBUTING.md` | Human setup, workflow, validation, documentation ownership, and PR conventions |
 | `AGENTS.md` | Stable repository-wide constraints for coding agents |
-| `SPARK.md` | Project intent, goals, non-goals, open questions, and current direction |
+| `EVOLUTION.md` | Project intent, goals, non-goals, open questions, and current direction |
 | `apps/spark-docs` | Public installation, workflows, command/tool references, user-visible configuration/paths, client setup, and troubleshooting |
 | `.agents/notes/contracts` | Normative ownership, state-machine, protocol, persistence, and compatibility invariants |
 | `.agents/notes/runbooks` | Maintainer procedures, release/deployment gates, migration execution, incident handling, and validation runbooks |
@@ -222,7 +222,7 @@ contract, or operation that owns the behavior.
 Pull-request sequencing, issue status, delivery notes, completed-work recaps,
 and active backlogs belong in the PR, issue tracker, or Spark runtime state—not
 in Agent Notes or package READMEs. Dated decisions retain only durable rationale;
-unresolved project-level direction remains in `SPARK.md`.
+unresolved project-level direction remains in `EVOLUTION.md`.
 
 Local timings, mutation scores, current readiness output, and other run results
 belong in CI artifacts or gitignored local reports. Runbooks document how to
@@ -285,3 +285,7 @@ required sections instead. Optional template headings (`说明`, `后续工作`)
 declared with `<!-- pr-body:optional -->` in the template and may be omitted.
 
 Create a Draft PR until the change and its required validation are complete.
+
+## Project evolution
+
+[EVOLUTION.md](EVOLUTION.md) preserves the project origin and changes in direction. Append real dates with `### 触发`, `### 变化`, and `### 理由`, consolidate same-day entries, and run `zendev evolution check` after editing. Historical status does not replace current implementation or acceptance evidence.

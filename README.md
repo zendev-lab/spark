@@ -142,7 +142,7 @@ maintained in the [user documentation][cli-reference].
 
 - [User documentation][docs] — installation, workflows, interfaces, and
   troubleshooting.
-- [`SPARK.md`](./SPARK.md) — project intent, goals, non-goals, and open
+- [`EVOLUTION.md`](./EVOLUTION.md) — project intent, goals, non-goals, and open
   questions.
 - [`.agents/notes`](./.agents/notes) — on-demand internal contracts, decisions,
   and maintainer runbooks.
