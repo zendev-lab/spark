@@ -27,7 +27,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@ast-grep/napi": "^0.45.0",
+    "@ast-grep/napi": "^0.50.0",
     "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
     "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-agent": "catalog:dsh",
@@ -88,7 +88,7 @@
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text-rendering": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
-    "koffi": "3.1.1",
+    "koffi": "3.3.2",
     "sharp": "^0.35.3",
     "typebox": "catalog:",
     "ws": "catalog:"
