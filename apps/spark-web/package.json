@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@sveltejs/adapter-node": "^5.3.1",
-    "@sveltejs/kit": "^2.28.0",
+    "@sveltejs/kit": "^3.0.0",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-i18n": "workspace:*",
     "@zendev-lab/spark-protocol": "workspace:*",
