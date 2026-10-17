@@ -85,8 +85,7 @@ frontend-derived state machine.
 6. Run targeted validation, then the applicable repository gates below.
 7. Review the complete diff for generated files, secrets, runtime state, and
    accidental package-boundary changes.
-8. Open a Draft PR with the motivation, user or developer impact, and exact
-   validation performed.
+8. Open a Draft PR as described in [Pull requests](#pull-requests).
 
 ## Validation
 
@@ -263,9 +262,10 @@ Keep pull requests focused and explain:
 - compatibility, migration, or security implications (see [SECURITY.md](./SECURITY.md) for private vulnerability reporting);
 - stack dependencies when the PR does not target `main`.
 
-Repository CI owns automated validation reporting; the PR body does not need to
-duplicate command lists or test counts. Use `Notes` for manual checks, known
-limitations, or exceptions that CI cannot express.
+Repository CI owns automated validation reporting; the PR body does not list
+local test runs, commands, test counts, or CI status. Use `说明` for manual
+checks, known limitations, key trade-offs, or exceptions that CI cannot express,
+and omit it when there is nothing to add.
 
 PR titles are checked by CI. Follow the repository's emoji conventional-title
 style, for example:
