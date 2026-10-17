@@ -19,7 +19,7 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "get-east-asian-width": "1.6.0"
+    "get-east-asian-width": "1.7.0"
   },
   "devDependencies": {
     "typescript": "catalog:",
